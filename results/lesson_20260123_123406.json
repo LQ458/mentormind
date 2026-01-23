@@ -1,0 +1,234 @@
+{
+  "timestamp": "2026-01-23T12:34:06.529687",
+  "student_query": "什么是Python",
+  "lesson_plan": {
+    "id": "lesson_20260123_123405",
+    "title": "关于'什么是Python...'的课程",
+    "objective": "帮助理解：什么是Python",
+    "steps": [
+      {
+        "step_type": "explanation",
+        "content": "让我们开始学习。首先，我会解释相关概念。",
+        "target_concepts": [
+          "basic_concept"
+        ],
+        "duration_minutes": 10.0,
+        "prerequisites": [],
+        "confidence": 0.7,
+        "metadata": {}
+      },
+      {
+        "step_type": "example",
+        "content": "这是一个例子，帮助你更好地理解。",
+        "target_concepts": [
+          "basic_concept"
+        ],
+        "duration_minutes": 10.0,
+        "prerequisites": [],
+        "confidence": 0.7,
+        "metadata": {}
+      },
+      {
+        "step_type": "exercise",
+        "content": "现在请你尝试练习一下。",
+        "target_concepts": [
+          "basic_concept"
+        ],
+        "duration_minutes": 10.0,
+        "prerequisites": [],
+        "confidence": 0.7,
+        "metadata": {}
+      }
+    ],
+    "total_duration_minutes": 30.0,
+    "target_audience": "beginner",
+    "difficulty_level": "beginner",
+    "created_at": "2026-01-23T12:34:05.823057",
+    "metadata": {
+      "original_query": "什么是Python",
+      "graph_nodes": 0,
+      "graph_edges": 0,
+      "api_error": "Expecting value: line 1 column 1 (char 0)",
+      "fallback": true
+    }
+  },
+  "quality_assessment": {
+    "overall_score": 0.8480000000000001,
+    "criteria_scores": {
+      "clarity": 0.85,
+      "accuracy": 0.92,
+      "pedagogical_effectiveness": 0.78,
+      "engagement": 0.81,
+      "difficulty_appropriateness": 0.88
+    },
+    "feedback": "这个教学计划整体不错，但有以下建议：\n        1. 解释部分可以更详细一些，特别是对于完全初学者\n        2. 练习题的难度梯度可以更平缓\n        3. 可以增加一个实际应用场景的例子\n        4. 总结部分可以更强调关键要点",
+    "passes_threshold": true,
+    "suggestions": [
+      "在解释二次方程时，可以对比一次方程帮助理解",
+      "增加一个图形化表示二次方程的例子",
+      "提供更多解题技巧的提示",
+      "加入一个简短的视频演示链接"
+    ]
+  },
+  "output_result": {
+    "script": {
+      "id": "script_20260123_123406",
+      "title": "关于'什么是Python...'的课程",
+      "script_text": "大家好！我是你们的数学老师。\n        \n        今天我们来学习二次方程。首先，什么是二次方程呢？\n        \n        二次方程是形如 ax² + bx + c = 0 的方程。这里的a、b、c是常数，而且a不能等于0。\n        \n        举个例子：x² - 5x + 6 = 0 就是一个二次方程。\n        \n        解这个方程，我们可以用因式分解法：(x-2)(x-3)=0，所以x=2或者x=3。\n        \n        注意一个常见错误：一定要检查a是否等于0。如果a=0，那就不是二次方程了！\n        \n        现在请你试试解这个方程：2x² - 8x + 6 = 0。\n        \n        提示：可以先除以2简化一下。\n        \n        很好！今天我们学习了二次方程的基本概念和解法。记住关键点：标准形式、a≠0、多种解法。\n        \n        如果你还有疑问，随时问我。加油！",
+      "duration_seconds": 180.0,
+      "target_concepts": [],
+      "emotion_cues": {
+        "enthusiasm": [
+          [
+            0.0,
+            "high"
+          ],
+          [
+            30.0,
+            "medium"
+          ],
+          [
+            120.0,
+            "high"
+          ]
+        ],
+        "empathy": [
+          [
+            60.0,
+            "high"
+          ],
+          [
+            150.0,
+            "medium"
+          ]
+        ],
+        "encouragement": [
+          [
+            90.0,
+            "high"
+          ],
+          [
+            180.0,
+            "high"
+          ]
+        ]
+      },
+      "gesture_cues": {
+        "pointing": [
+          [
+            15.0,
+            "screen"
+          ],
+          [
+            75.0,
+            "camera"
+          ]
+        ],
+        "explaining": [
+          [
+            45.0,
+            "hands_open"
+          ],
+          [
+            105.0,
+            "counting"
+          ]
+        ],
+        "emphasis": [
+          [
+            30.0,
+            "nod"
+          ],
+          [
+            120.0,
+            "lean_in"
+          ]
+        ]
+      },
+      "metadata": {
+        "lesson_plan_id": "lesson_20260123_123405",
+        "original_query": "什么是Python",
+        "generation_model": "DeepSeek-V3"
+      }
+    },
+    "audio": {
+      "path": "/Users/LeoQin/Documents/GitHub/mentormind/data/audio/script_20260123_123406_20260123_123406.wav",
+      "duration_seconds": 12.4,
+      "voice": "zh-CN-XiaoxiaoNeural"
+    },
+    "video": {
+      "id": "video_20260123_123406",
+      "script_id": "script_20260123_123406",
+      "video_path": "/Users/LeoQin/Documents/GitHub/mentormind/data/videos/script_20260123_123406_20260123_123406.mp4",
+      "audio_path": "/Users/LeoQin/Documents/GitHub/mentormind/data/audio/script_20260123_123406_20260123_123406.wav",
+      "duration_seconds": 180.0,
+      "resolution": [
+        1920,
+        1080
+      ],
+      "fps": 25,
+      "generated_at": "2026-01-23T12:34:06.528664",
+      "metadata": {
+        "script_title": "关于'什么是Python...'的课程",
+        "target_concepts": [],
+        "emotion_cues_used": true,
+        "gesture_cues_used": true,
+        "avatar_image": "/Users/LeoQin/Documents/GitHub/mentormind/data/default_avatar.png"
+      }
+    },
+    "metadata": {
+      "pipeline_version": "1.0",
+      "processing_timestamp": "2026-01-23T12:34:06.528711",
+      "models_used": {
+        "script_generation": "DeepSeek-V3",
+        "tts_voice": "zh-CN-XiaoxiaoNeural",
+        "avatar_generator": "LivePortrait (mock)"
+      },
+      "cost_estimation": {
+        "script_generation_usd": 0.0001,
+        "tts_synthesis_usd": 0.0012,
+        "video_generation_usd": 0.0025,
+        "total_usd": 0.0038,
+        "estimated_monthly_usd": 0.12
+      },
+      "quality_metrics": {
+        "script_length_chars": 460,
+        "audio_duration_seconds": 12.4,
+        "video_resolution": [
+          1920,
+          1080
+        ],
+        "video_fps": 25
+      }
+    },
+    "download_urls": {
+      "script": "/api/scripts/script_20260123_123406/download",
+      "audio": "/api/audio/script_20260123_123406_20260123_123406/download",
+      "video": "/api/videos/video_20260123_123406/download"
+    }
+  },
+  "cognitive_result": {
+    "entities": [],
+    "relationships": [],
+    "pedagogical_tags": [
+      {
+        "block_id": "",
+        "tag_type": "definition",
+        "confidence": 0.8,
+        "reasoning": "包含定义性语言"
+      }
+    ],
+    "graph_stats": {
+      "total_nodes": 0,
+      "total_edges": 0,
+      "density": 0,
+      "connected_components": 0,
+      "node_types": {},
+      "edge_types": {}
+    },
+    "graph_json": {
+      "nodes": [],
+      "edges": []
+    }
+  }
+}

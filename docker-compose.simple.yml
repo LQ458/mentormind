@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # MentorMind Backend API
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - MENTORMIND_ENV=production
+    volumes:
+      - ./data:/app/data
+      - ./results:/app/results
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # FunASR for Chinese speech recognition
+  funasr:
+    image: modelscope/funasr:latest
+    ports:
+      - "8001:8000"
+    command: >
+      sh -c "funasr-wss-server
+             --model-dir /workspace/models
+             --download-model-dir /workspace/models
+             --vad-dir /workspace/models/speech_fsmn_vad_zh-cn-16k-common-pytorch
+             --model-dir /workspace/models/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch
+             --punc-dir /workspace/models/punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
+    volumes:
+      - funasr_models:/workspace/models
+
+  # PaddleOCR for Chinese text extraction
+  paddleocr:
+    image: paddlecloud/paddleocr:latest
+    ports:
+      - "8002:8000"
+    environment:
+      - LANG=C.UTF-8
+    volumes:
+      - paddleocr_data:/data
+
+volumes:
+  funasr_models:
+  paddleocr_data:

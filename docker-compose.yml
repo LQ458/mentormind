@@ -1,0 +1,163 @@
+# MentorMind Docker Compose Configuration
+# For local development and testing
+
+version: '3.8'
+
+services:
+  # Main MentorMind application
+  mentormind:
+    build: .
+    container_name: mentormind
+    restart: unless-stopped
+    environment:
+      - MENTORMIND_ENV=${MENTORMIND_ENV:-development}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - FUNASR_ENDPOINT=${FUNASR_ENDPOINT:-http://funasr:8000/asr}
+      - PADDLE_OCR_ENDPOINT=${PADDLE_OCR_ENDPOINT:-http://paddle-ocr:8001/ocr}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./.cache:/app/.cache
+      - ./assets:/app/assets
+    ports:
+      - "8000:8000"
+    depends_on:
+      - funasr
+      - paddle-ocr
+      - milvus
+      - nebula-graph
+    command: python example.py
+
+  # FunASR service for Chinese speech recognition
+  funasr:
+    image: modelscope/funasr:latest
+    container_name: mentormind-funasr
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "funasr-server --model-dir /root/.cache/modelscope/hub/damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch
+             --vad-dir /root/.cache/modelscope/hub/damo/speech_fsmn_vad_zh-cn-16k-common-pytorch
+             --punc-dir /root/.cache/modelscope/hub/damo/punc_ct-transformer_zh-cn-common-vocab272727-pytorch
+             --port 8000
+             --host 0.0.0.0"
+
+  # PaddleOCR service for Chinese text extraction
+  paddle-ocr:
+    image: paddlecloud/paddleocr:latest
+    container_name: mentormind-paddle-ocr
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    command: >
+      sh -c "python3 -m paddle_ocr.server
+             --port 8000
+             --host 0.0.0.0"
+
+  # Milvus vector database
+  milvus:
+    image: milvusdb/milvus:v2.3.0
+    container_name: mentormind-milvus
+    restart: unless-stopped
+    environment:
+      - ETCD_ENDPOINTS=etcd:2379
+      - MINIO_ADDRESS=minio:9000
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    depends_on:
+      - etcd
+      - minio
+
+  # Nebula Graph database
+  nebula-graph:
+    image: vesoft/nebula-graph:latest
+    container_name: mentormind-nebula-graph
+    restart: unless-stopped
+    ports:
+      - "9669:9669"
+      - "19669:19669"
+      - "19670:19670"
+    volumes:
+      - nebula_data:/usr/local/nebula/data
+    command: >
+      sh -c "/usr/local/nebula/scripts/nebula.service start all &&
+             tail -f /dev/null"
+
+  # PostgreSQL for metadata
+  postgres:
+    image: postgres:15-alpine
+    container_name: mentormind-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-mentormind}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-mentormind}
+      - POSTGRES_DB=mentormind_metadata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mentormind}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: mentormind-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  # etcd for Milvus
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: mentormind-etcd
+    restart: unless-stopped
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - etcd_data:/etcd
+    command: >
+      etcd -advertise-client-urls=http://etcd:2379
+           -listen-client-urls=http://0.0.0.0:2379
+           -data-dir=/etcd
+
+  # MinIO for Milvus
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: mentormind-minio
+    restart: unless-stopped
+    environment:
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+    volumes:
+      - minio_data:/data
+    command: minio server /data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+volumes:
+  milvus_data:
+  nebula_data:
+  postgres_data:
+  redis_data:
+  etcd_data:
+  minio_data:
+
+networks:
+  default:
+    name: mentormind-network
