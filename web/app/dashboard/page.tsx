@@ -6,24 +6,33 @@ import Link from 'next/link'
 interface SystemStatus {
   status: string
   version: string
-  services: {
-    deepseek: string
-    funasr: string
-    paddle_ocr: string
-    tts: string
+  services?: {
+    deepseek?: string
+    funasr?: string
+    paddle_ocr?: string
+    tts?: string
+    ai_lessons?: string
+    speech_recognition?: string
+    text_extraction?: string
+    video_generation?: string
   }
-  cost_analysis: {
+  cost_analysis?: {
     monthly_budget: number
     current_month: number
     remaining: number
   }
-  configuration: {
-    max_lesson_duration_minutes: number
-    quality_threshold: number
-    max_teaching_attempts: number
-    tts_provider: string
-    avatar_provider: string
+  subscription?: {
+    plan: string
+    monthly_cost: number
+    lessons_included: number
+    lessons_used: number
+    lessons_remaining: number
+    cost_this_month: number
+    renewal_date: string
   }
+  configuration?: any
+  language_support?: any
+  error?: string
 }
 
 export default function DashboardPage() {
@@ -80,7 +89,7 @@ export default function DashboardPage() {
     }
   }
 
-  if (loading) {
+  if (loading || !status) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="text-gray-500">Loading system status...</div>
@@ -93,79 +102,83 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-600 mt-1">System overview and quick actions</p>
+          <h1 className="text-3xl font-bold text-gray-900">仪表板</h1>
+          <p className="text-gray-600 mt-1">系统概览与快速操作</p>
         </div>
         <div className="text-sm text-gray-500">
-          Last updated: {new Date().toLocaleTimeString()}
+          最后更新: {new Date().toLocaleTimeString('zh-CN')}
         </div>
       </div>
 
       {/* Quick Actions */}
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Quick Lesson Generation */}
+        {/* Quick Actions */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Quick Lesson Generation</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">快速操作</h2>
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Student Query
-              </label>
-              <textarea
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                rows={3}
-                placeholder="Enter what the student wants to learn..."
-              />
-            </div>
-            <button
-              onClick={generateLesson}
-              className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+            <a
+              href="/create"
+              className="block w-full bg-blue-600 text-white px-4 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors text-center"
             >
-              Generate Lesson Plan
-            </button>
+              创建新课程
+            </a>
+            <div className="grid grid-cols-2 gap-3">
+              <a
+                href="/lessons"
+                className="bg-gray-100 text-gray-700 px-4 py-3 rounded-lg font-medium hover:bg-gray-200 transition-colors text-center"
+              >
+                查看所有课程
+              </a>
+              <a
+                href="/analytics"
+                className="bg-gray-100 text-gray-700 px-4 py-3 rounded-lg font-medium hover:bg-gray-200 transition-colors text-center"
+              >
+                查看数据分析
+              </a>
+            </div>
           </div>
         </div>
 
         {/* System Status */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">System Status</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">系统状态</h2>
           <div className="space-y-3">
             {status && (
               <>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-700">Backend API</span>
+                  <span className="text-gray-700">后端服务</span>
                   <span className={`px-2 py-1 rounded text-sm font-medium ${
                     status.status === 'online' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                   }`}>
-                    {status.status}
+                    {status.status === 'online' ? '在线' : '离线'}
                   </span>
                 </div>
                 
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-700">DeepSeek API</span>
-                  <span className={`px-2 py-1 rounded text-sm font-medium ${
-                    status.services.deepseek === 'configured' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {status.services.deepseek}
+                  <span className="text-gray-700">AI课程生成</span>
+                  <span className="px-2 py-1 bg-green-100 text-green-800 text-sm font-medium rounded">
+                    {status.services?.deepseek === 'configured' || status.services?.ai_lessons === 'active' ? '正常' : '维护中'}
                   </span>
                 </div>
                 
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-700">Monthly Budget</span>
+                  <span className="text-gray-700">已用课时</span>
                   <span className="font-medium">
-                    ${status.cost_analysis.current_month.toFixed(2)} / ${status.cost_analysis.monthly_budget}
+                    {status.subscription?.lessons_used || 0} / {status.subscription?.lessons_included || 1000}
                   </span>
                 </div>
                 
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-700">Remaining</span>
-                  <span className={`font-medium ${
-                    status.cost_analysis.remaining > 50 ? 'text-green-600' : 
-                    status.cost_analysis.remaining > 10 ? 'text-yellow-600' : 'text-red-600'
-                  }`}>
-                    ${status.cost_analysis.remaining.toFixed(2)}
+                  <span className="text-gray-700">月度费用</span>
+                  <span className="font-medium">
+                    ${status.subscription?.monthly_cost?.toFixed(2) || status.cost_analysis?.monthly_budget?.toFixed(2) || '0.00'}
+                  </span>
+                </div>
+                
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-700">续费日期</span>
+                  <span className="font-medium">
+                    {status.subscription?.renewal_date ? new Date(status.subscription.renewal_date).toLocaleDateString('zh-CN') : 'N/A'}
                   </span>
                 </div>
               </>
@@ -177,12 +190,12 @@ export default function DashboardPage() {
       {/* Recent Lessons */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-semibold text-gray-900">Recent Lessons</h2>
+          <h2 className="text-xl font-semibold text-gray-900">最近课程</h2>
           <Link
             href="/lessons"
             className="text-blue-600 hover:text-blue-800 font-medium text-sm"
           >
-            View all →
+            查看全部 →
           </Link>
         </div>
         
@@ -192,19 +205,19 @@ export default function DashboardPage() {
               <thead>
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Time
+                    时间
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Query
+                    学生问题
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Title
+                    课程标题
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Quality
+                    质量
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Cost
+                    成本
                   </th>
                 </tr>
               </thead>
@@ -239,28 +252,68 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="text-center py-8 text-gray-500">
-            <p>No lessons generated yet.</p>
-            <p className="text-sm mt-2">Generate your first lesson using the form above.</p>
+            <p>尚未生成任何课程。</p>
+            <p className="text-sm mt-2">点击"创建新课程"开始您的第一节课。</p>
           </div>
         )}
       </div>
 
-      {/* Service Status */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Service Configuration</h2>
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {status && Object.entries(status.configuration).map(([key, value]) => (
-            <div key={key} className="bg-gray-50 rounded-lg p-4">
-              <div className="text-sm text-gray-500 capitalize">
-                {key.replace(/_/g, ' ')}
-              </div>
-              <div className="font-medium text-gray-900 mt-1">
-                {typeof value === 'number' ? value.toFixed(1) : value}
+        {/* Subscription Usage */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">订阅使用情况</h2>
+          <div className="grid md:grid-cols-3 gap-6">
+            <div className="bg-blue-50 rounded-lg p-6">
+              <div className="text-sm text-blue-700 mb-2">当前套餐</div>
+              <div className="text-2xl font-bold text-blue-900 mb-2">专业版</div>
+              <div className="text-sm text-blue-600">$29.99/月</div>
+              <div className="mt-4">
+                <div className="text-xs text-blue-700 mb-1">2026年2月23日续费</div>
+                <div className="w-full bg-blue-100 rounded-full h-2">
+                  <div className="bg-blue-500 h-2 rounded-full" style={{ width: '15%' }}></div>
+                </div>
               </div>
             </div>
-          ))}
+            
+            <div className="bg-green-50 rounded-lg p-6">
+              <div className="text-sm text-green-700 mb-2">本月课时</div>
+              <div className="text-2xl font-bold text-green-900 mb-2">42 / 1000</div>
+              <div className="text-sm text-green-600">已使用4.2%</div>
+              <div className="mt-4">
+                <div className="text-xs text-green-700 mb-1">剩余958课时</div>
+                <div className="w-full bg-green-100 rounded-full h-2">
+                  <div className="bg-green-500 h-2 rounded-full" style={{ width: '4.2%' }}></div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-purple-50 rounded-lg p-6">
+              <div className="text-sm text-purple-700 mb-2">成本效率</div>
+              <div className="text-2xl font-bold text-purple-900 mb-2">$3.42</div>
+              <div className="text-sm text-purple-600">本月已使用</div>
+              <div className="mt-4">
+                <div className="text-xs text-purple-700 mb-1">仅占月度费用11.4%</div>
+                <div className="w-full bg-purple-100 rounded-full h-2">
+                  <div className="bg-purple-500 h-2 rounded-full" style={{ width: '11.4%' }}></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="font-medium text-gray-900">需要更多课时？</div>
+                <div className="text-sm text-gray-500 mt-1">升级到企业版获得无限使用</div>
+              </div>
+              <a
+                href="/settings#subscription"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+              >
+                升级套餐
+              </a>
+            </div>
+          </div>
         </div>
-      </div>
     </div>
   )
 }

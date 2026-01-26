@@ -32,19 +32,19 @@ export default function RootLayout({
                 
                 <nav className="hidden md:flex items-center space-x-6">
                   <Link href="/dashboard" className="text-gray-700 hover:text-gray-900 font-medium">
-                    Dashboard
+                    仪表板
+                  </Link>
+                  <Link href="/create" className="text-gray-700 hover:text-gray-900 font-medium">
+                    创建课程
                   </Link>
                   <Link href="/lessons" className="text-gray-700 hover:text-gray-900 font-medium">
-                    Lessons
+                    课程管理
                   </Link>
                   <Link href="/analytics" className="text-gray-700 hover:text-gray-900 font-medium">
-                    Analytics
+                    数据分析
                   </Link>
                   <Link href="/settings" className="text-gray-700 hover:text-gray-900 font-medium">
-                    Settings
-                  </Link>
-                  <Link href="/test" className="text-gray-500 hover:text-gray-700 text-sm">
-                    Test
+                    账户设置
                   </Link>
                 </nav>
               </div>

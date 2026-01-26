@@ -1,8 +1,10 @@
 {
   "/not-found": "app/not-found.js",
-  "/page": "app/page.js",
   "/dashboard/page": "app/dashboard/page.js",
+  "/api/backend/route": "app/api/backend/route.js",
+  "/page": "app/page.js",
   "/lessons/page": "app/lessons/page.js",
   "/analytics/page": "app/analytics/page.js",
-  "/settings/page": "app/settings/page.js"
+  "/settings/page": "app/settings/page.js",
+  "/create/page": "app/create/page.js"
 }

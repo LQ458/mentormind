@@ -11,15 +11,21 @@ export default function HomePage() {
         <p className="text-xl text-gray-600 max-w-3xl mx-auto">
           AI-driven educational agent for personalized teaching in the Chinese market
         </p>
-        <div className="mt-8">
+        <div className="mt-8 flex gap-4">
           <Link
-            href="/dashboard"
+            href="/create"
             className="inline-flex items-center px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
           >
-            Go to Dashboard
+            开始创建课程
             <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
+          </Link>
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center px-6 py-3 bg-white text-gray-700 border border-gray-300 font-medium rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            查看仪表板
           </Link>
         </div>
       </div>
@@ -56,9 +62,9 @@ export default function HomePage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Cost Management</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Subscription Plans</h3>
           <p className="text-gray-600">
-            Track API usage with $160/month budget and real-time cost analysis
+            Simple monthly plans from $9.99 to $99.99 with predictable pricing
           </p>
         </div>
       </div>
@@ -68,19 +74,19 @@ export default function HomePage() {
         <h2 className="text-2xl font-bold text-gray-900 mb-4">Quick Access</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Link
-            href="/dashboard"
+            href="/create"
             className="bg-white rounded-lg p-4 text-center border border-gray-200 hover:border-blue-500 hover:shadow-sm transition-all"
           >
-            <div className="text-blue-600 font-medium">Dashboard</div>
-            <div className="text-sm text-gray-500 mt-1">System overview</div>
+            <div className="text-blue-600 font-medium">创建课程</div>
+            <div className="text-sm text-gray-500 mt-1">AI生成教学</div>
           </Link>
           
           <Link
             href="/lessons"
             className="bg-white rounded-lg p-4 text-center border border-gray-200 hover:border-blue-500 hover:shadow-sm transition-all"
           >
-            <div className="text-blue-600 font-medium">Lessons</div>
-            <div className="text-sm text-gray-500 mt-1">Create & manage</div>
+            <div className="text-blue-600 font-medium">课程管理</div>
+            <div className="text-sm text-gray-500 mt-1">查看与编辑</div>
           </Link>
           
           <Link

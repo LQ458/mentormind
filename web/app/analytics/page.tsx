@@ -202,35 +202,35 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      {/* Cost Breakdown */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Cost Breakdown</h2>
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="bg-blue-50 rounded-lg p-4">
-            <div className="text-sm text-blue-700 mb-1">DeepSeek API</div>
-            <div className="text-2xl font-bold text-blue-900">${(analytics.total_cost * 0.85).toFixed(2)}</div>
-            <div className="text-xs text-blue-600 mt-1">85% of total cost</div>
-          </div>
-          
-          <div className="bg-green-50 rounded-lg p-4">
-            <div className="text-sm text-green-700 mb-1">FunASR Service</div>
-            <div className="text-2xl font-bold text-green-900">${(analytics.total_cost * 0.10).toFixed(2)}</div>
-            <div className="text-xs text-green-600 mt-1">10% of total cost</div>
-          </div>
-          
-          <div className="bg-purple-50 rounded-lg p-4">
-            <div className="text-sm text-purple-700 mb-1">PaddleOCR</div>
-            <div className="text-2xl font-bold text-purple-900">${(analytics.total_cost * 0.03).toFixed(2)}</div>
-            <div className="text-xs text-purple-600 mt-1">3% of total cost</div>
-          </div>
-          
-          <div className="bg-yellow-50 rounded-lg p-4">
-            <div className="text-sm text-yellow-700 mb-1">TTS Synthesis</div>
-            <div className="text-2xl font-bold text-yellow-900">${(analytics.total_cost * 0.02).toFixed(2)}</div>
-            <div className="text-xs text-yellow-600 mt-1">2% of total cost</div>
+        {/* Subscription Value */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Subscription Value Analysis</h2>
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="bg-blue-50 rounded-lg p-4">
+              <div className="text-sm text-blue-700 mb-1">Monthly Cost</div>
+              <div className="text-2xl font-bold text-blue-900">$29.99</div>
+              <div className="text-xs text-blue-600 mt-1">Professional Plan</div>
+            </div>
+            
+            <div className="bg-green-50 rounded-lg p-4">
+              <div className="text-sm text-green-700 mb-1">Cost Per Lesson</div>
+              <div className="text-2xl font-bold text-green-900">${(29.99 / 1000).toFixed(3)}</div>
+              <div className="text-xs text-green-600 mt-1">Based on 1000 lessons</div>
+            </div>
+            
+            <div className="bg-purple-50 rounded-lg p-4">
+              <div className="text-sm text-purple-700 mb-1">Your Cost/Lesson</div>
+              <div className="text-2xl font-bold text-purple-900">${(analytics.total_cost / analytics.total_lessons).toFixed(3)}</div>
+              <div className="text-xs text-purple-600 mt-1">Actual usage</div>
+            </div>
+            
+            <div className="bg-yellow-50 rounded-lg p-4">
+              <div className="text-sm text-yellow-700 mb-1">Savings</div>
+              <div className="text-2xl font-bold text-yellow-900">${(29.99 - analytics.total_cost).toFixed(2)}</div>
+              <div className="text-xs text-yellow-600 mt-1">This month</div>
+            </div>
           </div>
         </div>
-      </div>
 
       {/* Quality Metrics */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">

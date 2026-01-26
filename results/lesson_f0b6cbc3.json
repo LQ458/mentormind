@@ -1,0 +1,109 @@
+{
+  "success": true,
+  "lesson_id": "f0b6cbc3",
+  "lesson_plan": {
+    "title": "编程课程：我想学习Python编程...",
+    "description": "这是一门针对初学者的编程课程，专注于我想学习Python编程。课程设计充分考虑学习曲线和实际应用。",
+    "total_duration_minutes": 30,
+    "student_level": "初学者",
+    "subject": "编程",
+    "steps": [
+      {
+        "step_number": 1,
+        "title": "编程基础概念介绍",
+        "description": "介绍我想学习Python编程的基本概念和原理",
+        "duration_minutes": 10,
+        "teaching_method": "讲解演示",
+        "materials": [
+          "PPT幻灯片",
+          "概念图解"
+        ]
+      },
+      {
+        "step_number": 2,
+        "title": "实例分析与练习",
+        "description": "通过实际例子练习我想学习Python编程的应用",
+        "duration_minutes": 15,
+        "teaching_method": "练习指导",
+        "materials": [
+          "练习题",
+          "参考答案",
+          "在线编辑器"
+        ]
+      },
+      {
+        "step_number": 3,
+        "title": "总结与扩展学习",
+        "description": "总结关键知识点并提供扩展学习资源",
+        "duration_minutes": 5,
+        "teaching_method": "总结回顾",
+        "materials": [
+          "总结文档",
+          "扩展阅读",
+          "学习路径图"
+        ]
+      }
+    ]
+  },
+  "output_result": {
+    "script": {
+      "title": "教学脚本：我想学习Python编程...",
+      "content": "【课程开始】\n大家好，欢迎来到今天的编程课程。今天我们将学习：我想学习Python编程。\n\n【课程目标】\n通过本课程，您将能够：\n1. 理解我想学习Python编程的基本概念\n2. 掌握相关技能的实际应用\n3. 解决常见问题\n\n【详细内容】\n介绍我想学习Python编程的基本概念和原理\n\n通过实际例子练习我想学习Python编程的应用\n\n总结关键知识点并提供扩展学习资源\n\n【课程总结】\n今天我们学习了我想学习Python编程的关键知识点，希望大家能够应用到实际中。",
+      "duration_seconds": 1800,
+      "word_count": 320
+    },
+    "audio": {
+      "file_path": "/data/audio/lesson_f0b6cbc3.wav",
+      "duration_seconds": 1800,
+      "size_mb": 45.0
+    },
+    "video": {
+      "file_path": "/data/videos/lesson_f0b6cbc3.mp4",
+      "duration_seconds": 1800,
+      "size_mb": 300,
+      "generated": true
+    },
+    "metadata": {
+      "cost_estimation": {
+        "total_usd": 0.045,
+        "breakdown": {
+          "ai_planning": 0.018,
+          "content_generation": 0.0135,
+          "audio_synthesis": 0.009,
+          "video_generation": 0.0045
+        }
+      },
+      "technical_details": {
+        "model_used": "deepseek-v3",
+        "language": "zh-CN",
+        "timestamp": "2026-01-23T15:04:40.060880"
+      }
+    }
+  },
+  "quality_assessment": {
+    "overall_score": 0.85,
+    "criteria_scores": {
+      "clarity": 0.81,
+      "completeness": 0.77,
+      "engagement": 0.89,
+      "practicality": 0.78
+    },
+    "feedback": "课程设计良好，适合初学者学习者。内容结构清晰，实践性强。",
+    "recommendations": [
+      "建议增加更多实际案例",
+      "可以考虑加入互动练习",
+      "适合作为系列课程的第一节"
+    ]
+  },
+  "processing_info": {
+    "query": "我想学习Python编程",
+    "student_level": "beginner",
+    "subject": "programming",
+    "duration_minutes": 30,
+    "include_video": true,
+    "language": "zh-CN",
+    "processing_time_seconds": 15.0,
+    "timestamp": "2026-01-23T15:04:40.060887",
+    "lesson_id": "f0b6cbc3"
+  }
+}

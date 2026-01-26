@@ -100,42 +100,60 @@ export default function LessonsPage() {
         </div>
       </div>
 
-      {/* Create New Lesson */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Create New Lesson</h2>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              What does the student want to learn?
-            </label>
-            <textarea
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              rows={4}
-              placeholder="Example: 我想学习Python编程，从哪里开始？"
-            />
-            <p className="text-sm text-gray-500 mt-2">
-              Enter a question or topic in Chinese for best results
-            </p>
+      {/* Quick Actions */}
+      <div className="grid md:grid-cols-3 gap-6">
+        <a
+          href="/create"
+          className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:border-blue-500 hover:shadow-md transition-all group"
+        >
+          <div className="flex items-center mb-4">
+            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mr-4">
+              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">创建新课程</h3>
+              <p className="text-sm text-gray-500 mt-1">AI生成个性化教学</p>
+            </div>
           </div>
-          
-          <div className="flex gap-3">
-            <button
-              onClick={generateLesson}
-              disabled={generating || !query.trim()}
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {generating ? 'Generating...' : 'Generate Lesson Plan'}
-            </button>
-            
-            <button
-              onClick={() => setQuery('')}
-              className="bg-gray-200 text-gray-800 px-6 py-3 rounded-lg font-medium hover:bg-gray-300 transition-colors"
-            >
-              Clear
-            </button>
+          <div className="text-blue-600 font-medium group-hover:text-blue-700">
+            开始创建 →
           </div>
+        </a>
+        
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center mb-4">
+            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mr-4">
+              <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">批量导入</h3>
+              <p className="text-sm text-gray-500 mt-1">从文件导入学生问题</p>
+            </div>
+          </div>
+          <button className="text-gray-600 font-medium hover:text-gray-800">
+            上传文件 →
+          </button>
+        </div>
+        
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center mb-4">
+            <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mr-4">
+              <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">导出课程</h3>
+              <p className="text-sm text-gray-500 mt-1">批量导出为PDF/视频</p>
+            </div>
+          </div>
+          <button className="text-gray-600 font-medium hover:text-gray-800">
+            选择课程 →
+          </button>
         </div>
       </div>
 

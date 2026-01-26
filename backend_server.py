@@ -22,6 +22,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # Import our modules
 from main import process_student_query
 from config import config
+from create_classes import ClassCreator, ClassCreationRequest, Language, ClassCreationResult
+from modules.sophisticated_pipeline import SophisticatedTeachingPipeline
 
 app = FastAPI(
     title="MentorMind Backend API",
@@ -51,6 +53,10 @@ async def root():
 @app.get("/status")
 async def get_status():
     """Get system status and configuration"""
+    # Get language support info
+    creator = ClassCreator()
+    lang_info = creator.get_language_support_info()
+    
     return {
         "status": "online",
         "version": "1.0.0",
@@ -61,16 +67,34 @@ async def get_status():
             "tts": "simulated"
         },
         "cost_analysis": {
-            "monthly_budget": config.MONTHLY_BUDGET_USD,
+            "monthly_budget": config.COST_OPTIMIZATION.monthly_budget_usd,
             "current_month": 3.42,  # Placeholder - would track real usage
-            "remaining": config.MONTHLY_BUDGET_USD - 3.42
+            "remaining": config.COST_OPTIMIZATION.monthly_budget_usd - 3.42
         },
         "configuration": {
-            "max_lesson_duration_minutes": config.MAX_LESSON_DURATION_MINUTES,
-            "quality_threshold": config.QUALITY_THRESHOLD,
-            "max_teaching_attempts": config.MAX_TEACHING_ATTEMPTS,
-            "tts_provider": config.TTS_PROVIDER,
-            "avatar_provider": config.AVATAR_PROVIDER
+            "max_regeneration_attempts": config.MAX_REGENERATION_ATTEMPTS,
+            "quality_threshold": config.CRITIC_QUALITY_THRESHOLD,
+            "tts_voice": config.TTS_VOICE,
+            "avatar_image_path": config.AVATAR_IMAGE_PATH
+        },
+        "language_support": lang_info
+    }
+
+
+@app.get("/languages")
+async def get_languages():
+    """Get supported languages for class creation"""
+    creator = ClassCreator()
+    lang_info = creator.get_language_support_info()
+    
+    return {
+        "supported_languages": lang_info["supported_languages"],
+        "default_language": lang_info["default_language"],
+        "bilingual_support": lang_info["bilingual_support"],
+        "endpoints": {
+            "create_class": "/create-class",
+            "create_bilingual_class": "/create-class-bilingual",
+            "teach": "/teach"
         }
     }
 
@@ -109,6 +133,186 @@ async def teach_endpoint(request: Dict[str, Any]):
         
     except Exception as e:
         print(f"Error processing request: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/create-class")
+async def create_class_endpoint(request: Dict[str, Any]):
+    """Create class/lesson endpoint with English and Chinese support"""
+    try:
+        topic = request.get("topic", "")
+        language = request.get("language", "zh").lower()
+        student_level = request.get("studentLevel", "beginner")
+        duration_minutes = request.get("durationMinutes", 30)
+        include_video = request.get("includeVideo", True)
+        include_exercises = request.get("includeExercises", True)
+        include_assessment = request.get("includeAssessment", True)
+        custom_requirements = request.get("customRequirements")
+        target_audience = request.get("targetAudience", "students")
+        difficulty_level = request.get("difficultyLevel", "intermediate")
+        
+        if not topic:
+            raise HTTPException(status_code=400, detail="topic is required")
+        
+        print(f"Creating class: topic='{topic}', language='{language}', level='{student_level}'")
+        
+        # Initialize class creator
+        creator = ClassCreator()
+        
+        # Create request object
+        class_request = ClassCreationRequest(
+            topic=topic,
+            language=Language(language) if language in ["en", "zh", "ja", "ko"] else Language.CHINESE,
+            student_level=student_level,
+            duration_minutes=duration_minutes,
+            include_video=include_video,
+            include_exercises=include_exercises,
+            include_assessment=include_assessment,
+            custom_requirements=custom_requirements,
+            target_audience=target_audience,
+            difficulty_level=difficulty_level
+        )
+        
+        # Create class based on language
+        result = None
+        if language == "en":
+            result = await creator.create_class_english(class_request)
+        elif language == "zh":
+            result = await creator.create_class_chinese(class_request)
+        else:
+            # Default to Chinese
+            result = await creator.create_class_chinese(class_request)
+        
+        # Format response
+        response = {
+            "success": result.success,
+            "language": result.language_used.value if result.language_used else language,
+            "lesson_plan": result.lesson_plan.to_dict() if result.lesson_plan else None,
+            "quality_assessment": result.quality_assessment.to_dict() if result.quality_assessment else None,
+            "output_result": result.output_result,
+            "cost_usd": result.cost_usd,
+            "processing_time_seconds": result.processing_time_seconds,
+            "error_message": result.error_message,
+            "processing_info": {
+                "topic": topic,
+                "language": language,
+                "student_level": student_level,
+                "duration_minutes": duration_minutes,
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+        
+        return JSONResponse(content=response)
+        
+    except Exception as e:
+        print(f"Error creating class: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/create-class-bilingual")
+async def create_class_bilingual_endpoint(request: Dict[str, Any]):
+    """Create bilingual class (English + Chinese)"""
+    try:
+        topic = request.get("topic", "")
+        student_level = request.get("studentLevel", "beginner")
+        duration_minutes = request.get("durationMinutes", 30)
+        include_video = request.get("includeVideo", True)
+        
+        if not topic:
+            raise HTTPException(status_code=400, detail="topic is required")
+        
+        print(f"Creating bilingual class: topic='{topic}', level='{student_level}'")
+        
+        # Initialize class creator
+        creator = ClassCreator()
+        
+        # Create request object
+        class_request = ClassCreationRequest(
+            topic=topic,
+            language=Language.ENGLISH,  # Base language
+            student_level=student_level,
+            duration_minutes=duration_minutes,
+            include_video=include_video,
+            include_exercises=True,
+            include_assessment=True
+        )
+        
+        # Create bilingual class
+        results = await creator.create_class_bilingual(class_request)
+        
+        # Format response
+        response = {
+            "success": True,
+            "english": {
+                "success": results["english"].success,
+                "lesson_plan": results["english"].lesson_plan.to_dict() if results["english"].lesson_plan else None,
+                "quality_assessment": results["english"].quality_assessment.to_dict() if results["english"].quality_assessment else None,
+                "cost_usd": results["english"].cost_usd,
+                "processing_time_seconds": results["english"].processing_time_seconds,
+                "error_message": results["english"].error_message
+            },
+            "chinese": {
+                "success": results["chinese"].success,
+                "lesson_plan": results["chinese"].lesson_plan.to_dict() if results["chinese"].lesson_plan else None,
+                "quality_assessment": results["chinese"].quality_assessment.to_dict() if results["chinese"].quality_assessment else None,
+                "cost_usd": results["chinese"].cost_usd,
+                "processing_time_seconds": results["chinese"].processing_time_seconds,
+                "error_message": results["chinese"].error_message
+            },
+            "processing_info": {
+                "topic": topic,
+                "student_level": student_level,
+                "duration_minutes": duration_minutes,
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+        
+        return JSONResponse(content=response)
+        
+    except Exception as e:
+        print(f"Error creating bilingual class: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/sophisticated-teach")
+async def sophisticated_teach_endpoint(request: Dict[str, Any]):
+    """Sophisticated teaching pipeline with GraphRAG and dynamic memory"""
+    try:
+        student_query = request.get("studentQuery", "")
+        student_id = request.get("studentId")
+        include_video = request.get("includeVideo", True)
+        mode = request.get("mode", "interactive")
+        
+        if not student_query:
+            raise HTTPException(status_code=400, detail="studentQuery is required")
+        
+        print(f"Sophisticated teaching pipeline: query='{student_query}', student_id='{student_id}'")
+        
+        # Initialize sophisticated pipeline
+        pipeline = SophisticatedTeachingPipeline(student_id)
+        
+        # Process student query
+        result = await pipeline.process_student_query(
+            student_query=student_query,
+            include_video=include_video
+        )
+        
+        # Format response
+        response = {
+            "success": result["success"],
+            "pipeline_version": "1.0",
+            "pipeline_steps": result.get("pipeline_steps", []),
+            "final_output": result.get("final_output", {}),
+            "teaching_state": result.get("teaching_state", {}),
+            "processing_metrics": result.get("processing_metrics", {}),
+            "metadata": result.get("metadata", {}),
+            "error": result.get("error")
+        }
+        
+        return JSONResponse(content=response)
+        
+    except Exception as e:
+        print(f"Error in sophisticated teaching pipeline: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/files/{file_type}/{filename}")

@@ -1,77 +1,104 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import Link from 'next/link'
+import { useState } from 'react'
 
-interface Settings {
-  api_keys: {
-    deepseek: string
-    funasr: string
-    paddle_ocr: string
+interface SubscriptionPlan {
+  id: string
+  name: string
+  price: number
+  features: string[]
+  lessons_per_month: number
+  max_duration: number
+  support: string
+}
+
+interface UserSettings {
+  subscription: {
+    plan: string
+    status: 'active' | 'cancelled' | 'pending'
+    renewal_date: string
+    usage: {
+      lessons_used: number
+      lessons_remaining: number
+      cost_this_month: number
+    }
   }
-  budget: {
-    monthly_limit: number
-    alert_threshold: number
-    currency: string
-  }
-  quality: {
-    min_score: number
-    max_attempts: number
-    auto_regenerate: boolean
-  }
-  output: {
-    tts_provider: string
-    avatar_provider: string
+  preferences: {
     default_language: string
     auto_generate_video: boolean
+    quality_threshold: number
+    email_notifications: boolean
   }
-  notifications: {
-    email_alerts: boolean
-    cost_alerts: boolean
-    quality_alerts: boolean
-    system_alerts: boolean
+  billing: {
+    email: string
+    payment_method: string
+    billing_address: string
   }
 }
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<Settings>({
-    api_keys: {
-      deepseek: 'sk-02886f9046bc474db48154f66df0c2fb',
-      funasr: '',
-      paddle_ocr: '',
+  const [settings, setSettings] = useState<UserSettings>({
+    subscription: {
+      plan: 'pro',
+      status: 'active',
+      renewal_date: '2026-02-23',
+      usage: {
+        lessons_used: 42,
+        lessons_remaining: 958,
+        cost_this_month: 3.42,
+      },
     },
-    budget: {
-      monthly_limit: 160,
-      alert_threshold: 80,
-      currency: 'USD',
-    },
-    quality: {
-      min_score: 0.8,
-      max_attempts: 3,
-      auto_regenerate: true,
-    },
-    output: {
-      tts_provider: 'mock',
-      avatar_provider: 'mock',
+    preferences: {
       default_language: 'zh-CN',
       auto_generate_video: true,
+      quality_threshold: 0.8,
+      email_notifications: true,
     },
-    notifications: {
-      email_alerts: true,
-      cost_alerts: true,
-      quality_alerts: false,
-      system_alerts: true,
+    billing: {
+      email: 'user@example.com',
+      payment_method: 'visa-4242',
+      billing_address: '123 Main St, Shanghai, China',
     },
   })
 
   const [saving, setSaving] = useState(false)
-  const [activeTab, setActiveTab] = useState('api')
+  const [activeTab, setActiveTab] = useState('subscription')
+
+  const subscriptionPlans: SubscriptionPlan[] = [
+    {
+      id: 'basic',
+      name: 'Basic',
+      price: 9.99,
+      features: ['100 lessons/month', '30min max duration', 'Email support', 'Standard quality'],
+      lessons_per_month: 100,
+      max_duration: 30,
+      support: 'email',
+    },
+    {
+      id: 'pro',
+      name: 'Professional',
+      price: 29.99,
+      features: ['1000 lessons/month', '60min max duration', 'Priority support', 'High quality', 'Video generation'],
+      lessons_per_month: 1000,
+      max_duration: 60,
+      support: 'priority',
+    },
+    {
+      id: 'enterprise',
+      name: 'Enterprise',
+      price: 99.99,
+      features: ['Unlimited lessons', 'Unlimited duration', '24/7 support', 'Highest quality', 'Custom avatars', 'API access'],
+      lessons_per_month: 9999,
+      max_duration: 120,
+      support: '24/7',
+    },
+  ]
 
   const handleSave = async () => {
     setSaving(true)
     try {
       // In a real implementation, this would save to the backend
-      await new Promise(resolve => setTimeout(resolve, 1000)) // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1000))
       alert('Settings saved successfully!')
     } catch (error) {
       console.error('Failed to save settings:', error)
@@ -81,37 +108,16 @@ export default function SettingsPage() {
     }
   }
 
-  const handleReset = () => {
-    if (confirm('Are you sure you want to reset all settings to defaults?')) {
+  const handleUpgrade = (planId: string) => {
+    if (confirm(`Upgrade to ${planId} plan? This will take effect on your next billing cycle.`)) {
       setSettings({
-        api_keys: {
-          deepseek: '',
-          funasr: '',
-          paddle_ocr: '',
-        },
-        budget: {
-          monthly_limit: 160,
-          alert_threshold: 80,
-          currency: 'USD',
-        },
-        quality: {
-          min_score: 0.8,
-          max_attempts: 3,
-          auto_regenerate: true,
-        },
-        output: {
-          tts_provider: 'mock',
-          avatar_provider: 'mock',
-          default_language: 'zh-CN',
-          auto_generate_video: true,
-        },
-        notifications: {
-          email_alerts: true,
-          cost_alerts: true,
-          quality_alerts: false,
-          system_alerts: true,
+        ...settings,
+        subscription: {
+          ...settings.subscription,
+          plan: planId,
         },
       })
+      alert('Plan upgrade requested!')
     }
   }
 
@@ -120,35 +126,25 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-          <p className="text-gray-600 mt-1">Configure your MentorMind system</p>
+          <h1 className="text-3xl font-bold text-gray-900">Account Settings</h1>
+          <p className="text-gray-600 mt-1">Manage your subscription and preferences</p>
         </div>
-        <div className="flex gap-3">
-          <button
-            onClick={handleReset}
-            className="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium"
-          >
-            Reset
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
-          >
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : 'Save Changes'}
+        </button>
       </div>
 
       {/* Tabs */}
       <div className="border-b border-gray-200">
         <nav className="flex space-x-8">
           {[
-            { id: 'api', label: 'API Keys' },
-            { id: 'budget', label: 'Budget' },
-            { id: 'quality', label: 'Quality' },
-            { id: 'output', label: 'Output' },
-            { id: 'notifications', label: 'Notifications' },
+            { id: 'subscription', label: 'Subscription' },
+            { id: 'preferences', label: 'Preferences' },
+            { id: 'billing', label: 'Billing' },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -165,236 +161,197 @@ export default function SettingsPage() {
         </nav>
       </div>
 
-      {/* API Keys Tab */}
-      {activeTab === 'api' && (
+      {/* Subscription Tab */}
+      {activeTab === 'subscription' && (
         <div className="space-y-6">
+          {/* Current Plan */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">API Configuration</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Current Plan</h2>
             
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  DeepSeek API Key
-                </label>
-                <div className="relative">
-                  <input
-                    type="password"
-                    value={settings.api_keys.deepseek}
-                    onChange={(e) => setSettings({
-                      ...settings,
-                      api_keys: { ...settings.api_keys, deepseek: e.target.value }
-                    })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
-                    placeholder="Enter your DeepSeek API key"
-                  />
-                  <button
-                    onClick={() => {
-                      const input = document.querySelector('input[type="password"]') as HTMLInputElement
-                      if (input) {
-                        input.type = input.type === 'password' ? 'text' : 'password'
-                      }
-                    }}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    type="button"
-                  >
-                    👁️
-                  </button>
+            <div className="bg-blue-50 rounded-lg p-6 mb-6">
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="flex items-center mb-2">
+                    <span className="text-2xl font-bold text-gray-900">
+                      {subscriptionPlans.find(p => p.id === settings.subscription.plan)?.name}
+                    </span>
+                    <span className="ml-3 px-3 py-1 bg-green-100 text-green-800 text-sm font-medium rounded-full">
+                      {settings.subscription.status}
+                    </span>
+                  </div>
+                  <p className="text-gray-600">
+                    ${subscriptionPlans.find(p => p.id === settings.subscription.plan)?.price}/month
+                  </p>
                 </div>
-                <p className="text-sm text-gray-500 mt-2">
-                  Your DeepSeek API key is used for AI lesson generation
-                </p>
+                <div className="text-right">
+                  <div className="text-sm text-gray-500">Renews on</div>
+                  <div className="font-medium text-gray-900">{settings.subscription.renewal_date}</div>
+                </div>
               </div>
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  FunASR API Key (Optional)
-                </label>
-                <input
-                  type="password"
-                  value={settings.api_keys.funasr}
-                  onChange={(e) => setSettings({
-                    ...settings,
-                    api_keys: { ...settings.api_keys, funasr: e.target.value }
-                  })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Enter your FunASR API key"
-                />
-                <p className="text-sm text-gray-500 mt-2">
-                  For Chinese speech recognition (leave empty for simulated mode)
-                </p>
+            {/* Usage Stats */}
+            <div className="grid md:grid-cols-3 gap-4 mb-6">
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="text-sm text-gray-500 mb-1">Lessons Used</div>
+                <div className="text-2xl font-bold text-gray-900">{settings.subscription.usage.lessons_used}</div>
+                <div className="text-sm text-gray-500 mt-1">
+                  of {subscriptionPlans.find(p => p.id === settings.subscription.plan)?.lessons_per_month} this month
+                </div>
               </div>
+              
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="text-sm text-gray-500 mb-1">Remaining</div>
+                <div className="text-2xl font-bold text-gray-900">{settings.subscription.usage.lessons_remaining}</div>
+                <div className="text-sm text-gray-500 mt-1">lessons available</div>
+              </div>
+              
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="text-sm text-gray-500 mb-1">Cost This Month</div>
+                <div className="text-2xl font-bold text-gray-900">${settings.subscription.usage.cost_this_month.toFixed(2)}</div>
+                <div className="text-sm text-gray-500 mt-1">based on usage</div>
+              </div>
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  PaddleOCR API Key (Optional)
-                </label>
-                <input
-                  type="password"
-                  value={settings.api_keys.paddle_ocr}
-                  onChange={(e) => setSettings({
-                    ...settings,
-                    api_keys: { ...settings.api_keys, paddle_ocr: e.target.value }
-                  })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Enter your PaddleOCR API key"
-                />
-                <p className="text-sm text-gray-500 mt-2">
-                  For Chinese text extraction from slides (leave empty for simulated mode)
-                </p>
+            {/* Plan Features */}
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 mb-3">Plan Features</h3>
+              <div className="space-y-2">
+                {subscriptionPlans.find(p => p.id === settings.subscription.plan)?.features.map((feature, index) => (
+                  <div key={index} className="flex items-center">
+                    <svg className="w-5 h-5 text-green-500 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span className="text-gray-700">{feature}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
 
-          <div className="bg-blue-50 rounded-xl border border-blue-200 p-6">
-            <h3 className="text-lg font-semibold text-blue-900 mb-3">API Status</h3>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-blue-800">DeepSeek API</span>
-                <span className="px-2 py-1 bg-green-100 text-green-800 text-sm font-medium rounded">
-                  Connected
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-blue-800">FunASR Service</span>
-                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-sm font-medium rounded">
-                  Simulated
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-blue-800">PaddleOCR Service</span>
-                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-sm font-medium rounded">
-                  Simulated
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Budget Tab */}
-      {activeTab === 'budget' && (
-        <div className="space-y-6">
+          {/* Upgrade Plans */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Budget Settings</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-6">Available Plans</h2>
             
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Monthly Budget Limit
-                </label>
-                <div className="flex items-center">
-                  <span className="mr-3 text-gray-500">$</span>
-                  <input
-                    type="number"
-                    value={settings.budget.monthly_limit}
-                    onChange={(e) => setSettings({
-                      ...settings,
-                      budget: { ...settings.budget, monthly_limit: parseFloat(e.target.value) }
-                    })}
-                    className="w-32 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    min="0"
-                    step="10"
-                  />
-                  <span className="ml-3 text-gray-500">USD</span>
-                </div>
-                <p className="text-sm text-gray-500 mt-2">
-                  Maximum monthly spending on API services
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Alert Threshold
-                </label>
-                <div className="flex items-center">
-                  <input
-                    type="range"
-                    value={settings.budget.alert_threshold}
-                    onChange={(e) => setSettings({
-                      ...settings,
-                      budget: { ...settings.budget, alert_threshold: parseInt(e.target.value) }
-                    })}
-                    className="w-full"
-                    min="0"
-                    max="100"
-                  />
-                  <span className="ml-4 w-16 text-right font-medium">
-                    {settings.budget.alert_threshold}%
-                  </span>
-                </div>
-                <p className="text-sm text-gray-500 mt-2">
-                  Receive alerts when spending reaches this percentage of your budget
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Currency
-                </label>
-                <select
-                  value={settings.budget.currency}
-                  onChange={(e) => setSettings({
-                    ...settings,
-                    budget: { ...settings.budget, currency: e.target.value }
-                  })}
-                  className="w-32 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            <div className="grid md:grid-cols-3 gap-6">
+              {subscriptionPlans.map((plan) => (
+                <div
+                  key={plan.id}
+                  className={`border rounded-xl p-6 ${
+                    settings.subscription.plan === plan.id
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
                 >
-                  <option value="USD">USD ($)</option>
-                  <option value="CNY">CNY (¥)</option>
-                  <option value="EUR">EUR (€)</option>
-                  <option value="GBP">GBP (£)</option>
-                </select>
-              </div>
+                  <div className="mb-4">
+                    <div className="text-lg font-semibold text-gray-900">{plan.name}</div>
+                    <div className="text-3xl font-bold text-gray-900 mt-2">${plan.price}<span className="text-lg text-gray-600">/month</span></div>
+                  </div>
+                  
+                  <div className="space-y-3 mb-6">
+                    {plan.features.map((feature, index) => (
+                      <div key={index} className="flex items-center">
+                        <svg className="w-5 h-5 text-green-500 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span className="text-gray-700">{feature}</span>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {settings.subscription.plan === plan.id ? (
+                    <button
+                      disabled
+                      className="w-full py-3 bg-gray-100 text-gray-400 rounded-lg font-medium cursor-not-allowed"
+                    >
+                      Current Plan
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleUpgrade(plan.id)}
+                      className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                    >
+                      {settings.subscription.plan === 'basic' && plan.id === 'pro' ? 'Upgrade' : 'Switch to Plan'}
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
 
-          <div className="bg-green-50 rounded-xl border border-green-200 p-6">
-            <h3 className="text-lg font-semibold text-green-900 mb-3">Current Usage</h3>
-            <div className="space-y-4">
-              <div>
-                <div className="flex justify-between text-sm text-green-800 mb-1">
-                  <span>Monthly Spending</span>
-                  <span>$3.42 / ${settings.budget.monthly_limit}</span>
-                </div>
-                <div className="w-full bg-green-100 rounded-full h-2">
-                  <div 
-                    className="bg-green-500 h-2 rounded-full"
-                    style={{ width: `${(3.42 / settings.budget.monthly_limit) * 100}%` }}
-                  />
-                </div>
-                <p className="text-sm text-green-700 mt-2">
-                  Only 2.1% of budget used - excellent efficiency!
-                </p>
-              </div>
-            </div>
+          {/* Cancel Subscription */}
+          <div className="bg-red-50 rounded-xl border border-red-200 p-6">
+            <h3 className="text-lg font-semibold text-red-900 mb-3">Danger Zone</h3>
+            <p className="text-red-700 mb-4">
+              Cancelling your subscription will stop auto-renewal. You'll still have access until the end of your billing period.
+            </p>
+            <button
+              onClick={() => {
+                if (confirm('Are you sure you want to cancel your subscription?')) {
+                  setSettings({
+                    ...settings,
+                    subscription: {
+                      ...settings.subscription,
+                      status: 'cancelled',
+                    },
+                  })
+                  alert('Subscription cancellation requested.')
+                }
+              }}
+              className="px-6 py-2 bg-white text-red-600 border border-red-300 rounded-lg font-medium hover:bg-red-50 transition-colors"
+            >
+              Cancel Subscription
+            </button>
           </div>
         </div>
       )}
 
-      {/* Quality Tab */}
-      {activeTab === 'quality' && (
+      {/* Preferences Tab */}
+      {activeTab === 'preferences' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Quality Settings</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-6">Preferences</h2>
           
           <div className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Minimum Quality Score
+                Default Language
+              </label>
+              <select
+                value={settings.preferences.default_language}
+                onChange={(e) => setSettings({
+                  ...settings,
+                  preferences: { ...settings.preferences, default_language: e.target.value }
+                })}
+                className="w-full md:w-64 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="zh-CN">Chinese (Simplified)</option>
+                <option value="en-US">English (US)</option>
+                <option value="ja-JP">Japanese</option>
+                <option value="ko-KR">Korean</option>
+              </select>
+              <p className="text-sm text-gray-500 mt-2">
+                Default language for generated lesson content
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Minimum Quality Threshold
               </label>
               <div className="flex items-center">
                 <input
                   type="range"
-                  value={settings.quality.min_score * 100}
+                  value={settings.preferences.quality_threshold * 100}
                   onChange={(e) => setSettings({
                     ...settings,
-                    quality: { ...settings.quality, min_score: parseInt(e.target.value) / 100 }
+                    preferences: { ...settings.preferences, quality_threshold: parseInt(e.target.value) / 100 }
                   })}
                   className="w-full"
-                  min="50"
-                  max="100"
+                  min="60"
+                  max="95"
                 />
                 <span className="ml-4 w-16 text-right font-medium">
-                  {(settings.quality.min_score * 100).toFixed(0)}%
+                  {(settings.preferences.quality_threshold * 100).toFixed(0)}%
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-2">
@@ -402,193 +359,164 @@ export default function SettingsPage() {
               </p>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Maximum Regeneration Attempts
-              </label>
-              <div className="flex items-center space-x-4">
-                {[1, 2, 3, 5].map((attempts) => (
-                  <button
-                    key={attempts}
-                    onClick={() => setSettings({
-                      ...settings,
-                      quality: { ...settings.quality, max_attempts: attempts }
-                    })}
-                    className={`px-4 py-2 rounded-lg font-medium ${
-                      settings.quality.max_attempts === attempts
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    {attempts} {attempts === 1 ? 'attempt' : 'attempts'}
-                  </button>
-                ))}
-              </div>
-              <p className="text-sm text-gray-500 mt-2">
-                Number of times to retry generating a lesson if quality is low
-              </p>
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-              <div>
-                <div className="font-medium text-gray-900">Auto-regenerate low quality lessons</div>
-                <div className="text-sm text-gray-500 mt-1">
-                  Automatically retry generation when quality score is below threshold
-                </div>
-              </div>
-              <button
-                onClick={() => setSettings({
-                  ...settings,
-                  quality: { ...settings.quality, auto_regenerate: !settings.quality.auto_regenerate }
-                })}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  settings.quality.auto_regenerate ? 'bg-blue-600' : 'bg-gray-300'
-                }`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  settings.quality.auto_regenerate ? 'translate-x-6' : 'translate-x-1'
-                }`} />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Output Tab */}
-      {activeTab === 'output' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Output Settings</h2>
-          
-          <div className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Text-to-Speech Provider
-              </label>
-              <select
-                value={settings.output.tts_provider}
-                onChange={(e) => setSettings({
-                  ...settings,
-                  output: { ...settings.output, tts_provider: e.target.value }
-                })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="mock">Mock (Simulated)</option>
-                <option value="azure">Microsoft Azure</option>
-                <option value="google">Google Cloud TTS</option>
-                <option value="aws">Amazon Polly</option>
-                <option value="aliyun">Alibaba Cloud</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Avatar Provider
-              </label>
-              <select
-                value={settings.output.avatar_provider}
-                onChange={(e) => setSettings({
-                  ...settings,
-                  output: { ...settings.output, avatar_provider: e.target.value }
-                })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="mock">Mock (Simulated)</option>
-                <option value="did">D-ID</option>
-                <option value="synthesia">Synthesia</option>
-                <option value="heygen">HeyGen</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Default Language
-              </label>
-              <select
-                value={settings.output.default_language}
-                onChange={(e) => setSettings({
-                  ...settings,
-                  output: { ...settings.output, default_language: e.target.value }
-                })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="zh-CN">Chinese (Simplified)</option>
-                <option value="en-US">English (US)</option>
-                <option value="ja-JP">Japanese</option>
-                <option value="ko-KR">Korean</option>
-              </select>
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-              <div>
-                <div className="font-medium text-gray-900">Auto-generate video output</div>
-                <div className="text-sm text-gray-500 mt-1">
-                  Automatically create video lessons with avatar
-                </div>
-              </div>
-              <button
-                onClick={() => setSettings({
-                  ...settings,
-                  output: { ...settings.output, auto_generate_video: !settings.output.auto_generate_video }
-                })}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  settings.output.auto_generate_video ? 'bg-blue-600' : 'bg-gray-300'
-                }`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  settings.output.auto_generate_video ? 'translate-x-6' : 'translate-x-1'
-                }`} />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Notifications Tab */}
-      {activeTab === 'notifications' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Notification Settings</h2>
-          
-          <div className="space-y-4">
-            {Object.entries(settings.notifications).map(([key, value]) => (
-              <div key={key} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                 <div>
-                  <div className="font-medium text-gray-900 capitalize">
-                    {key.replace(/_/g, ' ')}
-                  </div>
+                  <div className="font-medium text-gray-900">Auto-generate video lessons</div>
                   <div className="text-sm text-gray-500 mt-1">
-                    {key === 'email_alerts' && 'Receive email notifications'}
-                    {key === 'cost_alerts' && 'Alert when approaching budget limit'}
-                    {key === 'quality_alerts' && 'Alert for low quality lessons'}
-                    {key === 'system_alerts' && 'System status and maintenance alerts'}
+                    Automatically create video output with avatar
                   </div>
                 </div>
                 <button
                   onClick={() => setSettings({
                     ...settings,
-                    notifications: { ...settings.notifications, [key]: !value }
+                    preferences: { ...settings.preferences, auto_generate_video: !settings.preferences.auto_generate_video }
                   })}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    value ? 'bg-blue-600' : 'bg-gray-300'
+                    settings.preferences.auto_generate_video ? 'bg-blue-600' : 'bg-gray-300'
                   }`}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    value ? 'translate-x-6' : 'translate-x-1'
+                    settings.preferences.auto_generate_video ? 'translate-x-6' : 'translate-x-1'
                   }`} />
                 </button>
               </div>
-            ))}
+
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <div className="font-medium text-gray-900">Email notifications</div>
+                  <div className="text-sm text-gray-500 mt-1">
+                    Receive email updates about your lessons and usage
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSettings({
+                    ...settings,
+                    preferences: { ...settings.preferences, email_notifications: !settings.preferences.email_notifications }
+                  })}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    settings.preferences.email_notifications ? 'bg-blue-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    settings.preferences.email_notifications ? 'translate-x-6' : 'translate-x-1'
+                  }`} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Billing Tab */}
+      {activeTab === 'billing' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-6">Billing Information</h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Billing Email
+                </label>
+                <input
+                  type="email"
+                  value={settings.billing.email}
+                  onChange={(e) => setSettings({
+                    ...settings,
+                    billing: { ...settings.billing, email: e.target.value }
+                  })}
+                  className="w-full md:w-96 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <p className="text-sm text-gray-500 mt-2">
+                  Invoices and receipts will be sent to this email
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Payment Method
+                </label>
+                <div className="flex items-center p-4 bg-gray-50 rounded-lg">
+                  <div className="w-10 h-6 bg-blue-500 rounded mr-4"></div>
+                  <div>
+                    <div className="font-medium text-gray-900">Visa ending in 4242</div>
+                    <div className="text-sm text-gray-500">Expires 12/2026</div>
+                  </div>
+                  <button className="ml-auto text-blue-600 hover:text-blue-800 font-medium">
+                    Update
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Billing Address
+                </label>
+                <textarea
+                  value={settings.billing.billing_address}
+                  onChange={(e) => setSettings({
+                    ...settings,
+                    billing: { ...settings.billing, billing_address: e.target.value }
+                  })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  rows={3}
+                />
+              </div>
+            </div>
           </div>
 
-          <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-            <h3 className="text-sm font-medium text-blue-900 mb-2">Notification Email</h3>
-            <input
-              type="email"
-              placeholder="your-email@example.com"
-              className="w-full px-4 py-2 border border-blue-200 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <p className="text-sm text-blue-700 mt-2">
-              Notifications will be sent to this email address
-            </p>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Billing History</h2>
+            
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead>
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Description
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Amount
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Invoice
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {[
+                    { date: '2026-01-23', description: 'Professional Plan', amount: 29.99, status: 'Paid' },
+                    { date: '2025-12-23', description: 'Professional Plan', amount: 29.99, status: 'Paid' },
+                    { date: '2025-11-23', description: 'Professional Plan', amount: 29.99, status: 'Paid' },
+                    { date: '2025-10-23', description: 'Basic to Professional Upgrade', amount: 20.00, status: 'Paid' },
+                    { date: '2025-10-23', description: 'Basic Plan', amount: 9.99, status: 'Paid' },
+                  ].map((invoice, index) => (
+                    <tr key={index}>
+                      <td className="px-4 py-3 text-sm text-gray-900">{invoice.date}</td>
+                      <td className="px-4 py-3 text-sm text-gray-900">{invoice.description}</td>
+                      <td className="px-4 py-3 text-sm text-gray-900">${invoice.amount.toFixed(2)}</td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">
+                          {invoice.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button className="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                          Download
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
