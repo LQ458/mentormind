@@ -15,31 +15,86 @@ MentorMind is a Compound AI System that "understands, reconstructs, and teaches"
 
 ## 🏗️ Architecture
 
-### Core Modules
+### Backend Structure
 
-1. **Multimodal Ingestion** (`modules/ingestion.py`)
-   - Audio processing with FunASR (Alibaba)
-   - Video OCR with PaddleOCR (Baidu)
-   - Temporal alignment engine
+```
+backend/
+├── backend_server.py          # Main FastAPI server
+├── config/                    # Configuration management
+│   └── config.py
+├── core/                      # Core business logic
+│   ├── create_classes.py      # Class creation logic
+│   └── modules/              # Pipeline modules
+│       ├── ingestion.py      # Audio/video processing
+│       ├── cognitive.py      # Knowledge extraction
+│       ├── agentic.py        # Agent workflow
+│       ├── output.py         # Output generation
+│       └── sophisticated_pipeline.py
+├── services/                  # Real AI service integrations
+│   ├── funasr/              # FunASR audio transcription
+│   ├── paddleocr/           # PaddleOCR text extraction
+│   └── tts/                 # Text-to-speech synthesis
+├── api/                      # API clients and utilities
+└── utils/                    # Utility functions
+```
 
-2. **Cognitive Processing** (`modules/cognitive.py`)
+### Core Services
+
+1. **FunASR Service** (`backend/services/funasr/`)
+   - Real audio transcription with timestamps
+   - Chinese language optimized
+   - Configurable API endpoints
+
+2. **PaddleOCR Service** (`backend/services/paddleocr/`)
+   - Real text extraction from images/video
+   - Chinese OCR with high accuracy
+   - Frame-by-frame processing
+
+3. **TTS Service** (`backend/services/tts/`)
+   - Real text-to-speech conversion
+   - Multiple language support
+   - Emotion-aware synthesis
+
+4. **Cognitive Processing** (`backend/core/modules/cognitive.py`)
    - Knowledge extraction with DeepSeek-V3
    - Graph construction with NetworkX
    - Pedagogical intent tagging
 
-3. **Agentic Workflow** (`modules/agentic.py`)
-   - Lesson planning with DeepSeek-R1
-   - Quality critic for validation
-   - Regeneration with feedback
-
-4. **Output Generation** (`modules/output.py`)
+5. **Output Generation** (`backend/core/modules/output.py`)
    - Script generation
-   - TTS synthesis (Chinese voices)
+   - TTS synthesis integration
    - Avatar video generation
+
+### Getting Started with Real Services
+
+1. **Set up environment variables**:
+```bash
+# Copy the example environment file
+cp .env.example .env
+
+# Edit the .env file and add your DeepSeek API key
+# Get your API key from: https://platform.deepseek.com/
+# Edit .env and set: DEEPSEEK_API_KEY=your_actual_key_here
+
+# Optional: Set AI service endpoints if you have them running
+# FUNASR_API_URL, PADDLEOCR_API_URL, TTS_API_URL
+```
+
+2. **Start the backend**:
+```bash
+cd backend
+./start.sh
+```
+
+3. **Test services**:
+```bash
+cd backend
+python test_services.py
+```
 
 ### Configuration Management
 
-All variables controlled from single file: `config.py`
+All variables controlled from single file: `backend/config/config.py`
 
 ```python
 from config import config

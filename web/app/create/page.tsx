@@ -1,7 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useLanguage } from '../components/LanguageContext'
+import { translations } from '../lib/translations'
 
 interface ChatMessage {
   id: string
@@ -13,47 +15,55 @@ interface ChatMessage {
 interface IdentifiedTopic {
   id: string
   name: string
+  name_zh?: string
+  name_en?: string
   description: string
+  description_zh?: string
+  description_en?: string
   confidence: number
   icon: string
   category: string
+  follow_up_questions?: string[]
+  follow_up_questions_zh?: string[]
+  follow_up_questions_en?: string[]
 }
-
-const subjects = [
-  { id: 'programming', name: '编程', icon: '💻' },
-  { id: 'math', name: '数学', icon: '🧮' },
-  { id: 'science', name: '科学', icon: '🔬' },
-  { id: 'language', name: '语言', icon: '🗣️' },
-  { id: 'history', name: '历史', icon: '📜' },
-  { id: 'art', name: '艺术', icon: '🎨' }
-]
 
 export default function CreateLessonPage() {
   const router = useRouter()
+  const { language: uiLanguage, t } = useLanguage()
   const [workflowPhase, setWorkflowPhase] = useState<'chatting' | 'topic-selection' | 'generating' | 'preview'>('chatting')
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: '1',
-      role: 'assistant',
-      content: '你好！我是你的AI学习导师。请告诉我你想学习什么，或者在学习中遇到了什么困难？我会通过对话了解你的需求，然后为你推荐最适合的学习主题。',
-      timestamp: new Date()
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+
+  // Initialize chat message based on language
+  useEffect(() => {
+    if (chatMessages.length === 0) {
+      setChatMessages([
+        {
+          id: '1',
+          role: 'assistant',
+          content: uiLanguage === 'zh'
+            ? '你好！我是你的AI学习导师。请告诉我你想学习什么，或者在学习中遇到了什么困难？我会通过对话了解你的需求，然后为你推荐最适合的学习主题。'
+            : 'Hello! I am your AI learning mentor. Please tell me what you want to learn, or what difficulties you are having in your studies? I will understand your needs through conversation and then recommend the most suitable learning topics for you.',
+          timestamp: new Date()
+        }
+      ])
     }
-  ])
+  }, [uiLanguage, chatMessages.length])
   const [userInput, setUserInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
   const [identifiedTopics, setIdentifiedTopics] = useState<IdentifiedTopic[]>([])
   const [selectedTopics, setSelectedTopics] = useState<string[]>([])
   const [generating, setGenerating] = useState(false)
   const [preview, setPreview] = useState<any>(null)
-  
+
   const [form, setForm] = useState({
     studentQuery: '',
     studentLevel: 'beginner' as 'beginner' | 'intermediate' | 'advanced',
-    subject: 'programming',
     duration: 30,
     includeVideo: true,
     language: 'zh-CN'
   })
+
 
   const [pipelineProgress, setPipelineProgress] = useState<{
     currentStep: number
@@ -65,7 +75,7 @@ export default function CreateLessonPage() {
 
   const handleGenerate = async () => {
     if (!form.studentQuery.trim()) {
-      alert('请输入学习问题')
+      alert(t('create.enterLearningQuestion'))
       return
     }
 
@@ -77,7 +87,7 @@ export default function CreateLessonPage() {
       stepDescription: '初始化教学状态和知识图谱...',
       progress: 10
     })
-    
+
     try {
       const response = await fetch('http://localhost:8000/create-class', {
         method: 'POST',
@@ -96,25 +106,25 @@ export default function CreateLessonPage() {
       })
 
       const data = await response.json()
-      
+
       if (data.success) {
         setPreview(data)
         setPipelineProgress(null)
-        alert('课程创建成功！')
+        alert(t('create.courseCreatedSuccess'))
       } else {
         setPipelineProgress(null)
-        alert('创建失败：' + (data.error_message || '未知错误'))
+        alert(t('create.creationFailed') + (data.error_message || t('create.unknownError')))
       }
     } catch (error) {
       console.error('创建失败:', error)
       setPipelineProgress(null)
-      alert('创建失败，请重试')
+      alert(t('create.creationFailedRetry'))
     } finally {
       setGenerating(false)
     }
   }
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!userInput.trim()) return
 
     const userMessage: ChatMessage = {
@@ -123,54 +133,290 @@ export default function CreateLessonPage() {
       content: userInput,
       timestamp: new Date()
     }
-    
+
     setChatMessages(prev => [...prev, userMessage])
     setUserInput('')
     setIsTyping(true)
 
-    setTimeout(() => {
-      const aiResponse: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `我理解了你想学习"${userInput}"。让我为你分析一下这个主题，并推荐相关的学习内容...`,
-        timestamp: new Date()
-      }
-      
-      setChatMessages(prev => [...prev, aiResponse])
-      setIsTyping(false)
+    // First AI response
+    const aiResponse: ChatMessage = {
+      id: (Date.now() + 1).toString(),
+      role: 'assistant',
+      content: uiLanguage === 'zh'
+        ? `我理解了你想学习"${userInput}"。让我为你分析一下这个主题，并推荐最相关的学习内容...`
+        : `I understand you want to learn about "${userInput}". Let me analyze this topic for you and recommend the most relevant learning content...`,
+      timestamp: new Date()
+    }
 
-      setTimeout(() => {
-        const mockTopics: IdentifiedTopic[] = [
+    setChatMessages(prev => [...prev, aiResponse])
+
+    try {
+      // Call AI topic analysis endpoint
+      const response = await fetch('http://localhost:8000/analyze-topics', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          studentQuery: userInput,
+          language: 'bilingual', // Request bilingual content
+          include_chinese: true,
+          include_english: true
+        }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        // Convert API response to IdentifiedTopic format with bilingual support
+        const analyzedTopics: IdentifiedTopic[] = data.topics.map((topic: any, index: number) => ({
+          id: topic.id || `topic_${index + 1}`,
+          name: topic.name_en || topic.name, // Default to English name
+          name_zh: topic.name_zh || topic.name,
+          name_en: topic.name_en || topic.name,
+          description: topic.description_en || topic.description, // Default to English description
+          description_zh: topic.description_zh || topic.description,
+          description_en: topic.description_en || topic.description,
+          confidence: topic.confidence || 0.8,
+          icon: '',
+          category: topic.category || 'general',
+          follow_up_questions: topic.follow_up_questions_en || topic.follow_up_questions || [],
+          follow_up_questions_zh: topic.follow_up_questions_zh || topic.follow_up_questions || [],
+          follow_up_questions_en: topic.follow_up_questions_en || topic.follow_up_questions || []
+        }))
+
+        setIdentifiedTopics(analyzedTopics)
+
+        // Add analysis complete message
+        const analysisCompleteMessage: ChatMessage = {
+          id: (Date.now() + 2).toString(),
+          role: 'assistant',
+          content: uiLanguage === 'zh'
+            ? `分析完成！我为你找到了 ${analyzedTopics.length} 个相关学习主题。请选择你感兴趣的主题：`
+            : `Analysis complete! I found ${analyzedTopics.length} relevant learning topics for you. Please select the topics you're interested in:`,
+          timestamp: new Date()
+        }
+
+        setChatMessages(prev => [...prev, analysisCompleteMessage])
+        setWorkflowPhase('topic-selection')
+      } else {
+        // Fallback if analysis fails
+        const errorMessage: ChatMessage = {
+          id: (Date.now() + 2).toString(),
+          role: 'assistant',
+          content: t('create.analysisFailed'),
+          timestamp: new Date()
+        }
+
+        setChatMessages(prev => [...prev, errorMessage])
+
+        // Use fallback topics (bilingual)
+        const fallbackTopics: IdentifiedTopic[] = [
           {
             id: '1',
-            name: 'Python基础',
-            description: 'Python编程语言的基础语法和概念',
-            confidence: 0.95,
-            icon: '🐍',
-            category: 'programming'
-          },
-          {
-            id: '2',
-            name: '数据结构',
-            description: '数组、链表、栈、队列等基本数据结构',
-            confidence: 0.85,
-            icon: '📊',
-            category: 'programming'
-          },
-          {
-            id: '3',
-            name: '算法入门',
-            description: '排序、搜索等基础算法',
-            confidence: 0.75,
-            icon: '⚡',
-            category: 'programming'
+            name: 'Please Specify Learning Topic',
+            name_zh: '请具体说明学习主题',
+            name_en: 'Please Specify Learning Topic',
+            description: 'Please tell me the specific subject or topic you want to learn',
+            description_zh: '请告诉我你想学习的具体科目或主题',
+            description_en: 'Please tell me the specific subject or topic you want to learn',
+            confidence: 0.5,
+            icon: '',
+            category: 'clarification',
+            follow_up_questions: [
+              'What subject do you want to learn? (e.g., math, physics, programming)',
+              'Do you have specific learning goals? (e.g., exam preparation, project application)',
+              'Which learning stage are you interested in? (e.g., beginner, intermediate, professional)'
+            ],
+            follow_up_questions_zh: [
+              '你想学习什么科目？（如数学、物理、编程等）',
+              '有特定的学习目标吗？（如考试准备、项目应用）',
+              '对哪个学习阶段感兴趣？（如入门、进阶、专业）'
+            ],
+            follow_up_questions_en: [
+              'What subject do you want to learn? (e.g., math, physics, programming)',
+              'Do you have specific learning goals? (e.g., exam preparation, project application)',
+              'Which learning stage are you interested in? (e.g., beginner, intermediate, professional)'
+            ]
           }
         ]
-        
-        setIdentifiedTopics(mockTopics)
+
+        setIdentifiedTopics(fallbackTopics)
         setWorkflowPhase('topic-selection')
-      }, 1000)
-    }, 1500)
+      }
+    } catch (error) {
+      console.error('Topic analysis failed:', error)
+
+      const errorMessage: ChatMessage = {
+        id: (Date.now() + 2).toString(),
+        role: 'assistant',
+        content: uiLanguage === 'zh'
+          ? '抱歉，分析服务暂时不可用。让我为你推荐一些通用学习主题。'
+          : 'Sorry, the analysis service is temporarily unavailable. Let me recommend some general learning topics for you.',
+        timestamp: new Date()
+      }
+
+      setChatMessages(prev => [...prev, errorMessage])
+
+      // Fallback topics with follow-up questions (bilingual)
+      const fallbackTopics: IdentifiedTopic[] = [
+        {
+          id: '1',
+          name: 'Please Specify Learning Topic',
+          name_zh: '请具体说明学习主题',
+          name_en: 'Please Specify Learning Topic',
+          description: 'Please tell me the subject and specific topic you want to learn',
+          description_zh: '请告诉我你想学习的科目和具体主题',
+          description_en: 'Please tell me the subject and specific topic you want to learn',
+          confidence: 0.5,
+          icon: '',
+          category: 'clarification',
+          follow_up_questions: [
+            'What subject do you want to learn? (e.g., literature, history, science, math, art, etc.)',
+            'Do you have specific learning goals or areas of interest?',
+            'Are you more interested in theory, practice, or a combination of both?',
+            'Do you need basic introduction, specialized research, or exam preparation?'
+          ],
+          follow_up_questions_zh: [
+            '你想学习什么科目？（如文学、历史、科学、数学、艺术等）',
+            '有特定的学习目标或兴趣领域吗？',
+            '对理论、实践还是两者结合更感兴趣？',
+            '需要基础入门、专题研究还是考试准备？'
+          ],
+          follow_up_questions_en: [
+            'What subject do you want to learn? (e.g., literature, history, science, math, art, etc.)',
+            'Do you have specific learning goals or areas of interest?',
+            'Are you more interested in theory, practice, or a combination of both?',
+            'Do you need basic introduction, specialized research, or exam preparation?'
+          ]
+        },
+        {
+          id: '2',
+          name: 'Literature Learning Topics',
+          name_zh: '文学学习主题',
+          name_en: 'Literature Learning Topics',
+          description: 'Please specify the literature-related topics you want to learn',
+          description_zh: '请具体说明你想学习的文学相关主题',
+          description_en: 'Please specify the literature-related topics you want to learn',
+          confidence: 0.6,
+          icon: '',
+          category: 'literature',
+          follow_up_questions: [
+            'What specific area of literature do you want to learn?',
+            'Are you more interested in literary theory research or practical application?',
+            'Do you need a basic introduction to literature or specialized research?',
+            'Are there specific literary works, periods, or genres you want to learn?'
+          ],
+          follow_up_questions_zh: [
+            '你想学习文学的哪个具体领域？',
+            '对文学的理论研究还是实践应用更感兴趣？',
+            '需要文学的基础入门还是专题研究？',
+            '有特定的文学作品、时期或流派想学习吗？'
+          ],
+          follow_up_questions_en: [
+            'What specific area of literature do you want to learn?',
+            'Are you more interested in literary theory research or practical application?',
+            'Do you need a basic introduction to literature or specialized research?',
+            'Are there specific literary works, periods, or genres you want to learn?'
+          ]
+        },
+        {
+          id: '3',
+          name: 'Science Learning Topics',
+          name_zh: '科学学习主题',
+          name_en: 'Science Learning Topics',
+          description: 'Please specify the science-related topics you want to learn',
+          description_zh: '请具体说明你想学习的科学相关主题',
+          description_en: 'Please specify the science-related topics you want to learn',
+          confidence: 0.6,
+          icon: '',
+          category: 'science',
+          follow_up_questions: [
+            'What specific area of science do you want to learn?',
+            'Are you more interested in theoretical research or experimental application?',
+            'Do you need a basic introduction to science or specialized research?',
+            'Are there specific scientific concepts, theories, or experiments you want to learn?'
+          ],
+          follow_up_questions_zh: [
+            '你想学习科学的哪个具体领域？',
+            '对科学的理论研究还是实验应用更感兴趣？',
+            '需要科学的基础入门还是专题研究？',
+            '有特定的科学概念、理论或实验想学习吗？'
+          ],
+          follow_up_questions_en: [
+            'What specific area of science do you want to learn?',
+            'Are you more interested in theoretical research or experimental application?',
+            'Do you need a basic introduction to science or specialized research?',
+            'Are there specific scientific concepts, theories, or experiments you want to learn?'
+          ]
+        },
+        {
+          id: '4',
+          name: 'Mathematics Learning Topics',
+          name_zh: '数学学习主题',
+          name_en: 'Mathematics Learning Topics',
+          description: 'Please specify the mathematics-related topics you want to learn',
+          description_zh: '请具体说明你想学习的数学相关主题',
+          description_en: 'Please specify the mathematics-related topics you want to learn',
+          confidence: 0.6,
+          icon: '',
+          category: 'mathematics',
+          follow_up_questions: [
+            'What specific area of mathematics do you want to learn?',
+            'Are you more interested in theoretical research or practical application?',
+            'Do you need a basic introduction to mathematics or specialized research?',
+            'Are there specific mathematical concepts, formulas, or problems you want to learn?'
+          ],
+          follow_up_questions_zh: [
+            '你想学习数学的哪个具体领域？',
+            '对数学的理论研究还是实际应用更感兴趣？',
+            '需要数学的基础入门还是专题研究？',
+            '有特定的数学概念、公式或问题想学习吗？'
+          ],
+          follow_up_questions_en: [
+            'What specific area of mathematics do you want to learn?',
+            'Are you more interested in theoretical research or practical application?',
+            'Do you need a basic introduction to mathematics or specialized research?',
+            'Are there specific mathematical concepts, formulas, or problems you want to learn?'
+          ]
+        },
+        {
+          id: '5',
+          name: 'Art Learning Topics',
+          name_zh: '艺术学习主题',
+          name_en: 'Art Learning Topics',
+          description: 'Please specify the art-related topics you want to learn',
+          description_zh: '请具体说明你想学习的艺术相关主题',
+          description_en: 'Please specify the art-related topics you want to learn',
+          confidence: 0.6,
+          icon: '',
+          category: 'art',
+          follow_up_questions: [
+            'What specific area of art do you want to learn?',
+            'Are you more interested in art theory research or practical creation?',
+            'Do you need a basic introduction to art or specialized research?',
+            'Are there specific art forms, styles, or works you want to learn?'
+          ],
+          follow_up_questions_zh: [
+            '你想学习艺术的哪个具体领域？',
+            '对艺术的理论研究还是实践创作更感兴趣？',
+            '需要艺术的基础入门还是专题研究？',
+            '有特定的艺术形式、风格或作品想学习吗？'
+          ],
+          follow_up_questions_en: [
+            'What specific area of art do you want to learn?',
+            'Are you more interested in art theory research or practical creation?',
+            'Do you need a basic introduction to art or specialized research?',
+            'Are there specific art forms, styles, or works you want to learn?'
+          ]
+        }
+      ]
+
+      setIdentifiedTopics(fallbackTopics)
+      setWorkflowPhase('topic-selection')
+    } finally {
+      setIsTyping(false)
+    }
   }
 
   const handleTopicSelect = (topicId: string) => {
@@ -183,7 +429,7 @@ export default function CreateLessonPage() {
 
   const handleConfirmTopics = () => {
     if (selectedTopics.length === 0) {
-      alert('请至少选择一个主题')
+      alert(t('create.selectAtLeastOneTopic'))
       return
     }
 
@@ -196,17 +442,17 @@ export default function CreateLessonPage() {
       ...prev,
       studentQuery: selectedTopicNames
     }))
-    
+
     setWorkflowPhase('generating')
   }
 
   const handleSave = () => {
     if (!preview) {
-      alert('请先生成课程')
+      alert(t('create.generateCourseFirst'))
       return
     }
-    
-    alert('课程已保存！')
+
+    alert(t('create.courseSaved'))
     router.push('/lessons')
   }
 
@@ -214,11 +460,17 @@ export default function CreateLessonPage() {
     <div className="space-y-8">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">创建新课程</h1>
-          <p className="text-gray-600 mt-1">AI驱动的个性化教学课程生成</p>
+          <h1 className="text-3xl font-bold text-gray-900">
+            {t('nav.create')}
+          </h1>
+          <p className="text-gray-600 mt-1">
+            {uiLanguage === 'zh' ? 'AI驱动的个性化教学课程生成' : 'AI-powered personalized teaching course generation'}
+          </p>
         </div>
-        <div className="text-sm text-gray-500">
-          剩余课时：958
+        <div className="flex items-center space-x-4">
+          <div className="text-sm text-gray-500">
+            {t('common.remainingLessons', { count: 958 })}
+          </div>
         </div>
       </div>
 
@@ -226,7 +478,9 @@ export default function CreateLessonPage() {
         <div className="space-y-6">
           {workflowPhase === 'chatting' && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">AI学习导师对话</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                {t('create.chatTitle')}
+              </h2>
               <div className="space-y-4">
                 <div className="h-96 overflow-y-auto space-y-4 p-2">
                   {chatMessages.map((message) => (
@@ -235,14 +489,13 @@ export default function CreateLessonPage() {
                       className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
                       <div
-                        className={`max-w-[80%] rounded-lg p-4 ${
-                          message.role === 'user'
-                            ? 'bg-blue-100 text-blue-900'
-                            : 'bg-gray-100 text-gray-900'
-                        }`}
+                        className={`max-w-[80%] rounded-lg p-4 ${message.role === 'user'
+                          ? 'bg-blue-100 text-blue-900'
+                          : 'bg-gray-100 text-gray-900'
+                          }`}
                       >
                         <div className="text-sm font-medium mb-1">
-                          {message.role === 'user' ? '你' : 'AI导师'}
+                          {message.role === 'user' ? t('create.userName') : t('create.assistantName')}
                         </div>
                         <div className="text-sm">{message.content}</div>
                         <div className="text-xs text-gray-500 mt-2">
@@ -251,11 +504,11 @@ export default function CreateLessonPage() {
                       </div>
                     </div>
                   ))}
-                  
+
                   {isTyping && (
                     <div className="flex justify-start">
                       <div className="bg-gray-100 text-gray-900 rounded-lg p-4">
-                        <div className="text-sm font-medium mb-1">AI导师</div>
+                        <div className="text-sm font-medium mb-1">{t('create.assistantName')}</div>
                         <div className="flex items-center space-x-1">
                           <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
                           <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
@@ -265,14 +518,14 @@ export default function CreateLessonPage() {
                     </div>
                   )}
                 </div>
-                
+
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={userInput}
                     onChange={(e) => setUserInput(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                    placeholder="告诉我你想学习什么..."
+                    placeholder={t('create.chatPlaceholder')}
                     className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                   <button
@@ -280,123 +533,152 @@ export default function CreateLessonPage() {
                     disabled={!userInput.trim() || isTyping}
                     className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    发送
+                    {t('create.sendButton')}
                   </button>
                 </div>
               </div>
             </div>
           )}
-          
+
           {workflowPhase === 'topic-selection' && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">选择学习主题</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                {t('create.topicSelectionTitle')}
+              </h2>
               <div className="space-y-4">
-                <p className="text-gray-600">基于对话分析，我为你推荐以下学习主题：</p>
-                
+                <p className="text-gray-600">
+                  {t('create.topicSelectionDescription')}
+                </p>
+
                 <div className="space-y-3">
                   {identifiedTopics.map((topic) => (
                     <div
                       key={topic.id}
                       onClick={() => handleTopicSelect(topic.id)}
-                      className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                        selectedTopics.includes(topic.id)
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                      }`}
+                      className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${selectedTopics.includes(topic.id)
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                        }`}
                     >
-                      <div className="flex items-start">
-                        <div className="text-2xl mr-3">{topic.icon}</div>
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-900">{topic.name}</div>
-                          <div className="text-sm text-gray-600 mt-1">{topic.description}</div>
-                          <div className="text-xs text-gray-500 mt-2">
-                            推荐度: {(topic.confidence * 100).toFixed(0)}%
+                      <div className="flex-1">
+                        <div className="font-medium text-gray-900">
+                          {uiLanguage === 'zh' ? (topic.name_zh || topic.name) : (topic.name_en || topic.name)}
+                        </div>
+                        <div className="text-sm text-gray-600 mt-1">
+                          {uiLanguage === 'zh' ? (topic.description_zh || topic.description) : (topic.description_en || topic.description)}
+                        </div>
+
+                        {/* Display follow-up questions if available */}
+                        {topic.follow_up_questions && topic.follow_up_questions.length > 0 && (
+                          <div className="mt-3">
+                            <div className="text-xs font-medium text-gray-700 mb-1">
+                              {t('create.clarificationQuestionsLabel')}:
+                            </div>
+                            <ul className="text-xs text-gray-600 space-y-1">
+                              {(uiLanguage === 'zh' ? topic.follow_up_questions_zh || topic.follow_up_questions : topic.follow_up_questions_en || topic.follow_up_questions)
+                                .slice(0, 2).map((question, idx) => (
+                                  <li key={idx} className="flex items-start">
+                                    <span className="text-gray-400 mr-1">•</span>
+                                    <span>{question}</span>
+                                  </li>
+                                ))}
+                              {topic.follow_up_questions.length > 2 && (
+                                <li className="text-gray-500 text-xs">
+                                  {t('create.andMoreQuestions', { count: topic.follow_up_questions.length - 2 })}
+                                </li>
+                              )}
+                            </ul>
                           </div>
+                        )}
+
+                        <div className="text-xs text-gray-500 mt-2">
+                          {t('create.recommendationLabel')}: {(topic.confidence * 100).toFixed(0)}%
                         </div>
-                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
-                          selectedTopics.includes(topic.id)
-                            ? 'border-blue-500 bg-blue-500'
-                            : 'border-gray-300'
+                      </div>
+                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${selectedTopics.includes(topic.id)
+                        ? 'border-blue-500 bg-blue-500'
+                        : 'border-gray-300'
                         }`}>
-                          {selectedTopics.includes(topic.id) && (
-                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </div>
+                        {selectedTopics.includes(topic.id) && (
+                          <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
-                
+
                 <div className="flex gap-3">
                   <button
                     onClick={() => setWorkflowPhase('chatting')}
                     className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg font-medium hover:bg-gray-300 transition-colors"
                   >
-                    返回对话
+                    {t('create.backToChatButton')}
                   </button>
                   <button
                     onClick={handleConfirmTopics}
                     disabled={selectedTopics.length === 0}
                     className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    确认选择 ({selectedTopics.length})
+                    {t('create.confirmSelectionButton', { count: selectedTopics.length })}
                   </button>
                 </div>
               </div>
             </div>
           )}
-          
+
           {(workflowPhase === 'generating' || workflowPhase === 'preview') && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">学生问题</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                {t('create.formTitle')}
+              </h2>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    学生想要学习什么？
+                    {t('create.studentQueryLabel')}
                   </label>
                   <textarea
                     value={form.studentQuery}
                     onChange={(e) => setForm({ ...form, studentQuery: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     rows={4}
-                    placeholder="例如：我想学习Python编程，从哪里开始？"
+                    placeholder={t('create.studentQueryPlaceholder')}
                   />
                   <p className="text-sm text-gray-500 mt-2">
-                    用中文描述学习需求，AI会生成最适合的教学方案
+                    {t('create.studentQueryHint')}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      学生水平
+                      {t('create.studentLevelLabel')}
                     </label>
                     <select
                       value={form.studentLevel}
                       onChange={(e) => setForm({ ...form, studentLevel: e.target.value as any })}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
-                      <option value="beginner">初学者</option>
-                      <option value="intermediate">中级</option>
-                      <option value="advanced">高级</option>
+                      <option value="beginner">{t('create.studentLevelOptions.beginner')}</option>
+                      <option value="intermediate">{t('create.studentLevelOptions.intermediate')}</option>
+                      <option value="advanced">{t('create.studentLevelOptions.advanced')}</option>
                     </select>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      课程时长（分钟）
+                      {t('create.durationLabel')}
                     </label>
                     <select
                       value={form.duration}
                       onChange={(e) => setForm({ ...form, duration: parseInt(e.target.value) })}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
-                      <option value={15}>15分钟</option>
-                      <option value={30}>30分钟</option>
-                      <option value={45}>45分钟</option>
-                      <option value={60}>60分钟</option>
+                      <option value={15}>15 {t('common.minutes')}</option>
+                      <option value={30}>30 {t('common.minutes')}</option>
+                      <option value={45}>45 {t('common.minutes')}</option>
+                      <option value={60}>60 {t('common.minutes')}</option>
                     </select>
                   </div>
                 </div>
@@ -405,48 +687,32 @@ export default function CreateLessonPage() {
           )}
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">学科分类</h2>
-            <div className="grid grid-cols-3 gap-3">
-              {subjects.map((subject) => (
-                <button
-                  key={subject.id}
-                  onClick={() => setForm({ ...form, subject: subject.id })}
-                  className={`p-4 rounded-lg border-2 flex flex-col items-center justify-center transition-all ${
-                    form.subject === subject.id
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  <span className="text-2xl mb-2">{subject.icon}</span>
-                  <span className="text-sm font-medium">{subject.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">附加选项</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              {t('create.additionalOptionsTitle')}
+            </h2>
             <div className="space-y-4">
               <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                 <div>
-                  <div className="font-medium text-gray-900">生成视频课程</div>
-                  <div className="text-sm text-gray-500 mt-1">包含AI虚拟教师和语音讲解</div>
+                  <div className="font-medium text-gray-900">
+                    {t('create.includeVideoLabel')}
+                  </div>
+                  <div className="text-sm text-gray-500 mt-1">
+                    {t('create.includeVideoDescription')}
+                  </div>
                 </div>
                 <button
                   onClick={() => setForm({ ...form, includeVideo: !form.includeVideo })}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    form.includeVideo ? 'bg-blue-600' : 'bg-gray-300'
-                  }`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.includeVideo ? 'bg-blue-600' : 'bg-gray-300'
+                    }`}
                 >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    form.includeVideo ? 'translate-x-6' : 'translate-x-1'
-                  }`} />
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${form.includeVideo ? 'translate-x-6' : 'translate-x-1'
+                    }`} />
                 </button>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  教学语言
+                  {t('create.languageLabel')}
                 </label>
                 <select
                   value={form.language}
@@ -462,355 +728,366 @@ export default function CreateLessonPage() {
             </div>
           </div>
 
-           <div className="flex gap-4">
-             <button
-               onClick={handleGenerate}
-               disabled={generating || !form.studentQuery.trim()}
-               className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-lg"
-             >
-               {generating ? (
-                 <>
-                   <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                   </svg>
-                   课程生成中...
-                 </>
-               ) : (
-                 '生成课程'
-               )}
-             </button>
-             
-             <button
-               onClick={() => {
-                 setForm({
-                   studentQuery: '',
-                   studentLevel: 'beginner',
-                   subject: 'programming',
-                   duration: 30,
-                   includeVideo: true,
-                   language: 'zh-CN',
-                 })
-                 setWorkflowPhase('chatting')
-                 setChatMessages([
-                   {
-                     id: '1',
-                     role: 'assistant',
-                     content: '你好！我是你的AI学习导师。请告诉我你想学习什么，或者在学习中遇到了什么困难？我会通过对话了解你的需求，然后为你推荐最适合的学习主题。',
-                     timestamp: new Date()
-                   }
-                 ])
-                 setUserInput('')
-                 setIdentifiedTopics([])
-                 setSelectedTopics([])
-                 setPreview(null)
-               }}
-               className="px-6 py-4 bg-gray-200 text-gray-800 rounded-lg font-medium hover:bg-gray-300 transition-colors"
-             >
-               重置
-             </button>
-           </div>
+          <div className="flex gap-4">
+            <button
+              onClick={handleGenerate}
+              disabled={generating || !form.studentQuery.trim()}
+              className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-lg"
+            >
+              {generating ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  {t('create.generating')}
+                </>
+              ) : (
+                t('create.generateButton')
+              )}
+            </button>
 
-           {pipelineProgress && (
-             <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl border border-blue-200 p-6">
-               <div className="flex items-center justify-between mb-4">
-                 <div>
-                   <h3 className="text-lg font-semibold text-blue-900">智能讲授管道</h3>
-                   <p className="text-sm text-blue-700 mt-1">闭环、连贯且适应性的智能讲授流程</p>
-                 </div>
-                 <div className="text-right">
-                   <div className="text-sm text-blue-600">步骤 {pipelineProgress.currentStep}/{pipelineProgress.totalSteps}</div>
-                   <div className="text-lg font-bold text-blue-800">{pipelineProgress.progress}%</div>
-                 </div>
-               </div>
-               
-               <div className="mb-4">
-                 <div className="flex justify-between text-sm text-blue-700 mb-1">
-                   <span>{pipelineProgress.stepName}</span>
-                   <span>{pipelineProgress.progress}%</span>
-                 </div>
-                 <div className="h-2 bg-blue-200 rounded-full overflow-hidden">
-                   <div 
-                     className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-300"
-                     style={{ width: `${pipelineProgress.progress}%` }}
-                   />
-                 </div>
-               </div>
-               
-               <div className="text-sm text-blue-800">
-                 <div className="font-medium mb-1">当前步骤:</div>
-                 <div className="text-blue-600">{pipelineProgress.stepDescription}</div>
-               </div>
-               
-               <div className="mt-4 grid grid-cols-6 gap-1">
-                 {[1, 2, 3, 4, 5, 6].map((step) => (
-                   <div 
-                     key={step}
-                     className={`h-1 rounded-full ${
-                       step <= pipelineProgress.currentStep 
-                         ? 'bg-gradient-to-r from-blue-500 to-purple-500' 
-                         : 'bg-blue-200'
-                     }`}
-                   />
-                 ))}
-               </div>
-               
-               <div className="mt-3 text-xs text-blue-600 grid grid-cols-6 gap-1">
-                 <div className="text-center">对话理解</div>
-                 <div className="text-center">GraphRAG</div>
-                 <div className="text-center">动态记忆</div>
-                 <div className="text-center">路径规划</div>
-                 <div className="text-center">RAG合成</div>
-                 <div className="text-center">数字人生成</div>
-               </div>
-             </div>
-           )}
+            <button
+              onClick={() => {
+                setForm({
+                  studentQuery: '',
+                  studentLevel: 'beginner',
+                  duration: 30,
+                  includeVideo: true,
+                  language: 'zh-CN',
+                })
+                setWorkflowPhase('chatting')
+                setChatMessages([
+                  {
+                    id: '1',
+                    role: 'assistant',
+                    content: '你好！我是你的AI学习导师。请告诉我你想学习什么，或者在学习中遇到了什么困难？我会通过对话了解你的需求，然后为你推荐最适合的学习主题。',
+                    timestamp: new Date()
+                  }
+                ])
+                setUserInput('')
+                setIdentifiedTopics([])
+                setSelectedTopics([])
+                setPreview(null)
+              }}
+              className="px-6 py-4 bg-gray-200 text-gray-800 rounded-lg font-medium hover:bg-gray-300 transition-colors"
+            >
+              重置
+            </button>
+          </div>
+
+          {pipelineProgress && (
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl border border-blue-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-blue-900">智能讲授管道</h3>
+                  <p className="text-sm text-blue-700 mt-1">闭环、连贯且适应性的智能讲授流程</p>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm text-blue-600">步骤 {pipelineProgress.currentStep}/{pipelineProgress.totalSteps}</div>
+                  <div className="text-lg font-bold text-blue-800">{pipelineProgress.progress}%</div>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <div className="flex justify-between text-sm text-blue-700 mb-1">
+                  <span>{pipelineProgress.stepName}</span>
+                  <span>{pipelineProgress.progress}%</span>
+                </div>
+                <div className="h-2 bg-blue-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-300"
+                    style={{ width: `${pipelineProgress.progress}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="text-sm text-blue-800">
+                <div className="font-medium mb-1">当前步骤:</div>
+                <div className="text-blue-600">{pipelineProgress.stepDescription}</div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-6 gap-1">
+                {[1, 2, 3, 4, 5, 6].map((step) => (
+                  <div
+                    key={step}
+                    className={`h-1 rounded-full ${step <= pipelineProgress.currentStep
+                      ? 'bg-gradient-to-r from-blue-500 to-purple-500'
+                      : 'bg-blue-200'
+                      }`}
+                  />
+                ))}
+              </div>
+
+              <div className="mt-3 text-xs text-blue-600 grid grid-cols-6 gap-1">
+                <div className="text-center">对话理解</div>
+                <div className="text-center">GraphRAG</div>
+                <div className="text-center">动态记忆</div>
+                <div className="text-center">路径规划</div>
+                <div className="text-center">RAG合成</div>
+                <div className="text-center">数字人生成</div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">课程预览</h2>
-            
-             {preview ? (
-               <div className="space-y-6">
-                 <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-200 p-6">
-                   <div className="flex justify-between items-start">
-                     <div>
-                       <h3 className="text-xl font-bold text-blue-900">课程创建完成</h3>
-                       <p className="text-blue-700 mt-2">个性化教学课程已生成</p>
-                     </div>
-                     <div className="text-right">
-                       <div className="text-sm text-blue-600">处理时间</div>
-                       <div className="text-lg font-bold text-blue-800">
-                         {preview.processing_time_seconds?.toFixed(1)}秒
-                       </div>
-                     </div>
-                   </div>
-                   
-                   <div className="mt-4 grid grid-cols-4 gap-3">
-                     <div className="text-center bg-white rounded-lg p-3 border border-blue-100">
-                       <div className="text-sm text-blue-600">语言</div>
-                       <div className="text-lg font-bold text-blue-800">
-                         {preview.language === 'zh' ? '中文' : 'English'}
-                       </div>
-                     </div>
-                     <div className="text-center bg-white rounded-lg p-3 border border-blue-100">
-                       <div className="text-sm text-blue-600">质量评分</div>
-                       <div className="text-lg font-bold text-green-600">
-                         {preview.quality_assessment?.overall_score?.toFixed(1) || 'N/A'}
-                       </div>
-                     </div>
-                     <div className="text-center bg-white rounded-lg p-3 border border-blue-100">
-                       <div className="text-sm text-blue-600">成本</div>
-                       <div className="text-lg font-bold text-blue-800">
-                         ${preview.cost_usd?.toFixed(4) || '0.0000'}
-                       </div>
-                     </div>
-                     <div className="text-center bg-white rounded-lg p-3 border border-blue-100">
-                       <div className="text-sm text-blue-600">学生水平</div>
-                       <div className="text-lg font-bold text-blue-800">
-                         {preview.processing_info?.student_level || 'beginner'}
-                       </div>
-                     </div>
-                   </div>
-                 </div>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              {t('create.previewTitle')}
+            </h2>
 
-                 {preview.quality_assessment && (
-                   <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border border-green-200 p-6">
-                     <h4 className="font-medium text-green-900 mb-3">📊 课程质量评估</h4>
-                     <div className="grid grid-cols-2 gap-4">
-                       <div>
-                         <div className="text-sm text-green-600">整体评分</div>
-                         <div className="font-medium text-green-800">{preview.quality_assessment.overall_score?.toFixed(1) || 'N/A'}/10</div>
-                       </div>
-                       <div>
-                         <div className="text-sm text-green-600">内容相关性</div>
-                         <div className="font-medium text-green-800">{preview.quality_assessment.content_relevance?.toFixed(1) || 'N/A'}/10</div>
-                       </div>
-                       <div>
-                         <div className="text-sm text-green-600">教学有效性</div>
-                         <div className="font-medium text-green-800">{preview.quality_assessment.teaching_effectiveness?.toFixed(1) || 'N/A'}/10</div>
-                       </div>
-                       <div>
-                         <div className="text-sm text-green-600">学生参与度</div>
-                         <div className="font-medium text-green-800">{preview.quality_assessment.student_engagement?.toFixed(1) || 'N/A'}/10</div>
-                       </div>
-                     </div>
-                   </div>
-                 )}
+            {preview ? (
+              <div className="space-y-6">
+                <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-200 p-6">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="text-xl font-bold text-blue-900">
+                        {t('create.lessonCreationComplete')}
+                      </h3>
+                      <p className="text-blue-700 mt-2">
+                        {t('create.personalizedLessonGenerated')}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm text-blue-600">
+                        {t('create.processingTime')}
+                      </div>
+                      <div className="text-lg font-bold text-blue-800">
+                        {preview.processing_time_seconds?.toFixed(1)} {t('create.seconds')}
+                      </div>
+                    </div>
+                  </div>
 
-                 <div className="space-y-4">
-                   <h4 className="font-medium text-gray-900">🎯 课程计划</h4>
-                   
-                   {preview.lesson_plan && (
-                     <div className="space-y-4">
-                       <div className="bg-white rounded-lg border border-gray-200 p-6">
-                         <div className="flex justify-between items-start mb-4">
-                           <div>
-                             <h5 className="text-lg font-bold text-gray-900">{preview.lesson_plan.title}</h5>
-                             <p className="text-gray-600 mt-1">{preview.lesson_plan.objective}</p>
-                           </div>
-                           <div className="text-right">
-                             <div className="text-sm text-gray-500">时长</div>
-                             <div className="text-lg font-bold text-gray-900">{preview.lesson_plan.total_duration_minutes}分钟</div>
-                           </div>
-                         </div>
-                         
-                         <div className="mt-4">
-                           <div className="text-sm font-medium text-gray-700 mb-2">教学步骤:</div>
-                           <div className="space-y-3">
-                             {preview.lesson_plan.steps?.map((step: any, index: number) => (
-                               <div key={index} className="border border-blue-100 rounded-lg p-4 bg-blue-50">
-                                 <div className="flex items-start">
-                                   <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold mr-3 flex-shrink-0">
-                                     {step.step_number || index + 1}
-                                   </div>
-                                   <div className="flex-1">
-                                     <div className="font-medium text-gray-900">{step.title}</div>
-                                     <div className="text-sm text-gray-600 mt-1">{step.content}</div>
-                                     <div className="mt-2 text-xs text-gray-500">
-                                       时长: {step.duration_minutes}分钟
-                                     </div>
-                                   </div>
-                                 </div>
-                               </div>
-                             ))}
-                           </div>
-                         </div>
-                       </div>
-                     </div>
-                   )}
-                   
-                   {preview.output_result && (
-                     <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200 p-6">
-                       <div className="flex justify-between items-start">
-                         <div>
-                           <h5 className="text-lg font-bold text-purple-900">🎥 生成内容</h5>
-                           <p className="text-purple-700 mt-1">教学资源已生成</p>
-                         </div>
-                         <div className="text-right">
-                           <div className="text-sm text-purple-600">生成状态</div>
-                           <div className="text-lg font-bold text-purple-800">完成</div>
-                         </div>
-                       </div>
-                       
-                       <div className="mt-4 grid grid-cols-2 gap-4">
-                         <div>
-                           <div className="text-sm text-purple-600">脚本</div>
-                           <div className="font-medium text-purple-800">
-                             {preview.output_result.script ? '已生成' : '未生成'}
-                           </div>
-                         </div>
-                         <div>
-                           <div className="text-sm text-purple-600">音频</div>
-                           <div className="font-medium text-purple-800">
-                             {preview.output_result.audio ? '已生成' : '未生成'}
-                           </div>
-                         </div>
-                         <div>
-                           <div className="text-sm text-purple-600">视频</div>
-                           <div className="font-medium text-purple-800">
-                             {preview.output_result.video ? '已生成' : '未生成'}
-                           </div>
-                         </div>
-                         <div>
-                           <div className="text-sm text-purple-600">练习</div>
-                           <div className="font-medium text-purple-800">
-                             {preview.output_result.exercises ? '已生成' : '未生成'}
-                           </div>
-                         </div>
-                       </div>
-                     </div>
-                   )}
-                 </div>
+                  <div className="mt-4 grid grid-cols-4 gap-3">
+                    <div className="text-center bg-white rounded-lg p-3 border border-blue-100">
+                      <div className="text-sm text-blue-600">
+                        {t('create.languageLabel')}
+                      </div>
+                      <div className="text-lg font-bold text-blue-800">
+                        {preview.language === 'zh' ? '中文' : 'English'}
+                      </div>
+                    </div>
+                    <div className="text-center bg-white rounded-lg p-3 border border-blue-100">
+                      <div className="text-sm text-blue-600">
+                        {t('create.qualityScoreLabel')}
+                      </div>
+                      <div className="text-lg font-bold text-green-600">
+                        {preview.quality_assessment?.overall_score?.toFixed(1) || 'N/A'}
+                      </div>
+                    </div>
+                    <div className="text-center bg-white rounded-lg p-3 border border-blue-100">
+                      <div className="text-sm text-blue-600">
+                        {t('create.costLabel')}
+                      </div>
+                      <div className="text-lg font-bold text-blue-800">
+                        ${preview.cost_usd?.toFixed(4) || '0.0000'}
+                      </div>
+                    </div>
+                    <div className="text-center bg-white rounded-lg p-3 border border-blue-100">
+                      <div className="text-sm text-blue-600">
+                        {t('create.studentLevelLabel')}
+                      </div>
+                      <div className="text-lg font-bold text-blue-800">
+                        {preview.processing_info?.student_level || 'beginner'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
-                 <div className="bg-gray-50 rounded-lg p-6">
-                   <h4 className="font-medium text-gray-900 mb-4">🔄 处理信息</h4>
-                   <div className="space-y-4">
-                     <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                       <div className="flex items-start">
-                         <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold mr-3 flex-shrink-0">
-                           1
-                         </div>
-                         <div className="flex-1">
-                           <div className="font-medium text-gray-900">主题分析</div>
-                           <div className="text-sm text-gray-500 mt-1">
-                             主题: {preview.processing_info?.topic}
-                           </div>
-                         </div>
-                       </div>
-                     </div>
-                     
-                     <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                       <div className="flex items-start">
-                         <div className="w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center font-bold mr-3 flex-shrink-0">
-                           2
-                         </div>
-                         <div className="flex-1">
-                           <div className="font-medium text-gray-900">认知处理</div>
-                           <div className="text-sm text-gray-500 mt-1">
-                             学生水平: {preview.processing_info?.student_level}
-                           </div>
-                         </div>
-                       </div>
-                     </div>
-                     
-                     <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                       <div className="flex items-start">
-                         <div className="w-8 h-8 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-bold mr-3 flex-shrink-0">
-                           3
-                         </div>
-                         <div className="flex-1">
-                           <div className="font-medium text-gray-900">教学计划生成</div>
-                           <div className="text-sm text-gray-500 mt-1">
-                             语言: {preview.language === 'zh' ? '中文' : 'English'}
-                           </div>
-                         </div>
-                       </div>
-                     </div>
-                     
-                     <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                       <div className="flex items-start">
-                         <div className="w-8 h-8 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center font-bold mr-3 flex-shrink-0">
-                           4
-                         </div>
-                         <div className="flex-1">
-                           <div className="font-medium text-gray-900">内容生成</div>
-                           <div className="text-sm text-gray-500 mt-1">
-                             处理时间: {preview.processing_time_seconds?.toFixed(1)}秒
-                           </div>
-                         </div>
-                       </div>
-                     </div>
-                   </div>
-                 </div>
+                {preview.quality_assessment && (
+                  <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border border-green-200 p-6">
+                    <h4 className="font-medium text-green-900 mb-3">课程质量评估</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <div className="text-sm text-green-600">整体评分</div>
+                        <div className="font-medium text-green-800">{preview.quality_assessment.overall_score?.toFixed(1) || 'N/A'}/10</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-green-600">内容相关性</div>
+                        <div className="font-medium text-green-800">{preview.quality_assessment.content_relevance?.toFixed(1) || 'N/A'}/10</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-green-600">教学有效性</div>
+                        <div className="font-medium text-green-800">{preview.quality_assessment.teaching_effectiveness?.toFixed(1) || 'N/A'}/10</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-green-600">学生参与度</div>
+                        <div className="font-medium text-green-800">{preview.quality_assessment.student_engagement?.toFixed(1) || 'N/A'}/10</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
-                 <div className="border-t border-gray-200 pt-4">
-                   <div className="flex justify-between items-center">
-                     <div>
-                       <div className="text-sm text-gray-500">课程创建完成</div>
-                       <div className="text-lg font-bold text-gray-900">
-                         质量评分: {preview.quality_assessment?.overall_score?.toFixed(1) || 'N/A'}/10
-                       </div>
-                     </div>
-                     <button
-                       onClick={handleSave}
-                       className="px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg font-medium hover:from-green-600 hover:to-emerald-600 transition-all shadow-lg"
-                     >
-                       保存课程
-                     </button>
-                   </div>
-                   <p className="text-sm text-gray-500 mt-2">
-                     基于AI驱动的个性化教学课程生成
-                   </p>
-                 </div>
-               </div>
-             ) : (
+                <div className="space-y-4">
+                  <h4 className="font-medium text-gray-900">课程计划</h4>
+
+                  {preview.lesson_plan && (
+                    <div className="space-y-4">
+                      <div className="bg-white rounded-lg border border-gray-200 p-6">
+                        <div className="flex justify-between items-start mb-4">
+                          <div>
+                            <h5 className="text-lg font-bold text-gray-900">{preview.lesson_plan.title}</h5>
+                            <p className="text-gray-600 mt-1">{preview.lesson_plan.objective}</p>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm text-gray-500">时长</div>
+                            <div className="text-lg font-bold text-gray-900">{preview.lesson_plan.total_duration_minutes}分钟</div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4">
+                          <div className="text-sm font-medium text-gray-700 mb-2">教学步骤:</div>
+                          <div className="space-y-3">
+                            {preview.lesson_plan.steps?.map((step: any, index: number) => (
+                              <div key={index} className="border border-blue-100 rounded-lg p-4 bg-blue-50">
+                                <div className="flex items-start">
+                                  <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold mr-3 flex-shrink-0">
+                                    {step.step_number || index + 1}
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="font-medium text-gray-900">{step.title}</div>
+                                    <div className="text-sm text-gray-600 mt-1">{step.content}</div>
+                                    <div className="mt-2 text-xs text-gray-500">
+                                      时长: {step.duration_minutes}分钟
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {preview.output_result && (
+                    <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200 p-6">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h5 className="text-lg font-bold text-purple-900">生成内容</h5>
+                          <p className="text-purple-700 mt-1">教学资源已生成</p>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm text-purple-600">生成状态</div>
+                          <div className="text-lg font-bold text-purple-800">完成</div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-sm text-purple-600">脚本</div>
+                          <div className="font-medium text-purple-800">
+                            {preview.output_result.script ? '已生成' : '未生成'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-purple-600">音频</div>
+                          <div className="font-medium text-purple-800">
+                            {preview.output_result.audio ? '已生成' : '未生成'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-purple-600">视频</div>
+                          <div className="font-medium text-purple-800">
+                            {preview.output_result.video ? '已生成' : '未生成'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-purple-600">练习</div>
+                          <div className="font-medium text-purple-800">
+                            {preview.output_result.exercises ? '已生成' : '未生成'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-gray-50 rounded-lg p-6">
+                  <h4 className="font-medium text-gray-900 mb-4">🔄 处理信息</h4>
+                  <div className="space-y-4">
+                    <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                      <div className="flex items-start">
+                        <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold mr-3 flex-shrink-0">
+                          1
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-medium text-gray-900">主题分析</div>
+                          <div className="text-sm text-gray-500 mt-1">
+                            主题: {preview.processing_info?.topic}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                      <div className="flex items-start">
+                        <div className="w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center font-bold mr-3 flex-shrink-0">
+                          2
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-medium text-gray-900">认知处理</div>
+                          <div className="text-sm text-gray-500 mt-1">
+                            学生水平: {preview.processing_info?.student_level}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                      <div className="flex items-start">
+                        <div className="w-8 h-8 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-bold mr-3 flex-shrink-0">
+                          3
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-medium text-gray-900">教学计划生成</div>
+                          <div className="text-sm text-gray-500 mt-1">
+                            语言: {preview.language === 'zh' ? '中文' : 'English'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                      <div className="flex items-start">
+                        <div className="w-8 h-8 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center font-bold mr-3 flex-shrink-0">
+                          4
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-medium text-gray-900">内容生成</div>
+                          <div className="text-sm text-gray-500 mt-1">
+                            处理时间: {preview.processing_time_seconds?.toFixed(1)}秒
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-200 pt-4">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <div className="text-sm text-gray-500">课程创建完成</div>
+                      <div className="text-lg font-bold text-gray-900">
+                        质量评分: {preview.quality_assessment?.overall_score?.toFixed(1) || 'N/A'}/10
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleSave}
+                      className="px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg font-medium hover:from-green-600 hover:to-emerald-600 transition-all shadow-lg"
+                    >
+                      保存课程
+                    </button>
+                  </div>
+                  <p className="text-sm text-gray-500 mt-2">
+                    基于AI驱动的个性化教学课程生成
+                  </p>
+                </div>
+              </div>
+            ) : (
               <div className="text-center py-12">
                 <div className="text-gray-400 mb-4">
-                  <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
                 </div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">等待生成</h3>
                 <p className="text-gray-500">填写左侧表单并点击"生成课程计划"来预览</p>

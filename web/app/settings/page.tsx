@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useLanguage } from '../components/LanguageContext'
 
 interface SubscriptionPlan {
   id: string
@@ -37,6 +38,7 @@ interface UserSettings {
 }
 
 export default function SettingsPage() {
+  const { language: uiLanguage, t } = useLanguage()
   const [settings, setSettings] = useState<UserSettings>({
     subscription: {
       plan: 'pro',
@@ -67,27 +69,27 @@ export default function SettingsPage() {
   const subscriptionPlans: SubscriptionPlan[] = [
     {
       id: 'basic',
-      name: 'Basic',
+      name: t('settings.basic'),
       price: 9.99,
-      features: ['100 lessons/month', '30min max duration', 'Email support', 'Standard quality'],
+      features: (uiLanguage === 'zh' ? ['100 课程/月', '30分钟最大时长', '邮件支持', '标准质量'] : ['100 lessons/month', '30min max duration', 'Email support', 'Standard quality']),
       lessons_per_month: 100,
       max_duration: 30,
       support: 'email',
     },
     {
       id: 'pro',
-      name: 'Professional',
+      name: t('settings.professional'),
       price: 29.99,
-      features: ['1000 lessons/month', '60min max duration', 'Priority support', 'High quality', 'Video generation'],
+      features: (uiLanguage === 'zh' ? ['1000 课程/月', '60分钟最大时长', '优先支持', '高质量', '视频生成'] : ['1000 lessons/month', '60min max duration', 'Priority support', 'High quality', 'Video generation']),
       lessons_per_month: 1000,
       max_duration: 60,
       support: 'priority',
     },
     {
       id: 'enterprise',
-      name: 'Enterprise',
+      name: t('settings.enterprise'),
       price: 99.99,
-      features: ['Unlimited lessons', 'Unlimited duration', '24/7 support', 'Highest quality', 'Custom avatars', 'API access'],
+      features: (uiLanguage === 'zh' ? ['无限课程', '无限时长', '24/7 支持', '最高质量', '自定义头像', 'API 访问'] : ['Unlimited lessons', 'Unlimited duration', '24/7 support', 'Highest quality', 'Custom avatars', 'API access']),
       lessons_per_month: 9999,
       max_duration: 120,
       support: '24/7',
@@ -99,17 +101,17 @@ export default function SettingsPage() {
     try {
       // In a real implementation, this would save to the backend
       await new Promise(resolve => setTimeout(resolve, 1000))
-      alert('Settings saved successfully!')
+      alert(t('settings.settingsSaved'))
     } catch (error) {
       console.error('Failed to save settings:', error)
-      alert('Failed to save settings')
+      alert(t('settings.settingsSaveFailed'))
     } finally {
       setSaving(false)
     }
   }
 
   const handleUpgrade = (planId: string) => {
-    if (confirm(`Upgrade to ${planId} plan? This will take effect on your next billing cycle.`)) {
+    if (confirm(t('settings.upgradeConfirm', { planId }))) {
       setSettings({
         ...settings,
         subscription: {
@@ -117,7 +119,7 @@ export default function SettingsPage() {
           plan: planId,
         },
       })
-      alert('Plan upgrade requested!')
+      alert(t('settings.upgradeRequested'))
     }
   }
 
@@ -126,34 +128,40 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Account Settings</h1>
-          <p className="text-gray-600 mt-1">Manage your subscription and preferences</p>
+          <h1 className="text-3xl font-bold text-gray-900">
+            {t('settings.pageTitle')}
+          </h1>
+          <p className="text-gray-600 mt-1">
+            {t('settings.pageDescription')}
+          </p>
         </div>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
-        >
-          {saving ? 'Saving...' : 'Save Changes'}
-        </button>
+
+        <div className="flex items-center space-x-4">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+          >
+            {saving ? t('settings.saving') : t('settings.saveChanges')}
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
       <div className="border-b border-gray-200">
         <nav className="flex space-x-8">
           {[
-            { id: 'subscription', label: 'Subscription' },
-            { id: 'preferences', label: 'Preferences' },
-            { id: 'billing', label: 'Billing' },
+            { id: 'subscription', label: t('settings.subscription') },
+            { id: 'preferences', label: t('settings.preferences') },
+            { id: 'billing', label: t('settings.billing') },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`py-3 px-1 font-medium text-sm border-b-2 transition-colors ${
-                activeTab === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
+              className={`py-3 px-1 font-medium text-sm border-b-2 transition-colors ${activeTab === tab.id
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
             >
               {tab.label}
             </button>
@@ -166,8 +174,10 @@ export default function SettingsPage() {
         <div className="space-y-6">
           {/* Current Plan */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Current Plan</h2>
-            
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              {t('settings.currentPlan')}
+            </h2>
+
             <div className="bg-blue-50 rounded-lg p-6 mb-6">
               <div className="flex justify-between items-start">
                 <div>
@@ -184,7 +194,9 @@ export default function SettingsPage() {
                   </p>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm text-gray-500">Renews on</div>
+                  <div className="text-sm text-gray-500">
+                    {t('settings.renewsOn')}
+                  </div>
                   <div className="font-medium text-gray-900">{settings.subscription.renewal_date}</div>
                 </div>
               </div>
@@ -193,21 +205,27 @@ export default function SettingsPage() {
             {/* Usage Stats */}
             <div className="grid md:grid-cols-3 gap-4 mb-6">
               <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-500 mb-1">Lessons Used</div>
+                <div className="text-sm text-gray-500 mb-1">
+                  {t('settings.lessonsUsed')}
+                </div>
                 <div className="text-2xl font-bold text-gray-900">{settings.subscription.usage.lessons_used}</div>
                 <div className="text-sm text-gray-500 mt-1">
                   of {subscriptionPlans.find(p => p.id === settings.subscription.plan)?.lessons_per_month} this month
                 </div>
               </div>
-              
+
               <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-500 mb-1">Remaining</div>
+                <div className="text-sm text-gray-500 mb-1">
+                  {t('settings.remaining')}
+                </div>
                 <div className="text-2xl font-bold text-gray-900">{settings.subscription.usage.lessons_remaining}</div>
                 <div className="text-sm text-gray-500 mt-1">lessons available</div>
               </div>
-              
+
               <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-sm text-gray-500 mb-1">Cost This Month</div>
+                <div className="text-sm text-gray-500 mb-1">
+                  {t('settings.costThisMonth')}
+                </div>
                 <div className="text-2xl font-bold text-gray-900">${settings.subscription.usage.cost_this_month.toFixed(2)}</div>
                 <div className="text-sm text-gray-500 mt-1">based on usage</div>
               </div>
@@ -215,7 +233,9 @@ export default function SettingsPage() {
 
             {/* Plan Features */}
             <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Plan Features</h3>
+              <h3 className="text-sm font-medium text-gray-700 mb-3">
+                {t('settings.planFeatures')}
+              </h3>
               <div className="space-y-2">
                 {subscriptionPlans.find(p => p.id === settings.subscription.plan)?.features.map((feature, index) => (
                   <div key={index} className="flex items-center">
@@ -231,23 +251,24 @@ export default function SettingsPage() {
 
           {/* Upgrade Plans */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-6">Available Plans</h2>
-            
+            <h2 className="text-lg font-semibold text-gray-900 mb-6">
+              {t('settings.availablePlans')}
+            </h2>
+
             <div className="grid md:grid-cols-3 gap-6">
               {subscriptionPlans.map((plan) => (
                 <div
                   key={plan.id}
-                  className={`border rounded-xl p-6 ${
-                    settings.subscription.plan === plan.id
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
+                  className={`border rounded-xl p-6 ${settings.subscription.plan === plan.id
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                    }`}
                 >
                   <div className="mb-4">
                     <div className="text-lg font-semibold text-gray-900">{plan.name}</div>
                     <div className="text-3xl font-bold text-gray-900 mt-2">${plan.price}<span className="text-lg text-gray-600">/month</span></div>
                   </div>
-                  
+
                   <div className="space-y-3 mb-6">
                     {plan.features.map((feature, index) => (
                       <div key={index} className="flex items-center">
@@ -258,20 +279,20 @@ export default function SettingsPage() {
                       </div>
                     ))}
                   </div>
-                  
+
                   {settings.subscription.plan === plan.id ? (
                     <button
                       disabled
                       className="w-full py-3 bg-gray-100 text-gray-400 rounded-lg font-medium cursor-not-allowed"
                     >
-                      Current Plan
+                      {t('settings.currentPlanButton')}
                     </button>
                   ) : (
                     <button
                       onClick={() => handleUpgrade(plan.id)}
                       className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
                     >
-                      {settings.subscription.plan === 'basic' && plan.id === 'pro' ? 'Upgrade' : 'Switch to Plan'}
+                      {settings.subscription.plan === 'basic' && plan.id === 'pro' ? t('settings.upgradeButton') : t('settings.switchToPlan')}
                     </button>
                   )}
                 </div>
@@ -281,13 +302,15 @@ export default function SettingsPage() {
 
           {/* Cancel Subscription */}
           <div className="bg-red-50 rounded-xl border border-red-200 p-6">
-            <h3 className="text-lg font-semibold text-red-900 mb-3">Danger Zone</h3>
+            <h3 className="text-lg font-semibold text-red-900 mb-3">
+              {t('settings.dangerZone')}
+            </h3>
             <p className="text-red-700 mb-4">
-              Cancelling your subscription will stop auto-renewal. You'll still have access until the end of your billing period.
+              {t('settings.cancelSubscriptionWarning')}
             </p>
             <button
               onClick={() => {
-                if (confirm('Are you sure you want to cancel your subscription?')) {
+                if (confirm(t('settings.cancelConfirm'))) {
                   setSettings({
                     ...settings,
                     subscription: {
@@ -295,12 +318,12 @@ export default function SettingsPage() {
                       status: 'cancelled',
                     },
                   })
-                  alert('Subscription cancellation requested.')
+                  alert(t('settings.cancellationRequested'))
                 }
               }}
               className="px-6 py-2 bg-white text-red-600 border border-red-300 rounded-lg font-medium hover:bg-red-50 transition-colors"
             >
-              Cancel Subscription
+              {t('settings.cancelSubscriptionButton')}
             </button>
           </div>
         </div>
@@ -309,12 +332,12 @@ export default function SettingsPage() {
       {/* Preferences Tab */}
       {activeTab === 'preferences' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-6">Preferences</h2>
-          
+          <h2 className="text-lg font-semibold text-gray-900 mb-6">{t('settings.preferences')}</h2>
+
           <div className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Default Language
+                {t('settings.defaultLanguage')}
               </label>
               <select
                 value={settings.preferences.default_language}
@@ -324,19 +347,19 @@ export default function SettingsPage() {
                 })}
                 className="w-full md:w-64 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                <option value="zh-CN">Chinese (Simplified)</option>
-                <option value="en-US">English (US)</option>
-                <option value="ja-JP">Japanese</option>
-                <option value="ko-KR">Korean</option>
+                <option value="zh-CN">{t('settings.chineseSimplified')}</option>
+                <option value="en-US">{t('settings.englishUS')}</option>
+                <option value="ja-JP">{t('settings.japanese')}</option>
+                <option value="ko-KR">{t('settings.korean')}</option>
               </select>
               <p className="text-sm text-gray-500 mt-2">
-                Default language for generated lesson content
+                {t('settings.defaultLanguageDescription')}
               </p>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Minimum Quality Threshold
+                {t('settings.minimumQualityThreshold')}
               </label>
               <div className="flex items-center">
                 <input
@@ -355,16 +378,16 @@ export default function SettingsPage() {
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-2">
-                Lessons below this score will be flagged for review
+                {t('settings.qualityThresholdDescription')}
               </p>
             </div>
 
             <div className="space-y-4">
               <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                 <div>
-                  <div className="font-medium text-gray-900">Auto-generate video lessons</div>
+                  <div className="font-medium text-gray-900">{t('settings.autoGenerateVideoLessons')}</div>
                   <div className="text-sm text-gray-500 mt-1">
-                    Automatically create video output with avatar
+                    {t('settings.autoGenerateVideoDescription')}
                   </div>
                 </div>
                 <button
@@ -372,21 +395,19 @@ export default function SettingsPage() {
                     ...settings,
                     preferences: { ...settings.preferences, auto_generate_video: !settings.preferences.auto_generate_video }
                   })}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    settings.preferences.auto_generate_video ? 'bg-blue-600' : 'bg-gray-300'
-                  }`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.preferences.auto_generate_video ? 'bg-blue-600' : 'bg-gray-300'
+                    }`}
                 >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    settings.preferences.auto_generate_video ? 'translate-x-6' : 'translate-x-1'
-                  }`} />
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.preferences.auto_generate_video ? 'translate-x-6' : 'translate-x-1'
+                    }`} />
                 </button>
               </div>
 
               <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                 <div>
-                  <div className="font-medium text-gray-900">Email notifications</div>
+                  <div className="font-medium text-gray-900">{t('settings.emailNotifications')}</div>
                   <div className="text-sm text-gray-500 mt-1">
-                    Receive email updates about your lessons and usage
+                    {t('settings.emailNotificationsDescription')}
                   </div>
                 </div>
                 <button
@@ -394,13 +415,11 @@ export default function SettingsPage() {
                     ...settings,
                     preferences: { ...settings.preferences, email_notifications: !settings.preferences.email_notifications }
                   })}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    settings.preferences.email_notifications ? 'bg-blue-600' : 'bg-gray-300'
-                  }`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.preferences.email_notifications ? 'bg-blue-600' : 'bg-gray-300'
+                    }`}
                 >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    settings.preferences.email_notifications ? 'translate-x-6' : 'translate-x-1'
-                  }`} />
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.preferences.email_notifications ? 'translate-x-6' : 'translate-x-1'
+                    }`} />
                 </button>
               </div>
             </div>
@@ -412,12 +431,12 @@ export default function SettingsPage() {
       {activeTab === 'billing' && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-6">Billing Information</h2>
-            
+            <h2 className="text-lg font-semibold text-gray-900 mb-6">{t('settings.billingInformation')}</h2>
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Billing Email
+                  {t('settings.billingEmail')}
                 </label>
                 <input
                   type="email"
@@ -429,13 +448,13 @@ export default function SettingsPage() {
                   className="w-full md:w-96 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
                 <p className="text-sm text-gray-500 mt-2">
-                  Invoices and receipts will be sent to this email
+                  {t('settings.billingEmailDescription')}
                 </p>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Payment Method
+                  {t('settings.paymentMethod')}
                 </label>
                 <div className="flex items-center p-4 bg-gray-50 rounded-lg">
                   <div className="w-10 h-6 bg-blue-500 rounded mr-4"></div>
@@ -444,14 +463,14 @@ export default function SettingsPage() {
                     <div className="text-sm text-gray-500">Expires 12/2026</div>
                   </div>
                   <button className="ml-auto text-blue-600 hover:text-blue-800 font-medium">
-                    Update
+                    {t('settings.updateButton')}
                   </button>
                 </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Billing Address
+                  {t('settings.billingAddress')}
                 </label>
                 <textarea
                   value={settings.billing.billing_address}
@@ -467,36 +486,36 @@ export default function SettingsPage() {
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Billing History</h2>
-            
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('settings.billingHistory')}</h2>
+
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead>
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Date
+                      {t('settings.date')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Description
+                      {t('settings.description')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Amount
+                      {t('settings.amount')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
+                      {t('settings.status')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Invoice
+                      {t('settings.invoice')}
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {[
-                    { date: '2026-01-23', description: 'Professional Plan', amount: 29.99, status: 'Paid' },
-                    { date: '2025-12-23', description: 'Professional Plan', amount: 29.99, status: 'Paid' },
-                    { date: '2025-11-23', description: 'Professional Plan', amount: 29.99, status: 'Paid' },
-                    { date: '2025-10-23', description: 'Basic to Professional Upgrade', amount: 20.00, status: 'Paid' },
-                    { date: '2025-10-23', description: 'Basic Plan', amount: 9.99, status: 'Paid' },
+                    { date: '2026-01-23', description: t('settings.professional'), amount: 29.99, status: t('settings.paid') },
+                    { date: '2025-12-23', description: t('settings.professional'), amount: 29.99, status: t('settings.paid') },
+                    { date: '2025-11-23', description: t('settings.professional'), amount: 29.99, status: t('settings.paid') },
+                    { date: '2025-10-23', description: 'Basic to Professional Upgrade', amount: 20.00, status: t('settings.paid') },
+                    { date: '2025-10-23', description: t('settings.basic'), amount: 9.99, status: t('settings.paid') },
                   ].map((invoice, index) => (
                     <tr key={index}>
                       <td className="px-4 py-3 text-sm text-gray-900">{invoice.date}</td>
@@ -509,7 +528,7 @@ export default function SettingsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <button className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-                          Download
+                          {t('settings.download')}
                         </button>
                       </td>
                     </tr>
