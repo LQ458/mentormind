@@ -61,7 +61,8 @@ class DeepSeekClient:
         }
         
         try:
-            async with aiohttp.ClientSession() as session:
+            connector = aiohttp.TCPConnector(verify_ssl=config.VERIFY_SSL)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.post(
                     url,
                     headers=self.headers,

@@ -21,6 +21,9 @@ except ImportError:
     import os
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     from services.tts import TTSService
+from core.modules.video_scripting import VideoScriptGenerator, VideoScript, Scene
+from core.rendering.manim_renderer import ManimService
+from core.rendering.remotion_renderer import RemotionService
 
 logger = logging.getLogger(__name__)
 
@@ -218,38 +221,57 @@ class TTSSynthesizer:
         self.voice = config.TTS_VOICE
         self.output_dir = os.path.join(config.DATA_DIR, "audio")
         os.makedirs(self.output_dir, exist_ok=True)
-        self.tts_service = TTSService()
+        self.sf_tts = SiliconFlowTTSService() if SiliconFlowTTSService else None
     
-    async def synthesize(self, text: str, script_id: str) -> Tuple[str, float]:
+    async def synthesize(self, text: str, script_id: str, voice: str = "female") -> Tuple[str, float]:
         """
-        Synthesize speech from text using real TTS service
+        Synthesize speech using SiliconFlow Cloud TTS
         Returns: (audio_file_path, duration_seconds)
         """
-        logger.info(f"Synthesizing speech for script: {script_id}")
+        logger.info(f"Synthesizing speech for script: {script_id} (Voice: {voice})")
         
         try:
-            # Validate text
-            is_valid, error_msg = self.tts_service.validate_text(text)
-            if not is_valid:
-                raise ValueError(f"Invalid text for TTS: {error_msg}")
-            
-            # Generate audio file path
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            audio_path = os.path.join(self.output_dir, f"{script_id}_{timestamp}.wav")
+            audio_path = os.path.join(self.output_dir, f"{script_id}_{timestamp}.mp3")
             
-            # Use real TTS service
-            result = await self.tts_service.text_to_speech(
-                text=text,
-                language="zh-CN",
-                voice="female",  # Default to female voice
-                speed=1.0,
-                pitch=1.0,
-                output_format="wav",
-                output_path=audio_path
-            )
-            
-            logger.info(f"Generated audio: {audio_path} ({result.duration:.1f}s)")
-            return audio_path, result.duration
+            if self.sf_tts:
+                # Map generic voice names to specific models/presets if needed
+                # For SiliconFlow, we might pass the voice name directly if it matches their API
+                # Or map "male" -> "alex", "female" -> "anna" etc.
+                voice_map = {
+                    "female": "FunAudioLLM/CosyVoice2-0.5B:anna",
+                    "male": "FunAudioLLM/CosyVoice2-0.5B:caleb", # Example mapping
+                    "young_female": "FunAudioLLM/CosyVoice2-0.5B:sara",
+                    "young_male": "FunAudioLLM/CosyVoice2-0.5B:ben"
+                }
+                
+                # If voice is a key in map, use the mapped value, otherwise use as is
+                # But wait, SiliconFlowTTSService takes voice and voice_label separately or formatted.
+                # Let's check siliconflow_tts.py again. 
+                # It takes `voice` (model) and `voice_label` (speaker).
+                
+                # Simplified: Expect voice to be "anna", "caleb" etc. and let service handle it
+                # Or better: let's update SiliconFlowTTSService to handle the "voice:label" format
+                
+                # strictly passing the "label" (e.g. "anna") as the voice argument to the service wrapper
+                # referencing backend/services/siliconflow_tts.py: 
+                # payload["voice"] = f"{voice}:{voice_label}" where voice is model.
+                
+                # So we just need to pass the label "anna", "caleb" to the service's voice_label param?
+                # The service method signature is: text_to_speech(self, text, voice, voice_label, ...)
+                
+                target_label = voice if voice in ["anna", "ben", "caleb", "sara"] else "anna"
+                if voice == "male": target_label = "caleb"
+                if voice == "female": target_label = "anna"
+                
+                result = await self.sf_tts.text_to_speech(
+                    text=text,
+                    voice_label=target_label, # We need to update the call to pass this
+                    output_path=audio_path
+                )
+                return result.audio_path, result.duration
+            else:
+                raise Exception("SiliconFlow TTS service unavailable")
             
         except Exception as e:
             logger.error(f"Error synthesizing speech for script {script_id}: {e}")
@@ -257,14 +279,11 @@ class TTSSynthesizer:
     
     def get_available_voices(self) -> List[Dict[str, str]]:
         """Get available TTS voices"""
-        # Real voice options based on TTS service capabilities
         return [
-            {"name": "zh-CN-female", "language": "zh-CN", "gender": "female", "style": "general"},
-            {"name": "zh-CN-male", "language": "zh-CN", "gender": "male", "style": "general"},
-            {"name": "en-US-female", "language": "en-US", "gender": "female", "style": "general"},
-            {"name": "en-US-male", "language": "en-US", "gender": "male", "style": "general"},
-            {"name": "ja-JP-female", "language": "ja-JP", "gender": "female", "style": "general"},
-            {"name": "ko-KR-female", "language": "ko-KR", "gender": "female", "style": "general"}
+            {"id": "anna", "name": "Female (Standard)", "gender": "female"},
+            {"id": "caleb", "name": "Male (Standard)", "gender": "male"},
+            {"id": "sara", "name": "Young Female", "gender": "female"},
+            {"id": "ben", "name": "Young Male", "gender": "male"}
         ]
     
     async def synthesize_with_emotion(self, text: str, emotion: str = "neutral") -> str:
@@ -307,8 +326,25 @@ class TTSSynthesizer:
             return await self.synthesize(text, f"emotion_{emotion}")[0]
 
 
+try:
+    from services.heygen import HeyGenService
+except (ImportError, ModuleNotFoundError):
+    HeyGenService = None
+
+try:
+    from services.siliconflow import SiliconFlowService
+except ImportError:
+    logger.warning("SiliconFlowService not found")
+    SiliconFlowService = None
+
+try:
+    from services.siliconflow_tts import SiliconFlowTTSService
+except ImportError:
+    logger.warning("SiliconFlowTTSService not found")
+    SiliconFlowTTSService = None
+
 class AvatarGenerator:
-    """Generates avatar videos using LivePortrait"""
+    """Generates avatar videos using SiliconFlow, HeyGen, or Mock fallback"""
     
     def __init__(self):
         self.avatar_image_path = config.AVATAR_IMAGE_PATH
@@ -316,17 +352,30 @@ class AvatarGenerator:
         self.output_dir = os.path.join(config.DATA_DIR, "videos")
         os.makedirs(self.output_dir, exist_ok=True)
         
-        # Check if avatar image exists
+        # Initialize services
+        self.heygen_service = HeyGenService() if HeyGenService else None
+        self.siliconflow_service = SiliconFlowService() if SiliconFlowService else None
+        
         if not os.path.exists(self.avatar_image_path):
-            print(f"Warning: Avatar image not found at {self.avatar_image_path}")
-            print("Using default placeholder")
+            logger.debug(f"Avatar image not found at {self.avatar_image_path}, using default placeholder")
             self.avatar_image_path = self._create_default_avatar()
+            
+    async def _use_siliconflow(self) -> bool:
+        """Check if SiliconFlow is available"""
+        if not self.siliconflow_service:
+            return False
+        return await self.siliconflow_service.check_availability()
+
+    async def _use_heygen(self) -> bool:
+        """Check if HeyGen is available"""
+        if not self.heygen_service:
+            return False
+        return await self.heygen_service.check_availability()
     
     def _create_default_avatar(self) -> str:
         """Create a default avatar placeholder"""
         default_path = os.path.join(config.DATA_DIR, "default_avatar.png")
         if not os.path.exists(default_path):
-            # Create a simple placeholder
             with open(default_path, 'w') as f:
                 f.write("Avatar placeholder image")
         return default_path
@@ -343,25 +392,86 @@ class AvatarGenerator:
         """
         print(f"Generating avatar video for script: {script.id}")
         
-        # Mock video generation
-        # In production, would use LivePortrait or similar
-        await asyncio.sleep(0.3)
+        video_path = ""
+        resolution = (1920, 1080)
+        is_mocked = True
+        provider = "Mock"
         
-        # Generate video file path
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        video_path = os.path.join(self.output_dir, f"{script.id}_{timestamp}.mp4")
+        # Priority 1: SiliconFlow (Cheaper/Faster)
+        if await self._use_siliconflow():
+            try:
+                print("Connecting to SiliconFlow Video API...")
+                
+                # Use public URL or default image-to-video if possible
+                public_avatar_url = "https://mentormind-assets.oss-cn-shanghai.aliyuncs.com/teachers/avatar_1.png"
+                
+                # SiliconFlow requires a prompt. We'll use the script title or simplified content.
+                prompt = f"A female teacher explaining: {script.title}. Realistic, professional style."
+                
+                result = await self.siliconflow_service.generate_video(
+                    prompt=prompt,
+                    image_url=public_avatar_url
+                )
+                print(f"SiliconFlow task submitted: {result['video_id']}")
+                
+                download_url = await self.siliconflow_service.wait_for_completion(result['video_id'])
+                if download_url:
+                    import aiohttp
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    video_path = os.path.join(self.output_dir, f"{script.id}_{timestamp}.mp4")
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(download_url) as resp:
+                            if resp.status == 200:
+                                with open(video_path, 'wb') as f:
+                                    f.write(await resp.read())
+                                is_mocked = False
+                                provider = "SiliconFlow"
+                                print(f"Video downloaded to {video_path}")
+            except Exception as e:
+                logger.error(f"SiliconFlow generation failed: {e}")
+                print(f"SiliconFlow error: {e}. Trying next provider...")
+
+        # Priority 2: HeyGen (High Quality)
+        if is_mocked and await self._use_heygen():
+            try:
+                print("Connecting to HeyGen API...")
+                result = await self.heygen_service.generate_video(
+                    text=script.script_text,
+                    background_color="#f0f0f0"
+                )
+                print(f"HeyGen task started: {result['video_id']}")
+                
+                download_url = await self.heygen_service.wait_for_completion(result['video_id'])
+                if download_url:
+                    import aiohttp
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    video_path = os.path.join(self.output_dir, f"{script.id}_{timestamp}.mp4")
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(download_url) as resp:
+                            if resp.status == 200:
+                                with open(video_path, 'wb') as f:
+                                    f.write(await resp.read())
+                                is_mocked = False
+                                provider = "HeyGen"
+                                print(f"Video downloaded to {video_path}")
+            except Exception as e:
+                logger.error(f"HeyGen generation failed: {e}")
+                print(f"HeyGen error: {e}. Falling back to mock...")
+
+        # Priority 3: Mock Fallback
+        if is_mocked:
+            await asyncio.sleep(0.3)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            video_path = os.path.join(self.output_dir, f"{script.id}_{timestamp}.mp4")
+            
+            with open(video_path, 'w') as f:
+                f.write(f"Video placeholder for script: {script.id}\n")
+                f.write(f"Audio: {audio_path}\n")
+                f.write(f"Provider: Mock (Real services unavailable)\n")
         
-        # Create placeholder video file
-        with open(video_path, 'w') as f:
-            f.write(f"Video placeholder for script: {script.id}\n")
-            f.write(f"Audio: {audio_path}\n")
-            f.write(f"Duration: {script.duration_seconds}s\n")
-            if emotion_cues:
-                f.write(f"Emotion cues: {json.dumps(emotion_cues, indent=2)}\n")
-            if gesture_cues:
-                f.write(f"Gesture cues: {json.dumps(gesture_cues, indent=2)}\n")
-        
-        video_id = f"video_{timestamp}"
+        video_id = f"video_{os.path.basename(video_path).split('.')[0]}"
         
         return AvatarVideo(
             id=video_id,
@@ -369,7 +479,7 @@ class AvatarGenerator:
             video_path=video_path,
             audio_path=audio_path,
             duration_seconds=script.duration_seconds,
-            resolution=(1920, 1080),
+            resolution=resolution,
             fps=self.video_fps,
             generated_at=datetime.now(),
             metadata={
@@ -377,6 +487,7 @@ class AvatarGenerator:
                 "target_concepts": script.target_concepts,
                 "emotion_cues_used": emotion_cues is not None,
                 "gesture_cues_used": gesture_cues is not None,
+                "avatar_provider": provider,
                 "avatar_image": self.avatar_image_path
             }
         )
@@ -384,28 +495,31 @@ class AvatarGenerator:
     async def generate_talking_head(
         self,
         audio_path: str,
+        text: str = "Hello",
         reference_image_path: Optional[str] = None
     ) -> str:
         """
         Generate talking head video from audio
+        Attempt to use real services first
         """
         if reference_image_path is None:
             reference_image_path = self.avatar_image_path
         
         print(f"Generating talking head with image: {reference_image_path}")
         
-        # Mock generation
-        await asyncio.sleep(0.2)
+        # Create a dummy script for talking head
+        script_id = f"talk_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        dummy_script = TeachingScript(
+            id=script_id,
+            title="Short Talk",
+            script_text=text,
+            duration_seconds=5.0,
+            target_concepts=[]
+        )
         
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join(self.output_dir, f"talking_head_{timestamp}.mp4")
-        
-        with open(output_path, 'w') as f:
-            f.write(f"Talking head video\n")
-            f.write(f"Reference: {reference_image_path}\n")
-            f.write(f"Audio: {audio_path}\n")
-        
-        return output_path
+        # Use full video generator which has real service logic
+        video = await self.generate_video(dummy_script, audio_path)
+        return video.video_path
     
     def get_animation_styles(self) -> List[Dict[str, str]]:
         """Get available animation styles"""
@@ -417,6 +531,67 @@ class AvatarGenerator:
         ]
 
 
+class ProgrammaticVideoGenerator:
+    """
+    Code-to-Video Generator
+    Orchestrates DeepSeek-R1 scripting, TTS sync, and Manim/Remotion rendering
+    """
+    
+    def __init__(self):
+        self.script_generator = VideoScriptGenerator()
+        self.tts_synthesizer = TTSSynthesizer()
+        self.manim_service = ManimService()
+        self.remotion_service = RemotionService()
+        
+    async def generate_video(self, topic: str, content: str, style: str = "math", voice_id: str = "anna") -> Dict:
+        """
+        Generate a programmatic video from content
+        """
+        logger.info(f"Generating programmatic video for: {topic} ({style}) Voice: {voice_id}")
+        
+        # 1. Generate Director JSON Script
+        video_script = await self.script_generator.generate_script(topic, content, style)
+        
+        # 2. Generate Audio & Sync Durations
+        logger.info("Synthesizing audio and syncing timestamps...")
+        total_audio_duration = 0.0
+        
+        for scene in video_script.scenes:
+            if not scene.narration:
+                continue
+                
+            audio_path, duration = await self.tts_synthesizer.synthesize(
+                scene.narration, f"{video_script.title}_{scene.id}", voice=voice_id
+            )
+            
+            # Update scene with exact audio duration and path
+            scene.duration = max(scene.duration, duration) # Ensure visual is at least as long as audio
+            scene.audio_path = audio_path
+            total_audio_duration += scene.duration
+            
+        video_script.total_duration = total_audio_duration
+        
+        # 3. Render Video
+        logger.info(f"Rendering with engine: {style} (Manim/Remotion)")
+        
+        if style == "math" or any(s.visual_type == "manim" for s in video_script.scenes):
+            # Prefer Manim for math content
+            # Manim is now async with self-correction
+            video_path = await self.manim_service.render_script(video_script)
+            provider = "Manim"
+        else:
+            # Use Remotion for general/history
+            video_path = await self.remotion_service.render_script(video_script)
+            provider = "Remotion"
+            
+        return {
+            "video_path": video_path,
+            "script": video_script,
+            "provider": provider,
+            "duration": total_audio_duration
+        }
+
+
 class OutputPipeline:
     """Main output generation pipeline"""
     
@@ -424,6 +599,7 @@ class OutputPipeline:
         self.script_generator = ScriptGenerator()
         self.tts_synthesizer = TTSSynthesizer()
         self.avatar_generator = AvatarGenerator()
+        self.programmatic_generator = ProgrammaticVideoGenerator()
         self.processing_config = config.PROCESSING
     
     async def generate_teaching_output(self, lesson_plan: Dict) -> Dict:
@@ -433,23 +609,60 @@ class OutputPipeline:
         print("Starting output generation pipeline...")
         
         # 1. Generate script
+        print(f"⏳ [Step 1/3] Generating teaching script...")
         script = await self.script_generator.generate_script(lesson_plan)
-        print(f"✓ Generated script: {script.title}")
+        print(f"✅ [Step 1/3] Script generated: {script.title}")
         
         # 2. Synthesize speech
+        print(f"⏳ [Step 2/3] Synthesizing audio (TTS)...")
         audio_path, audio_duration = await self.tts_synthesizer.synthesize(
             script.script_text, script.id
         )
-        print(f"✓ Synthesized audio: {audio_path} ({audio_duration:.1f}s)")
+        print(f"✅ [Step 2/3] Audio synthesized: {audio_duration:.1f}s")
         
-        # 3. Generate avatar video
-        video = await self.avatar_generator.generate_video(
-            script=script,
-            audio_path=audio_path,
-            emotion_cues=script.emotion_cues,
-            gesture_cues=script.gesture_cues
+        # 3. Generate Programmatic Video (Code-to-Video)
+        print(f"⏳ [Step 3/3] Rendering video content...")
+        # Determine style based on title keywords
+        title_lower = lesson_plan.get("title", "").lower()
+        math_keywords = [
+            "math", "algebra", "geometry", "calculus", "equation", "function", "graph", 
+            "number", "arithmetic", "probability", "statistics", "theorem", "proof",
+            "quadratic", "linear", "polynomial", "derivative", "integral", "matrix",
+            "vector", "trigonometry", "circle", "triangle", "polygon", "parabola",
+            "physics", "kinematics", "velocity", "acceleration", "force", "gravity",
+            "energy", "momentum", "projectile", "motion", "mechanics", "newton",
+            "数学", "代数", "几何", "微积分", "方程", "函数", "图象", "数论", "概率", "统计",
+            "物理", "运动", "力", "速度", "加速度", "重力", "能量", "牛顿"
+        ]
+        
+        style = "math" if any(k in title_lower for k in math_keywords) else "general"
+        
+        # Get voice choice if available
+        voice_id = lesson_plan.get("voice_id", "anna")
+        
+        video_result = await self.programmatic_generator.generate_video(
+            topic=lesson_plan.get("title", "Lesson"),
+            content=script.script_text, # Use the generated text script as input for visual scripting
+            style=style,
+            voice_id=voice_id
         )
-        print(f"✓ Generated video: {video.video_path}")
+        print(f"✓ Generated video: {video_result['video_path']}")
+        
+        # Adapt video object for response
+        video_path = video_result['video_path']
+        video_duration = video_result['duration']
+        # Mock AvatarVideo object for compatibility
+        video = AvatarVideo(
+            id=f"vid_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            script_id=script.id,
+            video_path=video_path,
+            audio_path=video_result['script'].scenes[0].audio_path if video_result['script'].scenes else "", # simplified
+            duration_seconds=video_duration,
+            resolution=(1920, 1080),
+            fps=30,
+            generated_at=datetime.now(),
+            metadata={"provider": video_result['provider']}
+        )
         
         # 4. Prepare metadata
         metadata = {
@@ -512,32 +725,51 @@ class OutputPipeline:
     async def generate_quick_explanation(
         self,
         concept: str,
-        context: Optional[str] = None
+        context: Optional[str] = None,
+        voice_id: str = "anna"
     ) -> Dict:
         """
-        Generate quick explanation with audio
+        Generate quick explanation with audio and real video
         """
         # Generate explanation
         explanation = await self.script_generator.generate_short_explanation(concept, context)
         
         # Synthesize audio
-        audio_path, duration = await self.tts_synthesizer.synthesize(
-            explanation, f"quick_{concept}"
-        )
+        # Synthesize audio (not strictly needed as Programmatic generator does it, but good for quick audio return)
+        # However, programmatic engine handles TTS internally for sync. 
+        # Let's delegate everything to programmatic generator for consistency.
         
-        # Generate talking head
-        video_path = await self.avatar_generator.generate_talking_head(audio_path)
+        math_keywords = [
+            "math", "algebra", "geometry", "calculus", "equation", "function", "graph", 
+            "number", "arithmetic", "probability", "statistics", "theorem", "proof",
+            "quadratic", "linear", "polynomial", "derivative", "integral", "matrix",
+            "vector", "trigonometry", "circle", "triangle", "polygon", "parabola",
+            "physics", "kinematics", "velocity", "acceleration", "force", "gravity",
+            "energy", "momentum", "projectile", "motion", "mechanics", "newton",
+            "数学", "代数", "几何", "微积分", "方程", "函数", "图象", "数论", "概率", "统计",
+            "物理", "运动", "力", "速度", "加速度", "重力", "能量", "牛顿"
+        ]
+        
+        style = "math" if any(k in concept.lower() for k in math_keywords) else "general"
+        
+        video_result = await self.programmatic_generator.generate_video(
+            topic=concept,
+            content=explanation,
+            style=style,
+            voice_id=voice_id
+        )
         
         return {
             "concept": concept,
             "explanation": explanation,
             "audio": {
-                "path": audio_path,
-                "duration_seconds": duration
+                "path": video_result['script'].scenes[0].audio_path if video_result['script'].scenes else "",
+                "duration_seconds": video_result['duration']
             },
             "video": {
-                "path": video_path,
-                "duration_seconds": duration
+                "path": video_result['video_path'],
+                "duration_seconds": video_result['duration'],
+                "id": f"vid_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             },
             "generated_at": datetime.now().isoformat()
         }

@@ -22,11 +22,13 @@ from config import config
 
 # Database configuration from config
 db_config = config.get_databases().get("postgres")
-if not db_config:
-    raise ValueError("PostgreSQL configuration not found in config")
 
-# Construct database URL
-DB_URL = f"postgresql://{db_config.username}:{db_config.password}@{db_config.host}:{db_config.port}/{db_config.database}"
+# Construct database URL: prioritize direct DATABASE_URL for Supabase/PaaS
+DB_URL = os.getenv("DATABASE_URL")
+if not DB_URL:
+    if not db_config:
+        raise ValueError("PostgreSQL configuration not found in config")
+    DB_URL = f"postgresql://{db_config.username}:{db_config.password}@{db_config.host}:{db_config.port}/{db_config.database}"
 
 # Create engine with connection pooling
 engine = create_engine(

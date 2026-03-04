@@ -75,6 +75,7 @@ class MentorMindConfig:
     VERSION: str = "1.0"
     TARGET_MARKET: str = "China"
     DEPLOYMENT_ENV: str = os.getenv("MENTORMIND_ENV", "development")
+    VERIFY_SSL: bool = os.getenv("VERIFY_SSL", "true").lower() == "true"
     
     # ===== MODEL CONFIGURATIONS =====
     @classmethod
@@ -102,13 +103,13 @@ class MentorMindConfig:
             "funasr": ModelConfig(
                 name="FunASR-Paraformer",
                 provider=ModelProvider.ALIBABA,
-                endpoint=os.getenv("FUNASR_ENDPOINT", "http://localhost:8000/asr"),
+                endpoint=os.getenv("FUNASR_ENDPOINT", "http://localhost:10095"),
                 cost_per_1k_tokens=0.0005
             ),
             "paddle_ocr": ModelConfig(
                 name="PaddleOCR",
                 provider=ModelProvider.BAIDU,
-                endpoint=os.getenv("PADDLE_OCR_ENDPOINT", "http://localhost:8001/ocr"),
+                endpoint=os.getenv("PADDLE_OCR_ENDPOINT", "http://localhost:8866"),
                 cost_per_1k_tokens=0.0003
             )
         }
@@ -175,7 +176,8 @@ class MentorMindConfig:
     
     # Output Generation
     AVATAR_IMAGE_PATH: str = "./assets/teacher_avatar.png"
-    TTS_VOICE: str = "zh-CN-XiaoxiaoNeural"
+    TTS_VOICE: str = "FunAudioLLM/CosyVoice2-0.5B"
+    TTS_VOICE_LABEL: str = "anna"
     VIDEO_FPS: int = 25
     
     # ===== PATHS AND DIRECTORIES =====

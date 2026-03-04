@@ -50,7 +50,7 @@ export default function LessonsPage() {
         },
         body: JSON.stringify({ studentQuery: query }),
       })
-      
+
       const data = await response.json()
       if (data.success) {
         alert(`Lesson generated successfully: ${data.lesson_plan?.title}`)
@@ -69,10 +69,44 @@ export default function LessonsPage() {
 
   const deleteLesson = async (id: string) => {
     if (!confirm('Are you sure you want to delete this lesson?')) return
-    
-    // Note: In a real implementation, we would have a DELETE endpoint
-    // For now, we'll just remove it from the UI
-    setLessons(lessons.filter(lesson => lesson.id !== id))
+
+    try {
+      const response = await fetch(`/api/backend/lessons/${id}`, {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        setLessons(lessons.filter(lesson => lesson.id !== id))
+      } else {
+        const data = await response.json()
+        alert(`Failed to delete lesson: ${data.details || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Failed to delete lesson:', error)
+      alert('Failed to delete lesson. Please check connection.')
+    }
+  }
+
+  const deleteAllLessons = async () => {
+    if (!confirm('Are you sure you want to delete ALL lessons? This cannot be undone.')) return
+    if (!confirm('Really delete everything?')) return
+
+    try {
+      const response = await fetch('/api/backend/lessons', {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        setLessons([])
+        alert('All lessons deleted successfully.')
+      } else {
+        const data = await response.json()
+        alert(`Failed to delete all lessons: ${data.details || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Failed to delete all lessons:', error)
+      alert('Failed to delete lessons. Please check connection.')
+    }
   }
 
   const viewLessonDetails = (lesson: Lesson) => {
@@ -95,8 +129,19 @@ export default function LessonsPage() {
           <h1 className="text-3xl font-bold text-gray-900">Lessons</h1>
           <p className="text-gray-600 mt-1">Create and manage AI-generated lessons</p>
         </div>
-        <div className="text-sm text-gray-500">
-          Total: {lessons.length} lessons
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-gray-500">
+            Total: {lessons.length} lessons
+          </div>
+          {lessons.length > 0 && (
+            <button
+              onClick={deleteAllLessons}
+              className="px-3 py-1 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200 transition-colors"
+              title="Delete all lessons"
+            >
+              Delete All
+            </button>
+          )}
         </div>
       </div>
 
@@ -121,7 +166,7 @@ export default function LessonsPage() {
             开始创建 →
           </div>
         </a>
-        
+
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center mb-4">
             <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mr-4">
@@ -138,7 +183,7 @@ export default function LessonsPage() {
             上传文件 →
           </button>
         </div>
-        
+
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center mb-4">
             <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mr-4">
@@ -162,7 +207,7 @@ export default function LessonsPage() {
         <div className="px-6 py-4 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">All Lessons</h2>
         </div>
-        
+
         {lessons.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
@@ -205,7 +250,7 @@ export default function LessonsPage() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="w-24 bg-gray-200 rounded-full h-2 mr-3">
-                          <div 
+                          <div
                             className="bg-green-500 h-2 rounded-full"
                             style={{ width: `${lesson.quality_score * 100}%` }}
                           />
@@ -219,12 +264,12 @@ export default function LessonsPage() {
                       ${lesson.cost_usd?.toFixed(4) || '0.0000'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <button
-                        onClick={() => viewLessonDetails(lesson)}
+                      <Link
+                        href={`/lessons/${lesson.id}`}
                         className="text-blue-600 hover:text-blue-900 mr-4"
                       >
                         View
-                      </button>
+                      </Link>
                       <button
                         onClick={() => deleteLesson(lesson.id)}
                         className="text-red-600 hover:text-red-900"
@@ -274,18 +319,18 @@ export default function LessonsPage() {
                 </svg>
               </button>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div>
                 <h4 className="text-sm font-medium text-gray-500">Student Query</h4>
                 <p className="mt-1 text-gray-900">{selectedLesson.query}</p>
               </div>
-              
+
               <div>
                 <h4 className="text-sm font-medium text-gray-500">Lesson Title</h4>
                 <p className="mt-1 text-gray-900">{selectedLesson.lesson_title}</p>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <h4 className="text-sm font-medium text-gray-500">Generated</h4>
@@ -293,21 +338,21 @@ export default function LessonsPage() {
                     {new Date(selectedLesson.timestamp).toLocaleString()}
                   </p>
                 </div>
-                
+
                 <div>
                   <h4 className="text-sm font-medium text-gray-500">Quality Score</h4>
                   <p className="mt-1 text-gray-900">
                     {(selectedLesson.quality_score * 100).toFixed(0)}%
                   </p>
                 </div>
-                
+
                 <div>
                   <h4 className="text-sm font-medium text-gray-500">Cost</h4>
                   <p className="mt-1 text-gray-900">
                     ${selectedLesson.cost_usd?.toFixed(4) || '0.0000'}
                   </p>
                 </div>
-                
+
                 <div>
                   <h4 className="text-sm font-medium text-gray-500">Lesson ID</h4>
                   <p className="mt-1 text-gray-900 font-mono text-sm">
@@ -315,7 +360,7 @@ export default function LessonsPage() {
                   </p>
                 </div>
               </div>
-              
+
               <div className="pt-4 border-t border-gray-200">
                 <div className="flex justify-end gap-3">
                   <button

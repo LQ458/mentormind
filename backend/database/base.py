@@ -4,7 +4,7 @@ Sets up SQLAlchemy engine, session, and base classes
 """
 
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
@@ -13,11 +13,13 @@ from config import config
 
 # Get PostgreSQL configuration
 db_config = config.get_databases().get("postgres")
-if not db_config:
-    raise ValueError("PostgreSQL configuration not found in config")
 
-# Construct database URL
-DB_URL = f"postgresql://{db_config.username}:{db_config.password}@{db_config.host}:{db_config.port}/{db_config.database}"
+# Construct database URL: prioritize direct DATABASE_URL for Supabase/PaaS
+DB_URL = os.getenv("DATABASE_URL")
+if not DB_URL:
+    if not db_config:
+        raise ValueError("PostgreSQL configuration not found in config")
+    DB_URL = f"postgresql://{db_config.username}:{db_config.password}@{db_config.host}:{db_config.port}/{db_config.database}"
 
 # Create engine with connection pooling
 engine = create_engine(
@@ -69,7 +71,7 @@ def init_database():
     try:
         # Test connection
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         
         # Create tables
         Base.metadata.create_all(bind=engine)
@@ -105,7 +107,7 @@ def test_connection() -> bool:
     """
     try:
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         print("✅ Database connection successful")
         return True
     except Exception as e:

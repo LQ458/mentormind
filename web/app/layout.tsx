@@ -6,6 +6,10 @@ import Navbar from './components/Navbar'
 export const metadata: Metadata = {
   title: 'MentorMind - AI Teaching Assistant',
   description: 'AI-driven educational agent for personalized teaching',
+  icons: {
+    icon: '/favicon.jpg',
+    apple: '/icon.jpg',
+  },
 }
 
 export default function RootLayout({

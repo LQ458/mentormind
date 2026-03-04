@@ -49,6 +49,7 @@ class ClassCreationRequest:
     custom_requirements: Optional[str] = None
     target_audience: str = "students"
     difficulty_level: str = "intermediate"
+    voice_id: str = "anna"
 
 
 @dataclass
@@ -69,6 +70,8 @@ class ClassCreationResult:
     customization_notes: str = ""
     ai_insights: Dict[str, Any] = field(default_factory=dict)
     language_used: Optional[Language] = None
+    audio_url: Optional[str] = None
+    video_url: Optional[str] = None
 
 
 class ClassCreator:
@@ -212,6 +215,82 @@ class ClassCreator:
                 class_title = ai_data.get("title") or ai_data.get("class_title") or f"{request.topic} 课程"
                 class_description = ai_data.get("description") or ai_data.get("class_description") or f"关于{request.topic}的详细教学方案"
                 
+                # Generate Multimedia (Audio/Video) if requested
+                audio_url = None
+                video_url = None
+                
+                if request.include_video:
+                    try:
+                        print(f"🎥 Generating video content for: {class_title}")
+                        # Convert to format expected by pipeline
+                        pipeline_input = {
+                            "id": f"lesson_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                            "title": class_title,
+                            "objective": class_description,
+                            "target_audience": request.target_audience,
+                            "total_duration_minutes": request.duration_minutes,
+                            "steps": [], # AI data is unstructured, simplified for now
+                            "metadata": {"original_query": request.topic}
+                        }
+                        
+                        # Use simpler pipeline call directly to avoid complex mapping error
+                        # Create a simple explanation script based on description
+                        multimedia_result = await self.output_pipeline.generate_quick_explanation(
+                            concept=class_title,
+                            context=class_description,
+                            voice_id=request.voice_id
+                        )
+                        
+                        if multimedia_result:
+                            # Construct public URLs (assuming served via static/API)
+                            audio_path = multimedia_result.get("audio", {}).get("path", "")
+                            video_path = multimedia_result.get("video", {}).get("path", "")
+                            
+                            print(f"DEBUG: Audio path: {audio_path}")
+                            print(f"DEBUG: Video path: {video_path}")
+                            
+                            # Helper to ensure forward slashes
+                            def to_web_path(path_str):
+                                return path_str.replace(os.sep, '/')
+                                
+                            if audio_path:
+                                try:
+                                    # Check if path is absolute and inside DATA_DIR
+                                    if os.path.isabs(audio_path) and audio_path.startswith(config.DATA_DIR):
+                                        rel_path = os.path.relpath(audio_path, config.DATA_DIR)
+                                        audio_url = f"/api/files/{to_web_path(rel_path)}"
+                                    else:
+                                        # Assume it's just a filename or relative path that needs to be served from audio/
+                                        # Ideally we should verify file existence, but for generated content we trust the generator
+                                        filename = os.path.basename(audio_path)
+                                        audio_url = f"/api/files/audio/{filename}"
+                                        
+                                    print(f"DEBUG: Generated Audio URL: {audio_url}")
+                                except Exception as e:
+                                    print(f"Error generating audio URL: {e}")
+                                    audio_url = None
+                                    
+                            if video_path:
+                                try:
+                                    if os.path.isabs(video_path) and video_path.startswith(config.DATA_DIR):
+                                        rel_path = os.path.relpath(video_path, config.DATA_DIR)
+                                        video_url = f"/api/files/{to_web_path(rel_path)}"
+                                    else:
+                                        filename = os.path.basename(video_path)
+                                        # Determine folder based on extension or context if needed, but 'videos' is safe default for output
+                                        video_url = f"/api/files/videos/{filename}"
+
+                                    print(f"DEBUG: Generated Video URL: {video_url}")
+                                except Exception as e:
+                                     print(f"Error generating video URL: {e}")
+                                     video_url = None
+                                
+                            print(f"✅ Multimedia generated: {video_url}")
+                            
+                    except Exception as e:
+                        print(f"⚠️ Multimedia generation failed: {e}")
+                        # Don't fail the whole request, just log error
+                
                 # Handle different response formats
                 if "raw_response" in ai_data:
                     # AI returned raw text response
@@ -243,9 +322,13 @@ class ClassCreator:
                             "generated": True,
                             "method": "ai_generated",
                             "confidence": 0.9,
-                            "raw_ai_response": ai_data["raw_response"][:500] + "..."
+                            "raw_ai_response": ai_data["raw_response"][:500] + "...",
+                            "video_url": video_url,
+                            "audio_url": audio_url
                         },
-                        language_used=language
+                        language_used=language,
+                        audio_url=audio_url,
+                        video_url=video_url
                     )
                 else:
                     # AI returned structured data
@@ -268,9 +351,13 @@ class ClassCreator:
                             "generated": True,
                             "method": "ai_structured",
                             "confidence": 0.95,
-                            "ai_provider": "DeepSeek"
+                            "ai_provider": "DeepSeek",
+                            "video_url": video_url,
+                            "audio_url": audio_url
                         },
-                        language_used=language
+                        language_used=language,
+                        audio_url=audio_url,
+                        video_url=video_url
                     )
             else:
                 print(f"AI class creation failed: {result.error}")
@@ -492,7 +579,9 @@ class ClassCreator:
                 "generated": True,
                 "method": "ai_assisted_fallback",
                 "confidence": 0.8,
-                "note": "AI服务暂时不可用，使用智能回退方案"
+                "note": "AI服务暂时不可用，使用智能回退方案",
+                "video_url": None,
+                "audio_url": None
             },
             language_used=language
         )

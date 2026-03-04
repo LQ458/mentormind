@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-const BACKEND_URL = 'http://localhost:8000'
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 export async function POST(request: Request) {
   try {
@@ -38,7 +38,7 @@ export async function GET() {
   try {
     // Call real backend status endpoint
     const backendResponse = await fetch(`${BACKEND_URL}/status`)
-    
+
     if (!backendResponse.ok) {
       throw new Error(`Backend status error: ${backendResponse.status}`)
     }

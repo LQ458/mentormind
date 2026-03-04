@@ -51,6 +51,10 @@ class LessonStorageSQL:
             
             # Extract AI insights
             ai_insights = lesson_data.get("ai_insights", {})
+            # Ensure it's a dictionary to safely add URLs
+            if isinstance(ai_insights, dict):
+                ai_insights["video_url"] = lesson_data.get("video_url")
+                ai_insights["audio_url"] = lesson_data.get("audio_url")
             
             # Create lesson record
             lesson = Lesson(

@@ -222,20 +222,22 @@ export default function DashboardPage() {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {recentLessons.map((lesson) => (
-                  <tr key={lesson.id} className="hover:bg-gray-50">
+                  <tr key={lesson.id} className="hover:bg-gray-50 group">
                     <td className="px-4 py-3 text-sm text-gray-900">
                       {new Date(lesson.timestamp).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 max-w-xs truncate">
                       {lesson.query}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {lesson.lesson_title}
+                    <td className="px-4 py-3 text-sm font-medium text-blue-600">
+                      <Link href={`/lessons/${lesson.id}`} className="hover:underline">
+                        {lesson.lesson_title}
+                      </Link>
                     </td>
                     <td className="px-4 py-3 text-sm">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${lesson.quality_score >= 0.8 ? 'bg-green-100 text-green-800' :
-                          lesson.quality_score >= 0.6 ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-red-100 text-red-800'
+                        lesson.quality_score >= 0.6 ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
                         }`}>
                         {(lesson.quality_score * 100).toFixed(0)}%
                       </span>

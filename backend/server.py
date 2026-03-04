@@ -13,6 +13,7 @@ from typing import Dict, Any, List
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 from dotenv import load_dotenv
 
@@ -24,10 +25,11 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Import core modules
 from core.create_classes import ClassCreator, ClassCreationRequest, Language, ClassCreationResult
+from core.modules.output import TTSSynthesizer
 from database import LessonStorageSQL, init_database
 from config import config
 
-# Initialize PostgreSQL database with fallback
+# Initialize PostgreSQL database (Strict)
 print("🔧 Initializing PostgreSQL database...")
 lesson_storage = None
 try:
@@ -39,12 +41,16 @@ try:
 except Exception as e:
     print(f"⚠️  PostgreSQL database initialization error: {e}")
 
-# Fallback to file-based storage if PostgreSQL fails
+# If PostgreSQL fails, use a dummy storage to prevent crashes but log errors
 if lesson_storage is None:
-    print("🔄 Falling back to file-based storage...")
-    from core.lesson_storage import LessonStorage
-    lesson_storage = LessonStorage()
-    print("✅ Using file-based storage as fallback")
+    print("❌ PostgreSQL storage is required but not initialized. Server will have no persistence.")
+    class DummyStorage:
+        def __getattr__(self, name):
+            def method(*args, **kwargs):
+                print(f"❌ Storage operation '{name}' failed: PostgreSQL not connected")
+                return None if name != "get_all_lessons" else ([], 0)
+            return method
+    lesson_storage = DummyStorage()
 
 app = FastAPI(
     title="MentorMind API",
@@ -60,6 +66,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files (audio/video)
+if os.path.exists(config.DATA_DIR):
+    app.mount("/api/files", StaticFiles(directory=config.DATA_DIR), name="files")
+    print(f"📂 Mounted static files from: {config.DATA_DIR}")
+else:
+    print(f"⚠️ Data directory not found: {config.DATA_DIR}")
 
 @app.get("/")
 async def root():
@@ -107,6 +120,21 @@ async def get_languages():
         ],
         "default": "zh"
     }
+
+@app.get("/voices")
+async def get_voices():
+    """Get available TTS voices"""
+    try:
+        tts = TTSSynthesizer()
+        voices = tts.get_available_voices()
+        return {
+            "success": True,
+            "voices": voices,
+            "count": len(voices)
+        }
+    except Exception as e:
+        print(f"❌ Error getting voices: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/analyze-topics")
 async def analyze_topics(request: Dict[str, Any]):
@@ -157,11 +185,12 @@ async def create_class(request: Dict[str, Any]):
         custom_requirements = request.get("customRequirements")
         target_audience = request.get("targetAudience", "students")
         difficulty_level = request.get("difficultyLevel", "intermediate")
+        voice_id = request.get("voiceId", "anna")
         
         if not topic:
             raise HTTPException(status_code=400, detail="topic is required")
         
-        print(f"🎓 Creating class: '{topic}' (lang: {language}, level: {student_level})")
+        print(f"🎓 Creating class: '{topic}' (lang: {language}, level: {student_level}, voice: {voice_id})")
         
         # Initialize class creator
         creator = ClassCreator()
@@ -177,7 +206,9 @@ async def create_class(request: Dict[str, Any]):
             include_assessment=include_assessment,
             custom_requirements=custom_requirements,
             target_audience=target_audience,
-            difficulty_level=difficulty_level
+
+            difficulty_level=difficulty_level,
+            voice_id=voice_id
         )
         
         # Generate class content
@@ -208,6 +239,8 @@ async def create_class(request: Dict[str, Any]):
             "target_audience": result.target_audience,
             "customization_notes": result.customization_notes,
             "ai_insights": result.ai_insights,
+            "audio_url": result.audio_url,
+            "video_url": result.video_url,
             "timestamp": datetime.now().isoformat()
         }
         
@@ -228,17 +261,11 @@ async def create_class(request: Dict[str, Any]):
                 }
                 saved_info = lesson_storage.save_lesson(lesson_data)
                 
-                # Handle different storage return types
-                if hasattr(saved_info, 'id'):  # File-based storage returns LessonMetadata object
-                    response["lesson_id"] = saved_info.id
-                    response["quality_score"] = saved_info.quality_score
-                    response["cost_usd"] = saved_info.cost_usd
-                    print(f"✅ Lesson saved to file storage with ID: {saved_info.id}")
-                else:  # PostgreSQL storage returns dictionary
-                    response["lesson_id"] = saved_info["id"]
-                    response["quality_score"] = saved_info["quality_score"]
-                    response["cost_usd"] = saved_info["cost_usd"]
-                    print(f"✅ Lesson saved to PostgreSQL with ID: {saved_info['id']}")
+                # PostgreSQL storage returns dictionary
+                response["lesson_id"] = saved_info["id"]
+                response["quality_score"] = saved_info["quality_score"]
+                response["cost_usd"] = saved_info["cost_usd"]
+                print(f"✅ Lesson saved to PostgreSQL with ID: {saved_info['id']}")
             except Exception as e:
                 print(f"⚠️  Failed to save lesson to database: {e}")
                 # Continue even if saving fails
@@ -365,6 +392,59 @@ async def get_results_post(request: Dict[str, Any]):
         
     except Exception as e:
         print(f"❌ Error getting results from storage: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/lessons/{lesson_id}")
+async def get_lesson_detail(lesson_id: str):
+    """Get full details for a specific lesson"""
+    try:
+        lesson = lesson_storage.get_lesson(lesson_id)
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Lesson not found")
+            
+        return {
+            "success": True,
+            "lesson": lesson,
+            "timestamp": datetime.now().isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error getting lesson details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/lessons")
+async def delete_all_lessons():
+    """Delete ALL lessons (Hard Delete)"""
+    try:
+        lesson_storage.clear_all_lessons()
+        return {
+            "success": True, 
+            "message": "All lessons deleted",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        print(f"❌ Error deleting all lessons: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/lessons/{lesson_id}")
+async def delete_lesson(lesson_id: str):
+    """Delete a lesson by ID"""
+    try:
+        print(f"🗑️ Deleting lesson: {lesson_id}")
+        success = lesson_storage.delete_lesson(lesson_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Lesson not found")
+            
+        return {
+            "success": True,
+            "message": f"Lesson {lesson_id} deleted successfully",
+            "timestamp": datetime.now().isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error deleting lesson: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/config")

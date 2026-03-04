@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 
-const BACKEND_URL = 'http://localhost:8000'
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 export async function GET() {
   try {
     // Call real backend results endpoint
     const backendResponse = await fetch(`${BACKEND_URL}/results`)
-    
+
     if (!backendResponse.ok) {
       throw new Error(`Backend results error: ${backendResponse.status}`)
     }
@@ -28,7 +28,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    
+
     // Call real backend results endpoint (POST)
     const backendResponse = await fetch(`${BACKEND_URL}/results`, {
       method: 'POST',
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify(body),
     })
-    
+
     if (!backendResponse.ok) {
       throw new Error(`Backend results error: ${backendResponse.status}`)
     }
