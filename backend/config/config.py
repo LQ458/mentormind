@@ -64,6 +64,17 @@ class CostOptimizationConfig:
     cache_ttl_hours: int = 24
 
 
+@dataclass
+class StorageConfig:
+    """Configuration for cloud storage (S3/R2)"""
+    enabled: bool = os.getenv("S3_ENABLED", "false").lower() == "true"
+    endpoint_url: Optional[str] = os.getenv("S3_ENDPOINT_URL")
+    access_key: Optional[str] = os.getenv("S3_ACCESS_KEY_ID")
+    secret_key: Optional[str] = os.getenv("S3_SECRET_ACCESS_KEY")
+    bucket_name: str = os.getenv("S3_BUCKET_NAME", "mentormind-videos")
+    public_url_prefix: Optional[str] = os.getenv("S3_PUBLIC_URL_PREFIX")
+
+
 class MentorMindConfig:
     """
     Main configuration class for MentorMind backend service
@@ -156,6 +167,9 @@ class MentorMindConfig:
         fallback_to_cheaper_models=True,
         cache_ttl_hours=24
     )
+    
+    # ===== STORAGE =====
+    STORAGE: StorageConfig = StorageConfig()
     
     # ===== MODULE-SPECIFIC CONFIGURATIONS =====
     

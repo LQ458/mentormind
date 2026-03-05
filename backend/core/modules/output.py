@@ -24,6 +24,7 @@ except ImportError:
 from core.modules.video_scripting import VideoScriptGenerator, VideoScript, Scene
 from core.rendering.manim_renderer import ManimService
 from core.rendering.remotion_renderer import RemotionService
+from core.modules.storage_manager import CloudStorageManager
 
 logger = logging.getLogger(__name__)
 
@@ -601,6 +602,7 @@ class OutputPipeline:
         self.avatar_generator = AvatarGenerator()
         self.programmatic_generator = ProgrammaticVideoGenerator()
         self.processing_config = config.PROCESSING
+        self.storage_manager = CloudStorageManager()
     
     async def generate_teaching_output(self, lesson_plan: Dict) -> Dict:
         """
@@ -649,14 +651,26 @@ class OutputPipeline:
         print(f"✓ Generated video: {video_result['video_path']}")
         
         # Adapt video object for response
-        video_path = video_result['video_path']
+        video_local_path = video_result['video_path']
         video_duration = video_result['duration']
+        audio_local_scene_path = video_result['script'].scenes[0].audio_path if video_result['script'].scenes else ""
+        
+        # Upload to Cloud Storage if enabled
+        print(f"☁️ Uploading artifacts to cloud storage (if enabled)...")
+        video_url = await self.storage_manager.upload_file(video_local_path, f"videos/{os.path.basename(video_local_path)}", "video/mp4")
+        scene_audio_url = await self.storage_manager.upload_file(audio_local_scene_path, f"audio/{os.path.basename(audio_local_scene_path)}", "audio/mpeg") if audio_local_scene_path else None
+        main_audio_url = await self.storage_manager.upload_file(audio_path, f"audio/{os.path.basename(audio_path)}", "audio/mpeg") if audio_path else None
+        
+        final_video_path = video_url or video_local_path
+        final_scene_audio_path = scene_audio_url or audio_local_scene_path
+        final_main_audio_path = main_audio_url or audio_path
+        
         # Mock AvatarVideo object for compatibility
         video = AvatarVideo(
             id=f"vid_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
             script_id=script.id,
-            video_path=video_path,
-            audio_path=video_result['script'].scenes[0].audio_path if video_result['script'].scenes else "", # simplified
+            video_path=final_video_path,
+            audio_path=final_scene_audio_path,
             duration_seconds=video_duration,
             resolution=(1920, 1080),
             fps=30,
@@ -685,7 +699,7 @@ class OutputPipeline:
         return {
             "script": script.to_dict(),
             "audio": {
-                "path": audio_path,
+                "path": final_main_audio_path,
                 "duration_seconds": audio_duration,
                 "voice": self.tts_synthesizer.voice
             },
@@ -758,16 +772,25 @@ class OutputPipeline:
             style=style,
             voice_id=voice_id
         )
+        video_local_path = video_result['video_path']
+        audio_local_path = video_result['script'].scenes[0].audio_path if video_result['script'].scenes else ""
+        
+        # Upload to Cloud
+        video_url = await self.storage_manager.upload_file(video_local_path, f"videos/{os.path.basename(video_local_path)}", "video/mp4")
+        audio_url = await self.storage_manager.upload_file(audio_local_path, f"audio/{os.path.basename(audio_local_path)}", "audio/mpeg") if audio_local_path else None
+        
+        final_video_path = video_url or video_local_path
+        final_audio_path = audio_url or audio_local_path
         
         return {
             "concept": concept,
             "explanation": explanation,
             "audio": {
-                "path": video_result['script'].scenes[0].audio_path if video_result['script'].scenes else "",
+                "path": final_audio_path,
                 "duration_seconds": video_result['duration']
             },
             "video": {
-                "path": video_result['video_path'],
+                "path": final_video_path,
                 "duration_seconds": video_result['duration'],
                 "id": f"vid_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             },

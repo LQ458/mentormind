@@ -16,6 +16,18 @@ from config import config
 from dotenv import load_dotenv
 load_dotenv()
 
+# Language instruction injected into every AI prompt to enforce output language
+LANGUAGE_INSTRUCTION = {
+    "zh": "请用中文回复。所有内容、标题、说明和练习题均必须用中文书写。禁止使用英文。",
+    "en": "Reply entirely in English. All content, titles, explanations, and exercises must be in English. Do not mix languages.",
+    "ja": "日本語で回答してください。すべてのコンテンツは日本語で書いてください。",
+    "ko": "한국어로 답변해 주세요. 모든 내용은 한국어로 작성해 주세요.",
+}
+
+def get_language_instruction(language: str) -> str:
+    """Get language enforcement instruction for the given language code."""
+    return LANGUAGE_INSTRUCTION.get(language, LANGUAGE_INSTRUCTION["zh"])
+
 
 @dataclass
 class APIResponse:
@@ -314,14 +326,15 @@ class DeepSeekClient:
                 请提供适当的学习建议。
                 """
             
+            lang_instr = get_language_instruction(language)
             messages = [
                 {
                     "role": "system",
-                    "content": "你是一个专业的AI教学导师，擅长分析学习需求并创建个性化教学方案。"
+                    "content": f"你是一个专业的AI教学导师，擅长分析学习需求并创建个性化教学方案。{lang_instr}"
                 },
                 {
                     "role": "user",
-                    "content": prompt
+                    "content": f"{lang_instr}\n\n{prompt}"
                 }
             ]
             

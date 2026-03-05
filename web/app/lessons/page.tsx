@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useLanguage } from '../components/LanguageContext'
 
 interface Lesson {
   id: string
@@ -13,11 +14,10 @@ interface Lesson {
 }
 
 export default function LessonsPage() {
+  const { language, t } = useLanguage()
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null)
-  const [query, setQuery] = useState('')
-  const [generating, setGenerating] = useState(false)
 
   useEffect(() => {
     fetchLessons()
@@ -35,88 +35,46 @@ export default function LessonsPage() {
     }
   }
 
-  const generateLesson = async () => {
-    if (!query.trim()) {
-      alert('Please enter a query')
-      return
-    }
-
-    setGenerating(true)
-    try {
-      const response = await fetch('/api/backend', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ studentQuery: query }),
-      })
-
-      const data = await response.json()
-      if (data.success) {
-        alert(`Lesson generated successfully: ${data.lesson_plan?.title}`)
-        setQuery('')
-        fetchLessons() // Refresh the list
-      } else {
-        alert('Failed to generate lesson')
-      }
-    } catch (error) {
-      console.error('Failed to generate lesson:', error)
-      alert('Failed to generate lesson')
-    } finally {
-      setGenerating(false)
-    }
-  }
-
   const deleteLesson = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this lesson?')) return
+    if (!confirm(t('lessons.deleteConfirm'))) return
 
     try {
-      const response = await fetch(`/api/backend/lessons/${id}`, {
-        method: 'DELETE',
-      })
-
+      const response = await fetch(`/api/backend/lessons/${id}`, { method: 'DELETE' })
       if (response.ok) {
         setLessons(lessons.filter(lesson => lesson.id !== id))
       } else {
         const data = await response.json()
-        alert(`Failed to delete lesson: ${data.details || 'Unknown error'}`)
+        alert(`${t('lessons.deleteFailed')}: ${data.details || ''}`)
       }
     } catch (error) {
       console.error('Failed to delete lesson:', error)
-      alert('Failed to delete lesson. Please check connection.')
+      alert(t('lessons.deleteFailed'))
     }
   }
 
   const deleteAllLessons = async () => {
-    if (!confirm('Are you sure you want to delete ALL lessons? This cannot be undone.')) return
-    if (!confirm('Really delete everything?')) return
+    if (!confirm(t('lessons.deleteAllConfirm1'))) return
+    if (!confirm(t('lessons.deleteAllConfirm2'))) return
 
     try {
-      const response = await fetch('/api/backend/lessons', {
-        method: 'DELETE',
-      })
-
+      const response = await fetch('/api/backend/lessons', { method: 'DELETE' })
       if (response.ok) {
         setLessons([])
-        alert('All lessons deleted successfully.')
+        alert(t('lessons.deletedSuccess'))
       } else {
         const data = await response.json()
-        alert(`Failed to delete all lessons: ${data.details || 'Unknown error'}`)
+        alert(`${t('lessons.deleteAllFailed')}: ${data.details || ''}`)
       }
     } catch (error) {
       console.error('Failed to delete all lessons:', error)
-      alert('Failed to delete lessons. Please check connection.')
+      alert(t('lessons.deleteAllFailed'))
     }
-  }
-
-  const viewLessonDetails = (lesson: Lesson) => {
-    setSelectedLesson(lesson)
   }
 
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <div className="text-gray-500">Loading lessons...</div>
+        <div className="text-gray-500">{t('lessons.loading')}</div>
       </div>
     )
   }
@@ -126,20 +84,17 @@ export default function LessonsPage() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Lessons</h1>
-          <p className="text-gray-600 mt-1">Create and manage AI-generated lessons</p>
+          <h1 className="text-3xl font-bold text-gray-900">{t('lessons.pageTitle')}</h1>
+          <p className="text-gray-600 mt-1">{t('lessons.pageSubtitle')}</p>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-sm text-gray-500">
-            Total: {lessons.length} lessons
-          </div>
+          <div className="text-sm text-gray-500">{t('lessons.totalCount', { n: lessons.length })}</div>
           {lessons.length > 0 && (
             <button
               onClick={deleteAllLessons}
               className="px-3 py-1 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200 transition-colors"
-              title="Delete all lessons"
             >
-              Delete All
+              {t('lessons.deleteAll')}
             </button>
           )}
         </div>
@@ -158,13 +113,11 @@ export default function LessonsPage() {
               </svg>
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">创建新课程</h3>
-              <p className="text-sm text-gray-500 mt-1">AI生成个性化教学</p>
+              <h3 className="text-lg font-semibold text-gray-900">{t('lessons.createNew')}</h3>
+              <p className="text-sm text-gray-500 mt-1">{t('lessons.createNewDesc')}</p>
             </div>
           </div>
-          <div className="text-blue-600 font-medium group-hover:text-blue-700">
-            开始创建 →
-          </div>
+          <div className="text-blue-600 font-medium group-hover:text-blue-700">{t('lessons.startCreating')}</div>
         </a>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -175,13 +128,11 @@ export default function LessonsPage() {
               </svg>
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">批量导入</h3>
-              <p className="text-sm text-gray-500 mt-1">从文件导入学生问题</p>
+              <h3 className="text-lg font-semibold text-gray-900">{t('lessons.batchImport')}</h3>
+              <p className="text-sm text-gray-500 mt-1">{t('lessons.batchImportDesc')}</p>
             </div>
           </div>
-          <button className="text-gray-600 font-medium hover:text-gray-800">
-            上传文件 →
-          </button>
+          <button className="text-gray-600 font-medium hover:text-gray-800">{t('lessons.uploadFile')}</button>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -192,20 +143,18 @@ export default function LessonsPage() {
               </svg>
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">导出课程</h3>
-              <p className="text-sm text-gray-500 mt-1">批量导出为PDF/视频</p>
+              <h3 className="text-lg font-semibold text-gray-900">{t('lessons.exportLessons')}</h3>
+              <p className="text-sm text-gray-500 mt-1">{t('lessons.exportLessonsDesc')}</p>
             </div>
           </div>
-          <button className="text-gray-600 font-medium hover:text-gray-800">
-            选择课程 →
-          </button>
+          <button className="text-gray-600 font-medium hover:text-gray-800">{t('lessons.selectLesson')}</button>
         </div>
       </div>
 
       {/* Lesson List */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">All Lessons</h2>
+          <h2 className="text-xl font-semibold text-gray-900">{t('lessons.allLessonsHeader')}</h2>
         </div>
 
         {lessons.length > 0 ? (
@@ -213,68 +162,39 @@ export default function LessonsPage() {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Date & Time
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Student Query
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Lesson Title
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Quality
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Cost
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('lessons.dateTimeHeader')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('lessons.studentQueryHeader')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('lessons.lessonTitleHeader')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('lessons.qualityHeader')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('lessons.costHeader')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('lessons.actionsHeader')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {lessons.map((lesson) => (
                   <tr key={lesson.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(lesson.timestamp).toLocaleString()}
+                      {new Date(lesson.timestamp).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US')}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900 max-w-xs">
-                      <div className="truncate" title={lesson.query}>
-                        {lesson.query}
-                      </div>
+                      <div className="truncate" title={lesson.query}>{lesson.query}</div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {lesson.lesson_title}
-                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">{lesson.lesson_title}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="w-24 bg-gray-200 rounded-full h-2 mr-3">
-                          <div
-                            className="bg-green-500 h-2 rounded-full"
-                            style={{ width: `${lesson.quality_score * 100}%` }}
-                          />
+                          <div className="bg-green-500 h-2 rounded-full" style={{ width: `${lesson.quality_score * 100}%` }} />
                         </div>
-                        <span className="text-sm font-medium">
-                          {(lesson.quality_score * 100).toFixed(0)}%
-                        </span>
+                        <span className="text-sm font-medium">{(lesson.quality_score * 100).toFixed(0)}%</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ${lesson.cost_usd?.toFixed(4) || '0.0000'}
-                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${lesson.cost_usd?.toFixed(4) || '0.0000'}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <Link
-                        href={`/lessons/${lesson.id}`}
-                        className="text-blue-600 hover:text-blue-900 mr-4"
-                      >
-                        View
+                      <Link href={`/lessons/${lesson.id}`} className="text-blue-600 hover:text-blue-900 mr-4">
+                        {t('lessons.viewAction')}
                       </Link>
-                      <button
-                        onClick={() => deleteLesson(lesson.id)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        Delete
+                      <button onClick={() => deleteLesson(lesson.id)} className="text-red-600 hover:text-red-900">
+                        {t('lessons.deleteAction')}
                       </button>
                     </td>
                   </tr>
@@ -289,17 +209,17 @@ export default function LessonsPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
               </svg>
             </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No lessons yet</h3>
-            <p className="text-gray-500 mb-6">Create your first lesson using the form above</p>
-            <button
-              onClick={() => document.querySelector('textarea')?.focus()}
+            <h3 className="text-lg font-medium text-gray-900 mb-2">{t('lessons.noLessonsTitle')}</h3>
+            <p className="text-gray-500 mb-6">{t('lessons.noLessonsDesc')}</p>
+            <Link
+              href="/create"
               className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
             >
               <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
-              Create Lesson
-            </button>
+              {t('lessons.createLessonButton')}
+            </Link>
           </div>
         )}
       </div>
@@ -309,74 +229,50 @@ export default function LessonsPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-lg font-semibold text-gray-900">Lesson Details</h3>
-              <button
-                onClick={() => setSelectedLesson(null)}
-                className="text-gray-400 hover:text-gray-600"
-              >
+              <h3 className="text-lg font-semibold text-gray-900">{t('lessons.detailsTitle')}</h3>
+              <button onClick={() => setSelectedLesson(null)} className="text-gray-400 hover:text-gray-600">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-
             <div className="p-6 space-y-4">
               <div>
-                <h4 className="text-sm font-medium text-gray-500">Student Query</h4>
+                <h4 className="text-sm font-medium text-gray-500">{t('lessons.studentQueryLabel')}</h4>
                 <p className="mt-1 text-gray-900">{selectedLesson.query}</p>
               </div>
-
               <div>
-                <h4 className="text-sm font-medium text-gray-500">Lesson Title</h4>
+                <h4 className="text-sm font-medium text-gray-500">{t('lessons.lessonTitleLabel')}</h4>
                 <p className="mt-1 text-gray-900">{selectedLesson.lesson_title}</p>
               </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <h4 className="text-sm font-medium text-gray-500">Generated</h4>
-                  <p className="mt-1 text-gray-900">
-                    {new Date(selectedLesson.timestamp).toLocaleString()}
-                  </p>
+                  <h4 className="text-sm font-medium text-gray-500">{t('lessons.generatedLabel')}</h4>
+                  <p className="mt-1 text-gray-900">{new Date(selectedLesson.timestamp).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US')}</p>
                 </div>
-
                 <div>
-                  <h4 className="text-sm font-medium text-gray-500">Quality Score</h4>
-                  <p className="mt-1 text-gray-900">
-                    {(selectedLesson.quality_score * 100).toFixed(0)}%
-                  </p>
+                  <h4 className="text-sm font-medium text-gray-500">{t('lessons.qualityScoreLabel')}</h4>
+                  <p className="mt-1 text-gray-900">{(selectedLesson.quality_score * 100).toFixed(0)}%</p>
                 </div>
-
                 <div>
-                  <h4 className="text-sm font-medium text-gray-500">Cost</h4>
-                  <p className="mt-1 text-gray-900">
-                    ${selectedLesson.cost_usd?.toFixed(4) || '0.0000'}
-                  </p>
+                  <h4 className="text-sm font-medium text-gray-500">{t('lessons.costLabel')}</h4>
+                  <p className="mt-1 text-gray-900">${selectedLesson.cost_usd?.toFixed(4) || '0.0000'}</p>
                 </div>
-
                 <div>
-                  <h4 className="text-sm font-medium text-gray-500">Lesson ID</h4>
-                  <p className="mt-1 text-gray-900 font-mono text-sm">
-                    {selectedLesson.id}
-                  </p>
+                  <h4 className="text-sm font-medium text-gray-500">{t('lessons.lessonIdLabel')}</h4>
+                  <p className="mt-1 text-gray-900 font-mono text-sm">{selectedLesson.id}</p>
                 </div>
               </div>
-
               <div className="pt-4 border-t border-gray-200">
                 <div className="flex justify-end gap-3">
-                  <button
-                    onClick={() => setSelectedLesson(null)}
-                    className="px-4 py-2 text-gray-700 hover:text-gray-900"
-                  >
-                    Close
+                  <button onClick={() => setSelectedLesson(null)} className="px-4 py-2 text-gray-700 hover:text-gray-900">
+                    {t('lessons.closeButton')}
                   </button>
                   <button
-                    onClick={() => {
-                      // In a real implementation, this would download the lesson
-                      alert('Download feature would be implemented here')
-                    }}
+                    onClick={() => alert(t('common.loading'))}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                   >
-                    Download Lesson
+                    {t('lessons.downloadButton')}
                   </button>
                 </div>
               </div>

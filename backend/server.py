@@ -10,12 +10,14 @@ import sys
 from datetime import datetime
 from typing import Dict, Any, List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from dotenv import load_dotenv
+import tempfile
+import shutil
 
 # Load environment variables
 load_dotenv()
@@ -26,6 +28,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # Import core modules
 from core.create_classes import ClassCreator, ClassCreationRequest, Language, ClassCreationResult
 from core.modules.output import TTSSynthesizer
+from celery.result import AsyncResult
+from celery_app import create_class_video_task, celery_app
 from database import LessonStorageSQL, init_database
 from config import config
 
@@ -192,89 +196,160 @@ async def create_class(request: Dict[str, Any]):
         
         print(f"🎓 Creating class: '{topic}' (lang: {language}, level: {student_level}, voice: {voice_id})")
         
-        # Initialize class creator
-        creator = ClassCreator()
+        # Dispatch to Celery Queue instead of processing synchronously
+        job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        task = create_class_video_task.delay(request, job_id)
         
-        # Create request object
-        class_request = ClassCreationRequest(
-            topic=topic,
-            language=Language(language) if language in ["en", "zh", "ja", "ko"] else Language.CHINESE,
-            student_level=student_level,
-            duration_minutes=duration_minutes,
-            include_video=include_video,
-            include_exercises=include_exercises,
-            include_assessment=include_assessment,
-            custom_requirements=custom_requirements,
-            target_audience=target_audience,
-
-            difficulty_level=difficulty_level,
-            voice_id=voice_id
-        )
-        
-        # Generate class content
-        result = None
-        if language == "en":
-            result = await creator.create_class_english(class_request)
-        elif language == "zh":
-            result = await creator.create_class_chinese(class_request)
-        else:
-            result = await creator.create_class_chinese(class_request)
-        
-        # Format response
+        # Return job ID immediately to avoid HTTP timeout
         response = {
-            "success": result.success,
-            "language": result.language_used.value if result.language_used else language,
-            "topic": topic,
-            "class_title": result.class_title,
-            "class_description": result.class_description,
-            "learning_objectives": result.learning_objectives,
-            "prerequisites": result.prerequisites,
-            "teaching_methodology": result.teaching_methodology,
-            "lesson_plan": result.lesson_plan,
-            "exercises": result.exercises,
-            "assessment": result.assessment,
-            "resources": result.resources,
-            "estimated_duration": result.estimated_duration,
-            "difficulty_level": result.difficulty_level,
-            "target_audience": result.target_audience,
-            "customization_notes": result.customization_notes,
-            "ai_insights": result.ai_insights,
-            "audio_url": result.audio_url,
-            "video_url": result.video_url,
-            "timestamp": datetime.now().isoformat()
+            "success": True,
+            "job_id": task.id,
+            "status": "pending",
+            "message": "Video generation queued successfully.",
+            "topic": topic
         }
-        
-        # Save the lesson to PostgreSQL database
-        if result.success:
-            try:
-                # Add additional metadata for storage
-                lesson_data = {
-                    **response,
-                    "student_level": student_level,
-                    "duration_minutes": duration_minutes,
-                    "include_video": include_video,
-                    "include_exercises": include_exercises,
-                    "include_assessment": include_assessment,
-                    "custom_requirements": custom_requirements,
-                    "target_audience": target_audience,
-                    "difficulty_level": difficulty_level
-                }
-                saved_info = lesson_storage.save_lesson(lesson_data)
-                
-                # PostgreSQL storage returns dictionary
-                response["lesson_id"] = saved_info["id"]
-                response["quality_score"] = saved_info["quality_score"]
-                response["cost_usd"] = saved_info["cost_usd"]
-                print(f"✅ Lesson saved to PostgreSQL with ID: {saved_info['id']}")
-            except Exception as e:
-                print(f"⚠️  Failed to save lesson to database: {e}")
-                # Continue even if saving fails
         
         return JSONResponse(content=response)
         
     except Exception as e:
-        print(f"❌ Error creating class: {e}")
+        print(f"❌ Error queuing class: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/job-status/{job_id}")
+async def get_job_status(job_id: str):
+    """Poll for the status of a class generation job"""
+    try:
+        task_result = AsyncResult(job_id, app=celery_app)
+        
+        if task_result.state == 'PENDING':
+            return {"status": "pending"}
+        elif task_result.state == 'FAILURE':
+            return {"status": "failed", "error": str(task_result.info)}
+        elif task_result.state == 'SUCCESS':
+            result_data = task_result.result
+            
+            # Save the lesson to PostgreSQL database
+            if result_data.get("success"):
+                try:
+                    # Provide default values for missing DB columns if Celery didn't include them
+                    save_payload = {
+                        **result_data,
+                        "student_level": result_data.get("student_level", "beginner"),
+                        "duration_minutes": result_data.get("duration_minutes", 30),
+                        "difficulty_level": result_data.get("difficulty_level", "intermediate")
+                    }
+                    if lesson_storage:
+                        saved_info = lesson_storage.save_lesson(save_payload)
+                        result_data["lesson_id"] = saved_info["id"]
+                        print(f"✅ Class Generation Complete. Saved DB ID: {saved_info['id']}")
+                except Exception as e:
+                    print(f"⚠️ Failed to save completed job to database: {e}")
+            
+            return {"status": "completed", "result": result_data}
+        else:
+            return {"status": task_result.state.lower()}
+            
+    except Exception as e:
+        print(f"❌ Error polling job status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/ingest/audio")
+async def ingest_audio(
+    file: UploadFile = File(...),
+    language: str = Form(default="zh")
+):
+    """Transcribe user-uploaded audio using FunASR. Returns extracted text."""
+    try:
+        from services.funasr.service import FunASRService
+        
+        # Validate file type
+        allowed_types = {"audio/wav", "audio/mpeg", "audio/mp4", "audio/ogg",
+                         "audio/flac", "audio/x-m4a", "audio/webm"}
+        if file.content_type and file.content_type not in allowed_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported audio format: {file.content_type}"
+            )
+        
+        # Save upload to a temp file
+        suffix = os.path.splitext(file.filename or ".wav")[1] or ".wav"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            shutil.copyfileobj(file.file, tmp)
+            tmp_path = tmp.name
+        
+        try:
+            funasr_lang = "zh-CN" if language == "zh" else "en-US"
+            service = FunASRService()
+            segments = await service.transcribe_audio(tmp_path, language=funasr_lang)
+            full_text = " ".join(seg.text for seg in segments if seg.text.strip())
+            
+            print(f"✅ FunASR transcription complete: {len(full_text)} chars")
+            return {
+                "success": True,
+                "text": full_text,
+                "segments": [{"start": s.start_time, "end": s.end_time, "text": s.text, "confidence": s.confidence} for s in segments],
+                "language": language
+            }
+        finally:
+            os.unlink(tmp_path)
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error transcribing audio: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+
+
+@app.post("/ingest/image")
+async def ingest_image(
+    file: UploadFile = File(...),
+    language: str = Form(default="zh")
+):
+    """Extract text from user-uploaded image/slide using PaddleOCR. Returns extracted text."""
+    try:
+        from services.paddleocr.service import PaddleOCRService
+        
+        # Validate file type
+        allowed_types = {"image/jpeg", "image/png", "image/bmp", "image/tiff",
+                         "image/webp", "application/pdf"}
+        if file.content_type and file.content_type not in allowed_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported image format: {file.content_type}"
+            )
+        
+        # Save upload to a temp file
+        suffix = os.path.splitext(file.filename or ".jpg")[1] or ".jpg"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            shutil.copyfileobj(file.file, tmp)
+            tmp_path = tmp.name
+        
+        try:
+            ocr_lang = "ch" if language == "zh" else "en"
+            service = PaddleOCRService()
+            results = await service.extract_text_from_image(tmp_path, language=ocr_lang)
+            full_text = "\n".join(r.text for r in results if r.text.strip())
+            
+            print(f"✅ PaddleOCR extraction complete: {len(results)} regions, {len(full_text)} chars")
+            return {
+                "success": True,
+                "text": full_text,
+                "regions": len(results),
+                "language": language
+            }
+        finally:
+            os.unlink(tmp_path)
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error extracting image text: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"OCR failed: {str(e)}")
+
 
 @app.post("/teach")
 async def teach_endpoint(request: Dict[str, Any]):
@@ -471,6 +546,8 @@ if __name__ == "__main__":
     print("  GET  /languages      - Supported languages")
     print("  POST /analyze-topics - Analyze topics")
     print("  POST /create-class   - Create class")
+    print("  POST /ingest/audio   - FunASR audio transcription")
+    print("  POST /ingest/image   - PaddleOCR text extraction")
     print("  GET  /config         - Configuration")
     print("=====================================")
     

@@ -25,14 +25,14 @@ if not DB_URL:
 engine = create_engine(
     DB_URL,
     poolclass=QueuePool,
-    pool_size=db_config.max_connections,
+    pool_size=db_config.max_connections if db_config else 10,
     max_overflow=10,
     pool_pre_ping=True,
     echo=False,  # Set to True for SQL debugging
     connect_args={
         "connect_timeout": 10,
         "application_name": "mentormind_backend"
-    }
+    } if not DB_URL.startswith("postgresql+asyncpg") else {}
 )
 
 # Create session factory

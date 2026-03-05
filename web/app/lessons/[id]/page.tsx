@@ -3,10 +3,12 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useLanguage } from '../../components/LanguageContext'
 
 export default function LessonDetailPage() {
     const params = useParams()
     const router = useRouter()
+    const { language, t } = useLanguage()
     const [lesson, setLesson] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [activeTab, setActiveTab] = useState<'content' | 'video' | 'script'>('video')
@@ -28,7 +30,7 @@ export default function LessonDetailPage() {
             setLesson(data.lesson)
         } catch (error) {
             console.error('Error fetching lesson:', error)
-            alert('Failed to load lesson details')
+            alert(t('common.error'))
             router.push('/lessons')
         } finally {
             setLoading(false)
@@ -45,7 +47,6 @@ export default function LessonDetailPage() {
 
     if (!lesson) return null
 
-    // Helper to extract video/audio URLs if present
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     const videoUrl = lesson.video_url ? `${apiUrl}${lesson.video_url}` : null
     const audioUrl = lesson.audio_url ? `${apiUrl}${lesson.audio_url}` : null
@@ -70,7 +71,7 @@ export default function LessonDetailPage() {
                                     {lesson.class_title}
                                 </h1>
                                 <p className="text-sm text-gray-500">
-                                    {new Date(lesson.timestamp).toLocaleDateString()} • {lesson.duration_minutes} min • {lesson.student_level}
+                                    {new Date(lesson.timestamp).toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US')} • {lesson.duration_minutes} {t('common.minutes')} • {lesson.student_level}
                                 </p>
                             </div>
                         </div>
@@ -79,10 +80,10 @@ export default function LessonDetailPage() {
                                 onClick={() => window.print()}
                                 className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
                             >
-                                Download PDF
+                                {t('lessonDetail.downloadPdf')}
                             </button>
                             <button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm">
-                                Start Quiz
+                                {t('lessonDetail.startQuiz')}
                             </button>
                         </div>
                     </div>
@@ -103,7 +104,7 @@ export default function LessonDetailPage() {
                                     className="w-full h-full object-contain"
                                     poster={lesson.ai_insights?.avatar_image || "/placeholder-video.jpg"}
                                 >
-                                    Your browser does not support the video tag.
+                                    {t('lessonDetail.browserNoVideo')}
                                 </video>
                             ) : (
                                 <div className="w-full h-full flex items-center justify-center bg-gray-900 text-white">
@@ -111,8 +112,8 @@ export default function LessonDetailPage() {
                                         <svg className="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                                         </svg>
-                                        <p className="text-lg font-medium">No video available</p>
-                                        <p className="text-sm text-gray-500 mt-2">This lesson was generated without video content.</p>
+                                        <p className="text-lg font-medium">{t('lessonDetail.noVideoAvailable')}</p>
+                                        <p className="text-sm text-gray-500 mt-2">{t('lessonDetail.noVideoDesc')}</p>
                                     </div>
                                 </div>
                             )}
@@ -128,7 +129,7 @@ export default function LessonDetailPage() {
                                         : 'text-gray-500 hover:text-gray-700'
                                         }`}
                                 >
-                                    Lesson Plan
+                                    {t('lessonDetail.tabLessonPlan')}
                                 </button>
                                 <button
                                     onClick={() => setActiveTab('script')}
@@ -137,7 +138,7 @@ export default function LessonDetailPage() {
                                         : 'text-gray-500 hover:text-gray-700'
                                         }`}
                                 >
-                                    Transcript & Script
+                                    {t('lessonDetail.tabTranscript')}
                                 </button>
                                 <button
                                     onClick={() => setActiveTab('video')}
@@ -146,21 +147,21 @@ export default function LessonDetailPage() {
                                         : 'text-gray-500 hover:text-gray-700'
                                         }`}
                                 >
-                                    AI Insights
+                                    {t('lessonDetail.tabAiInsights')}
                                 </button>
                             </div>
 
                             <div className="p-6">
                                 {activeTab === 'content' && (
                                     <div className="prose max-w-none">
-                                        <h3 className="text-lg font-bold mb-4">Learning Objectives</h3>
+                                        <h3 className="text-lg font-bold mb-4">{t('lessonDetail.learningObjectives')}</h3>
                                         <ul className="list-disc pl-5 mb-6 space-y-2">
                                             {lesson.learning_objectives?.map((obj: string, i: number) => (
                                                 <li key={i} className="text-gray-700">{obj}</li>
-                                            )) || <li>No objectives listed</li>}
+                                            )) || <li>{t('lessonDetail.noObjectives')}</li>}
                                         </ul>
 
-                                        <h3 className="text-lg font-bold mb-4">Core Concepts</h3>
+                                        <h3 className="text-lg font-bold mb-4">{t('lessonDetail.coreConcepts')}</h3>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                                             {Object.entries(lesson.lesson_plan || {}).map(([key, value]: [string, any]) => (
                                                 <div key={key} className="bg-gray-50 p-4 rounded-lg">
@@ -175,7 +176,7 @@ export default function LessonDetailPage() {
                                 {activeTab === 'script' && (
                                     <div className="space-y-4">
                                         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 font-mono text-sm leading-relaxed text-gray-700 whitespace-pre-wrap max-h-[500px] overflow-y-auto">
-                                            {lesson.ai_insights?.script?.script_text || "No script available."}
+                                            {lesson.ai_insights?.script?.script_text || t('lessonDetail.noScript')}
                                         </div>
                                     </div>
                                 )}
@@ -184,14 +185,14 @@ export default function LessonDetailPage() {
                                     <div className="space-y-6">
                                         <div className="flex items-center justify-between bg-blue-50 p-4 rounded-lg border border-blue-100">
                                             <div>
-                                                <h4 className="font-semibold text-blue-900">AI Teacher Confidence</h4>
-                                                <p className="text-sm text-blue-700">Based on topic analysis</p>
+                                                <h4 className="font-semibold text-blue-900">{t('lessonDetail.aiTeacherConfidence')}</h4>
+                                                <p className="text-sm text-blue-700">{t('lessonDetail.basedOnTopicAnalysis')}</p>
                                             </div>
                                             <div className="text-2xl font-bold text-blue-800">{((lesson.ai_insights?.confidence || 0.8) * 100).toFixed(0)}%</div>
                                         </div>
 
                                         <div>
-                                            <h4 className="font-medium text-gray-900 mb-2">Pedagogical Approach</h4>
+                                            <h4 className="font-medium text-gray-900 mb-2">{t('lessonDetail.pedagogicalApproach')}</h4>
                                             <p className="text-gray-600 bg-gray-50 p-3 rounded-lg border border-gray-200">
                                                 {lesson.teaching_methodology || "Standard AI Instruction"}
                                             </p>
@@ -205,11 +206,11 @@ export default function LessonDetailPage() {
                     {/* Sidebar */}
                     <div className="space-y-6">
                         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Progress</h3>
+                            <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('lessonDetail.yourProgress')}</h3>
                             <div className="space-y-4">
                                 <div>
                                     <div className="flex justify-between text-sm mb-1">
-                                        <span className="text-gray-600">Completion</span>
+                                        <span className="text-gray-600">{t('lessonDetail.completion')}</span>
                                         <span className="font-medium text-gray-900">0%</span>
                                     </div>
                                     <div className="w-full bg-gray-100 rounded-full h-2">
@@ -217,17 +218,17 @@ export default function LessonDetailPage() {
                                     </div>
                                 </div>
                                 <button className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors">
-                                    Mark as Complete
+                                    {t('lessonDetail.markComplete')}
                                 </button>
                             </div>
                         </div>
 
                         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-4">Resources</h3>
+                            <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('lessonDetail.resources')}</h3>
                             <ul className="space-y-3">
                                 {lesson.resources?.map((res: any, i: number) => {
                                     const isString = typeof res === 'string';
-                                    const displayText = isString ? res : (res.title || res.description || res.name || 'External Resource');
+                                    const displayText = isString ? res : (res.title || res.description || res.name || t('lessonDetail.externalResource'));
                                     const url = isString ? '#' : (res.url || '#');
 
                                     return (
@@ -240,7 +241,7 @@ export default function LessonDetailPage() {
                                             </a>
                                         </li>
                                     );
-                                }) || <li className="text-sm text-gray-500">No external resources</li>}
+                                }) || <li className="text-sm text-gray-500">{t('lessonDetail.noExternalResources')}</li>}
                             </ul>
                         </div>
                     </div>

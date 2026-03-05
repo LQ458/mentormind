@@ -3,7 +3,8 @@ import { LessonVideo } from './scenes/LessonVideo';
 import '../app/globals.css';
 
 export const RemotionRoot: React.FC = () => {
-  const inputProps = getInputProps();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const inputProps = getInputProps() as any;
 
   return (
     <>

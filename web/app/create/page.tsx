@@ -37,7 +37,7 @@ interface Voice {
 
 export default function CreateLessonPage() {
   const router = useRouter()
-  const { language: uiLanguage, t } = useLanguage()
+  const { language: uiLanguage, contentLanguage, t } = useLanguage()
   const [workflowPhase, setWorkflowPhase] = useState<'chatting' | 'topic-selection' | 'generating' | 'preview'>('chatting')
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
 
@@ -73,6 +73,54 @@ export default function CreateLessonPage() {
   })
 
   const [voices, setVoices] = useState<Voice[]>([])
+
+  // Audio/Image upload state
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false)
+  const [isUploadingImage, setIsUploadingImage] = useState(false)
+  const audioInputRef = useState<HTMLInputElement | null>(null)
+  const imageInputRef = useState<HTMLInputElement | null>(null)
+
+  const handleAudioUpload = async (file: File) => {
+    setIsUploadingAudio(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('language', contentLanguage)
+      const response = await fetch('/api/backend/ingest/audio', { method: 'POST', body: formData })
+      const data = await response.json()
+      if (data.success && data.text) {
+        setUserInput(prev => prev ? `${prev} ${data.text}` : data.text)
+      } else {
+        alert(uiLanguage === 'zh' ? '音频转录失败，请重试' : 'Audio transcription failed, please try again')
+      }
+    } catch (err) {
+      console.error('Audio upload error:', err)
+      alert(uiLanguage === 'zh' ? '音频上传失败' : 'Audio upload failed')
+    } finally {
+      setIsUploadingAudio(false)
+    }
+  }
+
+  const handleImageUpload = async (file: File) => {
+    setIsUploadingImage(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('language', contentLanguage)
+      const response = await fetch('/api/backend/ingest/image', { method: 'POST', body: formData })
+      const data = await response.json()
+      if (data.success && data.text) {
+        setUserInput(prev => prev ? `${prev}\n${data.text}` : data.text)
+      } else {
+        alert(uiLanguage === 'zh' ? '图片文字识别失败，请重试' : 'Image OCR failed, please try again')
+      }
+    } catch (err) {
+      console.error('Image upload error:', err)
+      alert(uiLanguage === 'zh' ? '图片上传失败' : 'Image upload failed')
+    } finally {
+      setIsUploadingImage(false)
+    }
+  }
 
   // Fetch voices on mount
   useEffect(() => {
@@ -167,7 +215,7 @@ export default function CreateLessonPage() {
         },
         body: JSON.stringify({
           topic: topicToUse,
-          language: form.language === 'zh-CN' ? 'zh' : 'en',
+          language: contentLanguage,
           studentLevel: form.studentLevel,
           durationMinutes: form.duration,
           includeVideo: form.includeVideo,
@@ -179,7 +227,26 @@ export default function CreateLessonPage() {
 
       const data = await response.json()
 
-      if (data.success) {
+      if (data.job_id) {
+        // Poll via the Next.js proxy route (avoids CORS issues in production)
+        let isComplete = false;
+        while (!isComplete) {
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          const statusRes = await fetch(`/api/backend/job-status/${data.job_id}`);
+          const statusData = await statusRes.json();
+
+          if (statusData.status === 'completed') {
+            setPreview(statusData.result);
+            setPipelineProgress(null);
+            alert(t('create.courseCreatedSuccess'));
+            isComplete = true;
+          } else if (statusData.status === 'failed') {
+            throw new Error(statusData.error || 'Job failed on the server.');
+          }
+          // If pending, just continue the loop
+        }
+      } else if (data.success) {
+        // Fallback for synchronous responses (if any)
         setPreview(data)
         setPipelineProgress(null)
         alert(t('create.courseCreatedSuccess'))
@@ -232,9 +299,7 @@ export default function CreateLessonPage() {
         },
         body: JSON.stringify({
           studentQuery: userInput,
-          language: 'bilingual', // Request bilingual content
-          include_chinese: true,
-          include_english: true
+          language: contentLanguage,
         }),
       })
 
@@ -598,7 +663,57 @@ export default function CreateLessonPage() {
                   )}
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  {/* Audio upload button */}
+                  <label
+                    title={uiLanguage === 'zh' ? '上传音频（FunASR转录）' : 'Upload audio (FunASR transcription)'}
+                    className={`p-3 rounded-lg border border-gray-300 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-center ${isUploadingAudio ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
+                  >
+                    <input
+                      type="file"
+                      accept="audio/*"
+                      className="hidden"
+                      disabled={isUploadingAudio}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleAudioUpload(f); e.target.value = '' }}
+                    />
+                    {isUploadingAudio ? (
+                      <svg className="animate-spin w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                      </svg>
+                    )}
+                  </label>
+
+                  {/* Image/OCR upload button */}
+                  <label
+                    title={uiLanguage === 'zh' ? '上传图片/文档（PaddleOCR识别）' : 'Upload image/doc (PaddleOCR)'}
+                    className={`p-3 rounded-lg border border-gray-300 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-center ${isUploadingImage ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
+                  >
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      className="hidden"
+                      disabled={isUploadingImage}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); e.target.value = '' }}
+                    />
+                    {isUploadingImage ? (
+                      <svg className="animate-spin w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    )}
+                  </label>
+
                   <input
                     type="text"
                     value={userInput}

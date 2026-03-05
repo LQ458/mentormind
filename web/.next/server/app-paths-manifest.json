@@ -1,3 +1,11 @@
 {
-  "/create/page": "app/create/page.js"
+  "/page": "app/page.js",
+  "/settings/page": "app/settings/page.js",
+  "/create/page": "app/create/page.js",
+  "/api/backend/voices/route": "app/api/backend/voices/route.js",
+  "/lessons/page": "app/lessons/page.js",
+  "/api/backend/results/route": "app/api/backend/results/route.js",
+  "/analytics/page": "app/analytics/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/api/backend/route": "app/api/backend/route.js"
 }
