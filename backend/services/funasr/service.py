@@ -33,7 +33,7 @@ class FunASRService:
             api_url: FunASR API endpoint URL
             api_key: API key for authentication
         """
-        self.api_url = api_url or os.getenv("FUNASR_API_URL", "http://localhost:8888")
+        self.api_url = api_url or os.getenv("FUNASR_ENDPOINT", "http://localhost:10095")
         self.api_key = api_key or os.getenv("FUNASR_API_KEY", "")
         self.timeout = 300  # 5 minutes timeout for long audio files
         

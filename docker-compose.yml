@@ -52,6 +52,7 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       S3_BUCKET_NAME: ${S3_BUCKET_NAME:-mentormind-videos}
       S3_PUBLIC_URL_PREFIX: ${S3_PUBLIC_URL_PREFIX:-}
+      PRELOAD_ASR_LANG: ${PRELOAD_ASR_LANG:-en}
     ports:
       - "8000:8000"
     volumes:
