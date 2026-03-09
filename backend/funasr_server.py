@@ -58,7 +58,7 @@ async def transcribe(audio_file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        result = asr_model.generate(input=tmp_path, batch_size_s=300)
+        result = asr_model.generate(input=tmp_path, batch_size_s=30)
         text = " ".join([r["text"] for r in result]) if result else ""
         return {"success": True, "text": text, "segments": result}
     except Exception as e:

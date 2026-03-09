@@ -21,8 +21,7 @@ export default function LessonDetailPage() {
 
     const fetchLessonDetails = async (id: string) => {
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-            const response = await fetch(`${apiUrl}/lessons/${id}`)
+            const response = await fetch(`/api/backend/lessons/${id}`)
             if (!response.ok) {
                 throw new Error('Failed to fetch lesson')
             }
@@ -47,9 +46,13 @@ export default function LessonDetailPage() {
 
     if (!lesson) return null
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    const videoUrl = lesson.video_url ? `${apiUrl}${lesson.video_url}` : null
-    const audioUrl = lesson.audio_url ? `${apiUrl}${lesson.audio_url}` : null
+    const BACKEND_PUBLIC = process.env.NEXT_PUBLIC_API_URL || ''
+    const videoUrl = lesson.video_url
+        ? (lesson.video_url.startsWith('http') ? lesson.video_url : `${BACKEND_PUBLIC}${lesson.video_url}`)
+        : null
+    const audioUrl = lesson.audio_url
+        ? (lesson.audio_url.startsWith('http') ? lesson.audio_url : `${BACKEND_PUBLIC}${lesson.audio_url}`)
+        : null
 
     return (
         <div className="min-h-screen bg-gray-50 pb-12">

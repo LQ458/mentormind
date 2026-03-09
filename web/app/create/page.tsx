@@ -207,8 +207,7 @@ export default function CreateLessonPage() {
     // Pipeline progress handled by effect
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const response = await fetch(`${apiUrl}/create-class`, {
+      const response = await fetch('/api/backend/create-class', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -291,8 +290,7 @@ export default function CreateLessonPage() {
 
     try {
       // Call AI topic analysis endpoint
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const response = await fetch(`${apiUrl}/analyze-topics`, {
+      const response = await fetch('/api/backend/analyze-topics', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -886,7 +884,7 @@ export default function CreateLessonPage() {
                       <video
                         controls
                         className="w-full h-full"
-                        src={preview.video_url.startsWith('http') ? preview.video_url : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${preview.video_url}`}
+                        src={preview.video_url.startsWith('http') ? preview.video_url : `/api/backend/media${preview.video_url}`}
                       >
                         Your browser does not support the video tag.
                       </video>

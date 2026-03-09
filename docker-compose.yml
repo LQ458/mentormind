@@ -58,6 +58,7 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/data:/app/data
+      - modelscope_cache:/root/.cache/modelscope
     command: uvicorn server:app --host 0.0.0.0 --port 8000
 
   celery-worker:
@@ -85,7 +86,24 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/data:/app/data
+      - modelscope_cache:/root/.cache/modelscope
     command: celery -A celery_app worker --loglevel=info --concurrency=4
+
+  frontend:
+    build: ./web
+    container_name: mentormind-frontend
+    depends_on:
+      - backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Point to the backend running on the host machine if needed
+      BACKEND_URL: http://host.docker.internal:8000
+      # Tells Next.js its own public-facing URL so Server Actions origin checks pass
+      NEXTAUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+    ports:
+      - "3000:3000"
 
   funasr:
     image: registry.cn-hangzhou.aliyuncs.com/funasr/funasr-runtime-sdk-cpu:latest
@@ -105,3 +123,4 @@ services:
 
 volumes:
   postgres_data:
+  modelscope_cache:

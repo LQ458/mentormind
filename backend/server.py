@@ -29,7 +29,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from core.create_classes import ClassCreator, ClassCreationRequest, Language, ClassCreationResult
 from core.modules.output import TTSSynthesizer
 from celery.result import AsyncResult
-from celery_app import create_class_video_task, celery_app
+from celery_app import create_class_video_task, transcript_to_lesson_task, celery_app
 from database import LessonStorageSQL, init_database
 from config import config
 
@@ -58,30 +58,46 @@ if lesson_storage is None:
 
 
 # ── Lazy-loaded AI models (loaded on first use) ───────────────────────────────
-_funasr_models = {}  # keyed by language code
+import threading
+_funasr_models = {}  # keyed by language code ("zh")
+_whisper_model = None  # for English ASR
+_whisper_lock = threading.Lock()  # Whisper is NOT thread-safe; serialize inference calls
 _paddleocr_model = None
 
+def _get_whisper():
+    """Return Whisper base model for English ASR (~140MB, low memory usage)."""
+    global _whisper_model
+    if _whisper_model is None:
+        try:
+            import whisper
+            print("⏳ Loading Whisper base model for English (~140MB)...")
+            _whisper_model = whisper.load_model("base")
+            print("✅ Whisper base model loaded")
+        except ImportError:
+            raise RuntimeError("openai-whisper not installed. Run: pip install openai-whisper")
+        except Exception as e:
+            raise RuntimeError(f"Whisper model load error: {e}")
+    return _whisper_model
+
 def _get_funasr(language: str = "zh"):
-    """Return FunASR model for the given language. English uses paraformer-en; others use paraformer-zh."""
+    """Return ASR model for the given language.
+    English → Whisper base (low memory, ~500MB RAM).
+    Chinese → FunASR paraformer-zh.
+    """
     global _funasr_models
     lang_key = "en" if language in ("en", "en-US", "en-GB") else "zh"
+    if lang_key == "en":
+        return _get_whisper()  # use whisper for English; paraformer-en is too large for 7.5GB server
     if lang_key not in _funasr_models:
         try:
             from funasr import AutoModel
-            if lang_key == "en":
-                print("⏳ Loading FunASR English model (paraformer-en, first run downloads ~300MB)...")
-                _funasr_models[lang_key] = AutoModel(
-                    model="paraformer-en",
-                    disable_update=True,
-                )
-            else:
-                print("⏳ Loading FunASR Chinese model (paraformer-zh, first run downloads ~500MB)...")
-                _funasr_models[lang_key] = AutoModel(
-                    model="paraformer-zh",
-                    vad_model="fsmn-vad",
-                    punc_model="ct-punc",
-                    disable_update=True,
-                )
+            print("⏳ Loading FunASR Chinese model (paraformer-zh, first run downloads ~500MB)...")
+            _funasr_models[lang_key] = AutoModel(
+                model="paraformer-zh",
+                vad_model="fsmn-vad",
+                punc_model="ct-punc",
+                disable_update=True,
+            )
             print(f"✅ FunASR {lang_key} model loaded")
         except ImportError:
             raise RuntimeError("funasr not installed. Run: pip install funasr modelscope")
@@ -139,10 +155,12 @@ async def preload_models():
     if preload_lang.lower() == "none":
         print("⏭️ ASR model preload skipped (PRELOAD_ASR_LANG=none)")
         return
-    print(f"⏳ Pre-loading FunASR model for language: '{preload_lang}' ...")
+    print(f"⏳ Pre-loading ASR model for language: '{preload_lang}' ...")
     try:
         await asyncio.get_event_loop().run_in_executor(None, lambda: _get_funasr(preload_lang))
-        print(f"✅ FunASR '{preload_lang}' model ready")
+        lang_key = "en" if preload_lang in ("en", "en-US", "en-GB") else "zh"
+        model_name = "Whisper base" if lang_key == "en" else "FunASR paraformer-zh"
+        print(f"✅ {model_name} '{preload_lang}' model ready")
     except Exception as e:
         print(f"⚠️ FunASR preload failed (service will still start): {e}")
 
@@ -350,9 +368,28 @@ async def get_job_status(job_id: str):
 @app.post("/ingest/audio")
 async def ingest_audio(
     file: UploadFile = File(...),
-    language: str = Form(default="zh")
+    language: str = Form(default="zh"),
+    process: str = Form(default="false"),
+    student_level: str = Form(default="beginner"),
+    duration_minutes: int = Form(default=30),
+    include_video: str = Form(default="true"),
+    include_exercises: str = Form(default="true"),
+    include_assessment: str = Form(default="true"),
+    target_audience: str = Form(default="students"),
+    difficulty_level: str = Form(default="intermediate"),
+    voice_id: str = Form(default="anna"),
+    custom_requirements: str = Form(default=""),
 ):
-    """Transcribe user-uploaded audio using FunASR (in-process). Returns extracted text."""
+    """Transcribe user-uploaded audio (ASR).
+
+    When `process=true`, the transcription is immediately dispatched to a
+    Celery worker that generates a full structured lesson from the transcript.
+    The endpoint returns instantly with a `job_id` that the client polls via
+    GET /job-status/{job_id}.
+
+    When `process=false` (default), the raw transcript text is returned
+    synchronously (same behaviour as before).
+    """
     try:
         # Validate file type
         allowed_types = {"audio/wav", "audio/mpeg", "audio/mp4", "audio/ogg",
@@ -370,17 +407,60 @@ async def ingest_audio(
             tmp_path = tmp.name
 
         try:
+            lang_key = "en" if language in ("en", "en-US", "en-GB") else "zh"
             model = await asyncio.get_event_loop().run_in_executor(None, lambda: _get_funasr(language))
-            result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: model.generate(input=tmp_path, batch_size_s=300)
-            )
-            full_text = " ".join(r["text"] for r in (result or []) if r.get("text", "").strip())
-            print(f"✅ FunASR transcription complete: {len(full_text)} chars")
+
+            if lang_key == "en":
+                # Whisper is not thread-safe; acquire lock before inference
+                def _whisper_transcribe(path):
+                    with _whisper_lock:
+                        return model.transcribe(path)
+                result_raw = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: _whisper_transcribe(tmp_path)
+                )
+                full_text = result_raw.get("text", "").strip()
+            else:
+                # FunASR paraformer-zh
+                result = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: model.generate(input=tmp_path, batch_size_s=60)
+                )
+                full_text = " ".join(r["text"] for r in (result or []) if r.get("text", "").strip())
+
+            print(f"✅ ASR transcription complete: {len(full_text)} chars")
+
+            # ── Option A: return raw transcript ────────────────────────────
+            if process.lower() != "true":
+                return {
+                    "success": True,
+                    "text": full_text,
+                    "language": language,
+                }
+
+            # ── Option B: dispatch to Celery for lesson generation ─────────
+            job_id = f"audio_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            request_data = {
+                "language": language,
+                "student_level": student_level,
+                "duration_minutes": duration_minutes,
+                "include_video": include_video.lower() == "true",
+                "include_exercises": include_exercises.lower() == "true",
+                "include_assessment": include_assessment.lower() == "true",
+                "target_audience": target_audience,
+                "difficulty_level": difficulty_level,
+                "voice_id": voice_id,
+                "custom_requirements": custom_requirements or None,
+            }
+            task = transcript_to_lesson_task.delay(full_text, request_data, job_id)
+            print(f"✅ Dispatched transcript_to_lesson task: {task.id}")
             return {
                 "success": True,
-                "text": full_text,
-                "language": language
+                "status": "processing",
+                "job_id": task.id,
+                "transcript_chars": len(full_text),
+                "message": "Transcript captured. Lesson generation queued.",
+                "language": language,
             }
+
         finally:
             os.unlink(tmp_path)
 

@@ -2,29 +2,28 @@ import { NextResponse } from 'next/server'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
-export async function GET(
-    _request: Request,
-    { params }: { params: { id: string } }
-) {
+export async function POST(request: Request) {
     try {
-        const { id } = params
-        const backendResponse = await fetch(`${BACKEND_URL}/job-status/${id}`, {
-            method: 'GET',
+        const body = await request.json()
+
+        const backendResponse = await fetch(`${BACKEND_URL}/create-class`, {
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
         })
 
         if (!backendResponse.ok) {
             const errorText = await backendResponse.text()
-            console.error('Job status error:', errorText)
+            console.error('create-class backend error:', errorText)
             throw new Error(`Backend error: ${backendResponse.status}`)
         }
 
         const data = await backendResponse.json()
         return NextResponse.json(data)
     } catch (error) {
-        console.error('Job status error:', error)
+        console.error('create-class proxy error:', error)
         return NextResponse.json(
-            { error: 'Failed to get job status', details: error instanceof Error ? error.message : 'Unknown error' },
+            { error: 'Failed to create class', details: error instanceof Error ? error.message : 'Unknown error' },
             { status: 500 }
         )
     }

@@ -34,3 +34,4 @@ python-multipart>=0.0.6
 # Speech Recognition
 funasr>=1.1.0
 modelscope>=1.9.0
+openai-whisper>=20231117

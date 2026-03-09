@@ -1,25 +1,57 @@
 import { NextResponse } from 'next/server'
+import http from 'http'
+import https from 'https'
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+// Extend the default Next.js Route Handler timeout (60 s in production).
+// Whisper transcription of a 30-min audio file can take 3-5 min on CPU.
+export const maxDuration = 360 // seconds
+
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
+
+// Fields forwarded from the client to the backend (all optional except file).
+const FORWARDED_FIELDS = [
+    'language', 'process', 'student_level', 'duration_minutes',
+    'include_video', 'include_exercises', 'include_assessment',
+    'target_audience', 'difficulty_level', 'voice_id', 'custom_requirements',
+]
+
+// Use a Node.js http.Agent with a long timeout so undici / Node fetch
+// does not abort the connection mid-transfer for long transcription requests.
+const httpAgent = new http.Agent({ keepAlive: true, timeout: 360_000 })
+const httpsAgent = new https.Agent({ keepAlive: true, timeout: 360_000 })
+
+async function fetchWithLongTimeout(url: string, init: RequestInit): Promise<Response> {
+    // Next.js uses the undici fetch internally, but we can fall back to
+    // node-fetch style by passing the agent via the (Node-specific) dispatcher.
+    // The simplest cross-compatible approach: attach the agent via 'dispatcher'
+    // if available (undici), otherwise ignore.
+    const isHttps = url.startsWith('https')
+    const agent = isHttps ? httpsAgent : httpAgent
+
+    // @ts-ignore – `agent` is a Node.js fetch extension not in the W3C types
+    return fetch(url, { ...init, agent })
+}
 
 export async function POST(request: Request) {
     try {
         const formData = await request.formData()
         const file = formData.get('file') as File
-        const language = formData.get('language') as string || 'zh'
 
         if (!file) {
             return NextResponse.json({ error: 'No audio file provided' }, { status: 400 })
         }
 
-        // Forward the file to the backend
+        // Forward the file and all optional fields to the backend
         const backendForm = new FormData()
         backendForm.append('file', file)
-        backendForm.append('language', language)
+        for (const field of FORWARDED_FIELDS) {
+            const value = formData.get(field)
+            if (value !== null) backendForm.append(field, value as string)
+        }
 
-        const backendResponse = await fetch(`${BACKEND_URL}/ingest/audio`, {
+        const backendResponse = await fetchWithLongTimeout(`${BACKEND_URL}/ingest/audio`, {
             method: 'POST',
-            body: backendForm,
+            body: backendForm as unknown as BodyInit,
         })
 
         if (!backendResponse.ok) {
