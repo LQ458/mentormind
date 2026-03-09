@@ -99,6 +99,8 @@ services:
     environment:
       # Point to the backend running on the host machine if needed
       BACKEND_URL: http://host.docker.internal:8000
+      # Pass ALLOWED_ORIGIN from host .env variable to Next.js payload for CSRF check
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-}
       # Tells Next.js its own public-facing URL so Server Actions origin checks pass
       NEXTAUTH_URL: http://localhost:3000
       NEXT_PUBLIC_APP_URL: http://localhost:3000
