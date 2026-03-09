@@ -333,11 +333,16 @@ async def get_job_status(job_id: str):
     try:
         task_result = AsyncResult(job_id, app=celery_app)
         
+        # DEBUG: Log every poll so we can trace the issue
+        print(f"🔍 [job-status] Polling job_id={job_id} | state={task_result.state} | backend={celery_app.conf.result_backend}")
+        
         if task_result.state == 'PENDING':
             return {"status": "pending"}
         elif task_result.state == 'FAILURE':
+            print(f"❌ [job-status] Job FAILED: {task_result.info}")
             return {"status": "failed", "error": str(task_result.info)}
         elif task_result.state == 'SUCCESS':
+            print(f"✅ [job-status] Job SUCCEEDED, returning completed")
             result_data = task_result.result
             
             # Save the lesson to PostgreSQL database
@@ -359,7 +364,9 @@ async def get_job_status(job_id: str):
             
             return {"status": "completed", "result": result_data}
         else:
-            return {"status": task_result.state.lower()}
+            # STARTED or other states
+            print(f"⏳ [job-status] Job in state: {task_result.state}")
+            return {"status": "processing", "state": task_result.state}
             
     except Exception as e:
         print(f"❌ Error polling job status: {e}")

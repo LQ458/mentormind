@@ -8,21 +8,25 @@ export async function GET(
 ) {
     try {
         const { id } = params
-        const backendResponse = await fetch(`${BACKEND_URL}/job-status/${id}`, {
+        const url = `${BACKEND_URL}/job-status/${id}`
+        console.log(`[job-status proxy] Fetching: ${url}`)
+
+        const backendResponse = await fetch(url, {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' },
         })
 
         if (!backendResponse.ok) {
             const errorText = await backendResponse.text()
-            console.error('Job status error:', errorText)
+            console.error('Job status error:', backendResponse.status, errorText)
             throw new Error(`Backend error: ${backendResponse.status}`)
         }
 
         const data = await backendResponse.json()
+        console.log(`[job-status proxy] Backend returned status: ${data.status}`)
         return NextResponse.json(data)
     } catch (error) {
-        console.error('Job status error:', error)
+        console.error('Job status proxy error:', error)
         return NextResponse.json(
             { error: 'Failed to get job status', details: error instanceof Error ? error.message : 'Unknown error' },
             { status: 500 }
