@@ -1,6 +1,8 @@
 import os
+import json
 import asyncio
 import textwrap
+import redis
 from celery import Celery
 from datetime import datetime
 
@@ -10,6 +12,9 @@ from core.create_classes import ClassCreator, ClassCreationRequest, Language
 # Initialize Celery app
 # In production, broker and backend should come from environment variables.
 REDIS_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+
+# Direct Redis client for storing job results (bypasses Celery's result backend)
+_redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 celery_app = Celery(
     "mentormind_tasks",
@@ -87,8 +92,17 @@ def create_class_video_task(self, request_data: dict, job_id: str):
         "timestamp": datetime.now().isoformat()
     }
     
-    # In a full highly-scalable system, this task would also save `response` to Postgres,
-    # and the frontend would poll Postgres for status updates.
+    # Store result directly in Redis so /job-status can read it reliably
+    # (bypasses Celery's result backend which can be unreliable in Docker)
+    try:
+        _redis_client.setex(
+            f"job_result:{self.request.id}",
+            3600,  # 1 hour TTL
+            json.dumps(response)
+        )
+        print(f"[{job_id}] ✅ Stored job result in Redis key: job_result:{self.request.id}")
+    except Exception as e:
+        print(f"[{job_id}] ⚠️ Failed to store job result in Redis: {e}")
     
     return response
 
@@ -254,9 +268,10 @@ def transcript_to_lesson_task(self, transcript: str, request_data: dict, job_id:
         }
 
         creator = ClassCreator()
+        lang_enum = Language(language) if language in ["en", "zh", "ja", "ko"] else Language.CHINESE
         class_request = ClassCreationRequest(
             topic=lesson_topic,
-            language=Language(language) if language in ["en", "zh", "ja", "ko"] else Language.CHINESE,
+            language=lang_enum,
             student_level=request_data.get("student_level", "beginner"),
             duration_minutes=request_data.get("duration_minutes", 30),
             include_video=request_data.get("include_video", True),
@@ -299,4 +314,17 @@ def transcript_to_lesson_task(self, transcript: str, request_data: dict, job_id:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-    return loop.run_until_complete(_run())
+    response = loop.run_until_complete(_run())
+    
+    # Store result directly in Redis (bypasses Celery's result backend)
+    try:
+        _redis_client.setex(
+            f"job_result:{self.request.id}",
+            3600,
+            json.dumps(response)
+        )
+        print(f"[{job_id}] ✅ Stored transcript job result in Redis key: job_result:{self.request.id}")
+    except Exception as e:
+        print(f"[{job_id}] ⚠️ Failed to store transcript job result in Redis: {e}")
+    
+    return response

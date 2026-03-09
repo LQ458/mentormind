@@ -329,47 +329,40 @@ async def create_class(request: Dict[str, Any]):
 
 @app.get("/job-status/{job_id}")
 async def get_job_status(job_id: str):
-    """Poll for the status of a class generation job"""
+    """Poll for the status of a class generation job.
+    
+    Uses a direct Redis key (set by the worker) as the primary source of truth,
+    falling back to Celery's AsyncResult only to check if the task is still running.
+    """
     try:
+        import redis as _redis
+        redis_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        r = _redis.Redis.from_url(redis_url, decode_responses=True)
+        
+        # 1. Check direct Redis key first (most reliable)
+        result_json = r.get(f"job_result:{job_id}")
+        if result_json:
+            print(f"✅ [job-status] Found direct Redis result for job_id={job_id}")
+            result_data = json.loads(result_json)
+            return {"status": "completed", "result": result_data}
+        
+        # 2. Fall back to Celery AsyncResult to check if task is still running
         task_result = AsyncResult(job_id, app=celery_app)
+        print(f"🔍 [job-status] Polling job_id={job_id} | celery_state={task_result.state}")
         
-        # DEBUG: Log every poll so we can trace the issue
-        print(f"🔍 [job-status] Polling job_id={job_id} | state={task_result.state} | backend={celery_app.conf.result_backend}")
-        
-        if task_result.state == 'PENDING':
-            return {"status": "pending"}
-        elif task_result.state == 'FAILURE':
+        if task_result.state == 'FAILURE':
             print(f"❌ [job-status] Job FAILED: {task_result.info}")
             return {"status": "failed", "error": str(task_result.info)}
-        elif task_result.state == 'SUCCESS':
-            print(f"✅ [job-status] Job SUCCEEDED, returning completed")
-            result_data = task_result.result
-            
-            # Save the lesson to PostgreSQL database
-            if result_data.get("success"):
-                try:
-                    # Provide default values for missing DB columns if Celery didn't include them
-                    save_payload = {
-                        **result_data,
-                        "student_level": result_data.get("student_level", "beginner"),
-                        "duration_minutes": result_data.get("duration_minutes", 30),
-                        "difficulty_level": result_data.get("difficulty_level", "intermediate")
-                    }
-                    if lesson_storage:
-                        saved_info = lesson_storage.save_lesson(save_payload)
-                        result_data["lesson_id"] = saved_info["id"]
-                        print(f"✅ Class Generation Complete. Saved DB ID: {saved_info['id']}")
-                except Exception as e:
-                    print(f"⚠️ Failed to save completed job to database: {e}")
-            
-            return {"status": "completed", "result": result_data}
+        elif task_result.state == 'STARTED':
+            return {"status": "processing"}
         else:
-            # STARTED or other states
-            print(f"⏳ [job-status] Job in state: {task_result.state}")
-            return {"status": "processing", "state": task_result.state}
+            # PENDING or any other state - task hasn't finished yet
+            return {"status": "pending"}
             
     except Exception as e:
         print(f"❌ Error polling job status: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/ingest/audio")
