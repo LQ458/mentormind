@@ -8,6 +8,7 @@ from datetime import datetime
 
 # Import Mentormind dependencies
 from core.create_classes import ClassCreator, ClassCreationRequest, Language
+from database import LessonStorageSQL, init_database
 
 # Initialize Celery app
 # In production, broker and backend should come from environment variables.
@@ -91,6 +92,22 @@ def create_class_video_task(self, request_data: dict, job_id: str):
         "video_url": result.video_url,
         "timestamp": datetime.now().isoformat()
     }
+    
+    # Save the lesson to PostgreSQL database directly in the worker
+    try:
+        init_database()
+        lesson_storage = LessonStorageSQL()
+        save_payload = {
+            **response,
+            "student_level": result.student_level if hasattr(result, 'student_level') else request_data.get("student_level", "beginner"),
+            "duration_minutes": request_data.get("duration_minutes", 30),
+            "difficulty_level": request_data.get("difficulty_level", "intermediate")
+        }
+        saved_info = lesson_storage.save_lesson(save_payload)
+        response["lesson_id"] = saved_info["id"]
+        print(f"[{job_id}] ✅ Successfully saved lesson to DB: {saved_info['id']}")
+    except Exception as e:
+        print(f"[{job_id}] ⚠️ Failed to save lesson to DB: {e}")
     
     # Store result directly in Redis so /job-status can read it reliably
     # (bypasses Celery's result backend which can be unreliable in Docker)
@@ -315,6 +332,22 @@ def transcript_to_lesson_task(self, transcript: str, request_data: dict, job_id:
         asyncio.set_event_loop(loop)
 
     response = loop.run_until_complete(_run())
+    
+    # Save the lesson to PostgreSQL database directly in the worker
+    try:
+        init_database()
+        lesson_storage = LessonStorageSQL()
+        save_payload = {
+            **response,
+            "student_level": "beginner",  # Default for transcripts
+            "duration_minutes": 30,
+            "difficulty_level": "intermediate"
+        }
+        saved_info = lesson_storage.save_lesson(save_payload)
+        response["lesson_id"] = saved_info["id"]
+        print(f"[{job_id}] ✅ Successfully saved transcript lesson to DB: {saved_info['id']}")
+    except Exception as e:
+        print(f"[{job_id}] ⚠️ Failed to save transcript lesson to DB: {e}")
     
     # Store result directly in Redis (bypasses Celery's result backend)
     try:
