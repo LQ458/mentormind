@@ -229,20 +229,41 @@ export default function CreateLessonPage() {
       if (data.job_id) {
         // Poll via the Next.js proxy route (avoids CORS issues in production)
         let isComplete = false;
-        while (!isComplete) {
-          await new Promise(resolve => setTimeout(resolve, 5000));
-          const statusRes = await fetch(`/api/backend/job-status/${data.job_id}`);
-          const statusData = await statusRes.json();
+        let pollCount = 0;
+        const MAX_POLLS = 120; // 10 minutes max (120 * 5s)
 
-          if (statusData.status === 'completed') {
-            setPreview(statusData.result);
-            setPipelineProgress(null);
-            alert(t('create.courseCreatedSuccess'));
-            isComplete = true;
-          } else if (statusData.status === 'failed') {
-            throw new Error(statusData.error || 'Job failed on the server.');
+        while (!isComplete && pollCount < MAX_POLLS) {
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          pollCount++;
+
+          try {
+            const statusRes = await fetch(`/api/backend/job-status/${data.job_id}`);
+
+            if (!statusRes.ok) {
+              console.warn(`[poll ${pollCount}] job-status returned HTTP ${statusRes.status}, retrying...`);
+              continue; // Don't break on transient errors, just retry
+            }
+
+            const statusData = await statusRes.json();
+            console.log(`[poll ${pollCount}] job status:`, statusData.status);
+
+            if (statusData.status === 'completed') {
+              setPreview(statusData.result);
+              setPipelineProgress(null);
+              alert(t('create.courseCreatedSuccess'));
+              isComplete = true;
+            } else if (statusData.status === 'failed') {
+              throw new Error(statusData.error || 'Job failed on the server.');
+            }
+            // If pending/processing, just continue the loop
+          } catch (pollError) {
+            console.warn(`[poll ${pollCount}] fetch error:`, pollError);
+            // Continue polling - don't break on network glitches
           }
-          // If pending, just continue the loop
+        }
+
+        if (!isComplete) {
+          throw new Error('Job timed out after 10 minutes. Check server logs.');
         }
       } else if (data.success) {
         // Fallback for synchronous responses (if any)
