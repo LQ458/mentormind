@@ -227,44 +227,43 @@ export default function CreateLessonPage() {
       const data = await response.json()
 
       if (data.job_id) {
-        // Poll via the Next.js proxy route (avoids CORS issues in production)
-        let isComplete = false;
-        let pollCount = 0;
-        const MAX_POLLS = 120; // 10 minutes max (120 * 5s)
+        // Connect to SSE stream via the Next.js proxy route
+        await new Promise((resolve, reject) => {
+          const eventSource = new EventSource(`/api/backend/job-stream/${data.job_id}`);
 
-        while (!isComplete && pollCount < MAX_POLLS) {
-          await new Promise(resolve => setTimeout(resolve, 5000));
-          pollCount++;
+          eventSource.onopen = () => {
+            console.log('[SSE] Connection opened for job:', data.job_id);
+          };
 
-          try {
-            const statusRes = await fetch(`/api/backend/job-status/${data.job_id}`);
+          eventSource.onmessage = (event) => {
+            try {
+              const statusData = JSON.parse(event.data);
+              console.log(`[SSE] job status:`, statusData.status);
 
-            if (!statusRes.ok) {
-              console.warn(`[poll ${pollCount}] job-status returned HTTP ${statusRes.status}, retrying...`);
-              continue; // Don't break on transient errors, just retry
+              if (statusData.status === 'completed') {
+                setPreview(statusData.result);
+                setPipelineProgress(null);
+                alert(t('create.courseCreatedSuccess'));
+                eventSource.close();
+                resolve(true);
+              } else if (statusData.status === 'failed') {
+                eventSource.close();
+                reject(new Error(statusData.error || 'Job failed on the server.'));
+              }
+              // status === 'processing' or 'pending' implicitly continue the stream
+            } catch (err) {
+              console.error('[SSE] Error processing message:', err);
+              eventSource.close();
+              reject(err);
             }
+          };
 
-            const statusData = await statusRes.json();
-            console.log(`[poll ${pollCount}] job status:`, statusData.status);
-
-            if (statusData.status === 'completed') {
-              setPreview(statusData.result);
-              setPipelineProgress(null);
-              alert(t('create.courseCreatedSuccess'));
-              isComplete = true;
-            } else if (statusData.status === 'failed') {
-              throw new Error(statusData.error || 'Job failed on the server.');
-            }
-            // If pending/processing, just continue the loop
-          } catch (pollError) {
-            console.warn(`[poll ${pollCount}] fetch error:`, pollError);
-            // Continue polling - don't break on network glitches
-          }
-        }
-
-        if (!isComplete) {
-          throw new Error('Job timed out after 10 minutes. Check server logs.');
-        }
+          eventSource.onerror = (error) => {
+            console.error('[SSE] Connection Error:', error);
+            eventSource.close();
+            reject(new Error('Connection to generation stream lost. Check server logs.'));
+          };
+        });
       } else if (data.success) {
         // Fallback for synchronous responses (if any)
         setPreview(data)

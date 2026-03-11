@@ -12,7 +12,7 @@ from typing import Dict, Any, List
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from dotenv import load_dotenv
@@ -364,6 +364,59 @@ async def get_job_status(job_id: str):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/job-stream/{job_id}")
+async def stream_job_status(job_id: str):
+    """
+    Server-Sent Events (SSE) endpoint to stream job status updates.
+    The client maintains a single connection, and the server pushes updates.
+    """
+    async def event_generator():
+        import redis as _redis
+        redis_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        r = _redis.Redis.from_url(redis_url, decode_responses=True)
+        
+        try:
+            # Send initial connection success event
+            yield f"data: {json.dumps({'status': 'connected', 'message': 'SSE connection established'})}\n\n"
+            
+            poll_count = 0
+            while True:
+                # 1. Check direct Redis key first (most reliable)
+                result_json = r.get(f"job_result:{job_id}")
+                if result_json:
+                    print(f"✅ [job-stream] Found direct Redis result for job_id={job_id}")
+                    result_data = json.loads(result_json)
+                    yield f"data: {json.dumps({'status': 'completed', 'result': result_data})}\n\n"
+                    break
+                
+                # 2. Fall back to Celery AsyncResult to check state
+                task_result = AsyncResult(job_id, app=celery_app)
+                
+                # Every 10 seconds, print a debug log so we don't spam terminal
+                if poll_count % 5 == 0:
+                    print(f"🔄 [job-stream] Streaming job_id={job_id} | celery_state={task_result.state}")
+                
+                if task_result.state == 'FAILURE':
+                    print(f"❌ [job-stream] Job FAILED: {task_result.info}")
+                    yield f"data: {json.dumps({'status': 'failed', 'error': str(task_result.info)})}\n\n"
+                    break
+                elif task_result.state == 'STARTED':
+                    yield f"data: {json.dumps({'status': 'processing'})}\n\n"
+                elif task_result.state == 'PENDING':
+                    yield f"data: {json.dumps({'status': 'pending'})}\n\n"
+                    
+                poll_count += 1
+                await asyncio.sleep(2)  # Stream an event every 2 seconds
+                
+        except asyncio.CancelledError:
+            print(f"⚠️ [job-stream] Client disconnected for job_id={job_id}")
+            raise
+        except Exception as e:
+            print(f"❌ [job-stream] Error: {e}")
+            yield f"data: {json.dumps({'status': 'failed', 'error': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.post("/ingest/audio")
 async def ingest_audio(
