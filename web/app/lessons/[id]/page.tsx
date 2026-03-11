@@ -102,11 +102,18 @@ export default function LessonDetailPage() {
                         <div className="bg-black rounded-2xl overflow-hidden shadow-lg aspect-video relative group">
                             {videoUrl ? (
                                 <video
-                                    src={videoUrl}
+                                    key={videoUrl}
                                     controls
                                     className="w-full h-full object-contain"
                                     poster={lesson.ai_insights?.avatar_image || "/placeholder-video.jpg"}
+                                    preload="metadata"
                                 >
+                                    <source
+                                        src={videoUrl.startsWith('http') || videoUrl.startsWith('/')
+                                            ? videoUrl
+                                            : `/api/backend/media${videoUrl}`}
+                                        type="video/mp4"
+                                    />
                                     {t('lessonDetail.browserNoVideo')}
                                 </video>
                             ) : (

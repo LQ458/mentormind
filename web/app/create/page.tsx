@@ -902,10 +902,17 @@ export default function CreateLessonPage() {
                   {preview.video_url ? (
                     <div className="rounded-xl overflow-hidden shadow-lg bg-black aspect-video relative group">
                       <video
+                        key={preview.video_url}
                         controls
                         className="w-full h-full"
-                        src={preview.video_url.startsWith('http') ? preview.video_url : `/api/backend/media${preview.video_url}`}
+                        preload="metadata"
                       >
+                        <source
+                          src={preview.video_url.startsWith('http') || preview.video_url.startsWith('/')
+                            ? preview.video_url
+                            : `/api/backend/media${preview.video_url}`}
+                          type="video/mp4"
+                        />
                         Your browser does not support the video tag.
                       </video>
                     </div>
