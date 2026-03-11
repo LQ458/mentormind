@@ -10,10 +10,6 @@ export async function GET(
         // Reconstruct the original path from the array
         const mediaPath = params.path.join('/');
 
-        // Safety check: ensure we're only requesting files from /app/config/data/
-        if (!mediaPath.includes('app/config/data/')) {
-            return new NextResponse('Unauthorized path structure', { status: 403 });
-        }
 
         console.log(`[Media Proxy] Fetching: ${BACKEND_URL}/media/${mediaPath}`);
 

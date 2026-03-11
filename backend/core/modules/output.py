@@ -665,9 +665,17 @@ class OutputPipeline:
         scene_audio_url = await self.storage_manager.upload_file(audio_local_scene_path, f"audio/{os.path.basename(audio_local_scene_path)}", "audio/mpeg") if audio_local_scene_path else None
         main_audio_url = await self.storage_manager.upload_file(audio_path, f"audio/{os.path.basename(audio_path)}", "audio/mpeg") if audio_path else None
         
-        final_video_path = video_url or video_local_path
-        final_scene_audio_path = scene_audio_url or audio_local_scene_path
-        final_main_audio_path = main_audio_url or audio_path
+        # Use relative paths for local files to ensure they are portable and accessible via the /media endpoint
+        def get_relative_path(absolute_path):
+            if not absolute_path: return None
+            try:
+                return os.path.relpath(absolute_path, config.DATA_DIR)
+            except ValueError:
+                return absolute_path
+
+        final_video_path = video_url or get_relative_path(video_local_path)
+        final_scene_audio_path = scene_audio_url or get_relative_path(audio_local_scene_path)
+        final_main_audio_path = main_audio_url or get_relative_path(audio_path)
         
         # Mock AvatarVideo object for compatibility
         video = AvatarVideo(
@@ -783,8 +791,16 @@ class OutputPipeline:
         video_url = await self.storage_manager.upload_file(video_local_path, f"videos/{os.path.basename(video_local_path)}", "video/mp4")
         audio_url = await self.storage_manager.upload_file(audio_local_path, f"audio/{os.path.basename(audio_local_path)}", "audio/mpeg") if audio_local_path else None
         
-        final_video_path = video_url or video_local_path
-        final_audio_path = audio_url or audio_local_path
+        # Use relative paths for local files
+        def get_relative_path(absolute_path):
+            if not absolute_path: return None
+            try:
+                return os.path.relpath(absolute_path, config.DATA_DIR)
+            except ValueError:
+                return absolute_path
+
+        final_video_path = video_url or get_relative_path(video_local_path)
+        final_audio_path = audio_url or get_relative_path(audio_local_path)
         
         return {
             "concept": concept,

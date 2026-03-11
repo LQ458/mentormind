@@ -83,6 +83,17 @@ def create_class_video_task(self, request_data: dict, job_id: str):
     final_title = result.class_title or plan_dict.get("title") or plan_dict.get("class_title") or request_data.get("topic") or "Generated Lesson"
     final_desc = result.class_description or plan_dict.get("description") or plan_dict.get("class_description") or "AI Generated Lesson"
 
+    # Use relative paths for local files to ensure they are portable and accessible via the /media endpoint
+    def get_relative_path(absolute_path):
+        if not absolute_path: return None
+        # If it's already a URL, return as is
+        if absolute_path.startswith('http'): return absolute_path
+        try:
+            from config import config
+            return os.path.relpath(absolute_path, config.DATA_DIR)
+        except Exception:
+            return absolute_path
+
     # Return serializable dict for Celery Task result
     response = {
         "success": result.success,
@@ -93,8 +104,8 @@ def create_class_video_task(self, request_data: dict, job_id: str):
         "lesson_plan": result.lesson_plan,
         "resources": result.resources,
         "ai_insights": result.ai_insights,
-        "audio_url": result.audio_url,
-        "video_url": result.video_url,
+        "audio_url": get_relative_path(result.audio_url),
+        "video_url": get_relative_path(result.video_url),
         "timestamp": datetime.now().isoformat()
     }
     
@@ -310,6 +321,16 @@ def transcript_to_lesson_task(self, transcript: str, request_data: dict, job_id:
         else:
             result = await creator.create_class_chinese(class_request)
 
+        # Use relative paths for local files
+        def get_relative_path(absolute_path):
+            if not absolute_path: return None
+            if absolute_path.startswith('http'): return absolute_path
+            try:
+                from config import config
+                return os.path.relpath(absolute_path, config.DATA_DIR)
+            except Exception:
+                return absolute_path
+
         return {
             "success": result.success,
             "source": "audio_transcript",
@@ -321,8 +342,8 @@ def transcript_to_lesson_task(self, transcript: str, request_data: dict, job_id:
             "lesson_plan": result.lesson_plan,
             "resources": result.resources,
             "ai_insights": result.ai_insights,
-            "audio_url": result.audio_url,
-            "video_url": result.video_url,
+            "audio_url": get_relative_path(result.audio_url),
+            "video_url": get_relative_path(result.video_url),
             # Transcript metadata for reference
             "transcript_chars": len(transcript),
             "transcript_chunks": len(chunks),

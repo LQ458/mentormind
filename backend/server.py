@@ -616,18 +616,23 @@ async def serve_media(file_path: str):
     import os
     from fastapi.responses import FileResponse
     
-    # Ensure the path is absolute or resolved securely
-    if not file_path.startswith('/'):
-        file_path = '/' + file_path
+    # Security check: Resolve the absolute path and ensure it's inside DATA_DIR
+    # This supports both relative paths (stored in new lessons) and absolute paths (legacy)
+    if os.path.isabs(file_path):
+        abs_path = os.path.normpath(file_path)
+    else:
+        abs_path = os.path.normpath(os.path.join(config.DATA_DIR, file_path))
         
-    # Security check: only allow serving from the designated data directories
-    if not file_path.startswith('/app/config/data/'):
+    # Prevent directory traversal attacks
+    if not abs_path.startswith(os.path.normpath(config.DATA_DIR)):
+        print(f"🚫 Security: Blocked access to {abs_path} (outside {config.DATA_DIR})")
         raise HTTPException(status_code=403, detail="Access denied")
         
-    if not os.path.exists(file_path):
+    if not os.path.exists(abs_path):
+        print(f"❓ Media not found: {abs_path}")
         raise HTTPException(status_code=404, detail="File not found")
         
-    return FileResponse(file_path)
+    return FileResponse(abs_path)
 
 @app.get("/results")
 async def get_results_get():
