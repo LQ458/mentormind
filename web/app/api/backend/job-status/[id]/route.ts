@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
+// Force Next.js to never cache this route (fixes infinite "processing" loop)
+export const dynamic = 'force-dynamic';
+
 export async function GET(
     _request: Request,
     { params }: { params: { id: string } }
@@ -11,9 +14,14 @@ export async function GET(
         const url = `${BACKEND_URL}/job-status/${id}`
         console.log(`[job-status proxy] Fetching: ${url}`)
 
+        // Prevent Next.js fetch() from caching the "processing" state
         const backendResponse = await fetch(url, {
             method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-store, no-cache, must-revalidate'
+            },
+            cache: 'no-store'
         })
 
         if (!backendResponse.ok) {

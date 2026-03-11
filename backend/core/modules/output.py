@@ -554,12 +554,11 @@ class ProgrammaticVideoGenerator:
         video_script = await self.script_generator.generate_script(topic, content, style)
         
         # 2. Generate Audio & Sync Durations
-        logger.info("Synthesizing audio and syncing timestamps...")
-        total_audio_duration = 0.0
+        logger.info("Synthesizing audio concurrently for all scenes...")
         
-        for scene in video_script.scenes:
+        async def process_scene_audio(scene: Scene) -> float:
             if not scene.narration:
-                continue
+                return 0.0
                 
             audio_path, duration = await self.tts_synthesizer.synthesize(
                 scene.narration, f"{video_script.title}_{scene.id}", voice=voice_id
@@ -568,8 +567,13 @@ class ProgrammaticVideoGenerator:
             # Update scene with exact audio duration and path
             scene.duration = max(scene.duration, duration) # Ensure visual is at least as long as audio
             scene.audio_path = audio_path
-            total_audio_duration += scene.duration
+            return scene.duration
             
+        # Execute all TTS requests in parallel
+        tasks = [process_scene_audio(scene) for scene in video_script.scenes]
+        audio_durations = await asyncio.gather(*tasks)
+        
+        total_audio_duration = sum(audio_durations)
         video_script.total_duration = total_audio_duration
         
         # 3. Render Video
