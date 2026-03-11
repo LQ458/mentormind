@@ -78,13 +78,18 @@ def create_class_video_task(self, request_data: dict, job_id: str):
         
     result = loop.run_until_complete(_run_pipeline())
     
+    # Extract title and description from nested lesson plan if missing
+    plan_dict = result.lesson_plan if isinstance(result.lesson_plan, dict) else {}
+    final_title = result.class_title or plan_dict.get("title") or plan_dict.get("class_title") or request_data.get("topic") or "Generated Lesson"
+    final_desc = result.class_description or plan_dict.get("description") or plan_dict.get("class_description") or "AI Generated Lesson"
+
     # Return serializable dict for Celery Task result
     response = {
         "success": result.success,
         "language": result.language_used.value if result.language_used else request_data.get("language"),
-        "topic": request_data.get("topic"),
-        "class_title": result.class_title,
-        "class_description": result.class_description,
+        "topic": request_data.get("topic") or final_title,
+        "class_title": final_title,
+        "class_description": final_desc,
         "lesson_plan": result.lesson_plan,
         "resources": result.resources,
         "ai_insights": result.ai_insights,
