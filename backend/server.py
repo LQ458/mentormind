@@ -610,6 +610,25 @@ async def teach_endpoint(request: Dict[str, Any]):
         print(f"❌ Error in teach endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/media/{file_path:path}")
+async def serve_media(file_path: str):
+    """Serve generated audio and video files from the backend filesystem"""
+    import os
+    from fastapi.responses import FileResponse
+    
+    # Ensure the path is absolute or resolved securely
+    if not file_path.startswith('/'):
+        file_path = '/' + file_path
+        
+    # Security check: only allow serving from the designated data directories
+    if not file_path.startswith('/app/config/data/'):
+        raise HTTPException(status_code=403, detail="Access denied")
+        
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    return FileResponse(file_path)
+
 @app.get("/results")
 async def get_results_get():
     """Get all saved lessons (GET endpoint for frontend compatibility)"""

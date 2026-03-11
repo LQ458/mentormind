@@ -908,9 +908,9 @@ export default function CreateLessonPage() {
                         preload="metadata"
                       >
                         <source
-                          src={preview.video_url.startsWith('http') || preview.video_url.startsWith('/')
+                          src={preview.video_url.startsWith('http')
                             ? preview.video_url
-                            : `/api/backend/media${preview.video_url}`}
+                            : `/api/backend/media${preview.video_url.startsWith('/') ? '' : '/'}${preview.video_url}`}
                           type="video/mp4"
                         />
                         Your browser does not support the video tag.

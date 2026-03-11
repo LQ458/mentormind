@@ -109,9 +109,9 @@ export default function LessonDetailPage() {
                                     preload="metadata"
                                 >
                                     <source
-                                        src={videoUrl.startsWith('http') || videoUrl.startsWith('/')
+                                        src={videoUrl.startsWith('http')
                                             ? videoUrl
-                                            : `/api/backend/media${videoUrl}`}
+                                            : `/api/backend/media${videoUrl.startsWith('/') ? '' : '/'}${videoUrl}`}
                                         type="video/mp4"
                                     />
                                     {t('lessonDetail.browserNoVideo')}
