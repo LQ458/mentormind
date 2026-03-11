@@ -70,7 +70,7 @@ class ManimService:
                     capture_output=True, 
                     text=True,
                     env={**os.environ, "PATH": os.environ["PATH"]},
-                    timeout=120
+                    timeout=300
                 )
                 
                 # Find output file (Manim standard output structure)
