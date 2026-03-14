@@ -46,13 +46,22 @@ export default function LessonDetailPage() {
 
     if (!lesson) return null
 
-    const BACKEND_PUBLIC = process.env.NEXT_PUBLIC_API_URL || ''
-    const videoUrl = lesson.video_url
-        ? (lesson.video_url.startsWith('http') ? lesson.video_url : `${BACKEND_PUBLIC}${lesson.video_url}`)
-        : null
-    const audioUrl = lesson.audio_url
-        ? (lesson.audio_url.startsWith('http') ? lesson.audio_url : `${BACKEND_PUBLIC}${lesson.audio_url}`)
-        : null
+    const rawVideoUrl = lesson.video_url || null
+    const rawAudioUrl = lesson.audio_url || null
+
+    // Build a browser-accessible URL.
+    // - Cloud URLs (http/https) are used directly.
+    // - Local relative paths go through the Next.js /api/backend/media proxy
+    //   (which in turn calls the FastAPI /media endpoint).
+    function toProxyUrl(rawPath: string | null): string | null {
+        if (!rawPath) return null
+        if (rawPath.startsWith('http')) return rawPath
+        const cleanPath = rawPath.startsWith('/') ? rawPath.slice(1) : rawPath
+        return `/api/backend/media/${cleanPath}`
+    }
+
+    const videoUrl = toProxyUrl(rawVideoUrl)
+    const audioUrl = toProxyUrl(rawAudioUrl)
 
     return (
         <div className="min-h-screen bg-gray-50 pb-12">
@@ -109,9 +118,7 @@ export default function LessonDetailPage() {
                                     preload="metadata"
                                 >
                                     <source
-                                        src={videoUrl.startsWith('http')
-                                            ? videoUrl
-                                            : `/api/backend/media${videoUrl.startsWith('/') ? '' : '/'}${videoUrl}`}
+                                        src={videoUrl}
                                         type="video/mp4"
                                     />
                                     {t('lessonDetail.browserNoVideo')}
