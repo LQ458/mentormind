@@ -83,19 +83,8 @@ def create_class_video_task(self, request_data: dict, job_id: str):
     final_title = result.class_title or plan_dict.get("title") or plan_dict.get("class_title") or request_data.get("topic") or "Generated Lesson"
     final_desc = result.class_description or plan_dict.get("description") or plan_dict.get("class_description") or "AI Generated Lesson"
 
-    # Normalise paths for local files so they are portable and accessible via the /media endpoint.
-    # Paths from create_classes.py are already relative (e.g. 'videos/manim/.../LessonScene.mp4')
-    # so we must NOT call os.path.relpath on them – it would corrupt them.
-    def get_relative_path(path):
-        if not path: return None
-        if path.startswith('http'): return path  # Cloud URL – keep as-is
-        if os.path.isabs(path):  # Absolute local path – strip DATA_DIR prefix
-            try:
-                from config import config
-                path = os.path.relpath(path, config.DATA_DIR)
-            except Exception:
-                pass
-        return path.replace(os.sep, '/')  # Normalise to forward slashes
+    # video_url / audio_url are already clean relative paths (e.g. 'videos/manim/.../LessonScene.mp4')
+    # produced by output.py → create_classes.py. No further transformation needed.
 
     # Return serializable dict for Celery Task result
     response = {
@@ -107,8 +96,8 @@ def create_class_video_task(self, request_data: dict, job_id: str):
         "lesson_plan": result.lesson_plan,
         "resources": result.resources,
         "ai_insights": result.ai_insights,
-        "audio_url": get_relative_path(result.audio_url),
-        "video_url": get_relative_path(result.video_url),
+        "audio_url": result.audio_url,
+        "video_url": result.video_url,
         "timestamp": datetime.now().isoformat()
     }
     
@@ -324,18 +313,7 @@ def transcript_to_lesson_task(self, transcript: str, request_data: dict, job_id:
         else:
             result = await creator.create_class_chinese(class_request)
 
-        # Normalise paths for local files (same logic as in create_class_video_task)
-        def get_relative_path(path):
-            if not path: return None
-            if path.startswith('http'): return path
-            if os.path.isabs(path):
-                try:
-                    from config import config
-                    path = os.path.relpath(path, config.DATA_DIR)
-                except Exception:
-                    pass
-            return path.replace(os.sep, '/')
-
+        # video_url / audio_url are clean relative paths from output.py. Use them directly.
         return {
             "success": result.success,
             "source": "audio_transcript",
@@ -347,8 +325,8 @@ def transcript_to_lesson_task(self, transcript: str, request_data: dict, job_id:
             "lesson_plan": result.lesson_plan,
             "resources": result.resources,
             "ai_insights": result.ai_insights,
-            "audio_url": get_relative_path(result.audio_url),
-            "video_url": get_relative_path(result.video_url),
+            "audio_url": result.audio_url,
+            "video_url": result.video_url,
             # Transcript metadata for reference
             "transcript_chars": len(transcript),
             "transcript_chunks": len(chunks),

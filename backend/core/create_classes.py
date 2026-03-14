@@ -242,38 +242,13 @@ class ClassCreator:
                         )
                         
                         if multimedia_result:
-                            # output.py already returns relative paths (e.g. "videos/manim/.../LessonScene.mp4")
-                            # or cloud storage URLs. We store them directly so the /media endpoint can resolve them.
-                            audio_path = multimedia_result.get("audio", {}).get("path", "")
-                            video_path = multimedia_result.get("video", {}).get("path", "")
+                            # output.py already returns a clean relative path
+                            # (e.g. "videos/manim/.../LessonScene.mp4") or a cloud URL.
+                            # Store it directly — no transformation needed here.
+                            audio_url = multimedia_result.get("audio", {}).get("path") or None
+                            video_url = multimedia_result.get("video", {}).get("path") or None
 
-                            print(f"DEBUG: Audio path: {audio_path}")
-                            print(f"DEBUG: Video path: {video_path}")
-
-                            def normalise_path(path_str):
-                                """Return a portable relative-path string (forward slashes).
-                                If path_str is already a cloud URL, return as-is.
-                                If it's an absolute local path inside DATA_DIR, make it relative.
-                                If it's already relative, just normalise slashes.
-                                """
-                                if not path_str:
-                                    return None
-                                if path_str.startswith("http"):
-                                    return path_str
-                                # Absolute path: strip DATA_DIR prefix to get relative
-                                if os.path.isabs(path_str):
-                                    try:
-                                        path_str = os.path.relpath(path_str, config.DATA_DIR)
-                                    except ValueError:
-                                        pass  # Different drive on Windows – keep as-is
-                                # Normalise separators for web use
-                                return path_str.replace(os.sep, "/")
-
-                            audio_url = normalise_path(audio_path)
-                            video_url = normalise_path(video_path)
-
-                            print(f"DEBUG: Normalised audio_url: {audio_url}")
-                            print(f"✅ Multimedia generated: {video_url}")
+                            print(f"✅ Multimedia generated — video_url={video_url!r}  audio_url={audio_url!r}")
                             
                     except Exception as e:
                         print(f"⚠️ Multimedia generation failed: {e}")
