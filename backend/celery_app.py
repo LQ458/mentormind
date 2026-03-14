@@ -83,16 +83,19 @@ def create_class_video_task(self, request_data: dict, job_id: str):
     final_title = result.class_title or plan_dict.get("title") or plan_dict.get("class_title") or request_data.get("topic") or "Generated Lesson"
     final_desc = result.class_description or plan_dict.get("description") or plan_dict.get("class_description") or "AI Generated Lesson"
 
-    # Use relative paths for local files to ensure they are portable and accessible via the /media endpoint
-    def get_relative_path(absolute_path):
-        if not absolute_path: return None
-        # If it's already a URL, return as is
-        if absolute_path.startswith('http'): return absolute_path
-        try:
-            from config import config
-            return os.path.relpath(absolute_path, config.DATA_DIR)
-        except Exception:
-            return absolute_path
+    # Normalise paths for local files so they are portable and accessible via the /media endpoint.
+    # Paths from create_classes.py are already relative (e.g. 'videos/manim/.../LessonScene.mp4')
+    # so we must NOT call os.path.relpath on them – it would corrupt them.
+    def get_relative_path(path):
+        if not path: return None
+        if path.startswith('http'): return path  # Cloud URL – keep as-is
+        if os.path.isabs(path):  # Absolute local path – strip DATA_DIR prefix
+            try:
+                from config import config
+                path = os.path.relpath(path, config.DATA_DIR)
+            except Exception:
+                pass
+        return path.replace(os.sep, '/')  # Normalise to forward slashes
 
     # Return serializable dict for Celery Task result
     response = {
@@ -321,15 +324,17 @@ def transcript_to_lesson_task(self, transcript: str, request_data: dict, job_id:
         else:
             result = await creator.create_class_chinese(class_request)
 
-        # Use relative paths for local files
-        def get_relative_path(absolute_path):
-            if not absolute_path: return None
-            if absolute_path.startswith('http'): return absolute_path
-            try:
-                from config import config
-                return os.path.relpath(absolute_path, config.DATA_DIR)
-            except Exception:
-                return absolute_path
+        # Normalise paths for local files (same logic as in create_class_video_task)
+        def get_relative_path(path):
+            if not path: return None
+            if path.startswith('http'): return path
+            if os.path.isabs(path):
+                try:
+                    from config import config
+                    path = os.path.relpath(path, config.DATA_DIR)
+                except Exception:
+                    pass
+            return path.replace(os.sep, '/')
 
         return {
             "success": result.success,

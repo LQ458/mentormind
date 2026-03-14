@@ -242,49 +242,37 @@ class ClassCreator:
                         )
                         
                         if multimedia_result:
-                            # Construct public URLs (assuming served via static/API)
+                            # output.py already returns relative paths (e.g. "videos/manim/.../LessonScene.mp4")
+                            # or cloud storage URLs. We store them directly so the /media endpoint can resolve them.
                             audio_path = multimedia_result.get("audio", {}).get("path", "")
                             video_path = multimedia_result.get("video", {}).get("path", "")
-                            
+
                             print(f"DEBUG: Audio path: {audio_path}")
                             print(f"DEBUG: Video path: {video_path}")
-                            
-                            # Helper to ensure forward slashes
-                            def to_web_path(path_str):
-                                return path_str.replace(os.sep, '/')
-                                
-                            if audio_path:
-                                try:
-                                    # Check if path is absolute and inside DATA_DIR
-                                    if os.path.isabs(audio_path) and audio_path.startswith(config.DATA_DIR):
-                                        rel_path = os.path.relpath(audio_path, config.DATA_DIR)
-                                        audio_url = f"/api/files/{to_web_path(rel_path)}"
-                                    else:
-                                        # Assume it's just a filename or relative path that needs to be served from audio/
-                                        # Ideally we should verify file existence, but for generated content we trust the generator
-                                        filename = os.path.basename(audio_path)
-                                        audio_url = f"/api/files/audio/{filename}"
-                                        
-                                    print(f"DEBUG: Generated Audio URL: {audio_url}")
-                                except Exception as e:
-                                    print(f"Error generating audio URL: {e}")
-                                    audio_url = None
-                                    
-                            if video_path:
-                                try:
-                                    if os.path.isabs(video_path) and video_path.startswith(config.DATA_DIR):
-                                        rel_path = os.path.relpath(video_path, config.DATA_DIR)
-                                        video_url = f"/api/files/{to_web_path(rel_path)}"
-                                    else:
-                                        filename = os.path.basename(video_path)
-                                        # Determine folder based on extension or context if needed, but 'videos' is safe default for output
-                                        video_url = f"/api/files/videos/{filename}"
 
-                                    print(f"DEBUG: Generated Video URL: {video_url}")
-                                except Exception as e:
-                                     print(f"Error generating video URL: {e}")
-                                     video_url = None
-                                
+                            def normalise_path(path_str):
+                                """Return a portable relative-path string (forward slashes).
+                                If path_str is already a cloud URL, return as-is.
+                                If it's an absolute local path inside DATA_DIR, make it relative.
+                                If it's already relative, just normalise slashes.
+                                """
+                                if not path_str:
+                                    return None
+                                if path_str.startswith("http"):
+                                    return path_str
+                                # Absolute path: strip DATA_DIR prefix to get relative
+                                if os.path.isabs(path_str):
+                                    try:
+                                        path_str = os.path.relpath(path_str, config.DATA_DIR)
+                                    except ValueError:
+                                        pass  # Different drive on Windows – keep as-is
+                                # Normalise separators for web use
+                                return path_str.replace(os.sep, "/")
+
+                            audio_url = normalise_path(audio_path)
+                            video_url = normalise_path(video_path)
+
+                            print(f"DEBUG: Normalised audio_url: {audio_url}")
                             print(f"✅ Multimedia generated: {video_url}")
                             
                     except Exception as e:
