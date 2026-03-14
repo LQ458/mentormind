@@ -616,6 +616,13 @@ async def serve_media(file_path: str):
     import os
     from fastapi.responses import FileResponse
     
+    # Backward compatibility: old lessons stored paths like "api/files/videos/..." 
+    # Strip that prefix so we can resolve the real file inside DATA_DIR.
+    for prefix in ("api/files/", "/api/files/"):
+        if file_path.startswith(prefix):
+            file_path = file_path[len(prefix):]
+            break
+
     # Security check: Resolve the absolute path and ensure it's inside DATA_DIR
     # This supports both relative paths (stored in new lessons) and absolute paths (legacy)
     if os.path.isabs(file_path):
