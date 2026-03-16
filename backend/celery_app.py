@@ -85,6 +85,7 @@ def create_class_video_task(self, request_data: dict, job_id: str):
 
     # video_url / audio_url are already clean relative paths (e.g. 'videos/manim/.../LessonScene.mp4')
     # produced by output.py → create_classes.py. No further transformation needed.
+    print(f"[{job_id}] 🔍 Pipeline result: video_url={result.video_url!r}  audio_url={result.audio_url!r}  success={result.success}")
 
     # Return serializable dict for Celery Task result
     response = {

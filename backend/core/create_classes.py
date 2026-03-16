@@ -251,7 +251,9 @@ class ClassCreator:
                             print(f"✅ Multimedia generated — video_url={video_url!r}  audio_url={audio_url!r}")
                             
                     except Exception as e:
+                        import traceback
                         print(f"⚠️ Multimedia generation failed: {e}")
+                        print(f"⚠️ Full traceback:\n{traceback.format_exc()}")
                         # Don't fail the whole request, just log error
                 
                 # Handle different response formats
