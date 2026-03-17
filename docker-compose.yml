@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   postgres:
@@ -107,21 +106,21 @@ services:
     ports:
       - "3000:3000"
 
-  funasr:
-    image: registry.cn-hangzhou.aliyuncs.com/funasr/funasr-runtime-sdk-cpu:latest
-    container_name: mentormind-funasr
-    ports:
-      - "10095:10095"
-    command: bash -c "/workspace/FunASR/funasr-runtime-resources/download_model.sh && /workspace/FunASR/runtime/run_server.sh --download-model-dir /workspace/models --vad-dir damo/speech_fsmn_vad_zh-cn-16k-common-onnx --model-dir damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-onnx --punc-dir damo/punc_ct-transformer_zh-cn-common-vocab272727-onnx --lm-dir damo/speech_ngram_lm_zh-cn-ai-wesp-2021-lm --itn-dir thudm/speech_itn_zh-cn-16k-common-vocab8404-onnx --hotword /workspace/models/hotwords.txt"
-    volumes:
-      - ./backend/models/funasr:/workspace/models
-
-  paddleocr:
-    image: registry.cn-hangzhou.aliyuncs.com/paddlepaddle/paddleocr:latest
-    container_name: mentormind-paddleocr
-    ports:
-      - "8866:8866"
-    command: paddleocr --use_angle_cls true --lang ch --use_gpu false --show_log false --port 8866 --type structure
+#  funasr:
+#    image: registry.cn-hangzhou.aliyuncs.com/funasr/funasr-runtime-sdk-cpu:latest
+#    container_name: mentormind-funasr
+#    ports:
+#      - "10095:10095"
+#    command: bash -c "/workspace/FunASR/funasr-runtime-resources/download_model.sh && /workspace/FunASR/runtime/run_server.sh --download-model-dir /workspace/models --vad-dir damo/speech_fsmn_vad_zh-cn-16k-common-onnx --model-dir damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-onnx --punc-dir damo/punc_ct-transformer_zh-cn-common-vocab272727-onnx --lm-dir damo/speech_ngram_lm_zh-cn-ai-wesp-2021-lm --itn-dir thudm/speech_itn_zh-cn-16k-common-vocab8404-onnx --hotword /workspace/models/hotwords.txt"
+#    volumes:
+#      - ./backend/models/funasr:/workspace/models
+#
+#  paddleocr:
+#    image: registry.cn-hangzhou.aliyuncs.com/paddlepaddle/paddleocr:latest
+#    container_name: mentormind-paddleocr
+#    ports:
+#      - "8866:8866"
+#    command: paddleocr --use_angle_cls true --lang ch --use_gpu false --show_log false --port 8866 --type structure
 
 volumes:
   postgres_data:
