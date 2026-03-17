@@ -185,8 +185,9 @@ data/
 .cache/
 *.cache
 
-# Model files
-models/
+# Model files (AI)
+# models/  <-- This was accidentally ignoring backend/database/models/
+!backend/database/models/
 *.pth
 *.pt
 *.h5
