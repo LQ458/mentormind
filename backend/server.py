@@ -34,7 +34,7 @@ from celery_app import create_class_video_task, transcript_to_lesson_task, celer
 from database import LessonStorageSQL, init_database
 from database import get_db
 from database.models.user import User
-from auth import hash_password, verify_password, create_access_token, get_current_user, get_optional_user
+from auth import get_current_user, get_optional_user
 from config import config
 
 # Initialize PostgreSQL database (Strict)
@@ -171,61 +171,9 @@ async def preload_models():
 
 # ── Auth Schemas ─────────────────────────────────────────────────────────────
 
-class RegisterRequest(BaseModel):
-    email: str
-    username: str
-    password: str
-    full_name: str = ""
-    language_preference: str = "zh"
-
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
 class UpdateProfileRequest(BaseModel):
     full_name: str = None
     language_preference: str = None
-
-
-# ── Auth Endpoints ────────────────────────────────────────────────────────────
-
-@app.post("/auth/register")
-def register(req: RegisterRequest, db = Depends(get_db)):
-    """Register a new user and return a JWT."""
-    # Check uniqueness
-    if db.query(User).filter(User.email == req.email).first():
-        raise HTTPException(status_code=400, detail="Email already registered")
-    if db.query(User).filter(User.username == req.username).first():
-        raise HTTPException(status_code=400, detail="Username already taken")
-    user = User(
-        email=req.email,
-        username=req.username,
-        hashed_password=hash_password(req.password),
-        full_name=req.full_name,
-        language_preference=req.language_preference,
-        is_verified=True,  # skip email verification for now
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    token = create_access_token(str(user.id), user.email)
-    return {"access_token": token, "token_type": "bearer", "user": user.to_dict()}
-
-
-@app.post("/auth/login")
-def login(req: LoginRequest, db = Depends(get_db)):
-    """Authenticate and return a JWT."""
-    user = db.query(User).filter(User.email == req.email).first()
-    if not user or not verify_password(req.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="Account disabled")
-    from datetime import datetime, timezone
-    user.last_login_at = datetime.now(timezone.utc)
-    db.commit()
-    token = create_access_token(str(user.id), user.email)
-    return {"access_token": token, "token_type": "bearer", "user": user.to_dict()}
-
 
 @app.get("/users/me")
 def get_me(current_user: User = Depends(get_current_user)):

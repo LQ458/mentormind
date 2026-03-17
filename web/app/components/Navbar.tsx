@@ -3,11 +3,10 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useLanguage } from './LanguageContext'
-import { useAuth } from './AuthContext'
+import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
 
 export default function Navbar() {
     const { language, setLanguage, t } = useLanguage()
-    const { isAuthenticated, user, logout } = useAuth()
     const pathname = usePathname()
 
     const navLinks = [
@@ -59,34 +58,24 @@ export default function Navbar() {
                             {language === 'zh' ? 'EN' : '中文'}
                         </button>
                         
-                        {isAuthenticated ? (
-                            <div className="flex items-center space-x-4">
-                                <span className="text-sm font-medium text-gray-700 hidden sm:block">
-                                    {user?.username}
-                                </span>
-                                <button
-                                    onClick={logout}
-                                    className="text-sm font-medium text-gray-600 hover:text-red-600 transition-colors"
-                                >
-                                    {language === 'zh' ? '退出' : 'Logout'}
-                                </button>
-                            </div>
-                        ) : (
+                        <SignedIn>
+                            <UserButton 
+                                appearance={{
+                                    elements: {
+                                        userButtonAvatarBox: "w-9 h-9"
+                                    }
+                                }}
+                            />
+                        </SignedIn>
+                        <SignedOut>
                             <div className="flex items-center space-x-3">
-                                <Link
-                                    href="/auth/login"
-                                    className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors"
-                                >
-                                    {language === 'zh' ? '登录' : 'Sign in'}
-                                </Link>
-                                <Link
-                                    href="/auth/register"
-                                    className="text-sm font-medium px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                                >
-                                    {language === 'zh' ? '注册' : 'Sign up'}
-                                </Link>
+                                <SignInButton mode="modal">
+                                    <button className="text-sm font-medium px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                                        {language === 'zh' ? '登录 / 注册' : 'Sign In'}
+                                    </button>
+                                </SignInButton>
                             </div>
-                        )}
+                        </SignedOut>
                     </div>
                 </div>
             </div>

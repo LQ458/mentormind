@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useLanguage } from '../components/LanguageContext'
-import { useAuth, useAuthHeaders } from '../components/AuthContext'
+import { useAuth } from '@clerk/nextjs'
 
 interface SystemStatus {
   status: string
@@ -39,8 +39,7 @@ interface SystemStatus {
 
 export default function DashboardPage() {
   const { language, t } = useLanguage()
-  const { isAuthenticated } = useAuth()
-  const authHeaders = useAuthHeaders()
+  const { isSignedIn, getToken } = useAuth()
   
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -65,9 +64,15 @@ export default function DashboardPage() {
 
   const fetchRecentLessons = async () => {
     try {
-      const endpoint = isAuthenticated ? '/api/backend/users/me/lessons' : '/api/backend/results';
+      const endpoint = isSignedIn ? '/api/backend/users/me/lessons' : '/api/backend/results';
+      const token = await getToken();
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+
       const response = await fetch(endpoint, {
-        headers: { ...authHeaders }
+        headers
       })
       const data = await response.json()
       // /users/me/lessons returns an array directly, /results returns { results: [] }

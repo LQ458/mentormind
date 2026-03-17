@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '../components/LanguageContext'
-import { useAuthHeaders } from '../components/AuthContext'
+import { useAuth } from '@clerk/nextjs'
 import { translations } from '../lib/translations'
 
 interface ChatMessage {
@@ -39,7 +39,7 @@ interface Voice {
 export default function CreateLessonPage() {
   const router = useRouter()
   const { language: uiLanguage, contentLanguage, t } = useLanguage()
-  const authHeaders = useAuthHeaders()
+  const { getToken } = useAuth()
   const [workflowPhase, setWorkflowPhase] = useState<'chatting' | 'topic-selection' | 'generating' | 'preview'>('chatting')
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
 
@@ -209,12 +209,17 @@ export default function CreateLessonPage() {
     // Pipeline progress handled by effect
 
     try {
+      const token = await getToken()
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+
       const response = await fetch('/api/backend/create-class', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders
-        },
+        headers,
         body: JSON.stringify({
           topic: topicToUse,
           language: contentLanguage,

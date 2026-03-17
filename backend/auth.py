@@ -1,21 +1,18 @@
 """
-Authentication utilities for MentorMind.
+Authentication utilities for MentorMind using Clerk.
 
 Provides:
-- Password hashing / verification (bcrypt via passlib)
-- JWT creation and decoding (python-jose)
-- FastAPI dependency: get_current_user (raises 401 if token invalid/missing)
-- FastAPI dependency: get_optional_user (returns None if no token — for optional auth endpoints)
+- FastAPI dependency: get_current_user (verifies Clerk JWT using JWKS and syncs user to DB)
+- FastAPI dependency: get_optional_user (returns None if no token)
 """
 
 import os
-from datetime import datetime, timedelta, timezone
+import jwt
+from jwt import PyJWKClient
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -23,45 +20,60 @@ from database.models.user import User
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-JWT_SECRET = os.getenv("JWT_SECRET", "mentormind-dev-secret-change-in-production")
-JWT_ALGORITHM = "HS256"
-JWT_EXPIRE_HOURS = 24 * 7  # 7 days
+# The Publishable Key from Clerk contains the instance domain encoded in base64
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = os.getenv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "")
 
-# ── Password hashing ─────────────────────────────────────────────────────────
+# We can derive the JWKS endpoint directly from the publishable key or environment variable
+# If you provide the publishable key as pk_test_..., we could parse it, but for simplicity,
+# Next.js Clerk integrations use the frontend URL or the Clerk Frontend API.
+# The standard JWKS URL format for Clerk is: https://<frontend-api>/.well-known/jwks.json
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# If you have the Secret Key, Clerk's issuer is generally "https://clerk.<domain>"
+# For mentormind, let's allow setting CLERK_ISSUER explicitly in docker-compose,
+# or we can extract it from the pk_... key.
+import base64
 
+def get_clerk_issuer() -> str:
+    issuer = os.getenv("CLERK_ISSUER")
+    if issuer:
+        return issuer
+    
+    pk = os.getenv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "")
+    if pk.startswith("pk_test_") or pk.startswith("pk_live_"):
+        # The frontend API domain is standard base64 encoded after the prefix
+        try:
+            domain_b64 = pk.split("_")[2]
+            # Add padding if needed
+            domain_b64 += "=" * ((4 - len(domain_b64) % 4) % 4)
+            domain = base64.b64decode(domain_b64).decode("utf-8").removesuffix('$')
+            return f"https://{domain}"
+        except Exception:
+            pass
+    return "https://prime-snapper-91.clerk.accounts.dev"
 
-def hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
+CLERK_ISSUER = get_clerk_issuer()
+JWKS_URL = f"{CLERK_ISSUER}/.well-known/jwks.json"
 
+# Initialize JWKS client to fetch and cache public keys
+jwks_client = PyJWKClient(JWKS_URL)
 
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
-
-
-# ── JWT ───────────────────────────────────────────────────────────────────────
-
-def create_access_token(user_id: str, email: str) -> str:
-    """Create a signed JWT with 7-day expiry."""
-    expire = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRE_HOURS)
-    payload = {
-        "sub": user_id,
-        "email": email,
-        "exp": expire,
-        "iat": datetime.now(timezone.utc),
-    }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-
+# ── JWT Verification ─────────────────────────────────────────────────────────
 
 def decode_token(token: str) -> dict:
-    """Decode and validate a JWT. Raises HTTPException 401 on failure."""
+    """Decode and validate a Clerk JWT against their JWKS endpoint."""
     try:
-        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-    except JWTError:
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            options={"verify_aud": False} # We trust the signature and issuer
+        )
+        return payload
+    except jwt.PyJWTError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
+            detail=f"Invalid or expired token: {str(e)}",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -75,17 +87,40 @@ def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
     db: Session = Depends(get_db),
 ) -> User:
-    """Require a valid JWT. Raises 401 if missing or invalid."""
+    """Require a valid Clerk JWT. Auto-creates user in DB if they don't exist."""
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
+        
     payload = decode_token(credentials.credentials)
-    user = db.query(User).filter(User.id == payload["sub"]).first()
-    if not user or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+    clerk_id = payload.get("sub")
+    if not clerk_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+
+    # Sync User to Database
+    user = db.query(User).filter(User.id == clerk_id).first()
+    
+    if not user:
+        # Create user record locally since Clerk authenticated them
+        # Note: Depending on Clerk token template, email/username might be embedded,
+        # otherwise we use placeholders.
+        user = User(
+            id=clerk_id,
+            email=f"{clerk_id}@clerk.local", # placeholder
+            username=clerk_id,
+            hashed_password="clerk_managed", # No password needed locally
+            is_active=True
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account is inactive")
+        
     return user
 
 
@@ -93,11 +128,10 @@ def get_optional_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
     db: Session = Depends(get_db),
 ) -> Optional[User]:
-    """Return the authenticated user, or None if no token is present. Does not raise."""
+    """Return the authenticated user, or None if no token is present."""
     if not credentials:
         return None
     try:
-        payload = decode_token(credentials.credentials)
-        return db.query(User).filter(User.id == payload["sub"]).first()
+        return get_current_user(credentials, db)
     except HTTPException:
         return None
