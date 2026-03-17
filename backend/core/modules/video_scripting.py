@@ -149,19 +149,19 @@ class VideoScriptGenerator:
         This script will be executed by Manim, a Python mathematical animation engine.
         
         OUTPUT FORMAT (strict JSON, no markdown):
-        {
+        {{
           "title": "Video Title",
           "scenes": [
-            {
+            {{
               "id": "scene_1",
               "duration": 5.0,
               "narration": "Text for TTS to speak",
               "action": "ACTION_TYPE",
               "param": "CONTENT_TO_RENDER",
               "visual_type": "manim"
-            }
+            }}
           ]
-        }
+        }}
         
         ALLOWED ACTIONS (Manim):
         - write_tex: param = LaTeX string (e.g. "E = mc^2", "F = ma")
