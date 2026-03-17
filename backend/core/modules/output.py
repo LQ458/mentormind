@@ -23,7 +23,6 @@ except ImportError:
     from services.tts import TTSService
 from core.modules.video_scripting import VideoScriptGenerator, VideoScript, Scene
 from core.rendering.manim_renderer import ManimService
-from core.rendering.remotion_renderer import RemotionService
 from core.modules.storage_manager import CloudStorageManager
 
 logger = logging.getLogger(__name__)
@@ -542,7 +541,6 @@ class ProgrammaticVideoGenerator:
         self.script_generator = VideoScriptGenerator()
         self.tts_synthesizer = TTSSynthesizer()
         self.manim_service = ManimService()
-        self.remotion_service = RemotionService()
         
     async def generate_video(self, topic: str, content: str, style: str = "math", voice_id: str = "anna") -> Dict:
         """
@@ -576,18 +574,12 @@ class ProgrammaticVideoGenerator:
         total_audio_duration = sum(audio_durations)
         video_script.total_duration = total_audio_duration
         
-        # 3. Render Video
-        logger.info(f"Rendering with engine: {style} (Manim/Remotion)")
-        
-        if style == "math" or any(s.visual_type == "manim" for s in video_script.scenes):
-            # Prefer Manim for math content
-            # Manim is now async with self-correction
-            video_path = await self.manim_service.render_script(video_script)
-            provider = "Manim"
-        else:
-            # Use Remotion for general/history
-            video_path = await self.remotion_service.render_script(video_script)
-            provider = "Remotion"
+        # 3. Render Video — always use Manim.
+        # Remotion requires the web/ Next.js directory inside the container, which is not available.
+        # Manim handles both math and general visualizations and is installed in this container.
+        logger.info(f"Rendering with engine: Manim (style={style})")
+        video_path = await self.manim_service.render_script(video_script)
+        provider = "Manim"
             
         return {
             "video_path": video_path,

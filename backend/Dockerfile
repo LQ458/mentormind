@@ -32,7 +32,6 @@ COPY . .
 
 # Create data directories (matches volume mount ./backend/data:/app/data)
 RUN mkdir -p /app/data/videos/manim \
-    && mkdir -p /app/data/videos/remotion \
     && mkdir -p /app/data/audio
 
 # Expose port
