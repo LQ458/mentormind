@@ -38,10 +38,11 @@ services:
       redis:
         condition: service_healthy
     environment:
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: mentormind-postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: mentormind
       POSTGRES_PASSWORD: mentormind
+      DATABASE_URL: postgresql://mentormind:mentormind@mentormind-postgres:5432/mentormind_metadata
       CELERY_BROKER_URL: redis://redis:6379/0
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
@@ -69,10 +70,11 @@ services:
       redis:
         condition: service_healthy
     environment:
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: mentormind-postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: mentormind
       POSTGRES_PASSWORD: mentormind
+      DATABASE_URL: postgresql://mentormind:mentormind@mentormind-postgres:5432/mentormind_metadata
       CELERY_BROKER_URL: redis://redis:6379/0
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
