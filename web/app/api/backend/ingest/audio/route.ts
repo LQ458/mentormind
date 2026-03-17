@@ -22,15 +22,9 @@ const httpAgent = new http.Agent({ keepAlive: true, timeout: 360_000 })
 const httpsAgent = new https.Agent({ keepAlive: true, timeout: 360_000 })
 
 async function fetchWithLongTimeout(url: string, init: RequestInit): Promise<Response> {
-    // Next.js uses the undici fetch internally, but we can fall back to
-    // node-fetch style by passing the agent via the (Node-specific) dispatcher.
-    // The simplest cross-compatible approach: attach the agent via 'dispatcher'
-    // if available (undici), otherwise ignore.
     const isHttps = url.startsWith('https')
     const agent = isHttps ? httpsAgent : httpAgent
-
-    // @ts-ignore – `agent` is a Node.js fetch extension not in the W3C types
-    return fetch(url, { ...init, agent })
+    return fetch(url, { ...init, agent } as any)
 }
 
 export async function POST(request: Request) {
@@ -50,9 +44,17 @@ export async function POST(request: Request) {
             if (value !== null) backendForm.append(field, value as string)
         }
 
+        // Forward Authorization header
+        const authHeader = request.headers.get('Authorization')
+        const headers: Record<string, string> = {}
+        if (authHeader) {
+            headers['Authorization'] = authHeader
+        }
+
         const backendResponse = await fetchWithLongTimeout(`${BACKEND_URL}/ingest/audio`, {
             method: 'POST',
             body: backendForm as unknown as BodyInit,
+            headers,
         })
 
         if (!backendResponse.ok) {

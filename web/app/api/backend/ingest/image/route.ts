@@ -18,9 +18,17 @@ export async function POST(request: Request) {
         backendForm.append('file', file)
         backendForm.append('language', language)
 
+        // Forward the Authorization header from the client if it exists
+        const authHeader = request.headers.get('Authorization')
+        const headers: Record<string, string> = {}
+        if (authHeader) {
+            headers['Authorization'] = authHeader
+        }
+
         const backendResponse = await fetch(`${BACKEND_URL}/ingest/image`, {
             method: 'POST',
             body: backendForm,
+            headers,
         })
 
         if (!backendResponse.ok) {

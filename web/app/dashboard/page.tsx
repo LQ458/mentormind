@@ -39,7 +39,7 @@ interface SystemStatus {
 
 export default function DashboardPage() {
   const { language, t } = useLanguage()
-  const { isSignedIn, getToken } = useAuth()
+  const { isLoaded, isSignedIn, getToken } = useAuth()
   
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -82,7 +82,7 @@ export default function DashboardPage() {
     }
   }
 
-  if (loading || !status) {
+  if (!isLoaded || loading || !status) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="text-gray-500">{t('common.loading')}</div>
