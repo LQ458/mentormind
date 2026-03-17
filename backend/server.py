@@ -38,6 +38,7 @@ from database.models.user import User
 from auth import get_current_user, get_optional_user
 from config import config
 from core.asr import transcribe_with_local_model, get_asr_status, extract_text_with_paddleocr
+from core.summarize import summarize_extracted_content
 
 # Initialize PostgreSQL database (Strict)
 print("🔧 Initializing PostgreSQL database...")
@@ -195,25 +196,8 @@ async def get_status():
         "services": services_status
     }
 
-
-async def summarize_extracted_content(text: str, source_type: str = "text") -> str:
-    """Summarize extracted OCR or ASR text using AI for better UI display."""
-    if not text or len(text.strip()) < 10:
-        return text
-
-    from services.api_client import api_client
-    prompt = f"Please provide a very concise summary (one sentence, max 20 words) of the following {source_type} content extracted from a student's upload. This summary will be shown in a 'Learning Context' sidebar. If the content is in Chinese, summarize in Chinese. If in English, summarize in English.\n\nContent:\n{text[:2000]}"
-
-    try:
-        messages = [{"role": "user", "content": prompt}]
-        response = await api_client.deepseek.chat_completion(messages=messages, max_tokens=100)
-        if response.success and response.data:
-            summary = response.data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-            return summary
-    except Exception as e:
-        print(f"⚠️ Summary failed: {e}")
-
-    return text[:60] + "..."
+# 2. Per-chunk topic extraction via DeepSeek (summarise -> topic title).
+# summarize_extracted_content is now imported from core.summarize
 
 
 @app.get("/languages")
@@ -384,11 +368,11 @@ async def ingest_audio(
 
         suffix = os.path.splitext(file.filename or ".wav")[1] or ".wav"
         
-        # Check file size (approx 10MB as threshold for async)
+        # Check file size (approx 1MB as threshold for async)
         file.file.seek(0, os.SEEK_END)
         file_size = file.file.tell()
         file.file.seek(0)
-        is_long_file = file_size > 10 * 1024 * 1024 # 10MB
+        is_long_file = file_size > 1 * 1024 * 1024 # 1MB
         
         # Determine job_id
         job_id = f"asr_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -439,7 +423,16 @@ async def ingest_audio(
             }
             if current_user:
                 request_data["user_id"] = str(current_user.id)
-            task = transcript_to_lesson_task.delay(full_text, request_data, job_id)
+
+            if is_long_file:
+                # Dispatch with file path to handle transcription in worker
+                print(f"📦 Long file detected ({file_size/1024/1024:.1f}MB), dispatching full lesson generation async: {job_id}")
+                task = transcript_to_lesson_task.delay(tmp_path, request_data, job_id, is_file=True)
+            else:
+                # Process short file synchronously for transcription then dispatch to lesson task
+                full_text = await transcribe_with_local_model(tmp_path, language)
+                task = transcript_to_lesson_task.delay(full_text, request_data, job_id, is_file=False)
+
             return {
                 "success": True,
                 "status": "processing",
@@ -448,7 +441,11 @@ async def ingest_audio(
                 "language": language,
             }
         finally:
-            if os.path.exists(tmp_path):
+            # ONLY delete if it was NOT dispatched to a long file task
+            # Actually, both transcribe_audio_task and updated transcript_to_lesson_task
+            # handle cleaning up the file themselves if is_file=True.
+            # So if NOT is_long_file, we clean up.
+            if not is_long_file and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
     except Exception as e:
         print(f"❌ Error transcribing audio: {e}")

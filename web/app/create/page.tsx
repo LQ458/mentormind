@@ -115,7 +115,7 @@ export default function CreateLessonPage() {
         }])
         
         let attempts = 0
-        const maxAttempts = 60 // 2 minutes with 2s interval
+        const maxAttempts = 600 // 20 minutes with 2s interval
         while (attempts < maxAttempts) {
           await new Promise(r => setTimeout(r, 2000))
           const pollRes = await fetch(`/api/backend/job-status/${data.job_id}`)
@@ -126,6 +126,18 @@ export default function CreateLessonPage() {
             break
           } else if (pollData.status === 'failed') {
             throw new Error(pollData.error || 'Transcription failed')
+          }
+          
+          // Add status update every 30 seconds
+          if (attempts > 0 && attempts % 15 === 0) {
+            setChatMessages(prev => [...prev, {
+              id: `sys_wait_update_${Date.now()}`,
+              role: 'assistant',
+              content: uiLanguage === 'zh' 
+                ? `仍正在转录较大文件，请继续耐心等待...` 
+                : `Still transcribing large file, please continue to wait...`,
+              timestamp: new Date()
+            }])
           }
           attempts++
         }

@@ -10,6 +10,7 @@ from datetime import datetime
 from core.create_classes import ClassCreator, ClassCreationRequest, Language
 from database import LessonStorageSQL, init_database
 from core.asr import transcribe_with_local_model
+from core.summarize import summarize_extracted_content
 
 # Initialize Celery app
 # In production, broker and backend should come from environment variables.
@@ -165,32 +166,47 @@ def _chunk_transcript(text: str, chunk_size: int = _TRANSCRIPT_CHUNK_CHARS) -> l
 
 
 @celery_app.task(bind=True, name="mentormind.transcript_to_lesson",
-                 time_limit=1200)  # 20-minute hard limit for very long recordings
-def transcript_to_lesson_task(self, transcript: str, request_data: dict, job_id: str):
+                 time_limit=1800)  # Increased to 30 mins
+def transcript_to_lesson_task(self, transcript_or_file: str, request_data: dict, job_id: str, is_file: bool = False):
     """
-    Celery task: turn a raw ASR transcript into a structured MentorMind lesson.
+    Celery task: turn a raw ASR transcript (or audio file) into a structured MentorMind lesson.
 
     Steps:
       1. Chunk transcript (handles 30-min+ recordings that exceed LLM context).
-      2. Per-chunk topic extraction via DeepSeek (summarise → topic title).
-      3. Merge summaries → derive a single lesson topic string.
+      2. Per-chunk topic extraction via DeepSeek (summarise -> topic title).
+      3. Merge summaries -> derive a single lesson topic string.
       4. Reuse the existing ClassCreator pipeline (same as create_class_video_task).
 
     request_data keys (all optional, sensible defaults apply):
       language, student_level, duration_minutes, include_video,
       include_exercises, include_assessment, target_audience, difficulty_level, voice_id
     """
-    print(f"[{job_id}] transcript_to_lesson: {len(transcript)} chars, lang={request_data.get('language','zh')}")
+    print(f"[{job_id}] transcript_to_lesson: {'file' if is_file else 'text'}, lang={request_data.get('language','zh')}")
+    # transcript is defined inside _run or after source determination
 
     async def _run():
         import json
         from services.api_client import api_client
 
         language = request_data.get("language", "zh")
+        
+        # Determine transcript source
+        if is_file:
+            print(f"[{job_id}] Transcribing audio file: {transcript_or_file}")
+            transcript = await transcribe_with_local_model(transcript_or_file, language)
+            # Clean up temp file in worker
+            if os.path.exists(transcript_or_file):
+                os.unlink(transcript_or_file)
+        else:
+            transcript = transcript_or_file
+
+        if not transcript:
+            raise ValueError("No transcript available for lesson generation")
+
         chunks = _chunk_transcript(transcript)
         print(f"[{job_id}] Split into {len(chunks)} chunk(s)")
 
-        # ── Step 1: Summarise each chunk ────────────────────────────────────
+        # -- Step 1: Summarise each chunk ------------------------------------
         summaries = []
         for i, chunk in enumerate(chunks):
             lang_instruction = (
@@ -199,20 +215,20 @@ def transcript_to_lesson_task(self, transcript: str, request_data: dict, job_id:
             )
             prompt = textwrap.dedent(f"""
                 {lang_instruction}
-                下面是一段课堂录音的转录片段（第 {i+1}/{len(chunks)} 段）。
-                请提取：
-                1. 本段的核心主题（1-2句）
-                2. 关键知识点列表（最多5条）
-                3. 本段的一句话摘要
+                Below is a transcript segment from a lecture (Part {i+1}/{len(chunks)}).
+                Please extract:
+                1. Core topic of this segment (1-2 sentences)
+                2. Key knowledge points (max 5)
+                3. A one-sentence summary
 
-                以 JSON 格式回复：
+                Reply in JSON format:
                 {{
                   "topic": "...",
                   "key_points": ["...", "..."],
                   "summary": "..."
                 }}
 
-                转录内容：
+                Transcript content:
                 {chunk[:8000]}
             """).strip()
 
@@ -233,30 +249,30 @@ def transcript_to_lesson_task(self, transcript: str, request_data: dict, job_id:
             summaries.append(chunk_data)
             print(f"[{job_id}] Chunk {i+1}/{len(chunks)} → topic: {chunk_data.get('topic','')[:60]}")
 
-        # ── Step 2: Merge summaries → lesson topic ───────────────────────────
+        # -- Step 2: Merge summaries -> lesson topic ---------------------------
         all_topics = [s.get("topic", "") for s in summaries if s.get("topic")]
         all_key_points = []
         for s in summaries:
             all_key_points.extend(s.get("key_points", []))
         all_summaries_text = "\n".join(f"- {s.get('summary','')}" for s in summaries if s.get("summary"))
 
-        lang_instruction = "请用中文回复。" if language == "zh" else "Reply entirely in English."
+        lang_instruction = "Reply in Chinese." if language == "zh" else "Reply entirely in English."
         merge_prompt = textwrap.dedent(f"""
             {lang_instruction}
-            以下是一节课各片段的主题和摘要，请综合提炼出：
-            1. 整节课的课程标题（简洁，10字以内）
-            2. 整节课的核心主题描述（2-3句话）
-            3. 最重要的5个知识点
+            The following are topics and summaries from different segments of a lecture. Please synthesize them into:
+            1. A concise lesson title (max 10 words)
+            2. A core topic description (2-3 sentences)
+            3. The top 5 most important knowledge points
 
-            以 JSON 格式回复：
+            Reply in JSON format:
             {{
               "lesson_title": "...",
               "lesson_topic": "...",
               "key_points": ["...", "..."]
             }}
 
-            各段主题：{json.dumps(all_topics, ensure_ascii=False)}
-            各段摘要：
+            Segment Topics: {json.dumps(all_topics, ensure_ascii=False)}
+            Segment Summaries:
             {all_summaries_text}
         """).strip()
 
@@ -279,14 +295,14 @@ def transcript_to_lesson_task(self, transcript: str, request_data: dict, job_id:
 
         print(f"[{job_id}] Derived topic: {lesson_topic}")
 
-        # ── Step 3: Feed into ClassCreator (reuse existing pipeline) ────────
-        # Append key points as custom requirements so the lesson plan reflects
-        # the actual lecture content rather than generic knowledge.
+        # -- Step 3: Feed into ClassCreator (reuse existing pipeline) --------
+        # Append key points as custom requirements
         custom_req = request_data.get("custom_requirements") or ""
         if key_points_text:
+            instruction = "This lesson is generated based on the following recording. Please ensure it covers these points:" if language != "zh" else "本课程基于以下录音内容生成，请确保课程涵盖这些知识点："
             custom_req = (
-                f"本课程基于以下录音内容生成，请确保课程涵盖这些知识点：\n{key_points_text}"
-                + (f"\n\n额外要求：{custom_req}" if custom_req else "")
+                f"{instruction}\n{key_points_text}"
+                + (f"\n\nAdditional requirements: {custom_req}" if custom_req else "")
             )
 
         enriched_request_data = {
@@ -381,8 +397,6 @@ def transcribe_audio_task(self, file_path: str, language: str, job_id: str):
     print(f"[{job_id}] Received transcription task for file: {file_path}")
     
     async def _run():
-        from server import summarize_extracted_content
-        
         # 1. Transcribe
         full_text = await transcribe_with_local_model(file_path, language)
         print(f"[{job_id}] Transcription complete: {len(full_text)} chars")
