@@ -91,13 +91,18 @@ services:
     command: celery -A celery_app worker --loglevel=info --concurrency=4
 
   frontend:
-    build: ./web
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
     container_name: mentormind-frontend
     depends_on:
       - backend
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
       # Point to the backend running on the host machine if needed
       BACKEND_URL: http://host.docker.internal:8000
       # Pass ALLOWED_ORIGIN from host .env variable to Next.js payload for CSRF check
