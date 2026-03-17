@@ -1,0 +1,18 @@
+services:
+  frontend:
+    # Use development mode instead of production build
+    command: pnpm dev
+    
+    # Mount the local web directory into the container for instant hot-reloading
+    # Skip mounting node_modules or .next to prevent overriding container internals
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+      - /app/.next 
+
+    # Disable production environment restrictions
+    environment:
+      NODE_ENV: development
+      # Still ensure the Clerk keys pass through
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
