@@ -101,7 +101,40 @@ export default function CreateLessonPage() {
       formData.append('file', file)
       formData.append('language', contentLanguage)
       const response = await fetch('/api/backend/ingest/audio', { method: 'POST', body: formData })
-      const data = await response.json()
+      let data = await response.json()
+      
+      // Handle asynchronous transcription for long files
+      if (data.success && data.status === 'processing' && data.job_id) {
+        setChatMessages(prev => [...prev, {
+          id: `sys_wait_${Date.now()}`,
+          role: 'assistant',
+          content: uiLanguage === 'zh' 
+            ? `⏳ 检测到较长文件，正在后台进行转录，请稍候...` 
+            : `⏳ Long file detected. Transcribing in background, please wait...`,
+          timestamp: new Date()
+        }])
+        
+        let attempts = 0
+        const maxAttempts = 60 // 2 minutes with 2s interval
+        while (attempts < maxAttempts) {
+          await new Promise(r => setTimeout(r, 2000))
+          const pollRes = await fetch(`/api/backend/job-status/${data.job_id}`)
+          const pollData = await pollRes.json()
+          
+          if (pollData.success && pollData.text) {
+            data = pollData
+            break
+          } else if (pollData.status === 'failed') {
+            throw new Error(pollData.error || 'Transcription failed')
+          }
+          attempts++
+        }
+        
+        if (attempts >= maxAttempts) {
+          throw new Error('Transcription timed out')
+        }
+      }
+
       if (data.success && data.text) {
         // Add to context sidebar instead of just chatbox
         const newContext: LearningContext = {

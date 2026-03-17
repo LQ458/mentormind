@@ -44,3 +44,4 @@ openai-whisper>=20231117
 # OCR
 paddleocr>=2.7.0
 paddlepaddle>=2.5.0
+opencv-python-headless>=4.8.0
