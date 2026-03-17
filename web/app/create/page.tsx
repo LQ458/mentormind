@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '@clerk/nextjs'
 import { translations } from '../lib/translations'
+import SessionContextCard from '../components/Chat/SessionContextCard'
 
 interface ChatMessage {
   id: string
@@ -36,6 +37,14 @@ interface Voice {
   language?: string
 }
 
+interface LearningContext {
+  id: string;
+  type: 'image' | 'audio' | 'document';
+  title: string;
+  summary: string;
+  timestamp: Date;
+}
+
 export default function CreateLessonPage() {
   const router = useRouter()
   const { language: uiLanguage, contentLanguage, t } = useLanguage()
@@ -58,6 +67,7 @@ export default function CreateLessonPage() {
       ])
     }
   }, [uiLanguage, chatMessages.length])
+
   const [userInput, setUserInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
   const [identifiedTopics, setIdentifiedTopics] = useState<IdentifiedTopic[]>([])
@@ -79,8 +89,10 @@ export default function CreateLessonPage() {
   // Audio/Image upload state
   const [isUploadingAudio, setIsUploadingAudio] = useState(false)
   const [isUploadingImage, setIsUploadingImage] = useState(false)
-  const audioInputRef = useState<HTMLInputElement | null>(null)
-  const imageInputRef = useState<HTMLInputElement | null>(null)
+  const [sessionContext, setSessionContext] = useState<LearningContext[]>([])
+  
+  const audioInputRef = useRef<HTMLInputElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
 
   const handleAudioUpload = async (file: File) => {
     setIsUploadingAudio(true)
@@ -91,7 +103,25 @@ export default function CreateLessonPage() {
       const response = await fetch('/api/backend/ingest/audio', { method: 'POST', body: formData })
       const data = await response.json()
       if (data.success && data.text) {
-        setUserInput(prev => prev ? `${prev} ${data.text}` : data.text)
+        // Add to context sidebar instead of just chatbox
+        const newContext: LearningContext = {
+          id: Date.now().toString(),
+          type: 'audio',
+          title: file.name,
+          summary: data.summary || data.text.substring(0, 100) + '...',
+          timestamp: new Date()
+        }
+        setSessionContext(prev => [newContext, ...prev])
+        
+        // Also add a system message to chat
+        setChatMessages(prev => [...prev, {
+          id: `sys_${Date.now()}`,
+          role: 'assistant',
+          content: uiLanguage === 'zh' 
+            ? `🎵 已添加音频上下文: ${newContext.summary}` 
+            : `🎵 Added audio context: ${newContext.summary}`,
+          timestamp: new Date()
+        }])
       } else {
         alert(uiLanguage === 'zh' ? '音频转录失败，请重试' : 'Audio transcription failed, please try again')
       }
@@ -112,7 +142,25 @@ export default function CreateLessonPage() {
       const response = await fetch('/api/backend/ingest/image', { method: 'POST', body: formData })
       const data = await response.json()
       if (data.success && data.text) {
-        setUserInput(prev => prev ? `${prev}\n${data.text}` : data.text)
+        // Add to context sidebar
+        const newContext: LearningContext = {
+          id: Date.now().toString(),
+          type: 'image',
+          title: file.name,
+          summary: data.summary || data.text.substring(0, 100) + '...',
+          timestamp: new Date()
+        }
+        setSessionContext(prev => [newContext, ...prev])
+
+        // Also add a system message to chat
+        setChatMessages(prev => [...prev, {
+          id: `sys_${Date.now()}`,
+          role: 'assistant',
+          content: uiLanguage === 'zh' 
+            ? `🖼️ 已添加图片上下文: ${newContext.summary}` 
+            : `🖼️ Added image context: ${newContext.summary}`,
+          timestamp: new Date()
+        }])
       } else {
         alert(uiLanguage === 'zh' ? '图片文字识别失败，请重试' : 'Image OCR failed, please try again')
       }
@@ -176,10 +224,7 @@ export default function CreateLessonPage() {
     })
 
     const interval = setInterval(() => {
-      // Asymptotic approach to 99%
       progressValue += (99 - progressValue) * 0.02
-
-      // Advance step every ~3-5 seconds roughly
       const estimatedStep = Math.floor((progressValue / 100) * steps.length)
       if (estimatedStep > stepIndex && estimatedStep < steps.length) {
         stepIndex = estimatedStep
@@ -206,7 +251,6 @@ export default function CreateLessonPage() {
     }
 
     setGenerating(true)
-    // Pipeline progress handled by effect
 
     try {
       const token = await getToken()
@@ -235,19 +279,12 @@ export default function CreateLessonPage() {
       const data = await response.json()
 
       if (data.job_id) {
-        // Connect to SSE stream via the Next.js proxy route
         await new Promise((resolve, reject) => {
           const eventSource = new EventSource(`/api/backend/job-stream/${data.job_id}`);
-
-          eventSource.onopen = () => {
-            console.log('[SSE] Connection opened for job:', data.job_id);
-          };
 
           eventSource.onmessage = (event) => {
             try {
               const statusData = JSON.parse(event.data);
-              console.log(`[SSE] job status:`, statusData.status);
-
               if (statusData.status === 'completed') {
                 setPreview(statusData.result);
                 setPipelineProgress(null);
@@ -258,22 +295,18 @@ export default function CreateLessonPage() {
                 eventSource.close();
                 reject(new Error(statusData.error || 'Job failed on the server.'));
               }
-              // status === 'processing' or 'pending' implicitly continue the stream
             } catch (err) {
-              console.error('[SSE] Error processing message:', err);
               eventSource.close();
               reject(err);
             }
           };
 
           eventSource.onerror = (error) => {
-            console.error('[SSE] Connection Error:', error);
             eventSource.close();
             reject(new Error('Connection to generation stream lost. Check server logs.'));
           };
         });
       } else if (data.success) {
-        // Fallback for synchronous responses (if any)
         setPreview(data)
         setPipelineProgress(null)
         alert(t('create.courseCreatedSuccess'))
@@ -304,7 +337,6 @@ export default function CreateLessonPage() {
     setUserInput('')
     setIsTyping(true)
 
-    // First AI response
     const aiResponse: ChatMessage = {
       id: (Date.now() + 1).toString(),
       role: 'assistant',
@@ -317,7 +349,6 @@ export default function CreateLessonPage() {
     setChatMessages(prev => [...prev, aiResponse])
 
     try {
-      // Call AI topic analysis endpoint
       const response = await fetch('/api/backend/analyze-topics', {
         method: 'POST',
         headers: {
@@ -332,13 +363,12 @@ export default function CreateLessonPage() {
       const data = await response.json()
 
       if (data.success) {
-        // Convert API response to IdentifiedTopic format with bilingual support
         const analyzedTopics: IdentifiedTopic[] = data.topics.map((topic: any, index: number) => ({
           id: topic.id || `topic_${index + 1}`,
-          name: topic.name_en || topic.name, // Default to English name
+          name: topic.name_en || topic.name,
           name_zh: topic.name_zh || topic.name,
           name_en: topic.name_en || topic.name,
-          description: topic.description_en || topic.description, // Default to English description
+          description: topic.description_en || topic.description,
           description_zh: topic.description_zh || topic.description,
           description_en: topic.description_en || topic.description,
           confidence: topic.confidence || 0.8,
@@ -351,7 +381,6 @@ export default function CreateLessonPage() {
 
         setIdentifiedTopics(analyzedTopics)
 
-        // Add analysis complete message
         const analysisCompleteMessage: ChatMessage = {
           id: (Date.now() + 2).toString(),
           role: 'assistant',
@@ -364,220 +393,18 @@ export default function CreateLessonPage() {
         setChatMessages(prev => [...prev, analysisCompleteMessage])
         setWorkflowPhase('topic-selection')
       } else {
-        // Fallback if analysis fails
         const errorMessage: ChatMessage = {
           id: (Date.now() + 2).toString(),
           role: 'assistant',
           content: t('create.analysisFailed'),
           timestamp: new Date()
         }
-
         setChatMessages(prev => [...prev, errorMessage])
-
-        // Use fallback topics (bilingual)
-        const fallbackTopics: IdentifiedTopic[] = [
-          {
-            id: '1',
-            name: 'Please Specify Learning Topic',
-            name_zh: '请具体说明学习主题',
-            name_en: 'Please Specify Learning Topic',
-            description: 'Please tell me the specific subject or topic you want to learn',
-            description_zh: '请告诉我你想学习的具体科目或主题',
-            description_en: 'Please tell me the specific subject or topic you want to learn',
-            confidence: 0.5,
-            icon: '',
-            category: 'clarification',
-            follow_up_questions: [
-              'What subject do you want to learn? (e.g., math, physics, programming)',
-              'Do you have specific learning goals? (e.g., exam preparation, project application)',
-              'Which learning stage are you interested in? (e.g., beginner, intermediate, professional)'
-            ],
-            follow_up_questions_zh: [
-              '你想学习什么科目？（如数学、物理、编程等）',
-              '有特定的学习目标吗？（如考试准备、项目应用）',
-              '对哪个学习阶段感兴趣？（如入门、进阶、专业）'
-            ],
-            follow_up_questions_en: [
-              'What subject do you want to learn? (e.g., math, physics, programming)',
-              'Do you have specific learning goals? (e.g., exam preparation, project application)',
-              'Which learning stage are you interested in? (e.g., beginner, intermediate, professional)'
-            ]
-          }
-        ]
-
-        setIdentifiedTopics(fallbackTopics)
         setWorkflowPhase('topic-selection')
       }
     } catch (error) {
       console.error('Topic analysis failed:', error)
-
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 2).toString(),
-        role: 'assistant',
-        content: uiLanguage === 'zh'
-          ? '抱歉，分析服务暂时不可用。让我为你推荐一些通用学习主题。'
-          : 'Sorry, the analysis service is temporarily unavailable. Let me recommend some general learning topics for you.',
-        timestamp: new Date()
-      }
-
-      setChatMessages(prev => [...prev, errorMessage])
-
-      // Fallback topics with follow-up questions (bilingual)
-      const fallbackTopics: IdentifiedTopic[] = [
-        {
-          id: '1',
-          name: 'Please Specify Learning Topic',
-          name_zh: '请具体说明学习主题',
-          name_en: 'Please Specify Learning Topic',
-          description: 'Please tell me the subject and specific topic you want to learn',
-          description_zh: '请告诉我你想学习的科目和具体主题',
-          description_en: 'Please tell me the subject and specific topic you want to learn',
-          confidence: 0.5,
-          icon: '',
-          category: 'clarification',
-          follow_up_questions: [
-            'What subject do you want to learn? (e.g., literature, history, science, math, art, etc.)',
-            'Do you have specific learning goals or areas of interest?',
-            'Are you more interested in theory, practice, or a combination of both?',
-            'Do you need basic introduction, specialized research, or exam preparation?'
-          ],
-          follow_up_questions_zh: [
-            '你想学习什么科目？（如文学、历史、科学、数学、艺术等）',
-            '有特定的学习目标或兴趣领域吗？',
-            '对理论、实践还是两者结合更感兴趣？',
-            '需要基础入门、专题研究还是考试准备？'
-          ],
-          follow_up_questions_en: [
-            'What subject do you want to learn? (e.g., literature, history, science, math, art, etc.)',
-            'Do you have specific learning goals or areas of interest?',
-            'Are you more interested in theory, practice, or a combination of both?',
-            'Do you need basic introduction, specialized research, or exam preparation?'
-          ]
-        },
-        {
-          id: '2',
-          name: 'Literature Learning Topics',
-          name_zh: '文学学习主题',
-          name_en: 'Literature Learning Topics',
-          description: 'Please specify the literature-related topics you want to learn',
-          description_zh: '请具体说明你想学习的文学相关主题',
-          description_en: 'Please specify the literature-related topics you want to learn',
-          confidence: 0.6,
-          icon: '',
-          category: 'literature',
-          follow_up_questions: [
-            'What specific area of literature do you want to learn?',
-            'Are you more interested in literary theory research or practical application?',
-            'Do you need a basic introduction to literature or specialized research?',
-            'Are there specific literary works, periods, or genres you want to learn?'
-          ],
-          follow_up_questions_zh: [
-            '你想学习文学的哪个具体领域？',
-            '对文学的理论研究还是实践应用更感兴趣？',
-            '需要文学的基础入门还是专题研究？',
-            '有特定的文学作品、时期或流派想学习吗？'
-          ],
-          follow_up_questions_en: [
-            'What specific area of literature do you want to learn?',
-            'Are you more interested in literary theory research or practical application?',
-            'Do you need a basic introduction to literature or specialized research?',
-            'Are there specific literary works, periods, or genres you want to learn?'
-          ]
-        },
-        {
-          id: '3',
-          name: 'Science Learning Topics',
-          name_zh: '科学学习主题',
-          name_en: 'Science Learning Topics',
-          description: 'Please specify the science-related topics you want to learn',
-          description_zh: '请具体说明你想学习的科学相关主题',
-          description_en: 'Please specify the science-related topics you want to learn',
-          confidence: 0.6,
-          icon: '',
-          category: 'science',
-          follow_up_questions: [
-            'What specific area of science do you want to learn?',
-            'Are you more interested in theoretical research or experimental application?',
-            'Do you need a basic introduction to science or specialized research?',
-            'Are there specific scientific concepts, theories, or experiments you want to learn?'
-          ],
-          follow_up_questions_zh: [
-            '你想学习科学的哪个具体领域？',
-            '对科学的理论研究还是实验应用更感兴趣？',
-            '需要科学的基础入门还是专题研究？',
-            '有特定的科学概念、理论或实验想学习吗？'
-          ],
-          follow_up_questions_en: [
-            'What specific area of science do you want to learn?',
-            'Are you more interested in theoretical research or experimental application?',
-            'Do you need a basic introduction to science or specialized research?',
-            'Are there specific scientific concepts, theories, or experiments you want to learn?'
-          ]
-        },
-        {
-          id: '4',
-          name: 'Mathematics Learning Topics',
-          name_zh: '数学学习主题',
-          name_en: 'Mathematics Learning Topics',
-          description: 'Please specify the mathematics-related topics you want to learn',
-          description_zh: '请具体说明你想学习的数学相关主题',
-          description_en: 'Please specify the mathematics-related topics you want to learn',
-          confidence: 0.6,
-          icon: '',
-          category: 'mathematics',
-          follow_up_questions: [
-            'What specific area of mathematics do you want to learn?',
-            'Are you more interested in theoretical research or practical application?',
-            'Do you need a basic introduction to mathematics or specialized research?',
-            'Are there specific mathematical concepts, formulas, or problems you want to learn?'
-          ],
-          follow_up_questions_zh: [
-            '你想学习数学的哪个具体领域？',
-            '对数学的理论研究还是实际应用更感兴趣？',
-            '需要数学的基础入门还是专题研究？',
-            '有特定的数学概念、公式或问题想学习吗？'
-          ],
-          follow_up_questions_en: [
-            'What specific area of mathematics do you want to learn?',
-            'Are you more interested in theoretical research or practical application?',
-            'Do you need a basic introduction to mathematics or specialized research?',
-            'Are there specific mathematical concepts, formulas, or problems you want to learn?'
-          ]
-        },
-        {
-          id: '5',
-          name: 'Art Learning Topics',
-          name_zh: '艺术学习主题',
-          name_en: 'Art Learning Topics',
-          description: 'Please specify the art-related topics you want to learn',
-          description_zh: '请具体说明你想学习的艺术相关主题',
-          description_en: 'Please specify the art-related topics you want to learn',
-          confidence: 0.6,
-          icon: '',
-          category: 'art',
-          follow_up_questions: [
-            'What specific area of art do you want to learn?',
-            'Are you more interested in art theory research or practical creation?',
-            'Do you need a basic introduction to art or specialized research?',
-            'Are there specific art forms, styles, or works you want to learn?'
-          ],
-          follow_up_questions_zh: [
-            '你想学习艺术的哪个具体领域？',
-            '对艺术的理论研究还是实践创作更感兴趣？',
-            '需要艺术的基础入门还是专题研究？',
-            '有特定的艺术形式、风格或作品想学习吗？'
-          ],
-          follow_up_questions_en: [
-            'What specific area of art do you want to learn?',
-            'Are you more interested in art theory research or practical creation?',
-            'Do you need a basic introduction to art or specialized research?',
-            'Are there specific art forms, styles, or works you want to learn?'
-          ]
-        }
-      ]
-
-      setIdentifiedTopics(fallbackTopics)
-      setWorkflowPhase('topic-selection')
+      setIsTyping(false)
     } finally {
       setIsTyping(false)
     }
@@ -602,7 +429,6 @@ export default function CreateLessonPage() {
       .map(topic => topic.name)
       .join(', ')
 
-    // Add additional requirements from form if any
     const fullTopicQuery = form.studentQuery && form.studentQuery !== ''
       ? `${selectedTopicNames}. Additional requirements: ${form.studentQuery}`
       : selectedTopicNames
@@ -621,7 +447,6 @@ export default function CreateLessonPage() {
       alert(t('create.generateCourseFirst'))
       return
     }
-
     alert(t('create.courseSaved'))
     router.push('/lessons')
   }
@@ -645,323 +470,290 @@ export default function CreateLessonPage() {
       </div>
 
       <div className="w-full">
-        <div className="space-y-6">
-          {workflowPhase === 'chatting' && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                {t('create.chatTitle')}
-              </h2>
-              <div className="space-y-4">
-                <div className="h-[550px] overflow-y-auto space-y-4 p-4 bg-gray-50/50 rounded-lg">
-                  {chatMessages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                    >
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* Main Interface Area */}
+          <div className={`${sessionContext.length > 0 ? 'lg:col-span-3' : 'lg:col-span-4'} space-y-6 transition-all duration-300`}>
+            
+            {workflowPhase === 'chatting' && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                  {t('create.chatTitle')}
+                </h2>
+                <div className="space-y-4">
+                  <div className="h-[550px] overflow-y-auto space-y-4 p-4 bg-gray-50/50 rounded-lg">
+                    {chatMessages.map((message) => (
                       <div
-                        className={`max-w-[80%] rounded-lg p-4 ${message.role === 'user'
-                          ? 'bg-blue-100 text-blue-900'
-                          : 'bg-gray-100 text-gray-900'
-                          }`}
+                        key={message.id}
+                        className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                       >
-                        <div className="text-sm font-medium mb-1">
-                          {message.role === 'user' ? t('create.userName') : t('create.assistantName')}
-                        </div>
-                        <div className="text-sm">{message.content}</div>
-                        <div className="text-xs text-gray-500 mt-2">
-                          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <div
+                          className={`max-w-[80%] rounded-lg p-4 ${message.role === 'user'
+                            ? 'bg-blue-100 text-blue-900'
+                            : 'bg-gray-100 text-gray-900'
+                            }`}
+                        >
+                          <div className="text-sm font-medium mb-1">
+                            {message.role === 'user' ? t('create.userName') : t('create.assistantName')}
+                          </div>
+                          <div className="text-sm">{message.content}</div>
+                          <div className="text-xs text-gray-500 mt-2">
+                            {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
 
-                  {isTyping && (
-                    <div className="flex justify-start">
-                      <div className="bg-gray-100 text-gray-900 rounded-lg p-4">
-                        <div className="text-sm font-medium mb-1">{t('create.assistantName')}</div>
-                        <div className="flex items-center space-x-1">
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                    {isTyping && (
+                      <div className="flex justify-start">
+                        <div className="bg-gray-100 text-gray-900 rounded-lg p-4">
+                          <div className="text-sm font-medium mb-1">{t('create.assistantName')}</div>
+                          <div className="flex items-center space-x-1">
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                          </div>
                         </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 items-center">
+                    <label
+                      title={uiLanguage === 'zh' ? '上传音频（FunASR转录）' : 'Upload audio (FunASR transcription)'}
+                      className={`p-3 rounded-lg border border-gray-300 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-center ${isUploadingAudio ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        className="hidden"
+                        disabled={isUploadingAudio}
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleAudioUpload(f); e.target.value = '' }}
+                      />
+                      {isUploadingAudio ? (
+                        <div className="animate-spin w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full" />
+                      ) : (
+                        <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                        </svg>
+                      )}
+                    </label>
+
+                    <label
+                      title={uiLanguage === 'zh' ? '上传图片/文档（PaddleOCR识别）' : 'Upload image/doc (PaddleOCR)'}
+                      className={`p-3 rounded-lg border border-gray-300 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-center ${isUploadingImage ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <input
+                        type="file"
+                        accept="image/*,.pdf"
+                        className="hidden"
+                        disabled={isUploadingImage}
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); e.target.value = '' }}
+                      />
+                      {isUploadingImage ? (
+                        <div className="animate-spin w-5 h-5 border-2 border-green-500 border-t-transparent rounded-full" />
+                      ) : (
+                        <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      )}
+                    </label>
+
+                    <input
+                      type="text"
+                      value={userInput}
+                      onChange={(e) => setUserInput(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                      placeholder={t('create.chatPlaceholder')}
+                      className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <button
+                      onClick={handleSendMessage}
+                      disabled={!userInput.trim() || isTyping}
+                      className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {t('create.sendButton')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {workflowPhase === 'topic-selection' && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                  {t('create.topicSelectionTitle')}
+                </h2>
+                <div className="space-y-6">
+                  <p className="text-gray-600">
+                    {uiLanguage === 'zh' ? '请选择一个最感兴趣的学习主题：' : 'Please select the topic you are most interested in:'}
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
+                    {identifiedTopics.map((topic) => (
+                      <button
+                        key={topic.id}
+                        onClick={() => setSelectedTopics([topic.id])}
+                        className={`p-6 rounded-xl border-2 text-left transition-all h-full flex flex-col min-h-[280px] ${selectedTopics.includes(topic.id)
+                          ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200 shadow-md'
+                          : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50 hover:shadow-sm'
+                          }`}
+                      >
+                        <div className="font-bold text-gray-900 text-xl mb-3 line-clamp-2 min-h-[3.5rem]">
+                          {uiLanguage === 'zh' ? (topic.name_zh || topic.name) : (topic.name_en || topic.name)}
+                        </div>
+                        <div className="text-base text-gray-600 flex-grow leading-relaxed line-clamp-6">
+                          {uiLanguage === 'zh' ? (topic.description_zh || topic.description) : (topic.description_en || topic.description)}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {selectedTopics.length > 0 && (
+                    <div className="mt-8 bg-gray-50 rounded-xl p-6 border border-gray-200 animate-fade-in">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            {uiLanguage === 'zh' ? '选择AI讲师声音' : 'Select AI Instructor Voice'}
+                          </label>
+                          <select
+                            value={form.voiceId}
+                            onChange={(e) => setForm({ ...form, voiceId: e.target.value })}
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                          >
+                            {voices.map((voice) => (
+                              <option key={voice.id} value={voice.id}>
+                                {voice.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            {uiLanguage === 'zh' ? '补充具体要求 (可选)' : 'Additional Requirements (Optional)'}
+                          </label>
+                          <textarea
+                            value={form.studentQuery}
+                            onChange={(e) => setForm({ ...form, studentQuery: e.target.value })}
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-[50px] min-h-[50px]"
+                            rows={1}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex justify-end">
+                        <button
+                          onClick={handleConfirmTopics}
+                          className="px-8 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-bold hover:shadow-lg hover:scale-105 transition-all transform"
+                        >
+                          {uiLanguage === 'zh' ? '开始生成课程 ✨' : 'Start Generating Lesson ✨'}
+                        </button>
                       </div>
                     </div>
                   )}
-                </div>
 
-                <div className="flex gap-2 items-center">
-                  {/* Audio upload button */}
-                  <label
-                    title={uiLanguage === 'zh' ? '上传音频（FunASR转录）' : 'Upload audio (FunASR transcription)'}
-                    className={`p-3 rounded-lg border border-gray-300 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-center ${isUploadingAudio ? 'opacity-50 cursor-not-allowed' : ''
-                      }`}
-                  >
-                    <input
-                      type="file"
-                      accept="audio/*"
-                      className="hidden"
-                      disabled={isUploadingAudio}
-                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleAudioUpload(f); e.target.value = '' }}
-                    />
-                    {isUploadingAudio ? (
-                      <svg className="animate-spin w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                    ) : (
-                      <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                      </svg>
-                    )}
-                  </label>
-
-                  {/* Image/OCR upload button */}
-                  <label
-                    title={uiLanguage === 'zh' ? '上传图片/文档（PaddleOCR识别）' : 'Upload image/doc (PaddleOCR)'}
-                    className={`p-3 rounded-lg border border-gray-300 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-center ${isUploadingImage ? 'opacity-50 cursor-not-allowed' : ''
-                      }`}
-                  >
-                    <input
-                      type="file"
-                      accept="image/*,.pdf"
-                      className="hidden"
-                      disabled={isUploadingImage}
-                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); e.target.value = '' }}
-                    />
-                    {isUploadingImage ? (
-                      <svg className="animate-spin w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                    ) : (
-                      <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    )}
-                  </label>
-
-                  <input
-                    type="text"
-                    value={userInput}
-                    onChange={(e) => setUserInput(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                    placeholder={t('create.chatPlaceholder')}
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                  <button
-                    onClick={handleSendMessage}
-                    disabled={!userInput.trim() || isTyping}
-                    className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {t('create.sendButton')}
-                  </button>
+                  <div className="flex justify-start pt-4 border-t">
+                    <button
+                      onClick={() => setWorkflowPhase('chatting')}
+                      className="text-gray-500 hover:text-gray-700 font-medium px-4 py-2"
+                    >
+                      {t('create.backToChatButton')}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {workflowPhase === 'topic-selection' && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                {t('create.topicSelectionTitle')}
-              </h2>
-              <div className="space-y-6">
-                <p className="text-gray-600">
-                  {uiLanguage === 'zh'
-                    ? '请选择一个最感兴趣的学习主题：'
-                    : 'Please select the topic you are most interested in:'}
-                </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
-                  {identifiedTopics.map((topic) => (
-                    <button
-                      key={topic.id}
-                      onClick={() => {
-                        setSelectedTopics([topic.id]);
-                        // Auto-advance to next step or show detail input
-                      }}
-                      className={`p-6 rounded-xl border-2 text-left transition-all h-full flex flex-col min-h-[280px] ${selectedTopics.includes(topic.id)
-                        ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200 shadow-md'
-                        : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50 hover:shadow-sm'
-                        }`}
-                    >
-                      <div className="font-bold text-gray-900 text-xl mb-3 line-clamp-2 min-h-[3.5rem]">
-                        {uiLanguage === 'zh' ? (topic.name_zh || topic.name) : (topic.name_en || topic.name)}
+            {(workflowPhase === 'generating' || workflowPhase === 'preview') && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                {generating ? (
+                  <div className="py-12 text-center space-y-8">
+                    <div className="relative w-32 h-32 mx-auto">
+                      <div className="absolute inset-0 rounded-full border-4 border-gray-100"></div>
+                      <div className="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin"></div>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-xl font-bold text-blue-600">{pipelineProgress?.progress || 0}%</span>
                       </div>
-                      <div className="text-base text-gray-600 flex-grow leading-relaxed line-clamp-6">
-                        {uiLanguage === 'zh' ? (topic.description_zh || topic.description) : (topic.description_en || topic.description)}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-
-                {selectedTopics.length > 0 && (
-                  <div className="mt-8 bg-gray-50 rounded-xl p-6 border border-gray-200 animate-fade-in">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+                    </div>
+                    <div className="max-w-md mx-auto">
+                      <h3 className="text-xl font-bold text-gray-900 mb-2">
+                        {pipelineProgress?.stepName || (uiLanguage === 'zh' ? '正在准备...' : 'Preparing...')}
+                      </h3>
+                      <p className="text-gray-500 animate-pulse">
+                        {pipelineProgress?.stepDescription || (uiLanguage === 'zh' ? 'AI正在思考最佳教学方案...' : 'AI is thinking about the best teaching plan...')}
+                      </p>
+                    </div>
+                  </div>
+                ) : preview ? (
+                  <div className="space-y-8">
+                    <div className="bg-green-50 rounded-xl p-6 border border-green-200 flex items-center justify-between">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          {uiLanguage === 'zh' ? '选择AI讲师声音' : 'Select AI Instructor Voice'}
-                        </label>
-                        <select
-                          value={form.voiceId}
-                          onChange={(e) => setForm({ ...form, voiceId: e.target.value })}
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                        >
-                          {voices.map((voice) => (
-                            <option key={voice.id} value={voice.id}>
-                              {voice.name}
-                            </option>
-                          ))}
-                        </select>
+                        <h2 className="text-2xl font-bold text-green-800 mb-1">
+                          {uiLanguage === 'zh' ? '课程生成完成！' : 'Lesson Generation Complete!'}
+                        </h2>
+                        <p className="text-green-700">
+                          {uiLanguage === 'zh' ? '您的个性化AI视频课程已准备就绪。' : 'Your personalized AI video lesson is ready.'}
+                        </p>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          {uiLanguage === 'zh' ? '补充具体要求 (可选)' : 'Additional Requirements (Optional)'}
-                        </label>
-                        <textarea
-                          value={form.studentQuery}
-                          onChange={(e) => setForm({ ...form, studentQuery: e.target.value })}
-                          placeholder={uiLanguage === 'zh'
-                            ? '例如：希望能专注于视觉化演示，多举几个生活中的例子...'
-                            : 'E.g., Focus on visual demonstrations, include more real-life examples...'}
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-[50px] min-h-[50px]"
-                          rows={1}
-                        />
+                      <div className="bg-white p-3 rounded-full shadow-sm">
+                        <span className="text-4xl">🎉</span>
                       </div>
                     </div>
 
-                    <div className="mt-4 flex justify-end">
-                      <button
-                        onClick={handleConfirmTopics} // This now triggers generation directly
-                        className="px-8 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-bold hover:shadow-lg hover:scale-105 transition-all transform"
-                      >
-                        {uiLanguage === 'zh' ? '开始生成课程 ✨' : 'Start Generating Lesson ✨'}
+                    {preview.video_url ? (
+                      <div className="rounded-xl overflow-hidden shadow-lg bg-black aspect-video relative group">
+                        <video key={preview.video_url} controls className="w-full h-full" preload="metadata">
+                          <source src={preview.video_url.startsWith('http') ? preview.video_url : `/api/backend/media${preview.video_url.startsWith('/') ? '' : '/'}${preview.video_url}`} type="video/mp4" />
+                        </video>
+                      </div>
+                    ) : (
+                      <div className="aspect-video bg-gray-100 rounded-xl flex items-center justify-center border-2 border-dashed border-gray-300">
+                        <p className="text-gray-500">🎥 {uiLanguage === 'zh' ? '视频生成未包含或失败' : 'Video failed'}</p>
+                      </div>
+                    )}
+
+                    <div className="flex justify-end pt-6 border-t">
+                      <button onClick={handleSave} className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-lg">
+                        {t('create.saveCourseButton')}
                       </button>
                     </div>
                   </div>
-                )}
+                ) : null}
+              </div>
+            )}
+          </div>
 
+          {/* Sidebar Area: Learning Context */}
+          {sessionContext.length > 0 && (
+            <div className="lg:col-span-1 space-y-4 animate-fade-in transition-all duration-300">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sticky top-4 max-h-[90vh] flex flex-col">
+                <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                  <h3 className="font-bold text-gray-900 border-b-2 border-blue-500 pb-1">
+                    {uiLanguage === 'zh' ? '学习上下文' : 'Learning Context'}
+                  </h3>
+                  <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded-full">
+                    {sessionContext.length}
+                  </span>
+                </div>
+                
+                <div className="space-y-3 overflow-y-auto px-1 flex-grow scrollbar-thin">
+                  {sessionContext.map((ctx) => (
+                    <SessionContextCard
+                      key={ctx.id}
+                      type={ctx.type}
+                      title={ctx.title}
+                      summary={ctx.summary}
+                      timestamp={ctx.timestamp}
+                      onRemove={() => setSessionContext(prev => prev.filter(c => c.id !== ctx.id))}
+                    />
+                  ))}
+                </div>
 
-                <div className="flex justify-start pt-4 border-t">
-                  <button
-                    onClick={() => setWorkflowPhase('chatting')}
-                    className="text-gray-500 hover:text-gray-700 font-medium px-4 py-2"
-                  >
-                    {t('create.backToChatButton')}
-                  </button>
+                <div className="mt-4 pt-4 border-t border-gray-100 italic text-[10px] text-gray-400 flex-shrink-0 text-center">
+                  {uiLanguage === 'zh' 
+                    ? '上传图片或音频来丰富背景信息。' 
+                    : 'Upload media for more context.'}
                 </div>
               </div>
-            </div>
-          )}
-
-          {(workflowPhase === 'generating' || workflowPhase === 'preview') && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-
-              {generating ? (
-                <div className="py-12 text-center space-y-8">
-                  <div className="relative w-32 h-32 mx-auto">
-                    <div className="absolute inset-0 rounded-full border-4 border-gray-100"></div>
-                    <div className="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin"></div>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-xl font-bold text-blue-600">{pipelineProgress?.progress || 0}%</span>
-                    </div>
-                  </div>
-
-                  <div className="max-w-md mx-auto">
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">
-                      {pipelineProgress?.stepName || (uiLanguage === 'zh' ? '正在准备...' : 'Preparing...')}
-                    </h3>
-                    <p className="text-gray-500 animate-pulse">
-                      {pipelineProgress?.stepDescription || (uiLanguage === 'zh' ? 'AI正在思考最佳教学方案...' : 'AI is thinking about the best teaching plan...')}
-                    </p>
-                  </div>
-
-                  {/* Progress Steps Visualization */}
-                  <div className="flex justify-center gap-2 mt-8">
-                    {[1, 2, 3, 4, 5].map((step) => {
-                      const isActive = (pipelineProgress?.currentStep || 0) >= step;
-                      return (
-                        <div key={step} className={`w-3 h-3 rounded-full transition-colors duration-500 ${isActive ? 'bg-blue-500' : 'bg-gray-200'}`} />
-                      );
-                    })}
-                  </div>
-                  <p className="text-xs text-gray-400">
-                    {uiLanguage === 'zh' ? '这通常需要 1-2 分钟，请耐心等待' : 'This usually takes 1-2 minutes, please wait'}
-                  </p>
-                </div>
-              ) : preview ? (
-                // Preview Content
-                <div className="space-y-8">
-                  <div className="bg-green-50 rounded-xl p-6 border border-green-200 flex items-center justify-between">
-                    <div>
-                      <h2 className="text-2xl font-bold text-green-800 mb-1">
-                        {uiLanguage === 'zh' ? '课程生成完成！' : 'Lesson Generation Complete!'}
-                      </h2>
-                      <p className="text-green-700">
-                        {uiLanguage === 'zh' ? '您的个性化AI视频课程已准备就绪。' : 'Your personalized AI video lesson is ready.'}
-                      </p>
-                    </div>
-                    <div className="bg-white p-3 rounded-full shadow-sm">
-                      <span className="text-4xl">🎉</span>
-                    </div>
-                  </div>
-
-                  {/* Video Player Section */}
-                  {preview.video_url ? (
-                    <div className="rounded-xl overflow-hidden shadow-lg bg-black aspect-video relative group">
-                      <video
-                        key={preview.video_url}
-                        controls
-                        className="w-full h-full"
-                        preload="metadata"
-                      >
-                        <source
-                          src={preview.video_url.startsWith('http')
-                            ? preview.video_url
-                            : `/api/backend/media${preview.video_url.startsWith('/') ? '' : '/'}${preview.video_url}`}
-                          type="video/mp4"
-                        />
-                        Your browser does not support the video tag.
-                      </video>
-                    </div>
-                  ) : (
-                    <div className="aspect-video bg-gray-100 rounded-xl flex items-center justify-center border-2 border-dashed border-gray-300">
-                      <div className="text-center text-gray-500">
-                        <p className="mb-2">🎥 {uiLanguage === 'zh' ? '视频生成未包含或失败' : 'Video not included or generation failed'}</p>
-                        <p className="text-xs">{t('create.includeVideoDescription')}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Lesson Details */}
-                  {preview.lesson_plan && (
-                    <div className="prose max-w-none bg-gray-50 rounded-xl p-6">
-                      <h3 className="text-xl font-bold text-gray-900 border-b pb-2">
-                        {preview.lesson_plan.title}
-                      </h3>
-                      <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <span className="font-semibold">{uiLanguage === 'zh' ? '学习目标:' : 'Objective:'}</span>
-                          <p className="mt-1 text-gray-600">{preview.lesson_plan.objective}</p>
-                        </div>
-                        <div>
-                          <span className="font-semibold">{uiLanguage === 'zh' ? '时长:' : 'Duration:'}</span>
-                          <p className="mt-1 text-gray-600">{preview.lesson_plan.total_duration_minutes} {t('common.minutes', { count: preview.lesson_plan.total_duration_minutes })}</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex justify-end pt-6 border-t">
-                    <button
-                      onClick={handleSave}
-                      className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-lg"
-                    >
-                      {t('create.saveCourseButton')}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
             </div>
           )}
         </div>

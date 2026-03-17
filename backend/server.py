@@ -218,9 +218,10 @@ async def root():
 
 @app.get("/status")
 async def get_status():
-    """Get detailed system status — probes each service"""
+    """Get detailed system status — probes each service and internal models"""
     import aiohttp
     import ssl
+    from services.api_client import api_client
 
     funasr_endpoint = os.getenv("FUNASR_ENDPOINT", "http://localhost:10095")
     paddle_endpoint = os.getenv("PADDLE_OCR_ENDPOINT", "http://localhost:8866")
@@ -228,17 +229,22 @@ async def get_status():
 
     async def probe(url: str) -> str:
         try:
-            connector = aiohttp.TCPConnector(ssl=False)
+            connector = aiohttp.TCPConnector(ssl=config.VERIFY_SSL)
             async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=2)) as r:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=1)) as r:
                     return "online" if r.status < 500 else "offline"
         except Exception:
             return "offline"
 
-    funasr_status, paddle_status = await asyncio.gather(
+    # Gather external statuses
+    funasr_ext, paddle_ext = await asyncio.gather(
         probe(funasr_endpoint),
         probe(paddle_endpoint),
     )
+
+    # Check internal models (in-process)
+    funasr_status = "online" if (len(_funasr_models) > 0 or _whisper_model is not None or funasr_ext == "online") else "offline"
+    paddle_status = "online" if (_paddleocr_model is not None or paddle_ext == "online") else "offline"
 
     return {
         "status": "running",
@@ -251,18 +257,35 @@ async def get_status():
             "paddle_ocr": paddle_status,
             "tts": "active",
             "ai_lessons": "active",
-        },
-        "subscription": {
-            "plan": "Pro",
-            "monthly_cost": 29.99,
-            "lessons_included": 1000,
-            "lessons_used": 0,
-            "lessons_remaining": 1000,
-            "cost_this_month": 0.00,
-            "renewal_date": (datetime.now().replace(day=1) if datetime.now().day > 1 else datetime.now()).isoformat()
         }
     }
 
+
+async def summarize_extracted_content(text: str, source_type: str = "text") -> str:
+    """Summarize extracted OCR or ASR text using AI for better UI display."""
+    if not text or len(text.strip()) < 10:
+        return text
+
+    from services.api_client import api_client
+    prompt = f"""
+    Please provide a very concise summary (one sentence, max 20 words) of the following {source_type} content extracted from a student's upload.
+    This summary will be shown in a 'Learning Context' sidebar.
+    If the content is in Chinese, summarize in Chinese. If in English, summarize in English.
+
+    Content:
+    {text[:2000]}
+    """
+
+    try:
+        messages = [{"role": "user", "content": prompt}]
+        response = await api_client.deepseek.chat_completion(messages=messages, max_tokens=100)
+        if response.success and response.data:
+            summary = response.data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+            return summary
+    except Exception as e:
+        print(f"⚠️ Summary failed: {e}")
+
+    return text[:60] + "..."
 
 
 @app.get("/languages")
@@ -299,18 +322,18 @@ async def analyze_topics(request: Dict[str, Any]):
     try:
         student_query = request.get("studentQuery", "")
         language = request.get("language", "zh").lower()
-        
+
         if not student_query:
             raise HTTPException(status_code=400, detail="studentQuery is required")
-        
+
         print(f"🔍 Analyzing topics: '{student_query}' (lang: {language})")
-        
+
         # Initialize class creator
         creator = ClassCreator()
-        
+
         # Generate topics using AI with full bilingual support
         enhanced_topics = await creator.analyze_student_query(student_query, language)
-        
+
         print(f"✅ Generated {len(enhanced_topics)} topics")
         return {
             "success": True,
@@ -320,7 +343,7 @@ async def analyze_topics(request: Dict[str, Any]):
             "timestamp": datetime.now().isoformat(),
             "bilingual_support": True
         }
-        
+
     except Exception as e:
         print(f"❌ Error analyzing topics: {e}")
         import traceback
@@ -346,16 +369,16 @@ async def create_class(request: Dict[str, Any], current_user: Optional[User] = D
         target_audience = request.get("targetAudience", "students")
         difficulty_level = request.get("difficultyLevel", "intermediate")
         voice_id = request.get("voiceId", "anna")
-        
+
         if not topic:
             raise HTTPException(status_code=400, detail="topic is required")
-        
+
         print(f"🎓 Creating class: '{topic}' (lang: {language}, level: {student_level}, voice: {voice_id})")
-        
+
         # Dispatch to Celery Queue instead of processing synchronously
         job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         task = create_class_video_task.delay(request, job_id)
-        
+
         # Return job ID immediately to avoid HTTP timeout
         response = {
             "success": True,
@@ -364,9 +387,9 @@ async def create_class(request: Dict[str, Any], current_user: Optional[User] = D
             "message": "Video generation queued successfully.",
             "topic": topic
         }
-        
+
         return JSONResponse(content=response)
-        
+
     except Exception as e:
         print(f"❌ Error queuing class: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -374,7 +397,7 @@ async def create_class(request: Dict[str, Any], current_user: Optional[User] = D
 @app.get("/job-status/{job_id}")
 async def get_job_status(job_id: str):
     """Poll for the status of a class generation job.
-    
+
     Uses a direct Redis key (set by the worker) as the primary source of truth,
     falling back to Celery's AsyncResult only to check if the task is still running.
     """
@@ -382,18 +405,18 @@ async def get_job_status(job_id: str):
         import redis as _redis
         redis_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
         r = _redis.Redis.from_url(redis_url, decode_responses=True)
-        
+
         # 1. Check direct Redis key first (most reliable)
         result_json = r.get(f"job_result:{job_id}")
         if result_json:
             print(f"✅ [job-status] Found direct Redis result for job_id={job_id}")
             result_data = json.loads(result_json)
             return {"status": "completed", "result": result_data}
-        
+
         # 2. Fall back to Celery AsyncResult to check if task is still running
         task_result = AsyncResult(job_id, app=celery_app)
         print(f"🔍 [job-status] Polling job_id={job_id} | celery_state={task_result.state}")
-        
+
         if task_result.state == 'FAILURE':
             print(f"❌ [job-status] Job FAILED: {task_result.info}")
             return {"status": "failed", "error": str(task_result.info)}
@@ -402,7 +425,7 @@ async def get_job_status(job_id: str):
         else:
             # PENDING or any other state - task hasn't finished yet
             return {"status": "pending"}
-            
+
     except Exception as e:
         print(f"❌ Error polling job status: {e}")
         import traceback
@@ -419,11 +442,11 @@ async def stream_job_status(job_id: str):
         import redis as _redis
         redis_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
         r = _redis.Redis.from_url(redis_url, decode_responses=True)
-        
+
         try:
             # Send initial connection success event
             yield f"data: {json.dumps({'status': 'connected', 'message': 'SSE connection established'})}\n\n"
-            
+
             poll_count = 0
             while True:
                 # 1. Check direct Redis key first (most reliable)
@@ -433,14 +456,14 @@ async def stream_job_status(job_id: str):
                     result_data = json.loads(result_json)
                     yield f"data: {json.dumps({'status': 'completed', 'result': result_data})}\n\n"
                     break
-                
+
                 # 2. Fall back to Celery AsyncResult to check state
                 task_result = AsyncResult(job_id, app=celery_app)
-                
+
                 # Every 10 seconds, print a debug log so we don't spam terminal
                 if poll_count % 5 == 0:
                     print(f"🔄 [job-stream] Streaming job_id={job_id} | celery_state={task_result.state}")
-                
+
                 if task_result.state == 'FAILURE':
                     print(f"❌ [job-stream] Job FAILED: {task_result.info}")
                     yield f"data: {json.dumps({'status': 'failed', 'error': str(task_result.info)})}\n\n"
@@ -449,10 +472,10 @@ async def stream_job_status(job_id: str):
                     yield f"data: {json.dumps({'status': 'processing'})}\n\n"
                 elif task_result.state == 'PENDING':
                     yield f"data: {json.dumps({'status': 'pending'})}\n\n"
-                    
+
                 poll_count += 1
                 await asyncio.sleep(2)  # Stream an event every 2 seconds
-                
+
         except asyncio.CancelledError:
             print(f"⚠️ [job-stream] Client disconnected for job_id={job_id}")
             raise
@@ -528,9 +551,12 @@ async def ingest_audio(
 
             # ── Option A: return raw transcript ────────────────────────────
             if process.lower() != "true":
+                # Summarize for UI context
+                summary = await summarize_extracted_content(full_text, "audio")
                 return {
                     "success": True,
                     "text": full_text,
+                    "summary": summary,
                     "language": language,
                 }
 
@@ -608,9 +634,14 @@ async def ingest_image(
                             lines.append(text)
             full_text = "\n".join(lines)
             print(f"✅ PaddleOCR complete: {len(lines)} lines, {len(full_text)} chars")
+            
+            # Summarize for UI context
+            summary = await summarize_extracted_content(full_text, "image")
+
             return {
                 "success": True,
                 "text": full_text,
+                "summary": summary,
                 "regions": len(lines),
                 "language": language
             }
