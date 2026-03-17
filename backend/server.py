@@ -328,10 +328,13 @@ async def analyze_topics(request: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/create-class")
-async def create_class(request: Dict[str, Any]):
+async def create_class(request: Dict[str, Any], current_user: Optional[User] = Depends(get_optional_user)):
     """Create class/lesson with full support"""
     try:
         # Extract request data
+        if current_user:
+            request["user_id"] = str(current_user.id)
+            print(f"✅ Class requested by authenticated user: {current_user.id}")
         topic = request.get("topic", "")
         language = request.get("language", "zh").lower()
         student_level = request.get("studentLevel", "beginner")
@@ -473,6 +476,7 @@ async def ingest_audio(
     difficulty_level: str = Form(default="intermediate"),
     voice_id: str = Form(default="anna"),
     custom_requirements: str = Form(default=""),
+    current_user: Optional[User] = Depends(get_optional_user),
 ):
     """Transcribe user-uploaded audio (ASR).
 
@@ -544,6 +548,9 @@ async def ingest_audio(
                 "voice_id": voice_id,
                 "custom_requirements": custom_requirements or None,
             }
+            if current_user:
+                request_data["user_id"] = str(current_user.id)
+                print(f"✅ Audio ingest requested by authenticated user: {current_user.id}")
             task = transcript_to_lesson_task.delay(full_text, request_data, job_id)
             print(f"✅ Dispatched transcript_to_lesson task: {task.id}")
             return {

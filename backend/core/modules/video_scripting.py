@@ -36,7 +36,7 @@ class VideoScriptGenerator:
     def __init__(self):
         self.api_client = APIClient()
     
-    async def generate_script(self, topic: str, content: str, style: str = "general") -> VideoScript:
+    async def generate_script(self, topic: str, content: str, style: str = "general", language: str = "en") -> VideoScript:
         """
         Generate a Manim director script for the given content.
         style: 'math' for equation-heavy content, anything else for general explanations.
@@ -45,9 +45,9 @@ class VideoScriptGenerator:
 
         import time
         start_time = time.time()
-        logger.info(f"🎬 [Script] Generating video script for: '{topic}' | Style: {style}")
+        logger.info(f"🎬 [Script] Generating video script for: '{topic}' | Style: {style} | Lang: {language}")
         
-        system_prompt = self._get_system_prompt(style)
+        system_prompt = self._get_system_prompt(style, language)
         user_prompt = f"""
         Topic: {topic}
         Content: {content}
@@ -143,8 +143,8 @@ class VideoScriptGenerator:
             engine="manim"
         )
 
-    def _get_system_prompt(self, style: str) -> str:
-        base_prompt = """
+    def _get_system_prompt(self, style: str, language: str) -> str:
+        base_prompt = f"""
         You are a Video Director AI. Your goal is to convert educational content into a 'Programmatic Video Script' (JSON).
         This script will be executed by Manim, a Python mathematical animation engine.
         
@@ -176,6 +176,11 @@ class VideoScriptGenerator:
         - Narration should match the visual content
         - For general topics, use show_text and write_tex for key terms/concepts
         - For math topics, use write_tex, plot, and transform actions
+        
+        CRITICAL LANGUAGE INSTRUCTION:
+        All 'narration' values MUST exclusively be written in {language}. 
+        If the language is 'zh' or 'Chinese', write all narrations in Chinese characters.
+        Do NOT translate LaTeX math equations.
         """
         
         if style == "math":

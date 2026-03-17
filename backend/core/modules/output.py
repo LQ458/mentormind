@@ -542,14 +542,14 @@ class ProgrammaticVideoGenerator:
         self.tts_synthesizer = TTSSynthesizer()
         self.manim_service = ManimService()
         
-    async def generate_video(self, topic: str, content: str, style: str = "math", voice_id: str = "anna") -> Dict:
+    async def generate_video(self, topic: str, content: str, style: str = "math", voice_id: str = "anna", language: str = "en") -> Dict:
         """
         Generate a programmatic video from content
         """
-        logger.info(f"Generating programmatic video for: {topic} ({style}) Voice: {voice_id}")
+        logger.info(f"Generating programmatic video for: {topic} ({style}) Voice: {voice_id} Lang: {language}")
         
         # 1. Generate Director JSON Script
-        video_script = await self.script_generator.generate_script(topic, content, style)
+        video_script = await self.script_generator.generate_script(topic, content, style, language)
         
         # 2. Generate Audio & Sync Durations
         logger.info("Synthesizing audio concurrently for all scenes...")
@@ -563,7 +563,7 @@ class ProgrammaticVideoGenerator:
             )
             
             # Update scene with exact audio duration and path
-            scene.duration = max(scene.duration, duration) # Ensure visual is at least as long as audio
+            scene.duration = duration # Ensure visual strictly matches audio length
             scene.audio_path = audio_path
             return scene.duration
             
@@ -751,7 +751,8 @@ class OutputPipeline:
         self,
         concept: str,
         context: Optional[str] = None,
-        voice_id: str = "anna"
+        voice_id: str = "anna",
+        language: str = "en"
     ) -> Dict:
         """
         Generate quick explanation with audio and real video
@@ -781,7 +782,8 @@ class OutputPipeline:
             topic=concept,
             content=explanation,
             style=style,
-            voice_id=voice_id
+            voice_id=voice_id,
+            language=language
         )
         video_local_path = video_result['video_path']
         audio_local_path = video_result['script'].scenes[0].audio_path if video_result['script'].scenes else ""

@@ -238,7 +238,8 @@ class ClassCreator:
                         multimedia_result = await self.output_pipeline.generate_quick_explanation(
                             concept=class_title,
                             context=class_description,
-                            voice_id=request.voice_id
+                            voice_id=request.voice_id,
+                            language=language.value
                         )
                         
                         if multimedia_result:
