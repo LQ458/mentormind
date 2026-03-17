@@ -56,6 +56,9 @@ class LessonStorageSQL:
                 ai_insights["video_url"] = lesson_data.get("video_url")
                 ai_insights["audio_url"] = lesson_data.get("audio_url")
             
+            # Optional user ownership
+            user_id = lesson_data.get("user_id")
+            
             # Create lesson record
             lesson = Lesson(
                 title=title,
@@ -68,7 +71,8 @@ class LessonStorageSQL:
                 quality_score=quality_score,
                 cost_usd=cost_usd,
                 ai_insights=ai_insights,
-                status=LessonStatus.PUBLISHED.value
+                status=LessonStatus.PUBLISHED.value,
+                user_id=user_id if user_id else None,
             )
             
             # Add learning objectives
@@ -167,6 +171,21 @@ class LessonStorageSQL:
         finally:
             session.close()
     
+    def get_lessons_by_user(self, user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Return all lessons owned by a specific user, newest first."""
+        session = self.SessionLocal()
+        try:
+            lessons = (
+                session.query(Lesson)
+                .filter(Lesson.user_id == user_id, Lesson.status != LessonStatus.DELETED.value)
+                .order_by(Lesson.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return [l.to_dict(include_relationships=False) for l in lessons]
+        finally:
+            session.close()
+
     def get_all_lessons(
         self, 
         language: Optional[str] = None,

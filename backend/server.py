@@ -10,10 +10,11 @@ import sys
 from datetime import datetime
 from typing import Dict, Any, List
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, EmailStr
 import uvicorn
 from dotenv import load_dotenv
 import tempfile
@@ -31,6 +32,9 @@ from core.modules.output import TTSSynthesizer
 from celery.result import AsyncResult
 from celery_app import create_class_video_task, transcript_to_lesson_task, celery_app
 from database import LessonStorageSQL, init_database
+from database import get_db
+from database.models.user import User
+from auth import hash_password, verify_password, create_access_token, get_current_user, get_optional_user
 from config import config
 
 # Initialize PostgreSQL database (Strict)
@@ -165,15 +169,104 @@ async def preload_models():
         print(f"⚠️ FunASR preload failed (service will still start): {e}")
 
 
+# ── Auth Schemas ─────────────────────────────────────────────────────────────
+
+class RegisterRequest(BaseModel):
+    email: str
+    username: str
+    password: str
+    full_name: str = ""
+    language_preference: str = "zh"
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class UpdateProfileRequest(BaseModel):
+    full_name: str = None
+    language_preference: str = None
+
+
+# ── Auth Endpoints ────────────────────────────────────────────────────────────
+
+@app.post("/auth/register")
+def register(req: RegisterRequest, db = Depends(get_db)):
+    """Register a new user and return a JWT."""
+    # Check uniqueness
+    if db.query(User).filter(User.email == req.email).first():
+        raise HTTPException(status_code=400, detail="Email already registered")
+    if db.query(User).filter(User.username == req.username).first():
+        raise HTTPException(status_code=400, detail="Username already taken")
+    user = User(
+        email=req.email,
+        username=req.username,
+        hashed_password=hash_password(req.password),
+        full_name=req.full_name,
+        language_preference=req.language_preference,
+        is_verified=True,  # skip email verification for now
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    token = create_access_token(str(user.id), user.email)
+    return {"access_token": token, "token_type": "bearer", "user": user.to_dict()}
+
+
+@app.post("/auth/login")
+def login(req: LoginRequest, db = Depends(get_db)):
+    """Authenticate and return a JWT."""
+    user = db.query(User).filter(User.email == req.email).first()
+    if not user or not verify_password(req.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account disabled")
+    from datetime import datetime, timezone
+    user.last_login_at = datetime.now(timezone.utc)
+    db.commit()
+    token = create_access_token(str(user.id), user.email)
+    return {"access_token": token, "token_type": "bearer", "user": user.to_dict()}
+
+
+@app.get("/users/me")
+def get_me(current_user: User = Depends(get_current_user)):
+    """Return the current authenticated user's profile."""
+    return current_user.to_dict()
+
+
+@app.patch("/users/me")
+def update_me(
+    req: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """Update the current user's profile."""
+    if req.full_name is not None:
+        current_user.full_name = req.full_name
+    if req.language_preference is not None:
+        current_user.language_preference = req.language_preference
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    return current_user.to_dict()
+
+
+@app.get("/users/me/lessons")
+def get_my_lessons(current_user: User = Depends(get_current_user)):
+    """Return lessons owned by the current user."""
+    return lesson_storage.get_lessons_by_user(str(current_user.id))
+
+
+
 @app.get("/")
 async def root():
     """Health check endpoint"""
     return {
-        "status": "ok", 
+        "status": "ok",
         "service": "MentorMind Backend API",
         "version": "2.0.0",
         "timestamp": datetime.now().isoformat()
     }
+
 
 @app.get("/status")
 async def get_status():

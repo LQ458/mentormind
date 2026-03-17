@@ -110,7 +110,8 @@ def create_class_video_task(self, request_data: dict, job_id: str):
             **response,
             "student_level": result.student_level if hasattr(result, 'student_level') else request_data.get("student_level", "beginner"),
             "duration_minutes": request_data.get("duration_minutes", 30),
-            "difficulty_level": request_data.get("difficulty_level", "intermediate")
+            "difficulty_level": request_data.get("difficulty_level", "intermediate"),
+            "user_id": request_data.get("user_id")
         }
         saved_info = lesson_storage.save_lesson(save_payload)
         response["lesson_id"] = saved_info["id"]

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useLanguage } from '../components/LanguageContext'
+import { useAuth, useAuthHeaders } from '../components/AuthContext'
 
 interface SystemStatus {
   status: string
@@ -38,6 +39,9 @@ interface SystemStatus {
 
 export default function DashboardPage() {
   const { language, t } = useLanguage()
+  const { isAuthenticated } = useAuth()
+  const authHeaders = useAuthHeaders()
+  
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [recentLessons, setRecentLessons] = useState<any[]>([])
@@ -61,9 +65,13 @@ export default function DashboardPage() {
 
   const fetchRecentLessons = async () => {
     try {
-      const response = await fetch('/api/backend/results')
+      const endpoint = isAuthenticated ? '/api/backend/users/me/lessons' : '/api/backend/results';
+      const response = await fetch(endpoint, {
+        headers: { ...authHeaders }
+      })
       const data = await response.json()
-      setRecentLessons(data.results || [])
+      // /users/me/lessons returns an array directly, /results returns { results: [] }
+      setRecentLessons(Array.isArray(data) ? data : (data.results || []))
     } catch (error) {
       console.error('Failed to fetch lessons:', error)
     }
