@@ -172,10 +172,11 @@ class VideoScriptGenerator:
         
         RULES:
         - All visual_type values must be "manim"
-        - Keep scenes focused and concise (3-8 scenes total)
-        - Narration should match the visual content
-        - For general topics, use show_text and write_tex for key terms/concepts
-        - For math topics, use write_tex, plot, and transform actions
+        - The video MUST BE IN-DEPTH and COMPREHENSIVE (minimum 6-15 scenes)
+        - You MUST include concrete examples and step-by-step conceptual breakdowns
+        - Narration should be detailed and educational, matching the visual content
+        - For general topics, use show_text and write_tex for key terms, definitions, and examples
+        - For math/science topics, you MUST explicitly include step-by-step calculations, equations, and plot graphs using write_tex, plot, and transform actions
         
         CRITICAL LANGUAGE INSTRUCTION:
         All 'narration' values MUST exclusively be written in {language}. 
