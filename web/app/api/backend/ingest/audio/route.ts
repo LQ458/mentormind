@@ -28,8 +28,20 @@ async function fetchWithLongTimeout(url: string, init: RequestInit): Promise<Res
 }
 
 export async function POST(request: Request) {
+    console.log('📬 [PROXY] Audio ingest request received')
     try {
+        const contentType = request.headers.get('content-type') || ''
+        const contentLength = request.headers.get('content-length')
+        console.log(`[PROXY] Content-Type: ${contentType}, Content-Length: ${contentLength}`)
+
+        if (!contentType.includes('multipart/form-data')) {
+            console.error('[PROXY] Invalid content type:', contentType)
+            return NextResponse.json({ error: 'Invalid content type' }, { status: 400 })
+        }
+
+        console.log('[PROXY] Parsing formData...')
         const formData = await request.formData()
+        console.log('[PROXY] FormData parsed successfully')
         const file = formData.get('file') as File
 
         if (!file) {

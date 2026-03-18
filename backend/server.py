@@ -84,6 +84,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Logging middleware for debugging
+from fastapi import Request
+import time
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    response = None
+    try:
+        print(f"📡 [BACKEND] Request start: {request.method} {request.url.path}")
+        response = await call_next(request)
+        process_time = (time.time() - start_time) * 1000
+        print(f"✅ [BACKEND] Request complete: {request.method} {request.url.path} - {response.status_code} ({process_time:.2f}ms)")
+        return response
+    except Exception as e:
+        print(f"❌ [BACKEND] Request failed: {request.method} {request.url.path} - {e}")
+        raise e
+
 # Mount static files (audio/video)
 if os.path.exists(config.DATA_DIR):
     app.mount("/api/files", StaticFiles(directory=config.DATA_DIR), name="files")

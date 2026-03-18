@@ -147,6 +147,11 @@ export default function CreateLessonPage() {
         }
       }
 
+      if (!response.ok) {
+        const errorDetail = data.details || data.error || 'Unknown error'
+        throw new Error(`Server error (${response.status}): ${errorDetail}`)
+      }
+
       if (data.success && data.text) {
         // Add to context sidebar instead of just chatbox
         const newContext: LearningContext = {
