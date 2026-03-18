@@ -243,7 +243,8 @@ export default function CreateLessonPage() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('language', contentLanguage)
+      formData.append('language', 'auto')
+      formData.append('display_language', uiLanguage)
       const response = await fetch('/api/backend/ingest/audio', { method: 'POST', body: formData })
       let data = await response.json()
       
@@ -312,8 +313,8 @@ export default function CreateLessonPage() {
           id: `sys_${Date.now()}`,
           role: 'assistant',
           content: uiLanguage === 'zh' 
-            ? `🎵 已添加音频上下文: ${newContext.summary}` 
-            : `🎵 Added audio context: ${newContext.summary}`,
+            ? `🎵 已添加音频上下文 (${data.detected_language || 'auto'}): ${newContext.summary}` 
+            : `🎵 Added audio context (${data.detected_language || 'auto'}): ${newContext.summary}`,
           timestamp: new Date()
         }])
       } else {
@@ -333,6 +334,7 @@ export default function CreateLessonPage() {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('language', contentLanguage)
+      formData.append('display_language', uiLanguage)
       const response = await fetch('/api/backend/ingest/image', { method: 'POST', body: formData })
       const data = await response.json()
       if (data.success && data.text) {

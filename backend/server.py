@@ -37,7 +37,7 @@ from database import get_db
 from database.models.user import User, UserProfile
 from auth import get_current_user, get_optional_user
 from config import config
-from core.asr import transcribe_with_local_model, get_asr_status, extract_text_with_paddleocr
+from core.asr import transcribe_with_local_model_result, get_asr_status, extract_text_with_paddleocr
 from core.summarize import summarize_extracted_content
 
 # Initialize PostgreSQL database (Strict)
@@ -502,7 +502,8 @@ async def stream_job_status(job_id: str):
 @app.post("/ingest/audio")
 async def ingest_audio(
     file: UploadFile = File(...),
-    language: str = Form(default="zh"),
+    language: str = Form(default="auto"),
+    display_language: str = Form(default="en"),
     process: str = Form(default="false"),
     student_level: str = Form(default="beginner"),
     duration_minutes: int = Form(default=30),
@@ -525,11 +526,12 @@ async def ingest_audio(
 
         suffix = os.path.splitext(file.filename or ".wav")[1] or ".wav"
         
-        # Check file size (approx 1MB as threshold for async)
+        # Check file size for logging/UX only. We now keep transcription local to the API
+        # process to avoid temp-file handoff issues between containers.
         file.file.seek(0, os.SEEK_END)
         file_size = file.file.tell()
         file.file.seek(0)
-        is_long_file = file_size > 1 * 1024 * 1024 # 1MB
+        is_long_file = file_size > 1 * 1024 * 1024
         
         # Determine job_id
         job_id = f"asr_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -539,29 +541,23 @@ async def ingest_audio(
             tmp_path = tmp.name
 
         try:
-            # If it's a long file and only transcription is requested (process=false),
-            # dispatch to Celery transcribe_audio_task instead of running in-process.
-            if is_long_file and process.lower() != "true":
-                print(f"📦 Long file detected ({file_size/1024/1024:.1f}MB), dispatching async transcription: {job_id}")
-                task = transcribe_audio_task.delay(tmp_path, language, job_id)
-                return {
-                    "success": True,
-                    "status": "processing",
-                    "job_id": task.id,
-                    "message": "Long audio detected. Transcription started in background.",
-                    "language": language,
-                }
-
-            # Normal in-process transcription for short files
             if process.lower() != "true":
-                full_text = await transcribe_with_local_model(tmp_path, language)
+                transcription = await transcribe_with_local_model_result(tmp_path, language)
+                full_text = transcription["text"]
                 print(f"✅ ASR transcription complete: {len(full_text)} chars")
-                summary = await summarize_extracted_content(full_text, "audio")
+                summary = await summarize_extracted_content(
+                    full_text,
+                    "audio",
+                    target_language=display_language,
+                    source_language=transcription.get("detected_language"),
+                )
                 return {
                     "success": True,
                     "text": full_text,
                     "summary": summary,
-                    "language": language,
+                    "language": transcription.get("detected_language", language),
+                    "detected_language": transcription.get("detected_language", language),
+                    "transcription_engine": transcription.get("engine"),
                 }
 
             # Option B: dispatch to Celery for lesson generation
@@ -581,28 +577,21 @@ async def ingest_audio(
             if current_user:
                 request_data["user_id"] = str(current_user.id)
 
+            transcription = await transcribe_with_local_model_result(tmp_path, language)
+            request_data["language"] = transcription.get("detected_language", language)
             if is_long_file:
-                # Dispatch with file path to handle transcription in worker
-                print(f"📦 Long file detected ({file_size/1024/1024:.1f}MB), dispatching full lesson generation async: {job_id}")
-                task = transcript_to_lesson_task.delay(tmp_path, request_data, job_id, is_file=True)
-            else:
-                # Process short file synchronously for transcription then dispatch to lesson task
-                full_text = await transcribe_with_local_model(tmp_path, language)
-                task = transcript_to_lesson_task.delay(full_text, request_data, job_id, is_file=False)
+                print(f"📦 Long file detected ({file_size/1024/1024:.1f}MB), transcribed locally before lesson generation dispatch: {job_id}")
+            task = transcript_to_lesson_task.delay(transcription["text"], request_data, job_id, is_file=False)
 
             return {
                 "success": True,
                 "status": "processing",
                 "job_id": task.id,
                 "message": "Lesson generation queued.",
-                "language": language,
+                "language": transcription.get("detected_language", language),
             }
         finally:
-            # ONLY delete if it was NOT dispatched to a long file task
-            # Actually, both transcribe_audio_task and updated transcript_to_lesson_task
-            # handle cleaning up the file themselves if is_file=True.
-            # So if NOT is_long_file, we clean up.
-            if not is_long_file and os.path.exists(tmp_path):
+            if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
     except Exception as e:
         print(f"❌ Error transcribing audio: {e}")
@@ -612,7 +601,8 @@ async def ingest_audio(
 @app.post("/ingest/image")
 async def ingest_image(
     file: UploadFile = File(...),
-    language: str = Form(default="zh")
+    language: str = Form(default="zh"),
+    display_language: str = Form(default="en"),
 ):
     """Extract text from user-uploaded image using PaddleOCR."""
     try:
@@ -629,7 +619,11 @@ async def ingest_image(
         try:
             ocr = await asyncio.get_event_loop().run_in_executor(None, extract_text_with_paddleocr, tmp_path)
             full_text = ocr.get("text", "")
-            summary = await summarize_extracted_content(full_text, "image")
+            summary = await summarize_extracted_content(
+                full_text,
+                "image",
+                target_language=display_language,
+            )
 
             return {
                 "success": True,

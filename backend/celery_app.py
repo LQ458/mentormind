@@ -9,7 +9,7 @@ from datetime import datetime
 # Import Mentormind dependencies
 from core.create_classes import ClassCreator, ClassCreationRequest, Language
 from database import LessonStorageSQL, init_database
-from core.asr import transcribe_with_local_model
+from core.asr import transcribe_with_local_model_result
 from core.summarize import summarize_extracted_content
 
 # Initialize Celery app
@@ -193,7 +193,9 @@ def transcript_to_lesson_task(self, transcript_or_file: str, request_data: dict,
         # Determine transcript source
         if is_file:
             print(f"[{job_id}] Transcribing audio file: {transcript_or_file}")
-            transcript = await transcribe_with_local_model(transcript_or_file, language)
+            transcription = await transcribe_with_local_model_result(transcript_or_file, language)
+            transcript = transcription["text"]
+            language = transcription.get("detected_language", language)
             # Clean up temp file in worker
             if os.path.exists(transcript_or_file):
                 os.unlink(transcript_or_file)
@@ -398,17 +400,24 @@ def transcribe_audio_task(self, file_path: str, language: str, job_id: str):
     
     async def _run():
         # 1. Transcribe
-        full_text = await transcribe_with_local_model(file_path, language)
+        transcription = await transcribe_with_local_model_result(file_path, language)
+        full_text = transcription["text"]
         print(f"[{job_id}] Transcription complete: {len(full_text)} chars")
         
         # 2. Summarize
-        summary = await summarize_extracted_content(full_text, "audio")
+        summary = await summarize_extracted_content(
+            full_text,
+            "audio",
+            source_language=transcription.get("detected_language"),
+        )
         
         return {
             "success": True,
             "text": full_text,
             "summary": summary,
-            "language": language,
+            "language": transcription.get("detected_language", language),
+            "detected_language": transcription.get("detected_language", language),
+            "transcription_engine": transcription.get("engine"),
             "timestamp": datetime.now().isoformat()
         }
 
