@@ -492,13 +492,13 @@ export default function CreateLessonPage() {
         body: JSON.stringify({
           topic: rawTopic.trim(),
           language: contentLanguage,
-          studentLevel: form.studentLevel,
-          durationMinutes: form.duration,
-          includeVideo: form.includeVideo,
-          includeExercises: true,
-          includeAssessment: true,
-          voiceId: form.voiceId,
-          customRequirements: buildGenerationRequirements(rawTopic),
+          student_level: form.studentLevel,
+          duration_minutes: form.duration,
+          include_video: form.includeVideo,
+          include_exercises: true,
+          include_assessment: true,
+          voice_id: form.voiceId,
+          custom_requirements: buildGenerationRequirements(rawTopic),
         }),
       })
 

@@ -215,6 +215,34 @@ def _build_profile_weighted_query(query: str, profile: Optional[UserProfile]) ->
           "but keep the recommendations grounded in the latest request."
     )
 
+
+def _sanitize_topic_and_requirements(topic: str, custom_requirements: Optional[str]) -> tuple[str, Optional[str]]:
+    """
+    Defensive cleanup in case frontend payloads leak personalization context into `topic`.
+    """
+    if not topic:
+        return topic, custom_requirements
+
+    markers = ["\n\nLearner profile:", "\nLearner profile:"]
+    leaked_context = None
+    cleaned_topic = topic
+
+    for marker in markers:
+        if marker in topic:
+            cleaned_topic, leaked_context = topic.split(marker, 1)
+            leaked_context = f"Learner profile:{leaked_context}".strip()
+            cleaned_topic = cleaned_topic.strip()
+            break
+
+    if not leaked_context:
+        return topic.strip(), custom_requirements
+
+    merged_requirements = (custom_requirements or "").strip()
+    if leaked_context not in merged_requirements:
+        merged_requirements = f"{merged_requirements}\n\n{leaked_context}".strip() if merged_requirements else leaked_context
+
+    return cleaned_topic, merged_requirements or None
+
 @app.get("/users/me")
 def get_me(current_user: User = Depends(get_current_user)):
     """Return the current authenticated user's profile."""
@@ -410,19 +438,24 @@ async def create_class(request: ClassCreationRequest):
     """Initiate class creation job"""
     try:
         job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        clean_topic, merged_requirements = _sanitize_topic_and_requirements(
+            request.topic,
+            request.custom_requirements,
+        )
         
         # Determine language code for Celery
         lang_code = request.language.value if hasattr(request.language, 'value') else request.language
         
         request_data = {
-            "topic": request.topic,
+            "topic": clean_topic,
             "language": lang_code,
             "student_level": request.student_level,
             "duration_minutes": request.duration_minutes,
             "include_video": request.include_video,
             "include_exercises": request.include_exercises,
             "include_assessment": request.include_assessment,
-            "voice_id": request.voice_id
+            "voice_id": request.voice_id,
+            "custom_requirements": merged_requirements,
         }
         
         # Dispatch to Celery
