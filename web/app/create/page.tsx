@@ -6,6 +6,7 @@ import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '@clerk/nextjs'
 import { translations } from '../lib/translations'
 import SessionContextCard from '../components/Chat/SessionContextCard'
+import InterestProfileQuiz, { UserInterestProfile } from '../components/InterestProfileQuiz'
 
 interface ChatMessage {
   id: string
@@ -48,9 +49,12 @@ interface LearningContext {
 export default function CreateLessonPage() {
   const router = useRouter()
   const { language: uiLanguage, contentLanguage, t } = useLanguage()
-  const { getToken } = useAuth()
+  const { getToken, isLoaded: authLoaded, isSignedIn } = useAuth()
   const [workflowPhase, setWorkflowPhase] = useState<'chatting' | 'topic-selection' | 'generating' | 'preview'>('chatting')
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [interestProfile, setInterestProfile] = useState<UserInterestProfile | null>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [profileSaving, setProfileSaving] = useState(false)
 
   // Initialize chat message based on language
   useEffect(() => {
@@ -93,6 +97,146 @@ export default function CreateLessonPage() {
   
   const audioInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const loadInterestProfile = async () => {
+      if (!authLoaded) {
+        return
+      }
+
+      if (!isSignedIn) {
+        setInterestProfile(null)
+        setProfileLoading(false)
+        return
+      }
+
+      setProfileLoading(true)
+      try {
+        const token = await getToken()
+        const headers: Record<string, string> = {}
+        if (token) {
+          headers.Authorization = `Bearer ${token}`
+        }
+
+        const response = await fetch('/api/backend/users/me/profile', { headers })
+        if (!response.ok) {
+          throw new Error(`Failed to load profile: ${response.status}`)
+        }
+
+        const data = await response.json()
+        setInterestProfile(data)
+      } catch (error) {
+        console.error('Failed to load interest profile:', error)
+      } finally {
+        setProfileLoading(false)
+      }
+    }
+
+    loadInterestProfile()
+  }, [authLoaded, getToken, isSignedIn])
+
+  const buildProfilePromptContext = (profile: UserInterestProfile | null) => {
+    if (!profile?.onboarding_completed) {
+      return ''
+    }
+
+    const humanizeProfileValue = (value: string) => {
+      const labels: Record<string, string> = {
+        'middle-school': 'Middle School',
+        'high-school': 'High School',
+        undergraduate: 'Undergraduate',
+        graduate: 'Graduate',
+        professional: 'Professional',
+        'lifelong-learner': 'Independent Learner',
+        mathematics: 'Mathematics',
+        'computer-science': 'Computer Science',
+        physics: 'Physics',
+        chemistry: 'Chemistry',
+        biology: 'Biology',
+        english: 'English',
+        visual: 'Visual Explanations',
+        'practice-first': 'Practice First',
+        'concept-first': 'Concept First',
+        conversational: 'Conversational Coaching',
+        '<2': 'Less than 2 hours',
+        '2-4': '2-4 hours',
+        '5-8': '5-8 hours',
+        '9-12': '9-12 hours',
+        '12+': '12+ hours',
+      }
+      return labels[value] || value
+    }
+
+    const lines = [
+      profile.grade_level ? `Current stage: ${humanizeProfileValue(profile.grade_level)}` : null,
+      profile.subject_interests?.length
+        ? `Focus subjects: ${profile.subject_interests.map(humanizeProfileValue).join(', ')}`
+        : null,
+      profile.current_challenges ? `Current challenges: ${profile.current_challenges}` : null,
+      profile.long_term_goals ? `Goals: ${profile.long_term_goals}` : null,
+      profile.preferred_learning_style
+        ? `Preferred learning style: ${humanizeProfileValue(profile.preferred_learning_style)}`
+        : null,
+      profile.weekly_study_hours ? `Weekly study time: ${humanizeProfileValue(profile.weekly_study_hours)}` : null,
+    ].filter(Boolean)
+
+    if (lines.length === 0) {
+      return ''
+    }
+
+    return `Learner profile:\n${lines.join('\n')}`
+  }
+
+  const addProfileContextToPrompt = (prompt: string) => {
+    const profileContext = buildProfilePromptContext(interestProfile)
+    if (!profileContext) {
+      return prompt
+    }
+    return `${prompt}\n\n${profileContext}`
+  }
+
+  const handleInterestProfileSave = async (profile: UserInterestProfile) => {
+    setProfileSaving(true)
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+
+      const response = await fetch('/api/backend/users/me/profile', {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(profile),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to save profile: ${response.status}`)
+      }
+
+      const data = await response.json()
+      setInterestProfile(data)
+      setChatMessages((prev) => {
+        const notice: ChatMessage = {
+          id: `profile_${Date.now()}`,
+          role: 'assistant',
+          content: uiLanguage === 'zh'
+            ? '我已经记住你的学习背景了。接下来我会优先结合你的年级、兴趣和目标来推荐主题。'
+            : 'I have your learner profile now, so I can prioritize topics that better fit your level, interests, and goals.',
+          timestamp: new Date(),
+        }
+        return [...prev, notice]
+      })
+    } catch (error) {
+      console.error('Failed to save interest profile:', error)
+      alert(uiLanguage === 'zh' ? '学习画像保存失败，请重试。' : 'Failed to save your learner profile. Please try again.')
+      throw error
+    } finally {
+      setProfileSaving(false)
+    }
+  }
 
   const handleAudioUpload = async (file: File) => {
     setIsUploadingAudio(true)
@@ -293,9 +437,10 @@ export default function CreateLessonPage() {
   }, [generating, uiLanguage])
 
   const handleGenerate = async (topicOverride?: string) => {
-    const topicToUse = topicOverride || form.studentQuery
+    const rawTopic = topicOverride || form.studentQuery
+    const topicToUse = addProfileContextToPrompt(rawTopic)
 
-    if (!topicToUse.trim()) {
+    if (!rawTopic.trim()) {
       alert(t('create.enterLearningQuestion'))
       return
     }
@@ -399,11 +544,17 @@ export default function CreateLessonPage() {
     setChatMessages(prev => [...prev, aiResponse])
 
     try {
+      const token = await getToken()
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+
       const response = await fetch('/api/backend/analyze-topics', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           studentQuery: userInput,
           language: contentLanguage,
@@ -523,6 +674,16 @@ export default function CreateLessonPage() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main Interface Area */}
           <div className={`${sessionContext.length > 0 ? 'lg:col-span-3' : 'lg:col-span-4'} space-y-6 transition-all duration-300`}>
+            {workflowPhase === 'chatting' && (
+              <InterestProfileQuiz
+                language={uiLanguage}
+                isSignedIn={!!isSignedIn}
+                isLoading={!authLoaded || profileLoading}
+                isSaving={profileSaving}
+                profile={interestProfile}
+                onSave={handleInterestProfileSave}
+              />
+            )}
             
             {workflowPhase === 'chatting' && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">

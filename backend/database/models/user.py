@@ -5,7 +5,7 @@ User authentication and profile management
 
 import uuid
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from sqlalchemy import (
     Column, String, Integer, Float, DateTime, Text, 
     Boolean, JSON, ForeignKey, Index, UniqueConstraint
@@ -76,6 +76,7 @@ class User(Base):
     last_login_at = Column(DateTime(timezone=True))
     
     # Relationships
+    profile = relationship("UserProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
     user_lessons = relationship("UserLesson", back_populates="user", cascade="all, delete-orphan")
     
     # Indexes
@@ -205,3 +206,68 @@ class UserLesson(Base):
     
     def __repr__(self) -> str:
         return f"<UserLesson(id={self.id}, user_id={self.user_id}, lesson_id={self.lesson_id}, progress={self.progress_percentage}%)>"
+
+
+class UserProfile(Base):
+    """
+    Structured learner profile captured during onboarding.
+
+    This profile is used to personalize topic analysis and future lesson generation.
+    """
+    __tablename__ = "user_profiles"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+
+    grade_level = Column(String(100))
+    subject_interests = Column(JSON, default=list)
+    current_challenges = Column(Text)
+    long_term_goals = Column(Text)
+    preferred_learning_style = Column(String(50))
+    weekly_study_hours = Column(String(50))
+    onboarding_completed = Column(Boolean, default=False, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", back_populates="profile")
+
+    __table_args__ = (
+        Index('idx_user_profiles_user_id', 'user_id'),
+        Index('idx_user_profiles_grade_level', 'grade_level'),
+        UniqueConstraint('user_id', name='uq_user_profiles_user_id'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "user_id": str(self.user_id),
+            "grade_level": self.grade_level,
+            "subject_interests": self.subject_interests or [],
+            "current_challenges": self.current_challenges,
+            "long_term_goals": self.long_term_goals,
+            "preferred_learning_style": self.preferred_learning_style,
+            "weekly_study_hours": self.weekly_study_hours,
+            "onboarding_completed": self.onboarding_completed,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def to_ai_context_lines(self) -> List[str]:
+        interests = ", ".join(self.subject_interests or [])
+        context_lines = []
+        if self.grade_level:
+            context_lines.append(f"Grade level: {self.grade_level}")
+        if interests:
+            context_lines.append(f"Subject interests: {interests}")
+        if self.current_challenges:
+            context_lines.append(f"Current challenges: {self.current_challenges}")
+        if self.long_term_goals:
+            context_lines.append(f"Long-term goals: {self.long_term_goals}")
+        if self.preferred_learning_style:
+            context_lines.append(f"Preferred learning style: {self.preferred_learning_style}")
+        if self.weekly_study_hours:
+            context_lines.append(f"Weekly study time: {self.weekly_study_hours}")
+        return context_lines
+
+    def __repr__(self) -> str:
+        return f"<UserProfile(user_id={self.user_id}, grade_level={self.grade_level}, onboarding_completed={self.onboarding_completed})>"

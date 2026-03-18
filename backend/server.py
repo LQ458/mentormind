@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 import uvicorn
 from dotenv import load_dotenv
 import tempfile
@@ -34,7 +34,7 @@ from celery.result import AsyncResult
 from celery_app import create_class_video_task, transcript_to_lesson_task, transcribe_audio_task, celery_app
 from database import LessonStorageSQL, init_database
 from database import get_db
-from database.models.user import User
+from database.models.user import User, UserProfile
 from auth import get_current_user, get_optional_user
 from config import config
 from core.asr import transcribe_with_local_model, get_asr_status, extract_text_with_paddleocr
@@ -133,6 +133,88 @@ class UpdateProfileRequest(BaseModel):
     full_name: str = None
     language_preference: str = None
 
+
+class UpsertUserInterestProfileRequest(BaseModel):
+    grade_level: Optional[str] = None
+    subject_interests: List[str] = Field(default_factory=list)
+    current_challenges: Optional[str] = None
+    long_term_goals: Optional[str] = None
+    preferred_learning_style: Optional[str] = None
+    weekly_study_hours: Optional[str] = None
+    onboarding_completed: bool = False
+
+
+def _get_or_create_user_profile(db, user_id: str) -> UserProfile:
+    profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+    if profile:
+        return profile
+
+    profile = UserProfile(user_id=user_id)
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+def _build_profile_weighted_query(query: str, profile: Optional[UserProfile]) -> str:
+    if not profile or not profile.onboarding_completed:
+        return query
+
+    def humanize(value: str) -> str:
+        labels = {
+            "middle-school": "Middle School",
+            "high-school": "High School",
+            "undergraduate": "Undergraduate",
+            "graduate": "Graduate",
+            "professional": "Professional",
+            "lifelong-learner": "Independent Learner",
+            "mathematics": "Mathematics",
+            "computer-science": "Computer Science",
+            "physics": "Physics",
+            "chemistry": "Chemistry",
+            "biology": "Biology",
+            "english": "English",
+            "visual": "Visual Explanations",
+            "practice-first": "Practice First",
+            "concept-first": "Concept First",
+            "conversational": "Conversational Coaching",
+            "<2": "Less than 2 hours",
+            "2-4": "2-4 hours",
+            "5-8": "5-8 hours",
+            "9-12": "9-12 hours",
+            "12+": "12+ hours",
+        }
+        return labels.get(value, value)
+
+    context_lines = []
+    if profile.grade_level:
+        context_lines.append(f"Grade level: {humanize(profile.grade_level)}")
+    if profile.subject_interests:
+        context_lines.append(
+            "Subject interests: " + ", ".join(humanize(subject) for subject in profile.subject_interests)
+        )
+    if profile.current_challenges:
+        context_lines.append(f"Current challenges: {profile.current_challenges}")
+    if profile.long_term_goals:
+        context_lines.append(f"Long-term goals: {profile.long_term_goals}")
+    if profile.preferred_learning_style:
+        context_lines.append(f"Preferred learning style: {humanize(profile.preferred_learning_style)}")
+    if profile.weekly_study_hours:
+        context_lines.append(f"Weekly study time: {humanize(profile.weekly_study_hours)}")
+
+    if not context_lines:
+        return query
+
+    return (
+        "Student background:\n"
+        + "\n".join(f"- {line}" for line in context_lines)
+        + "\n\n"
+        + "Latest request:\n"
+        + query
+        + "\n\nUse the student background to prioritize the most relevant learning topics, "
+          "but keep the recommendations grounded in the latest request."
+    )
+
 @app.get("/users/me")
 def get_me(current_user: User = Depends(get_current_user)):
     """Return the current authenticated user's profile."""
@@ -154,6 +236,53 @@ def update_me(
     db.commit()
     db.refresh(current_user)
     return current_user.to_dict()
+
+
+@app.get("/users/me/profile")
+def get_my_interest_profile(
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """Return the learner onboarding profile for the current user."""
+    profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+    if not profile:
+        return {
+            "user_id": str(current_user.id),
+            "grade_level": None,
+            "subject_interests": [],
+            "current_challenges": None,
+            "long_term_goals": None,
+            "preferred_learning_style": None,
+            "weekly_study_hours": None,
+            "onboarding_completed": False,
+            "created_at": None,
+            "updated_at": None,
+        }
+    return profile.to_dict()
+
+
+@app.put("/users/me/profile")
+def upsert_my_interest_profile(
+    req: UpsertUserInterestProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """Create or update the learner onboarding profile for the current user."""
+    profile = _get_or_create_user_profile(db, str(current_user.id))
+    cleaned_subjects = [subject.strip() for subject in (req.subject_interests or []) if subject and subject.strip()]
+
+    profile.grade_level = req.grade_level
+    profile.subject_interests = cleaned_subjects
+    profile.current_challenges = req.current_challenges
+    profile.long_term_goals = req.long_term_goals
+    profile.preferred_learning_style = req.preferred_learning_style
+    profile.weekly_study_hours = req.weekly_study_hours
+    profile.onboarding_completed = req.onboarding_completed
+
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+    return profile.to_dict()
 
 
 # ── Status ───────────────────────────────────────────────────────────────────
@@ -243,7 +372,11 @@ async def get_voices():
     }
 
 @app.post("/analyze-topics")
-async def analyze_topics(request: Dict[str, Any]):
+async def analyze_topics(
+    request: Dict[str, Any],
+    current_user: Optional[User] = Depends(get_optional_user),
+    db = Depends(get_db),
+):
     """Analyze student query to identify learning topics"""
     try:
         query = request.get("studentQuery", "")
@@ -252,8 +385,14 @@ async def analyze_topics(request: Dict[str, Any]):
         if not query:
             raise HTTPException(status_code=400, detail="studentQuery is required")
             
+        profile = None
+        if current_user:
+            profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+
+        weighted_query = _build_profile_weighted_query(query, profile)
+
         creator = ClassCreator()
-        topics = await creator.analyze_student_query(query)
+        topics = await creator.analyze_student_query(weighted_query, language)
         
         return {
             "success": True,

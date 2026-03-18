@@ -6,10 +6,17 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 export async function POST(request: Request) {
     try {
         const body = await request.json()
+        const authHeader = request.headers.get('Authorization')
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+        }
+        if (authHeader) {
+            headers.Authorization = authHeader
+        }
 
         const backendResponse = await fetch(`${BACKEND_URL}/analyze-topics`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify(body),
         })
 
