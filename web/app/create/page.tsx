@@ -187,12 +187,22 @@ export default function CreateLessonPage() {
     return `Learner profile:\n${lines.join('\n')}`
   }
 
-  const addProfileContextToPrompt = (prompt: string) => {
+  const buildGenerationRequirements = (topic: string) => {
+    const sections: string[] = []
+    const trimmedNotes = form.studentQuery.trim()
     const profileContext = buildProfilePromptContext(interestProfile)
-    if (!profileContext) {
-      return prompt
+
+    if (trimmedNotes && trimmedNotes !== topic.trim()) {
+      sections.push(`User notes:\n${trimmedNotes}`)
     }
-    return `${prompt}\n\n${profileContext}`
+
+    if (profileContext) {
+      sections.push(
+        `${profileContext}\nUse this only for personalization. Do not copy learner profile details verbatim into the lesson title, filenames, or on-screen equations.`
+      )
+    }
+
+    return sections.length > 0 ? sections.join('\n\n') : undefined
   }
 
   const handleInterestProfileSave = async (profile: UserInterestProfile) => {
@@ -238,6 +248,29 @@ export default function CreateLessonPage() {
     }
   }
 
+
+  // Polling helper for background tasks (transcription, OCR)
+  const pollIngestStatus = async (jobId: string, type: 'audio' | 'image') => {
+    let attempts = 0;
+    while (attempts < 60) { // 5 minutes max
+      try {
+        const res = await fetch(`/api/backend/job-status/${jobId}`);
+        const statusData = await res.json();
+        
+        if (statusData.status === 'completed' && statusData.result) {
+          return statusData.result;
+        } else if (statusData.status === 'failed') {
+          throw new Error(statusData.error || 'Task failed');
+        }
+      } catch (err) {
+        console.error(`Polling ${type} error:`, err);
+      }
+      attempts++;
+      await new Promise(r => setTimeout(r, 5000));
+    }
+    throw new Error('Polling timeout');
+  };
+
   const handleAudioUpload = async (file: File) => {
     setIsUploadingAudio(true)
     try {
@@ -248,47 +281,23 @@ export default function CreateLessonPage() {
       const response = await fetch('/api/backend/ingest/audio', { method: 'POST', body: formData })
       let data = await response.json()
       
-      // Handle asynchronous transcription for long files
+      // Handle asynchronous transcription
       if (data.success && data.status === 'processing' && data.job_id) {
         setChatMessages(prev => [...prev, {
           id: `sys_wait_${Date.now()}`,
           role: 'assistant',
           content: uiLanguage === 'zh' 
-            ? `⏳ 检测到较长文件，正在后台进行转录，请稍候...` 
-            : `⏳ Long file detected. Transcribing in background, please wait...`,
+            ? `⏳ 正在后台进行音频转录，请稍候...` 
+            : `⏳ Transcribing audio in background, please wait...`,
           timestamp: new Date()
         }])
         
-        let attempts = 0
-        const maxAttempts = 600 // 20 minutes with 2s interval
-        while (attempts < maxAttempts) {
-          await new Promise(r => setTimeout(r, 2000))
-          const pollRes = await fetch(`/api/backend/job-status/${data.job_id}`)
-          const pollData = await pollRes.json()
-          
-          if (pollData.success && pollData.text) {
-            data = pollData
-            break
-          } else if (pollData.status === 'failed') {
-            throw new Error(pollData.error || 'Transcription failed')
-          }
-          
-          // Add status update every 30 seconds
-          if (attempts > 0 && attempts % 15 === 0) {
-            setChatMessages(prev => [...prev, {
-              id: `sys_wait_update_${Date.now()}`,
-              role: 'assistant',
-              content: uiLanguage === 'zh' 
-                ? `仍正在转录较大文件，请继续耐心等待...` 
-                : `Still transcribing large file, please continue to wait...`,
-              timestamp: new Date()
-            }])
-          }
-          attempts++
-        }
-        
-        if (attempts >= maxAttempts) {
-          throw new Error('Transcription timed out')
+        // Start polling for result
+        try {
+          data = await pollIngestStatus(data.job_id, 'audio');
+        } catch (pollErr) {
+          console.error('Audio polling error:', pollErr);
+          data = { success: false, error: 'Transcription timed out' };
         }
       }
 
@@ -336,7 +345,27 @@ export default function CreateLessonPage() {
       formData.append('language', contentLanguage)
       formData.append('display_language', uiLanguage)
       const response = await fetch('/api/backend/ingest/image', { method: 'POST', body: formData })
-      const data = await response.json()
+      let data = await response.json()
+
+      // Handle asynchronous OCR
+      if (data.success && data.status === 'processing' && data.job_id) {
+        setChatMessages(prev => [...prev, {
+          id: `sys_wait_img_${Date.now()}`,
+          role: 'assistant',
+          content: uiLanguage === 'zh' 
+            ? `⏳ 正在处理图片文字识别，请稍候...` 
+            : `⏳ Extracting text from image, please wait...`,
+          timestamp: new Date()
+        }])
+        
+        try {
+          data = await pollIngestStatus(data.job_id, 'image');
+        } catch (pollErr) {
+          console.error('Image polling error:', pollErr);
+          data = { success: false, error: 'OCR timed out' };
+        }
+      }
+
       if (data.success && data.text) {
         // Add to context sidebar
         const newContext: LearningContext = {
@@ -350,7 +379,7 @@ export default function CreateLessonPage() {
 
         // Also add a system message to chat
         setChatMessages(prev => [...prev, {
-          id: `sys_${Date.now()}`,
+          id: `sys_done_img_${Date.now()}`,
           role: 'assistant',
           content: uiLanguage === 'zh' 
             ? `🖼️ 已添加图片上下文: ${newContext.summary}` 
@@ -440,7 +469,6 @@ export default function CreateLessonPage() {
 
   const handleGenerate = async (topicOverride?: string) => {
     const rawTopic = topicOverride || form.studentQuery
-    const topicToUse = addProfileContextToPrompt(rawTopic)
 
     if (!rawTopic.trim()) {
       alert(t('create.enterLearningQuestion'))
@@ -462,14 +490,15 @@ export default function CreateLessonPage() {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          topic: topicToUse,
+          topic: rawTopic.trim(),
           language: contentLanguage,
           studentLevel: form.studentLevel,
           durationMinutes: form.duration,
           includeVideo: form.includeVideo,
           includeExercises: true,
           includeAssessment: true,
-          voiceId: form.voiceId
+          voiceId: form.voiceId,
+          customRequirements: buildGenerationRequirements(rawTopic),
         }),
       })
 
@@ -632,17 +661,8 @@ export default function CreateLessonPage() {
       .map(topic => topic.name)
       .join(', ')
 
-    const fullTopicQuery = form.studentQuery && form.studentQuery !== ''
-      ? `${selectedTopicNames}. Additional requirements: ${form.studentQuery}`
-      : selectedTopicNames
-
-    setForm(prev => ({
-      ...prev,
-      studentQuery: fullTopicQuery
-    }))
-
     setWorkflowPhase('generating')
-    handleGenerate(fullTopicQuery)
+    handleGenerate(selectedTopicNames)
   }
 
   const handleSave = () => {

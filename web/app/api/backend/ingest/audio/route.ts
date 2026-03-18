@@ -28,59 +28,44 @@ async function fetchWithLongTimeout(url: string, init: RequestInit): Promise<Res
 }
 
 export async function POST(request: Request) {
-    console.log('📬 [PROXY] Audio ingest request received')
+    console.log('📬 [PROXY] Audio ingest request received (Streaming Mode)')
     try {
         const contentType = request.headers.get('content-type') || ''
-        const contentLength = request.headers.get('content-length')
-        console.log(`[PROXY] Content-Type: ${contentType}, Content-Length: ${contentLength}`)
-
-        if (!contentType.includes('multipart/form-data')) {
-            console.error('[PROXY] Invalid content type:', contentType)
-            return NextResponse.json({ error: 'Invalid content type' }, { status: 400 })
-        }
-
-        console.log('[PROXY] Parsing formData...')
-        const formData = await request.formData()
-        console.log('[PROXY] FormData parsed successfully')
-        const file = formData.get('file') as File
-
-        if (!file) {
-            return NextResponse.json({ error: 'No audio file provided' }, { status: 400 })
-        }
-
-        // Forward the file and all optional fields to the backend
-        const backendForm = new FormData()
-        backendForm.append('file', file)
-        for (const field of FORWARDED_FIELDS) {
-            const value = formData.get(field)
-            if (value !== null) backendForm.append(field, value as string)
-        }
-
-        // Forward Authorization header
         const authHeader = request.headers.get('Authorization')
-        const headers: Record<string, string> = {}
+        
+        // Prepare headers for forwarding
+        const headers: Record<string, string> = {
+            'Content-Type': contentType,
+        }
         if (authHeader) {
             headers['Authorization'] = authHeader
         }
 
-        const backendResponse = await fetchWithLongTimeout(`${BACKEND_URL}/ingest/audio`, {
+        // Zero-Copy Proxy: Stream the request body directly to the backend
+        // We do NOT call request.formData() here.
+        const backendResponse = await fetch(`${BACKEND_URL}/ingest/audio`, {
             method: 'POST',
-            body: backendForm as unknown as BodyInit,
             headers,
+            body: request.body as any,
+            // @ts-ignore - 'duplex' is required for streaming request bodies in some environments/undici
+            duplex: 'half'
         })
 
         if (!backendResponse.ok) {
             const errorText = await backendResponse.text()
-            console.error('Audio ingest error:', errorText)
-            throw new Error(`Backend error: ${backendResponse.status}`)
+            console.error('Audio ingest backend error:', errorText)
+            return NextResponse.json(
+                { error: 'Backend error', details: errorText }, 
+                { status: backendResponse.status }
+            )
         }
 
         const data = await backendResponse.json()
         return NextResponse.json(data)
     } catch (error) {
-        console.error('Audio ingest proxy error:', error)
+        console.error('Audio ingest proxy streaming error:', error)
         return NextResponse.json(
-            { error: 'Failed to transcribe audio', details: error instanceof Error ? error.message : 'Unknown error' },
+            { error: 'Failed to proxy audio upload', details: error instanceof Error ? error.message : 'Unknown error' },
             { status: 500 }
         )
     }

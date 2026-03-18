@@ -499,6 +499,16 @@ async def stream_job_status(job_id: str):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+from celery_app import (
+    create_class_video_task, 
+    transcript_to_lesson_task, 
+    transcribe_audio_task, 
+    ocr_image_task,
+    celery_app
+)
+
+# ... (rest of imports remains same)
+
 @app.post("/ingest/audio")
 async def ingest_audio(
     file: UploadFile = File(...),
@@ -516,7 +526,7 @@ async def ingest_audio(
     custom_requirements: str = Form(default=""),
     current_user: Optional[User] = Depends(get_optional_user),
 ):
-    """Transcribe user-uploaded audio (ASR)."""
+    """Transcribe user-uploaded audio (ASR) via background task."""
     try:
         # Validate file type
         allowed_types = {"audio/wav", "audio/mpeg", "audio/mp4", "audio/ogg",
@@ -525,43 +535,30 @@ async def ingest_audio(
             raise HTTPException(status_code=400, detail=f"Unsupported format: {file.content_type}")
 
         suffix = os.path.splitext(file.filename or ".wav")[1] or ".wav"
-        
-        # Check file size for logging/UX only. We now keep transcription local to the API
-        # process to avoid temp-file handoff issues between containers.
-        file.file.seek(0, os.SEEK_END)
-        file_size = file.file.tell()
-        file.file.seek(0)
-        is_long_file = file_size > 1 * 1024 * 1024
-        
-        # Determine job_id
         job_id = f"asr_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        # Save to shared volume for background worker access
+        upload_dir = os.path.join(config.DATA_DIR, "uploads")
+        os.makedirs(upload_dir, exist_ok=True)
+        tmp_path = os.path.join(upload_dir, f"{job_id}{suffix}")
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            shutil.copyfileobj(file.file, tmp)
-            tmp_path = tmp.name
+        with open(tmp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
 
-        try:
-            if process.lower() != "true":
-                transcription = await transcribe_with_local_model_result(tmp_path, language)
-                full_text = transcription["text"]
-                print(f"✅ ASR transcription complete: {len(full_text)} chars")
-                summary = await summarize_extracted_content(
-                    full_text,
-                    "audio",
-                    target_language=display_language,
-                    source_language=transcription.get("detected_language"),
-                )
-                return {
-                    "success": True,
-                    "text": full_text,
-                    "summary": summary,
-                    "language": transcription.get("detected_language", language),
-                    "detected_language": transcription.get("detected_language", language),
-                    "transcription_engine": transcription.get("engine"),
-                }
-
-            # Option B: dispatch to Celery for lesson generation
-            job_id = f"audio_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Dispatch task to Celery
+        if process.lower() != "true":
+            # Just transcription
+            print(f"📦 Dispatching transcription task: {job_id}")
+            task = transcribe_audio_task.delay(tmp_path, language, job_id, target_language=display_language)
+            return {
+                "success": True,
+                "status": "processing",
+                "job_id": task.id,
+                "message": "Transcription started in background.",
+                "language": language,
+            }
+        else:
+            # Full lesson generation from audio
             request_data = {
                 "language": language,
                 "student_level": student_level,
@@ -577,24 +574,18 @@ async def ingest_audio(
             if current_user:
                 request_data["user_id"] = str(current_user.id)
 
-            transcription = await transcribe_with_local_model_result(tmp_path, language)
-            request_data["language"] = transcription.get("detected_language", language)
-            if is_long_file:
-                print(f"📦 Long file detected ({file_size/1024/1024:.1f}MB), transcribed locally before lesson generation dispatch: {job_id}")
-            task = transcript_to_lesson_task.delay(transcription["text"], request_data, job_id, is_file=False)
-
+            print(f"📦 Dispatching lesson generation task from audio: {job_id}")
+            task = transcript_to_lesson_task.delay(tmp_path, request_data, job_id, is_file=True)
             return {
                 "success": True,
                 "status": "processing",
                 "job_id": task.id,
-                "message": "Lesson generation queued.",
-                "language": transcription.get("detected_language", language),
+                "message": "Lesson generation from audio started in background.",
+                "language": language,
             }
-        finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+
     except Exception as e:
-        print(f"❌ Error transcribing audio: {e}")
+        print(f"❌ Error initiating audio ingest: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -604,7 +595,7 @@ async def ingest_image(
     language: str = Form(default="zh"),
     display_language: str = Form(default="en"),
 ):
-    """Extract text from user-uploaded image using PaddleOCR."""
+    """Extract text from image (OCR) via background task."""
     try:
         allowed_types = {"image/jpeg", "image/png", "image/bmp", "image/tiff",
                          "image/webp", "application/pdf"}
@@ -612,30 +603,28 @@ async def ingest_image(
             raise HTTPException(status_code=400, detail=f"Unsupported format: {file.content_type}")
 
         suffix = os.path.splitext(file.filename or ".jpg")[1] or ".jpg"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            shutil.copyfileobj(file.file, tmp)
-            tmp_path = tmp.name
+        job_id = f"ocr_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-        try:
-            ocr = await asyncio.get_event_loop().run_in_executor(None, extract_text_with_paddleocr, tmp_path)
-            full_text = ocr.get("text", "")
-            summary = await summarize_extracted_content(
-                full_text,
-                "image",
-                target_language=display_language,
-            )
+        # Save to shared volume
+        upload_dir = os.path.join(config.DATA_DIR, "uploads")
+        os.makedirs(upload_dir, exist_ok=True)
+        tmp_path = os.path.join(upload_dir, f"{job_id}{suffix}")
 
-            return {
-                "success": True,
-                "text": full_text,
-                "summary": summary,
-                "language": language
-            }
-        finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+        with open(tmp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        print(f"📦 Dispatching OCR task: {job_id}")
+        task = ocr_image_task.delay(tmp_path, language, job_id, target_language=display_language)
+
+        return {
+            "success": True,
+            "status": "processing",
+            "job_id": task.id,
+            "message": "OCR text extraction started in background.",
+            "language": language
+        }
     except Exception as e:
-        print(f"❌ OCR failed: {e}")
+        print(f"❌ Error initiating image ingest: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -392,7 +392,7 @@ def transcript_to_lesson_task(self, transcript_or_file: str, request_data: dict,
     
     return response
 @celery_app.task(bind=True, name="mentormind.transcribe_audio", time_limit=1800)
-def transcribe_audio_task(self, file_path: str, language: str, job_id: str):
+def transcribe_audio_task(self, file_path: str, language: str, job_id: str, target_language: str = "en"):
     """
     Celery task: transcribe audio file and provide summary for 'Learning Context'.
     """
@@ -408,6 +408,7 @@ def transcribe_audio_task(self, file_path: str, language: str, job_id: str):
         summary = await summarize_extracted_content(
             full_text,
             "audio",
+            target_language=target_language,
             source_language=transcription.get("detected_language"),
         )
         
@@ -431,6 +432,63 @@ def transcribe_audio_task(self, file_path: str, language: str, job_id: str):
         response = loop.run_until_complete(_run())
     except Exception as e:
         print(f"[{job_id}] ❌ Transcription task failed: {e}")
+        response = {"success": False, "error": str(e)}
+    finally:
+        # Clean up temp file in worker
+        if os.path.exists(file_path):
+            os.unlink(file_path)
+
+    # Store result in Redis
+    try:
+        _redis_client.setex(
+            f"job_result:{self.request.id}",
+            3600,
+            json.dumps(response)
+        )
+    except Exception as e:
+        print(f"[{job_id}] ⚠️ Failed to store result in Redis: {e}")
+        
+    return response
+
+@celery_app.task(bind=True, name="mentormind.ocr_image", time_limit=300)
+def ocr_image_task(self, file_path: str, language: str, job_id: str, target_language: str = "en"):
+    """
+    Celery task: extract text from image using PaddleOCR and provide summary.
+    """
+    print(f"[{job_id}] Received OCR task for file: {file_path}")
+    
+    async def _run():
+        from core.asr import extract_text_with_paddleocr
+        # 1. OCR directly (extract_text_with_paddleocr is synchronous inside executor)
+        ocr = await asyncio.get_event_loop().run_in_executor(None, extract_text_with_paddleocr, file_path)
+        full_text = ocr.get("text", "")
+        print(f"[{job_id}] OCR complete: {len(full_text)} chars")
+        
+        # 2. Summarize
+        summary = await summarize_extracted_content(
+            full_text,
+            "image",
+            target_language=target_language,
+        )
+        
+        return {
+            "success": True,
+            "text": full_text,
+            "summary": summary,
+            "language": language,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+    try:
+        response = loop.run_until_complete(_run())
+    except Exception as e:
+        print(f"[{job_id}] ❌ OCR task failed: {e}")
         response = {"success": False, "error": str(e)}
     finally:
         # Clean up temp file in worker
