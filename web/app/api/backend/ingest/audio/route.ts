@@ -11,7 +11,7 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
 // Fields forwarded from the client to the backend (all optional except file).
 const FORWARDED_FIELDS = [
-    'language', 'process', 'student_level', 'duration_minutes',
+    'language', 'display_language', 'process', 'student_level', 'duration_minutes',
     'include_video', 'include_exercises', 'include_assessment',
     'target_audience', 'difficulty_level', 'voice_id', 'custom_requirements',
 ]

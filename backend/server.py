@@ -656,7 +656,8 @@ async def serve_media(file_path: str):
 async def get_results_get(current_user: User = Depends(get_current_user)):
     """Get saved lessons for current user"""
     try:
-        lessons, total = lesson_storage.get_all_lessons(user_id=str(current_user.id))
+        lessons = lesson_storage.get_lessons_by_user(str(current_user.id))
+        total = len(lessons)
         return {"success": True, "results": lessons, "total": total}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
