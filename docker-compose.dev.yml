@@ -4,7 +4,7 @@ services:
     build:
       context: ./web
       target: deps
-    command: pnpm run dev
+    command: npm run dev
     
     # Mount the local web directory into the container for instant hot-reloading
     # The /app/node_modules anonymous volume protects the container's node_modules
