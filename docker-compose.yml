@@ -59,6 +59,8 @@ services:
       - ./backend:/app
       - ./backend/data:/app/data
       - modelscope_cache:/root/.cache/modelscope
+      - whisper_cache:/root/.cache/whisper
+      - paddleocr_cache:/root/.paddleocr
     command: uvicorn server:app --host 0.0.0.0 --port 8000
 
   celery-worker:
@@ -88,6 +90,8 @@ services:
       - ./backend:/app
       - ./backend/data:/app/data
       - modelscope_cache:/root/.cache/modelscope
+      - whisper_cache:/root/.cache/whisper
+      - paddleocr_cache:/root/.paddleocr
     command: celery -A celery_app worker --loglevel=info --concurrency=4
 
   frontend:
@@ -136,3 +140,5 @@ services:
 volumes:
   postgres_data:
   modelscope_cache:
+  whisper_cache:
+  paddleocr_cache:

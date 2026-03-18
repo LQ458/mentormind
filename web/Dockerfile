@@ -7,10 +7,7 @@ RUN npm install -g pnpm
 FROM base AS deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml* ./
-# Use npm for the dev deps stage to ensure flat structure for Docker volumes
-# Alpine + pnpm symlinks + older host OS (CentOS 7) often causes 'next: not found'
-RUN npm install
-ENV PATH /app/node_modules/.bin:$PATH
+RUN pnpm install --no-frozen-lockfile
 
 # Build stage
 FROM base AS builder
