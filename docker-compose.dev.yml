@@ -1,14 +1,18 @@
 services:
   frontend:
     # Use development mode instead of production build
+    build:
+      context: ./web
+      target: deps
     command: pnpm dev
     
     # Mount the local web directory into the container for instant hot-reloading
-    # Skip mounting node_modules or .next to prevent overriding container internals
+    # The /app/node_modules anonymous volume protects the container's node_modules
+    # from being overwritten by the host's (which might be empty or incompatible).
     volumes:
       - ./web:/app
       - /app/node_modules
-      - /app/.next 
+      - /app/.next
 
     # Disable production environment restrictions
     environment:
