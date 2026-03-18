@@ -7,8 +7,7 @@ RUN npm install -g pnpm
 FROM base AS deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml* ./
-# Use npm for the dev stage to avoid pnpm symlink issues in volumes
-RUN npm install
+RUN pnpm install --no-frozen-lockfile --shamefully-hoist
 
 # Build stage
 FROM base AS builder

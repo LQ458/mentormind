@@ -41,7 +41,7 @@ class DatabaseConfig:
     port: int
     username: Optional[str] = None
     password: Optional[str] = None
-    database: str = "mentormind"
+    database: str = "mentormind_metadata"
     max_connections: int = 20
 
 
