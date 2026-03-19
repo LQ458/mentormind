@@ -172,7 +172,7 @@ class VideoScriptGenerator:
         
         RULES:
         - All visual_type values must be "manim"
-        - The video MUST BE IN-DEPTH and COMPREHENSIVE (minimum 6-15 scenes)
+        - The video MUST BE clear and structured, but stay efficient to render (target 4-8 scenes)
         - You MUST include concrete examples and step-by-step conceptual breakdowns
         - Narration should be detailed and educational, matching the visual content
         - For general topics, use show_text and write_tex for key terms, definitions, and examples
@@ -221,7 +221,8 @@ class VideoScriptGenerator:
         scenes = []
         total_duration = 0.0
         
-        for s in data.get("scenes", []):
+        max_scenes = 8
+        for s in data.get("scenes", [])[:max_scenes]:
             scene = Scene(
                 id=s.get("id", f"s_{len(scenes)}"),
                 duration=float(s.get("duration", 5.0)),

@@ -187,31 +187,59 @@ class ScriptGenerator:
         请生成完整的教学脚本。
         """
     
-    async def generate_short_explanation(self, concept: str, context: Optional[str] = None) -> str:
+    async def generate_short_explanation(
+        self,
+        concept: str,
+        context: Optional[str] = None,
+        language: str = "zh"
+    ) -> str:
         """Generate a short explanation for a concept"""
         prompt = f"""
-        请用简单易懂的语言解释以下概念：
-        
-        概念：{concept}
-        {f"上下文：{context}" if context else ""}
-        
-        要求：
-        1. 不超过3句话
-        2. 使用比喻或例子帮助理解
-        3. 语气积极鼓励
-        4. 用中文
-        
-        请生成解释。
+        {"Please explain the following concept in simple and encouraging English." if language == "en" else "请用简单易懂的中文解释以下概念："}
+
+        {"Concept" if language == "en" else "概念"}: {concept}
+        {f"{'Context' if language == 'en' else '上下文'}: {context}" if context else ""}
+
+        {"Requirements" if language == "en" else "要求"}:
+        1. {"No more than 3 short sentences" if language == "en" else "不超过3句短句"}
+        2. {"Use one concrete example or visual analogy" if language == "en" else "使用一个具体例子或形象比喻"}
+        3. {"Keep the wording friendly and clear for students" if language == "en" else "语气友好清晰，适合学生理解"}
+        4. {"Reply only in English" if language == "en" else "只用中文回答"}
+
+        {"Generate the explanation." if language == "en" else "请生成解释。"}
         """
-        
-        # Mock generation
+
+        # Mock generation fallback kept concise so downstream Manim scenes stay lightweight.
         explanations = {
-            "二次方程": "二次方程就像数学中的'抛物线游戏'，它描述的是变量平方的关系。比如扔一个球，它的轨迹就是二次方程。记住a不能为0哦！",
-            "导数": "导数就像速度计，告诉你变化有多快。比如汽车加速时，导数就是加速度。理解导数就能预测变化趋势！",
-            "积分": "积分就像累积计数器，把小的变化加起来得到总量。比如计算路程，就是把每个时刻的速度加起来。积分让整体变得清晰！"
+            "zh": {
+                "二次方程": "二次方程像一条弯弯的抛物线，能描述球的轨迹这类变化。抓住平方项，你就抓住了它的形状关键。",
+                "导数": "导数像变化速度计，告诉我们一个量此刻变得有多快。理解它，就更容易看懂函数的趋势。",
+                "积分": "积分像把很多很小的部分累加成整体。它能帮助我们从局部变化看出总量。"
+            },
+            "en": {
+                "quadratic equation": "A quadratic equation is a rule that creates a curved parabola. It is useful for modeling shapes like the path of a thrown ball.",
+                "derivative": "A derivative measures how fast something is changing at one moment. It works like a speedometer for a function.",
+                "integral": "An integral adds many small pieces into one whole. It helps us turn local change into total amount."
+            },
         }
-        
-        return explanations.get(concept, f"{concept}是一个重要的数学概念，理解它需要一些练习。让我慢慢解释给你听...")
+
+        normalized_concept = concept.strip().lower()
+        localized_examples = explanations["en" if language == "en" else "zh"]
+        if normalized_concept in localized_examples:
+            return localized_examples[normalized_concept]
+
+        if language == "en":
+            context_hint = f" In this lesson, we focus on {context.strip()}." if context else ""
+            return (
+                f"{concept} is an important idea that becomes easier once you connect it to a picture or pattern."
+                f"{context_hint} We will break it into a few simple steps and one concrete example."
+            )
+
+        context_hint = f" 这节课会结合{context.strip()}来理解它。" if context else ""
+        return (
+            f"{concept}是一个重要概念，只要把它和图像、规律联系起来就会更好懂。"
+            f"{context_hint}我们会用几个简单步骤和一个具体例子来拆开理解。"
+        )
 
 
 class TTSSynthesizer:
@@ -758,7 +786,11 @@ class OutputPipeline:
         Generate quick explanation with audio and real video
         """
         # Generate explanation
-        explanation = await self.script_generator.generate_short_explanation(concept, context)
+        explanation = await self.script_generator.generate_short_explanation(
+            concept,
+            context,
+            language=language
+        )
         
         # Synthesize audio
         # Synthesize audio (not strictly needed as Programmatic generator does it, but good for quick audio return)

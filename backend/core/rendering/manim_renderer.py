@@ -8,6 +8,7 @@ import os
 import logging
 import re
 import subprocess
+from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
 from config.config import config
@@ -20,6 +21,8 @@ class ManimService:
     
     def __init__(self):
         self.output_dir = os.path.join(config.DATA_DIR, "videos", "manim")
+        self.render_quality = os.getenv("MANIM_RENDER_QUALITY", "l")
+        self.render_timeout_seconds = int(os.getenv("MANIM_RENDER_TIMEOUT_SECONDS", "420"))
         os.makedirs(self.output_dir, exist_ok=True)
         
     async def render_script(self, script: VideoScript) -> str:
@@ -51,11 +54,11 @@ class ManimService:
                 
             # Execute Manim
             try:
-                # -qm: Medium quality, -o: Output filename
+                # Lower-quality rendering keeps async lesson generation responsive enough for web use.
                 # Run in thread to avoid blocking asyncio loop
                 cmd = [
                     "manim", 
-                    "-qm", 
+                    f"-q{self.render_quality}",
                     "--media_dir", self.output_dir,
                     script_path,
                     "LessonScene"
@@ -71,15 +74,14 @@ class ManimService:
                     capture_output=True, 
                     text=True,
                     env={**os.environ, "PATH": os.environ["PATH"]},
-                    timeout=300
+                    timeout=self.render_timeout_seconds
                 )
                 
-                # Find output file (Manim standard output structure)
-                # media_dir/videos/scene_timestamp_attempt/720p30/LessonScene.mp4
-                video_subpath = f"videos/scene_{timestamp}_{attempt}/720p30/LessonScene.mp4" 
-                video_path = os.path.join(self.output_dir, video_subpath)
+                video_root = Path(self.output_dir) / "videos" / f"scene_{timestamp}_{attempt}"
+                video_matches = sorted(video_root.rglob("LessonScene.mp4"))
+                video_path = str(video_matches[0]) if video_matches else ""
                 
-                if os.path.exists(video_path):
+                if video_path and os.path.exists(video_path):
                     duration = time.time() - start_time
                     file_size_mb = os.path.getsize(video_path) / (1024 * 1024)
                     logger.info(f"✅ [Manim] Render successful in {duration:.2f}s | Size: {file_size_mb:.2f}MB | Path: {video_path}")
@@ -178,6 +180,21 @@ class ManimService:
             "    def wrap_text(self, text, width=40):",
             "        return '\\n'.join([text[i:i+width] for i in range(0, len(text), width)])",
             "",
+            "    def compact_text(self, text, max_chars=120):",
+            "        text = str(text).strip()",
+            "        return text if len(text) <= max_chars else text[:max_chars - 1] + '...'",
+            "",
+            "    def animate_with_audio(self, mobject, total_duration, animation='fade'):",
+            "        total_duration = max(float(total_duration), 1.0)",
+            "        intro_duration = min(2.5, max(0.8, total_duration * 0.2))",
+            "        if animation == 'write':",
+            "            self.play(Write(mobject), run_time=intro_duration)",
+            "        else:",
+            "            self.play(FadeIn(mobject), run_time=min(1.2, intro_duration))",
+            "        remaining = max(0.0, total_duration - intro_duration)",
+            "        if remaining > 0:",
+            "            self.wait(remaining)",
+            "",
             "    def construct(self):",
             "        # Global config",
             "        Text.set_default(font='Arial')",
@@ -198,8 +215,11 @@ class ManimService:
                 # param: "sin(x)"
                 code.append(f"        ax = Axes(x_range=[-3, 3], y_range=[-2, 2])")
                 code.append(f"        curve = ax.plot(lambda x: {scene.param}, color=BLUE)")
-                code.append(f"        self.play(Create(ax), Create(curve), run_time={scene.duration})")
-                code.append(f"        self.wait(1)")
+                code.append(f"        plot_intro = min(2.5, max(0.8, {scene.duration} * 0.2))")
+                code.append(f"        self.play(Create(ax), Create(curve), run_time=plot_intro)")
+                code.append(f"        plot_remaining = max(0.0, {scene.duration} - plot_intro)")
+                code.append(f"        if plot_remaining > 0:")
+                code.append(f"            self.wait(plot_remaining)")
                 
             elif scene.action == "write_tex":
                 # param: "E = mc^2"
@@ -214,8 +234,7 @@ class ManimService:
                     clean_text = scene.param.replace('^2', '²').replace('^3', '³').replace('_', '').replace('\\', '').replace('text', '')
                     code.append(f"        eq = Text(r\"\"\"{clean_text}\"\"\", font_size=40)")
                     
-                code.append(f"        self.play(Write(eq), run_time={scene.duration})")
-                code.append(f"        self.wait(1)")
+                code.append(f"        self.animate_with_audio(eq, {scene.duration}, animation='write')")
                 # Clear for next scene if needed
                 code.append(f"        self.clear()")
                 
@@ -227,31 +246,34 @@ class ManimService:
                 else:
                     code.append(f"        shape = Square(color=WHITE)")
                     
-                code.append(f"        self.play(Create(shape), run_time={scene.duration})")
-                code.append(f"        self.wait(1)")
+                code.append(f"        self.animate_with_audio(shape, {scene.duration})")
                 code.append(f"        self.clear()")
             
             elif scene.action == "show_title":
                 # Big title text
                 code.append(f"        title = Text(r\"\"\"{scene.param}\"\"\", font_size=64, color=BLUE)")
-                code.append(f"        self.play(Write(title), run_time={scene.duration})")
-                code.append(f"        self.wait(1)")
+                code.append(f"        self.animate_with_audio(title, {scene.duration})")
+                code.append(f"        self.clear()")
+
+            elif scene.action == "show_text":
+                display_text = scene.param or scene.narration
+                code.append(f"        text = Text(self.wrap_text(self.compact_text(r\"\"\"{display_text}\"\"\")), font_size=28)")
+                code.append(f"        self.animate_with_audio(text, {scene.duration})")
                 code.append(f"        self.clear()")
 
             elif scene.action == "show_image":
                 # Fallback for images in Manim (until we have real image loading)
                 # Show text indicating image
                 code.append(f"        text = Text(r\"\"\"[Image: {scene.param}]\"\"\", font_size=36, color=YELLOW)")
-                code.append(f"        self.play(FadeIn(text), run_time={scene.duration})")
-                code.append(f"        self.wait(1)")
+                code.append(f"        self.animate_with_audio(text, {scene.duration})")
                 code.append(f"        self.clear()")
 
             else:
                 # Default text
                 # Default text with helper wrapping
-                code.append(f"        text = Text(self.wrap_text(r\"\"\"{scene.narration}\"\"\"), font_size=24)")
-                code.append(f"        self.play(Write(text), run_time={scene.duration})")
-                code.append(f"        self.wait(1)")
+                fallback_text = scene.param or scene.narration
+                code.append(f"        text = Text(self.wrap_text(self.compact_text(r\"\"\"{fallback_text}\"\"\")), font_size=24)")
+                code.append(f"        self.animate_with_audio(text, {scene.duration})")
                 code.append(f"        self.clear()")
                 
         return "\n".join(code)

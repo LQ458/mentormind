@@ -212,8 +212,14 @@ class ClassCreator:
                     ai_data = await self._translate_ai_response(ai_data)
                 
                 # Extract data from AI response
-                class_title = ai_data.get("title") or ai_data.get("class_title") or f"{request.topic} 课程"
-                class_description = ai_data.get("description") or ai_data.get("class_description") or f"关于{request.topic}的详细教学方案"
+                default_title = request.topic if language == Language.ENGLISH else f"{request.topic}课程"
+                default_description = (
+                    f"Detailed teaching plan for {request.topic}"
+                    if language == Language.ENGLISH
+                    else f"关于{request.topic}的详细教学方案"
+                )
+                class_title = ai_data.get("title") or ai_data.get("class_title") or default_title
+                class_description = ai_data.get("description") or ai_data.get("class_description") or default_description
                 
                 # Generate Multimedia (Audio/Video) if requested
                 audio_url = None
@@ -258,10 +264,12 @@ class ClassCreator:
                         # Don't fail the whole request, just log error
                 
                 # Handle different response formats
+                pipeline_success = (not request.include_video) or bool(video_url)
+
                 if "raw_response" in ai_data:
                     # AI returned raw text response
                     return ClassCreationResult(
-                        success=True,
+                        success=pipeline_success,
                         class_title=class_title,
                         class_description=class_description,
                         learning_objectives=[
@@ -299,7 +307,7 @@ class ClassCreator:
                 else:
                     # AI returned structured data
                     return ClassCreationResult(
-                        success=True,
+                        success=pipeline_success,
                         class_title=class_title,
                         class_description=class_description,
                         learning_objectives=ai_data.get("objectives") or ai_data.get("learning_objectives") or [],
