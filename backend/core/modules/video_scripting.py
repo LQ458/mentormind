@@ -181,7 +181,12 @@ class VideoScriptGenerator:
         CRITICAL LANGUAGE INSTRUCTION:
         All 'narration' values MUST exclusively be written in {language}. 
         If the language is 'zh' or 'Chinese', write all narrations in Chinese characters.
-        Do NOT translate LaTeX math equations.
+        
+        MATH & LATEX RULES:
+        1. Do NOT translate LaTeX math equations.
+        2. VERY IMPORTANT: Do NOT include Chinese characters inside 'write_tex' or 'plot' param values. 
+        3. If you need to display Chinese text on screen, use the 'show_text' action.
+        4. Math formulas in 'write_tex' must be pure standard LaTeX (e.g. "a^2 + b^2 = c^2").
         """
         
         if style == "math":

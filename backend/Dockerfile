@@ -14,6 +14,9 @@ RUN apt-get update && apt-get install -y \
     texlive-fonts-extra \
     texlive-latex-recommended \
     texlive-science \
+    texlive-lang-chinese \
+    texlive-xetex \
+    fonts-noto-cjk \
     tipa \
     libcairo2-dev \
     libpango1.0-dev \

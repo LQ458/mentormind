@@ -202,12 +202,16 @@ class ManimService:
                 
             elif scene.action == "write_tex":
                 # param: "E = mc^2"
-                if has_latex:
+                # Defensive check: Standard LaTeX MathTex fails on non-ASCII characters (Chinese)
+                has_non_ascii = any(ord(c) > 127 for c in scene.param)
+                
+                if has_latex and not has_non_ascii:
                     code.append(f"        eq = MathTex(r'{scene.param}')")
                 else:
-                    # Fallback: Replace common symbols with unicode for better look without LaTeX
+                    # Fallback to Text if non-ASCII is present or LaTeX is missing
+                    # Standard math symbols replacement for plain Text fallback
                     clean_text = scene.param.replace('^2', '²').replace('^3', '³').replace('_', '').replace('\\', '').replace('text', '')
-                    code.append(f"        eq = Text(r\"\"\"{clean_text}\"\"\", font_size=48)")
+                    code.append(f"        eq = Text(r\"\"\"{clean_text}\"\"\", font_size=40)")
                     
                 code.append(f"        self.play(Write(eq), run_time={scene.duration})")
                 code.append(f"        self.wait(1)")
