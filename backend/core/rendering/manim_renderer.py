@@ -6,6 +6,7 @@ Translates "Director JSON" scenes into executable Manim Python code.
 
 import os
 import logging
+import re
 import subprocess
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -33,7 +34,7 @@ class ManimService:
         logger.info(f"📐 [Manim] Starting render for: '{script.title}'")
         
         # 1. Generate Python code for Manim
-        manim_code = self._generate_manim_code(script)
+        manim_code = self._sanitize_generated_code(self._generate_manim_code(script))
         
         # 2. Retry Loop (Self-Correction)
         max_retries = 3
@@ -94,7 +95,7 @@ class ManimService:
                     try:
                         new_code = await self._fix_code_with_llm(manim_code, e.stderr)
                         if new_code:
-                            manim_code = new_code
+                            manim_code = self._sanitize_generated_code(new_code)
                             continue
                     except Exception as llm_error:
                         logger.error(f"❌ [Manim] Self-correction failed: {llm_error}")
@@ -254,3 +255,47 @@ class ManimService:
                 code.append(f"        self.clear()")
                 
         return "\n".join(code)
+
+    def _latex_to_plain_text(self, expression: str) -> str:
+        """Best-effort conversion from simple LaTeX-ish math strings to plain text."""
+        text = expression
+        text = re.sub(r"\\text\{([^}]*)\}", r"\1", text)
+        text = re.sub(r"\\frac\{([^}]*)\}\{([^}]*)\}", r"(\1)/(\2)", text)
+        replacements = {
+            r"\quad": " ",
+            r"\neq": "≠",
+            r"\leq": "≤",
+            r"\geq": "≥",
+            r"\cdot": "·",
+            r"\times": "×",
+            r"\to": "→",
+            r"\Rightarrow": "⇒",
+            r"\left": "",
+            r"\right": "",
+            "{": "",
+            "}": "",
+            "\\": "",
+        }
+        for source, target in replacements.items():
+            text = text.replace(source, target)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    def _sanitize_generated_code(self, code: str) -> str:
+        """
+        Rewrite risky MathTex/Tex expressions into safe Text fallbacks when they contain
+        non-ASCII language content that standard LaTeX in the container cannot compile.
+        """
+        pattern = re.compile(r"(MathTex|Tex)\(r([\"'])(.*?)\2\)")
+
+        def replace(match: re.Match) -> str:
+            expression = match.group(3)
+            has_non_ascii = any(ord(char) > 127 for char in expression)
+            has_natural_language_label = r"\text{" in expression
+            if not has_non_ascii and not has_natural_language_label:
+                return match.group(0)
+
+            safe_text = self._latex_to_plain_text(expression)
+            return f'Text(r"""{safe_text}""", font_size=40)'
+
+        return pattern.sub(replace, code)

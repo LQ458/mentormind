@@ -90,8 +90,9 @@ def create_class_video_task(self, request_data: dict, job_id: str):
     print(f"[{job_id}] 🔍 Pipeline result: video_url={result.video_url!r}  audio_url={result.audio_url!r}  success={result.success}")
 
     # Return serializable dict for Celery Task result
+    render_failed = request_data.get("include_video", True) and not result.video_url
     response = {
-        "success": result.success,
+        "success": result.success and not render_failed,
         "language": result.language_used.value if result.language_used else request_data.get("language"),
         "topic": request_data.get("topic") or final_title,
         "class_title": final_title,
@@ -103,23 +104,28 @@ def create_class_video_task(self, request_data: dict, job_id: str):
         "video_url": result.video_url,
         "timestamp": datetime.now().isoformat()
     }
+    if render_failed:
+        response["error"] = "Video rendering failed before a final media file was produced."
     
     # Save the lesson to PostgreSQL database directly in the worker
-    try:
-        init_database()
-        lesson_storage = LessonStorageSQL()
-        save_payload = {
-            **response,
-            "student_level": result.student_level if hasattr(result, 'student_level') else request_data.get("student_level", "beginner"),
-            "duration_minutes": request_data.get("duration_minutes", 30),
-            "difficulty_level": request_data.get("difficulty_level", "intermediate"),
-            "user_id": request_data.get("user_id")
-        }
-        saved_info = lesson_storage.save_lesson(save_payload)
-        response["lesson_id"] = saved_info["id"]
-        print(f"[{job_id}] ✅ Successfully saved lesson to DB: {saved_info['id']}")
-    except Exception as e:
-        print(f"[{job_id}] ⚠️ Failed to save lesson to DB: {e}")
+    if response["success"]:
+        try:
+            init_database()
+            lesson_storage = LessonStorageSQL()
+            save_payload = {
+                **response,
+                "student_level": result.student_level if hasattr(result, 'student_level') else request_data.get("student_level", "beginner"),
+                "duration_minutes": request_data.get("duration_minutes", 30),
+                "difficulty_level": request_data.get("difficulty_level", "intermediate"),
+                "user_id": request_data.get("user_id")
+            }
+            saved_info = lesson_storage.save_lesson(save_payload)
+            response["lesson_id"] = saved_info["id"]
+            print(f"[{job_id}] ✅ Successfully saved lesson to DB: {saved_info['id']}")
+        except Exception as e:
+            print(f"[{job_id}] ⚠️ Failed to save lesson to DB: {e}")
+    else:
+        print(f"[{job_id}] ⚠️ Skipping DB save because lesson generation did not produce a final video")
     
     # Store result directly in Redis so /job-status can read it reliably
     # (bypasses Celery's result backend which can be unreliable in Docker)
