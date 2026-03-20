@@ -78,6 +78,8 @@ class User(Base):
     # Relationships
     profile = relationship("UserProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
     user_lessons = relationship("UserLesson", back_populates="user", cascade="all, delete-orphan")
+    performance_records = relationship("StudentPerformance", back_populates="user", cascade="all, delete-orphan")
+    memory_reviews = relationship("MemoryReview", back_populates="user", cascade="all, delete-orphan")
     
     # Indexes
     __table_args__ = (
@@ -271,3 +273,98 @@ class UserProfile(Base):
 
     def __repr__(self) -> str:
         return f"<UserProfile(user_id={self.user_id}, grade_level={self.grade_level}, onboarding_completed={self.onboarding_completed})>"
+
+
+class StudentPerformance(Base):
+    """
+    Fine-grained records of how a learner performed during quizzes, seminars, or oral defenses.
+    """
+    __tablename__ = "student_performance"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False)
+    assessment_type = Column(String(50), nullable=False, default="reflection")
+    score = Column(Float, default=0.0)
+    confidence = Column(Float, default=0.0)
+    strengths = Column(JSON, default=list)
+    struggles = Column(JSON, default=list)
+    reflection = Column(Text)
+    performance_metadata = Column(JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="performance_records")
+    lesson = relationship("Lesson")
+
+    __table_args__ = (
+        Index('idx_student_performance_user_id', 'user_id'),
+        Index('idx_student_performance_lesson_id', 'lesson_id'),
+        Index('idx_student_performance_assessment_type', 'assessment_type'),
+        Index('idx_student_performance_created_at', 'created_at'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": str(self.user_id),
+            "lesson_id": str(self.lesson_id),
+            "assessment_type": self.assessment_type,
+            "score": self.score,
+            "confidence": self.confidence,
+            "strengths": self.strengths or [],
+            "struggles": self.struggles or [],
+            "reflection": self.reflection,
+            "metadata": self.performance_metadata or {},
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class MemoryReview(Base):
+    """
+    Spaced-review queue using a simple forgetting-curve schedule.
+    """
+    __tablename__ = "memory_reviews"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False)
+    review_type = Column(String(50), nullable=False, default="memory_challenge")
+    status = Column(String(20), nullable=False, default="scheduled")
+    review_count = Column(Integer, nullable=False, default=0)
+    ease_factor = Column(Float, nullable=False, default=2.0)
+    interval_hours = Column(Float, nullable=False, default=48.0)
+    due_at = Column(DateTime(timezone=True), nullable=False)
+    last_presented_at = Column(DateTime(timezone=True))
+    completed_at = Column(DateTime(timezone=True))
+    review_metadata = Column(JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", back_populates="memory_reviews")
+    lesson = relationship("Lesson")
+
+    __table_args__ = (
+        Index('idx_memory_reviews_user_id', 'user_id'),
+        Index('idx_memory_reviews_lesson_id', 'lesson_id'),
+        Index('idx_memory_reviews_due_at', 'due_at'),
+        Index('idx_memory_reviews_status', 'status'),
+        UniqueConstraint('user_id', 'lesson_id', 'review_type', name='uq_memory_reviews_user_lesson_type'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": str(self.user_id),
+            "lesson_id": str(self.lesson_id),
+            "review_type": self.review_type,
+            "status": self.status,
+            "review_count": self.review_count,
+            "ease_factor": self.ease_factor,
+            "interval_hours": self.interval_hours,
+            "due_at": self.due_at.isoformat() if self.due_at else None,
+            "last_presented_at": self.last_presented_at.isoformat() if self.last_presented_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "metadata": self.review_metadata or {},
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }

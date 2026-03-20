@@ -144,6 +144,21 @@ class UpsertUserInterestProfileRequest(BaseModel):
     onboarding_completed: bool = False
 
 
+class UpdateLessonProgressRequest(BaseModel):
+    progress_percentage: float = Field(default=0.0, ge=0.0, le=100.0)
+    is_completed: bool = False
+    time_spent_minutes: int = Field(default=0, ge=0)
+
+
+class RecordPerformanceRequest(BaseModel):
+    assessment_type: str = "reflection"
+    score: float = Field(default=0.0, ge=0.0, le=1.0)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    strengths: List[str] = Field(default_factory=list)
+    struggles: List[str] = Field(default_factory=list)
+    reflection: Optional[str] = None
+
+
 def _get_or_create_user_profile(db, user_id: str) -> UserProfile:
     profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
     if profile:
@@ -313,6 +328,71 @@ def upsert_my_interest_profile(
     return profile.to_dict()
 
 
+@app.get("/users/me/lessons")
+def get_my_lessons(current_user: User = Depends(get_current_user)):
+    """Return lessons created by the current authenticated user."""
+    return lesson_storage.get_lessons_by_user(str(current_user.id))
+
+
+@app.get("/users/me/review-queue")
+def get_my_review_queue(current_user: User = Depends(get_current_user)):
+    """Return psychology-driven review prompts ordered by forgetting risk."""
+    return {
+        "success": True,
+        "items": lesson_storage.get_review_queue(str(current_user.id)),
+    }
+
+
+@app.get("/users/me/lessons/{lesson_id}/state")
+def get_my_lesson_state(lesson_id: str, current_user: User = Depends(get_current_user)):
+    """Return progress and next-review state for the current user and lesson."""
+    return {
+        "success": True,
+        "state": lesson_storage.get_lesson_state(str(current_user.id), lesson_id),
+    }
+
+
+@app.post("/users/me/lessons/{lesson_id}/progress")
+def update_my_lesson_progress(
+    lesson_id: str,
+    req: UpdateLessonProgressRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Update progress and schedule spaced review when a lesson is completed."""
+    return {
+        "success": True,
+        "state": lesson_storage.upsert_user_lesson_progress(
+            str(current_user.id),
+            lesson_id,
+            req.progress_percentage,
+            is_completed=req.is_completed,
+            time_spent_minutes=req.time_spent_minutes,
+        ),
+    }
+
+
+@app.post("/users/me/lessons/{lesson_id}/performance")
+def record_my_lesson_performance(
+    lesson_id: str,
+    req: RecordPerformanceRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Record quiz/seminar/oral-defense performance and refresh spaced review schedule."""
+    return {
+        "success": True,
+        "result": lesson_storage.record_student_performance(
+            str(current_user.id),
+            lesson_id,
+            req.assessment_type,
+            req.score,
+            req.confidence,
+            strengths=req.strengths,
+            struggles=req.struggles,
+            reflection=req.reflection,
+        ),
+    }
+
+
 # ── Status ───────────────────────────────────────────────────────────────────
 
 @app.get("/")
@@ -434,7 +514,10 @@ async def analyze_topics(
         )
 
 @app.post("/create-class")
-async def create_class(request: ClassCreationRequest):
+async def create_class(
+    request: ClassCreationRequest,
+    current_user: Optional[User] = Depends(get_optional_user),
+):
     """Initiate class creation job"""
     try:
         job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -457,6 +540,8 @@ async def create_class(request: ClassCreationRequest):
             "voice_id": request.voice_id,
             "custom_requirements": merged_requirements,
         }
+        if current_user:
+            request_data["user_id"] = str(current_user.id)
         
         # Dispatch to Celery
         task = create_class_video_task.delay(request_data, job_id)

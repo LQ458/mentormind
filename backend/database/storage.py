@@ -4,7 +4,7 @@ PostgreSQL-based storage implementation using SQLAlchemy models
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, asc, and_, or_
@@ -12,7 +12,7 @@ from sqlalchemy import func, desc, asc, and_, or_
 from .base import SessionLocal
 from .models.lesson import Lesson, LessonObjective, LessonResource, LessonExercise
 from .models.enums import Language, StudentLevel, DifficultyLevel, ResourceType, ExerciseType, LessonStatus
-from .models.user import User, UserLesson
+from .models.user import User, UserLesson, StudentPerformance, MemoryReview
 from .models.analytics import AnalyticsEvent, AnalyticsEventType, DailyMetrics, APILog
 
 
@@ -55,6 +55,8 @@ class LessonStorageSQL:
             if isinstance(ai_insights, dict):
                 ai_insights["video_url"] = lesson_data.get("video_url")
                 ai_insights["audio_url"] = lesson_data.get("audio_url")
+                ai_insights["lesson_plan"] = lesson_data.get("lesson_plan")
+                ai_insights["class_description"] = description
             
             # Optional user ownership
             user_id = lesson_data.get("user_id")
@@ -185,6 +187,251 @@ class LessonStorageSQL:
             return [l.to_dict(include_relationships=False) for l in lessons]
         finally:
             session.close()
+
+    def get_lesson_state(self, user_id: str, lesson_id: str) -> Dict[str, Any]:
+        """Return user-specific lesson progress, latest performance, and next review."""
+        session = self.SessionLocal()
+        try:
+            lesson_uuid = uuid.UUID(lesson_id)
+            user_lesson = (
+                session.query(UserLesson)
+                .filter(UserLesson.user_id == user_id, UserLesson.lesson_id == lesson_uuid)
+                .first()
+            )
+            latest_performance = (
+                session.query(StudentPerformance)
+                .filter(StudentPerformance.user_id == user_id, StudentPerformance.lesson_id == lesson_uuid)
+                .order_by(StudentPerformance.created_at.desc())
+                .first()
+            )
+            review = (
+                session.query(MemoryReview)
+                .filter(MemoryReview.user_id == user_id, MemoryReview.lesson_id == lesson_uuid)
+                .order_by(MemoryReview.due_at.asc())
+                .first()
+            )
+
+            return {
+                "progress_percentage": user_lesson.progress_percentage if user_lesson else 0.0,
+                "is_completed": user_lesson.is_completed if user_lesson else False,
+                "time_spent_minutes": user_lesson.time_spent_minutes if user_lesson else 0,
+                "last_accessed_at": user_lesson.last_accessed_at.isoformat() if user_lesson and user_lesson.last_accessed_at else None,
+                "latest_performance": latest_performance.to_dict() if latest_performance else None,
+                "next_review": review.to_dict() if review else None,
+            }
+        finally:
+            session.close()
+
+    def upsert_user_lesson_progress(
+        self,
+        user_id: str,
+        lesson_id: str,
+        progress_percentage: float,
+        is_completed: bool = False,
+        time_spent_minutes: int = 0,
+    ) -> Dict[str, Any]:
+        """Persist progress and schedule first spaced review on completion."""
+        session = self.SessionLocal()
+        try:
+            lesson_uuid = uuid.UUID(lesson_id)
+            user_lesson = (
+                session.query(UserLesson)
+                .filter(UserLesson.user_id == user_id, UserLesson.lesson_id == lesson_uuid)
+                .first()
+            )
+            if not user_lesson:
+                user_lesson = UserLesson(user_id=user_id, lesson_id=lesson_uuid)
+                session.add(user_lesson)
+
+            user_lesson.progress_percentage = max(0.0, min(float(progress_percentage), 100.0))
+            user_lesson.is_completed = bool(is_completed or user_lesson.progress_percentage >= 100.0)
+            user_lesson.time_spent_minutes = max(time_spent_minutes, user_lesson.time_spent_minutes or 0)
+            user_lesson.last_accessed_at = datetime.now(timezone.utc)
+
+            session.flush()
+
+            if user_lesson.is_completed:
+                self._schedule_memory_review(
+                    session,
+                    user_id=user_id,
+                    lesson_id=lesson_uuid,
+                    review_type="memory_challenge",
+                    score=0.72,
+                    confidence=0.68,
+                    metadata={"trigger": "lesson_completed"},
+                )
+
+            session.commit()
+            session.refresh(user_lesson)
+            return user_lesson.to_dict()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def record_student_performance(
+        self,
+        user_id: str,
+        lesson_id: str,
+        assessment_type: str,
+        score: float,
+        confidence: float,
+        strengths: Optional[List[str]] = None,
+        struggles: Optional[List[str]] = None,
+        reflection: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Record assessment performance and refresh forgetting-curve scheduling."""
+        session = self.SessionLocal()
+        try:
+            lesson_uuid = uuid.UUID(lesson_id)
+            performance = StudentPerformance(
+                user_id=user_id,
+                lesson_id=lesson_uuid,
+                assessment_type=assessment_type,
+                score=max(0.0, min(float(score), 1.0)),
+                confidence=max(0.0, min(float(confidence), 1.0)),
+                strengths=strengths or [],
+                struggles=struggles or [],
+                reflection=reflection,
+                performance_metadata=metadata or {},
+            )
+            session.add(performance)
+            session.flush()
+
+            review = self._schedule_memory_review(
+                session,
+                user_id=user_id,
+                lesson_id=lesson_uuid,
+                review_type="memory_challenge",
+                score=performance.score,
+                confidence=performance.confidence,
+                metadata={
+                    "trigger": assessment_type,
+                    "strengths": strengths or [],
+                    "struggles": struggles or [],
+                },
+            )
+
+            session.commit()
+            session.refresh(performance)
+            session.refresh(review)
+            return {
+                "performance": performance.to_dict(),
+                "next_review": review.to_dict(),
+            }
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_review_queue(self, user_id: str, horizon_hours: int = 168) -> List[Dict[str, Any]]:
+        """Return upcoming and due reviews ordered by urgency."""
+        session = self.SessionLocal()
+        try:
+            now = datetime.now(timezone.utc)
+            horizon = now + timedelta(hours=horizon_hours)
+            reviews = (
+                session.query(MemoryReview, Lesson)
+                .join(Lesson, Lesson.id == MemoryReview.lesson_id)
+                .filter(
+                    MemoryReview.user_id == user_id,
+                    MemoryReview.status.in_(["scheduled", "due"]),
+                    MemoryReview.due_at <= horizon,
+                    Lesson.status != LessonStatus.DELETED.value,
+                )
+                .order_by(MemoryReview.due_at.asc())
+                .all()
+            )
+
+            queue: List[Dict[str, Any]] = []
+            for review, lesson in reviews:
+                due_in_hours = (review.due_at - now).total_seconds() / 3600
+                stage = "due_now" if due_in_hours <= 0 else "upcoming"
+                queue.append({
+                    **review.to_dict(),
+                    "stage": stage,
+                    "due_in_hours": round(due_in_hours, 1),
+                    "lesson": {
+                        "id": str(lesson.id),
+                        "title": lesson.title,
+                        "topic": lesson.topic,
+                        "language": lesson.language,
+                        "duration_minutes": lesson.duration_minutes,
+                        "video_url": lesson.ai_insights.get("video_url") if isinstance(lesson.ai_insights, dict) else None,
+                    },
+                })
+            return queue
+        finally:
+            session.close()
+
+    def _schedule_memory_review(
+        self,
+        session: Session,
+        user_id: str,
+        lesson_id: uuid.UUID,
+        review_type: str,
+        score: float,
+        confidence: float,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> MemoryReview:
+        """Spaced-review scheduler inspired by retrieval practice and the forgetting curve."""
+        review = (
+            session.query(MemoryReview)
+            .filter(
+                MemoryReview.user_id == user_id,
+                MemoryReview.lesson_id == lesson_id,
+                MemoryReview.review_type == review_type,
+            )
+            .first()
+        )
+
+        now = datetime.now(timezone.utc)
+        mastery = max(0.0, min((score * 0.7) + (confidence * 0.3), 1.0))
+
+        if not review:
+            interval_hours = 48.0 if mastery >= 0.65 else 24.0
+            ease_factor = 2.2 if mastery >= 0.8 else 1.7 if mastery >= 0.6 else 1.25
+            review = MemoryReview(
+                user_id=user_id,
+                lesson_id=lesson_id,
+                review_type=review_type,
+                status="scheduled",
+                review_count=1,
+                ease_factor=ease_factor,
+                interval_hours=interval_hours,
+                due_at=now + timedelta(hours=interval_hours),
+                last_presented_at=now,
+                review_metadata=metadata or {},
+            )
+            session.add(review)
+            return review
+
+        current_interval = max(review.interval_hours, 12.0)
+        if mastery >= 0.85:
+            new_interval = current_interval * 2.2
+            ease_factor = min(review.ease_factor + 0.18, 2.8)
+        elif mastery >= 0.7:
+            new_interval = current_interval * 1.6
+            ease_factor = min(review.ease_factor + 0.08, 2.5)
+        elif mastery >= 0.5:
+            new_interval = max(18.0, current_interval * 1.15)
+            ease_factor = max(review.ease_factor - 0.05, 1.35)
+        else:
+            new_interval = max(12.0, current_interval * 0.65)
+            ease_factor = max(review.ease_factor - 0.2, 1.1)
+
+        review.review_count += 1
+        review.ease_factor = ease_factor
+        review.interval_hours = round(new_interval, 1)
+        review.due_at = now + timedelta(hours=review.interval_hours)
+        review.last_presented_at = now
+        review.completed_at = now if mastery >= 0.7 else None
+        review.status = "scheduled"
+        review.review_metadata = {**(review.review_metadata or {}), **(metadata or {}), "mastery": mastery}
+        return review
 
     def get_all_lessons(
         self, 

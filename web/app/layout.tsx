@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import './globals.css'
 import { LanguageProvider } from './components/LanguageContext'
 import { ClerkProvider } from '@clerk/nextjs'
@@ -6,7 +7,7 @@ import Navbar from './components/Navbar'
 
 export const metadata: Metadata = {
   title: 'MentorMind - AI Teaching Assistant',
-  description: 'AI-driven educational agent for personalized teaching',
+  description: 'Process-first AI learning system with spaced review, seminar learning, and simulation-based practice',
   icons: {
     icon: '/favicon.jpg',
     apple: '/icon.jpg',
@@ -33,6 +34,11 @@ export default function RootLayout({
                     <div className="flex justify-between items-center">
                       <div className="text-sm text-gray-500">
                         © {new Date().getFullYear()} MentorMind. All rights reserved.
+                      </div>
+                      <div className="flex items-center gap-4 text-sm">
+                        <Link href="/principles" className="text-gray-500 hover:text-gray-900 transition-colors">
+                          Design Principles
+                        </Link>
                       </div>
                     </div>
                   </div>

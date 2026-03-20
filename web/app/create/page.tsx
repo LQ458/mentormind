@@ -46,6 +46,22 @@ interface LearningContext {
   timestamp: Date;
 }
 
+interface LessonDesignSettings {
+  showThinkingPath: boolean
+  enableSeminar: boolean
+  enableSimulation: boolean
+  enableOralDefense: boolean
+  addDeliberateError: boolean
+  personalAnchor: string
+}
+
+interface LessonDesignOption {
+  key: keyof LessonDesignSettings
+  labelZh: string
+  labelEn: string
+  value: boolean
+}
+
 export default function CreateLessonPage() {
   const router = useRouter()
   const { language: uiLanguage, contentLanguage, t } = useLanguage()
@@ -89,6 +105,14 @@ export default function CreateLessonPage() {
   })
 
   const [voices, setVoices] = useState<Voice[]>([])
+  const [lessonDesign, setLessonDesign] = useState<LessonDesignSettings>({
+    showThinkingPath: true,
+    enableSeminar: true,
+    enableSimulation: false,
+    enableOralDefense: false,
+    addDeliberateError: false,
+    personalAnchor: '',
+  })
 
   // Audio/Image upload state
   const [isUploadingAudio, setIsUploadingAudio] = useState(false)
@@ -191,6 +215,7 @@ export default function CreateLessonPage() {
     const sections: string[] = []
     const trimmedNotes = form.studentQuery.trim()
     const profileContext = buildProfilePromptContext(interestProfile)
+    const sessionContextLines = sessionContext.slice(0, 4).map((item) => `- ${item.title}: ${item.summary}`)
 
     if (trimmedNotes && trimmedNotes !== topic.trim()) {
       sections.push(`User notes:\n${trimmedNotes}`)
@@ -200,6 +225,23 @@ export default function CreateLessonPage() {
       sections.push(
         `${profileContext}\nUse this only for personalization. Do not copy learner profile details verbatim into the lesson title, filenames, or on-screen equations.`
       )
+    }
+
+    if (sessionContextLines.length > 0) {
+      sections.push(`Session learning context:\n${sessionContextLines.join('\n')}`)
+    }
+
+    const processFlags = [
+      lessonDesign.showThinkingPath ? 'Show a compact thinking path / knowledge map before the lesson.' : null,
+      lessonDesign.enableSeminar ? 'Include a multi-agent seminar moment with a mentor, a high achiever, and a struggling learner so the student moderates the discussion.' : null,
+      lessonDesign.enableSimulation ? 'End with an applied simulation or scenario-based practice mission.' : null,
+      lessonDesign.enableOralDefense ? 'Include an oral-defense style reflection prompt that tests reasoning, not memorization.' : null,
+      lessonDesign.addDeliberateError ? 'Include one deliberate but clearly teachable mistake for the learner to audit and correct.' : null,
+      lessonDesign.personalAnchor.trim() ? `Use this personal anchor or anecdote if it fits: ${lessonDesign.personalAnchor.trim()}` : null,
+    ].filter(Boolean)
+
+    if (processFlags.length > 0) {
+      sections.push(`Process-first design preferences:\n- ${processFlags.join('\n- ')}`)
     }
 
     return sections.length > 0 ? sections.join('\n\n') : undefined
@@ -869,6 +911,95 @@ export default function CreateLessonPage() {
                             onChange={(e) => setForm({ ...form, studentQuery: e.target.value })}
                             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-[50px] min-h-[50px]"
                             rows={1}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <h3 className="text-sm font-semibold text-slate-900">
+                              {uiLanguage === 'zh' ? '协作式课程蓝图' : 'Collaborative Lesson Blueprint'}
+                            </h3>
+                            <p className="text-sm text-slate-600 mt-1">
+                              {uiLanguage === 'zh'
+                                ? '在正式渲染前，决定这节课是偏向推理、讨论、模拟还是带一点“刻意摩擦”。'
+                                : 'Choose whether this lesson should lean toward reasoning, debate, simulation, or a bit of productive friction before we render it.'}
+                            </p>
+                          </div>
+                          <div className="text-xs font-medium text-slate-500">
+                            {uiLanguage === 'zh' ? '最少界面，最多控制' : 'Minimal UI, maximum control'}
+                          </div>
+                        </div>
+
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4">
+                          {([
+                            {
+                              key: 'showThinkingPath',
+                              labelZh: '思维路径',
+                              labelEn: 'Thinking Path',
+                              value: lessonDesign.showThinkingPath,
+                            },
+                            {
+                              key: 'enableSeminar',
+                              labelZh: '多智能体研讨',
+                              labelEn: 'Seminar Mode',
+                              value: lessonDesign.enableSeminar,
+                            },
+                            {
+                              key: 'enableSimulation',
+                              labelZh: '应用模拟',
+                              labelEn: 'Simulation',
+                              value: lessonDesign.enableSimulation,
+                            },
+                            {
+                              key: 'enableOralDefense',
+                              labelZh: '口头答辩',
+                              labelEn: 'Oral Defense',
+                              value: lessonDesign.enableOralDefense,
+                            },
+                            {
+                              key: 'addDeliberateError',
+                              labelZh: '刻意错误',
+                              labelEn: 'Deliberate Error',
+                              value: lessonDesign.addDeliberateError,
+                            },
+                          ] as LessonDesignOption[]).map((option) => (
+                            <button
+                              key={option.key}
+                              type="button"
+                              onClick={() => setLessonDesign((prev) => ({
+                                ...prev,
+                                [option.key]: !option.value,
+                              }))}
+                              className={`rounded-lg border px-4 py-3 text-left transition-colors ${
+                                option.value
+                                  ? 'border-blue-300 bg-blue-50 text-blue-900'
+                                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                              }`}
+                            >
+                              <div className="text-sm font-semibold">
+                                {uiLanguage === 'zh' ? option.labelZh : option.labelEn}
+                              </div>
+                              <div className="text-xs mt-1 opacity-80">
+                                {option.value
+                                  ? (uiLanguage === 'zh' ? '已启用' : 'Enabled')
+                                  : (uiLanguage === 'zh' ? '可加入' : 'Optional')}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="mt-4">
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            {uiLanguage === 'zh' ? '个人锚点 (可选)' : 'Personal Anchor (Optional)'}
+                          </label>
+                          <input
+                            type="text"
+                            value={lessonDesign.personalAnchor}
+                            onChange={(e) => setLessonDesign((prev) => ({ ...prev, personalAnchor: e.target.value }))}
+                            placeholder={uiLanguage === 'zh' ? '例如：结合 AP Calculus BC 的目标，或你最近卡住的例子' : 'For example: tie it to AP Calculus BC, or a specific example you keep getting stuck on'}
+                            className="w-full rounded-lg border border-slate-300 px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           />
                         </div>
                       </div>
