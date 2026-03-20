@@ -40,6 +40,7 @@ from config import config
 from core.asr import transcribe_with_local_model_result, get_asr_status, extract_text_with_paddleocr
 from core.summarize import summarize_extracted_content
 from services.api_client import api_client, get_language_instruction
+from prompts.loader import render_prompt
 
 # Initialize PostgreSQL database (Strict)
 print("🔧 Initializing PostgreSQL database...")
@@ -713,48 +714,19 @@ async def _generate_multi_agent_seminar_turn(
         if next_review:
             state_lines.append(f"Recommended intervention mode: {(next_review.get('metadata') or {}).get('trigger', 'memory_challenge')}")
 
-    prompt = f"""
-{lang_instruction}
-
-You are orchestrating a multi-agent educational seminar for one learner.
-
-Lesson title: {lesson.get('title') or lesson.get('topic')}
-Lesson description: {lesson.get('description') or ''}
-Learning objectives:
-{objective_lines or '- No explicit objectives available'}
-
-Seminar roles:
-{role_lines}
-
-Learner profile:
-{profile_lines or '- No extra profile context'}
-
-Current learner state:
-{chr(10).join(f'- {line}' for line in state_lines) if state_lines else '- No current state recorded'}
-
-Recent seminar history:
-{_format_interaction_history(recent_interactions)}
-
-Moderator focus: {focus or 'General understanding'}
-Moderator input: {moderator_input}
-
-Return strict JSON with this schema:
-{{
-  "messages": [
-    {{"role": "Mentor", "message": "..."}},
-    {{"role": "High Achiever", "message": "..."}},
-    {{"role": "Struggling Learner", "message": "..."}}
-  ],
-  "synthesis": "Short synthesis that helps the student compare the three views",
-  "next_moderator_prompt": "One concrete follow-up question for the student to ask next"
-}}
-
-Rules:
-- Each message should be concise but substantive, around 2-4 sentences.
-- The three roles must genuinely differ in perspective.
-- The synthesis should not repeat the messages verbatim.
-- Keep it educational, clear, and grounded in the lesson.
-""".strip()
+    prompt = render_prompt(
+        "learning/seminar",
+        language_instruction=lang_instruction,
+        lesson_title=lesson.get("title") or lesson.get("topic"),
+        lesson_description=lesson.get("description") or "",
+        objective_lines=objective_lines or "- No explicit objectives available",
+        role_lines=role_lines,
+        profile_lines=profile_lines or "- No extra profile context",
+        state_lines="\n".join(f"- {line}" for line in state_lines) if state_lines else "- No current state recorded",
+        interaction_history=_format_interaction_history(recent_interactions),
+        focus=focus or "General understanding",
+        moderator_input=moderator_input,
+    ).strip()
 
     try:
         response = await api_client.deepseek.chat_completion(
@@ -807,53 +779,20 @@ async def _generate_simulation_turn(
         if next_review:
             state_lines.append(f"Next review trigger: {(next_review.get('metadata') or {}).get('trigger', 'memory_challenge')}")
 
-    prompt = f"""
-{lang_instruction}
-
-You are running a short educational simulation that tests applied reasoning.
-
-Lesson title: {title}
-Lesson description: {lesson.get('description') or ''}
-Simulation title: {simulation.get('title') or ''}
-Scenario: {simulation.get('scenario') or ''}
-Success criteria:
-{chr(10).join(f"- {item}" for item in (simulation.get("success_criteria") or [])) or '- Explain the decision rule'}
-
-Learner profile:
-{profile_lines or '- No extra profile context'}
-
-Current learner state:
-{chr(10).join(f'- {line}' for line in state_lines) if state_lines else '- No current state recorded'}
-
-Recent simulation history:
-{_format_interaction_history(recent_interactions)}
-
-Scenario focus: {scenario_focus or 'General application'}
-Learner action: {learner_action}
-
-Return strict JSON with this schema:
-{{
-  "counterparty_role": "Demanding Customer",
-  "counterparty_message": "A realistic response to the learner's move",
-  "pressure": "A new constraint or twist that raises the stakes",
-  "coach_feedback": "Short coaching feedback on the quality of the learner's reasoning",
-  "next_prompt": "A concrete follow-up move the learner should answer next",
-  "score_hint": {{
-    "score": 0.0,
-    "confidence": 0.0,
-    "strengths": ["..."],
-    "struggles": ["..."],
-    "reflection": "One-sentence learner reflection"
-  }}
-}}
-
-Rules:
-- Keep this grounded in the lesson's actual concept.
-- Make the counterparty feel realistic, not theatrical.
-- Reward reasoning, adaptation, and clarity more than correctness alone.
-- Keep score and confidence between 0 and 1.
-- Keep each field concise and useful.
-""".strip()
+    prompt = render_prompt(
+        "learning/simulation",
+        language_instruction=lang_instruction,
+        lesson_title=title,
+        lesson_description=lesson.get("description") or "",
+        simulation_title=simulation.get("title") or "",
+        scenario=simulation.get("scenario") or "",
+        success_criteria="\n".join(f"- {item}" for item in (simulation.get("success_criteria") or [])) or "- Explain the decision rule",
+        profile_lines=profile_lines or "- No extra profile context",
+        state_lines="\n".join(f"- {line}" for line in state_lines) if state_lines else "- No current state recorded",
+        interaction_history=_format_interaction_history(recent_interactions),
+        scenario_focus=scenario_focus or "General application",
+        learner_action=learner_action,
+    ).strip()
 
     try:
         response = await api_client.deepseek.chat_completion(
@@ -908,56 +847,20 @@ async def _generate_oral_defense_turn(
             state_lines.append(f"Latest score: {latest.get('score')}")
             state_lines.append(f"Latest confidence: {latest.get('confidence')}")
 
-    prompt = f"""
-{lang_instruction}
-
-You are running a short oral defense with a three-expert panel.
-
-Lesson title: {title}
-Lesson description: {lesson.get('description') or ''}
-Learning objectives:
-{objective_lines or '- No explicit objectives available'}
-
-Panel title: {oral_defense.get('panel_title') or 'Expert Panel'}
-Suggested questions:
-{chr(10).join(f"- {item}" for item in (oral_defense.get("questions") or [])) or '- Ask the learner to explain why it works'}
-
-Learner profile:
-{profile_lines or '- No extra profile context'}
-
-Current learner state:
-{chr(10).join(f'- {line}' for line in state_lines) if state_lines else '- No current state recorded'}
-
-Recent oral-defense history:
-{_format_interaction_history(recent_interactions)}
-
-Defense focus: {focus or 'General understanding'}
-Learner answer: {learner_answer}
-
-Return strict JSON with this schema:
-{{
-  "panel": [
-    {{"role": "Concept Expert", "message": "..."}},
-    {{"role": "Boundary Expert", "message": "..."}},
-    {{"role": "Teaching Expert", "message": "..."}}
-  ],
-  "verdict": "Short verdict on the strength of the student's reasoning",
-  "next_question": "One follow-up question that probes deeper",
-  "score_hint": {{
-    "score": 0.0,
-    "confidence": 0.0,
-    "strengths": ["..."],
-    "struggles": ["..."],
-    "reflection": "One-sentence learner reflection"
-  }}
-}}
-
-Rules:
-- The three experts must probe different dimensions.
-- Focus on reasoning quality, not just factual accuracy.
-- Keep score and confidence between 0 and 1.
-- Be concise, sharp, and educational.
-""".strip()
+    prompt = render_prompt(
+        "learning/oral_defense",
+        language_instruction=lang_instruction,
+        lesson_title=title,
+        lesson_description=lesson.get("description") or "",
+        objective_lines=objective_lines or "- No explicit objectives available",
+        panel_title=oral_defense.get("panel_title") or "Expert Panel",
+        panel_questions="\n".join(f"- {item}" for item in (oral_defense.get("questions") or [])) or "- Ask the learner to explain why it works",
+        profile_lines=profile_lines or "- No extra profile context",
+        state_lines="\n".join(f"- {line}" for line in state_lines) if state_lines else "- No current state recorded",
+        interaction_history=_format_interaction_history(recent_interactions),
+        focus=focus or "General understanding",
+        learner_answer=learner_answer,
+    ).strip()
 
     try:
         response = await api_client.deepseek.chat_completion(
@@ -1011,38 +914,16 @@ async def _generate_memory_challenge(
         if next_review:
             state_lines.append(f"Next review in hours: {next_review.get('interval_hours')}")
 
-    prompt = f"""
-{lang_instruction}
-
-Create a short retrieval-practice challenge for a learner.
-
-Lesson title: {title}
-Lesson description: {lesson.get('description') or ''}
-Learning objectives:
-{objective_lines or '- No explicit objectives available'}
-
-Learner profile:
-{profile_lines or '- No extra profile context'}
-
-Current learner state:
-{chr(10).join(f'- {line}' for line in state_lines) if state_lines else '- No current state recorded'}
-
-Focus: {focus or 'Core concept recall'}
-
-Return strict JSON with this schema:
-{{
-  "title": "3-Minute Memory Challenge",
-  "prompt": "One short instruction",
-  "questions": ["...", "...", "..."],
-  "self_check": ["...", "...", "..."],
-  "recommended_reflection": "One sentence"
-}}
-
-Rules:
-- Prioritize retrieval, explanation, and misconception checking.
-- Keep it short enough to finish in about 3 minutes.
-- Make the questions specific to the lesson.
-""".strip()
+    prompt = render_prompt(
+        "learning/memory_challenge",
+        language_instruction=lang_instruction,
+        lesson_title=title,
+        lesson_description=lesson.get("description") or "",
+        objective_lines=objective_lines or "- No explicit objectives available",
+        profile_lines=profile_lines or "- No extra profile context",
+        state_lines="\n".join(f"- {line}" for line in state_lines) if state_lines else "- No current state recorded",
+        focus=focus or "Core concept recall",
+    ).strip()
 
     try:
         response = await api_client.deepseek.chat_completion(
@@ -1094,49 +975,17 @@ async def _generate_deliberate_error_challenge(
             state_lines.append(f"Latest score: {latest.get('score')}")
             state_lines.append(f"Latest confidence: {latest.get('confidence')}")
 
-    prompt = f"""
-{lang_instruction}
-
-Create one deliberate-error audit for a learner.
-
-Lesson title: {title}
-Lesson description: {lesson.get('description') or ''}
-Learning objectives:
-{objective_lines or '- No explicit objectives available'}
-
-Learner profile:
-{profile_lines or '- No extra profile context'}
-
-Current learner state:
-{chr(10).join(f'- {line}' for line in state_lines) if state_lines else '- No current state recorded'}
-
-Recent deliberate-error history:
-{_format_interaction_history(recent_interactions)}
-
-Focus: {focus or 'Boundary conditions and reasoning quality'}
-
-Return strict JSON with this schema:
-{{
-  "title": "Deliberate Error Audit",
-  "flawed_claim": "One plausible but meaningfully flawed claim or step",
-  "audit_prompt": "Ask the learner to find and explain the error",
-  "hints": ["...", "..."],
-  "correction_target": "Describe what a strong correction should include",
-  "score_hint": {{
-    "score": 0.0,
-    "confidence": 0.0,
-    "strengths": ["..."],
-    "struggles": ["..."],
-    "reflection": "One-sentence learner reflection"
-  }}
-}}
-
-Rules:
-- The flaw should be plausible, not silly.
-- The error should target reasoning, conditions, or misuse, not a trivial typo.
-- Keep it concise and educational.
-- Keep score and confidence between 0 and 1.
-""".strip()
+    prompt = render_prompt(
+        "learning/deliberate_error",
+        language_instruction=lang_instruction,
+        lesson_title=title,
+        lesson_description=lesson.get("description") or "",
+        objective_lines=objective_lines or "- No explicit objectives available",
+        profile_lines=profile_lines or "- No extra profile context",
+        state_lines="\n".join(f"- {line}" for line in state_lines) if state_lines else "- No current state recorded",
+        interaction_history=_format_interaction_history(recent_interactions),
+        focus=focus or "Boundary conditions and reasoning quality",
+    ).strip()
 
     try:
         response = await api_client.deepseek.chat_completion(

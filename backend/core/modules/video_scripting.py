@@ -9,6 +9,7 @@ import logging
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, field
 from services.api_client import APIClient
+from prompts.loader import render_prompt, load_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -144,65 +145,9 @@ class VideoScriptGenerator:
         )
 
     def _get_system_prompt(self, style: str, language: str) -> str:
-        base_prompt = f"""
-        You are a Video Director AI. Your goal is to convert educational content into a 'Programmatic Video Script' (JSON).
-        This script will be executed by Manim, a Python mathematical animation engine.
-        
-        OUTPUT FORMAT (strict JSON, no markdown):
-        {{
-          "title": "Video Title",
-          "scenes": [
-            {{
-              "id": "scene_1",
-              "duration": 5.0,
-              "narration": "Text for TTS to speak",
-              "action": "ACTION_TYPE",
-              "param": "CONTENT_TO_RENDER",
-              "visual_type": "manim"
-            }}
-          ]
-        }}
-        
-        ALLOWED ACTIONS (Manim):
-        - write_tex: param = LaTeX string (e.g. "E = mc^2", "F = ma")
-        - plot: param = function string (e.g. "sin(x)", "x**2")
-        - draw_shape: param = shape name (circle, square, triangle)
-        - show_text: param = plain text to display
-        - transform: param = target LaTeX (for equation transformation)
-        
-        RULES:
-        - All visual_type values must be "manim"
-        - The video MUST BE clear and structured, but stay efficient to render (target 4-8 scenes)
-        - You MUST include concrete examples and step-by-step conceptual breakdowns
-        - Narration should be detailed and educational, matching the visual content
-        - For general topics, use show_text and write_tex for key terms, definitions, and examples
-        - For math/science topics, you MUST explicitly include step-by-step calculations, equations, and plot graphs using write_tex, plot, and transform actions
-        
-        CRITICAL LANGUAGE INSTRUCTION:
-        All 'narration' values MUST exclusively be written in {language}. 
-        If the language is 'zh' or 'Chinese', write all narrations in Chinese characters.
-        
-        MATH & LATEX RULES:
-        1. Do NOT translate LaTeX math equations.
-        2. VERY IMPORTANT: Do NOT include Chinese characters inside 'write_tex' or 'plot' param values. 
-        3. If you need to display Chinese text on screen, use the 'show_text' action.
-        4. Math formulas in 'write_tex' must be pure standard LaTeX (e.g. "a^2 + b^2 = c^2").
-        """
-        
-        if style == "math":
-            return base_prompt + """
-            STYLE: 3Blue1Brown / Khan Academy
-            Focus on equations, graphs, and mathematical relationships.
-            Use write_tex for all formulas. Use plot for function graphs.
-            Dark background, white text, minimalistic.
-            """
-        else:
-            return base_prompt + """
-            STYLE: Educational explainer (Kurzgesagt-inspired, but Manim-rendered)
-            Focus on key concepts, definitions, and relationships.
-            Use show_text for concepts, write_tex for any important terms or equations.
-            Keep it clear and visually structured.
-            """
+        base = render_prompt("video/video_director_base", language=language)
+        style_ext = load_prompt("video/video_director_math" if style == "math" else "video/video_director_general")
+        return f"{base}\n\n{style_ext}"
             
     def _parse_json_response(self, content: str) -> Dict:
         """Extract and parse JSON from potential markdown blocks"""

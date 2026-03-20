@@ -112,25 +112,10 @@ class ManimService:
     async def _fix_code_with_llm(self, broken_code: str, error_log: str) -> Optional[str]:
         """Use LLM to fix the broken Manim code based on the error log"""
         from services.api_client import APIClient
+        from prompts.loader import render_prompt
         client = APIClient()
-        
-        prompt = f"""
-        You are a Manim (Python) Expert. The following code failed to render.
-        
-        ERROR LOG:
-        {error_log}
-        
-        BROKEN CODE:
-        ```python
-        {broken_code}
-        ```
-        
-        TASK:
-        Fix the code to resolve the error. 
-        - Return ONLY the full corrected Python code.
-        - Do not output markdown backticks.
-        - Do not explain.
-        """
+
+        prompt = render_prompt("rendering/manim_fix", error_log=error_log, broken_code=broken_code)
         
         try:
             response = await client.deepseek.chat_completion(
