@@ -12,7 +12,7 @@ from sqlalchemy import func, desc, asc, and_, or_
 from .base import SessionLocal
 from .models.lesson import Lesson, LessonObjective, LessonResource, LessonExercise
 from .models.enums import Language, StudentLevel, DifficultyLevel, ResourceType, ExerciseType, LessonStatus
-from .models.user import User, UserLesson, StudentPerformance, MemoryReview
+from .models.user import User, UserLesson, StudentPerformance, MemoryReview, AgentInteractionTurn, ProactiveNotification
 from .models.analytics import AnalyticsEvent, AnalyticsEventType, DailyMetrics, APILog
 
 
@@ -210,6 +210,17 @@ class LessonStorageSQL:
                 .order_by(MemoryReview.due_at.asc())
                 .first()
             )
+            recent_interactions = (
+                session.query(AgentInteractionTurn)
+                .filter(AgentInteractionTurn.user_id == user_id, AgentInteractionTurn.lesson_id == lesson_uuid)
+                .order_by(AgentInteractionTurn.created_at.desc())
+                .limit(12)
+                .all()
+            )
+
+            interactions_by_type: Dict[str, List[Dict[str, Any]]] = {}
+            for item in reversed(recent_interactions):
+                interactions_by_type.setdefault(item.interaction_type, []).append(item.to_dict())
 
             return {
                 "progress_percentage": user_lesson.progress_percentage if user_lesson else 0.0,
@@ -218,6 +229,7 @@ class LessonStorageSQL:
                 "last_accessed_at": user_lesson.last_accessed_at.isoformat() if user_lesson and user_lesson.last_accessed_at else None,
                 "latest_performance": latest_performance.to_dict() if latest_performance else None,
                 "next_review": review.to_dict() if review else None,
+                "recent_interactions_by_type": interactions_by_type,
             }
         finally:
             session.close()
@@ -364,6 +376,205 @@ class LessonStorageSQL:
                     },
                 })
             return queue
+        finally:
+            session.close()
+
+    def sync_proactive_notifications(self, user_id: str, horizon_hours: int = 72) -> List[Dict[str, Any]]:
+        """Create in-app notifications from due/upcoming review risks."""
+        session = self.SessionLocal()
+        try:
+            now = datetime.now(timezone.utc)
+            horizon = now + timedelta(hours=horizon_hours)
+            reviews = (
+                session.query(MemoryReview, Lesson)
+                .join(Lesson, Lesson.id == MemoryReview.lesson_id)
+                .filter(
+                    MemoryReview.user_id == user_id,
+                    MemoryReview.status.in_(["scheduled", "due"]),
+                    MemoryReview.due_at <= horizon,
+                    Lesson.status != LessonStatus.DELETED.value,
+                )
+                .order_by(MemoryReview.due_at.asc())
+                .all()
+            )
+
+            created: List[Dict[str, Any]] = []
+            for review, lesson in reviews:
+                existing = (
+                    session.query(ProactiveNotification)
+                    .filter(
+                        ProactiveNotification.user_id == user_id,
+                        ProactiveNotification.lesson_id == review.lesson_id,
+                        ProactiveNotification.notification_type == review.review_type,
+                        ProactiveNotification.status.in_(["unread", "read"]),
+                    )
+                    .order_by(ProactiveNotification.created_at.desc())
+                    .first()
+                )
+                if existing:
+                    existing.notification_metadata = {
+                        **(existing.notification_metadata or {}),
+                        "review_id": review.id,
+                        "trigger": (review.review_metadata or {}).get("trigger"),
+                        "mastery": (review.review_metadata or {}).get("mastery"),
+                    }
+                    existing.scheduled_for = review.due_at
+                    continue
+
+                due_in_hours = (review.due_at - now).total_seconds() / 3600
+                stage = "due_now" if due_in_hours <= 0 else "upcoming"
+                is_chinese = lesson.language == "zh"
+                trigger = (review.review_metadata or {}).get("trigger", review.review_type)
+                title = (
+                    "现在做 3 分钟挑战" if stage == "due_now" and is_chinese else
+                    "3-Minute Challenge Due Now" if stage == "due_now" else
+                    "即将进入遗忘风险" if is_chinese else
+                    "Memory Risk Rising Soon"
+                )
+                body = (
+                    f"现在是回看 {lesson.title} 之前先做主动回忆的最佳时机。"
+                    if stage == "due_now" and is_chinese else
+                    f"This is the best moment to retrieve {lesson.title} before rewatching."
+                    if stage == "due_now" else
+                    f"{lesson.title} 即将进入更高遗忘风险，建议先做一次短时检索。"
+                    if is_chinese else
+                    f"{lesson.title} is approaching a higher forgetting-risk window. A short retrieval pass is recommended."
+                )
+                notification = ProactiveNotification(
+                    user_id=user_id,
+                    lesson_id=review.lesson_id,
+                    notification_type=review.review_type,
+                    title=title,
+                    body=body,
+                    action_url=f"/lessons/{lesson.id}",
+                    status="unread",
+                    delivery_channel="in_app",
+                    scheduled_for=review.due_at,
+                    notification_metadata={
+                        "review_id": review.id,
+                        "stage": stage,
+                        "trigger": trigger,
+                        "mastery": (review.review_metadata or {}).get("mastery"),
+                    },
+                )
+                session.add(notification)
+                session.flush()
+                created.append(notification.to_dict())
+
+            session.commit()
+            return created
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_notifications(
+        self,
+        user_id: str,
+        unread_only: bool = False,
+        limit: int = 20,
+        auto_sync: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """Return in-app notifications, optionally syncing review-derived items first."""
+        if auto_sync:
+            try:
+                self.sync_proactive_notifications(user_id)
+            except Exception as exc:
+                print(f"⚠️ Failed to sync proactive notifications for {user_id}: {exc}")
+
+        session = self.SessionLocal()
+        try:
+            query = session.query(ProactiveNotification).filter(ProactiveNotification.user_id == user_id)
+            if unread_only:
+                query = query.filter(ProactiveNotification.status == "unread")
+            notifications = query.order_by(
+                desc(ProactiveNotification.scheduled_for),
+                desc(ProactiveNotification.created_at),
+            ).limit(limit).all()
+            return [item.to_dict() for item in notifications]
+        finally:
+            session.close()
+
+    def mark_notification_status(self, user_id: str, notification_id: int, status: str) -> Optional[Dict[str, Any]]:
+        """Mark a notification as read or dismissed."""
+        session = self.SessionLocal()
+        try:
+            notification = (
+                session.query(ProactiveNotification)
+                .filter(
+                    ProactiveNotification.id == notification_id,
+                    ProactiveNotification.user_id == user_id,
+                )
+                .first()
+            )
+            if not notification:
+                return None
+
+            notification.status = status
+            if status == "read":
+                notification.read_at = datetime.now(timezone.utc)
+            session.commit()
+            session.refresh(notification)
+            return notification.to_dict()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_recent_agent_interactions(
+        self,
+        user_id: str,
+        lesson_id: str,
+        interaction_type: Optional[str] = None,
+        limit: int = 6,
+    ) -> List[Dict[str, Any]]:
+        """Return recent stored agent turns for a lesson."""
+        session = self.SessionLocal()
+        try:
+            lesson_uuid = uuid.UUID(lesson_id)
+            query = (
+                session.query(AgentInteractionTurn)
+                .filter(
+                    AgentInteractionTurn.user_id == user_id,
+                    AgentInteractionTurn.lesson_id == lesson_uuid,
+                )
+                .order_by(AgentInteractionTurn.created_at.desc())
+            )
+            if interaction_type:
+                query = query.filter(AgentInteractionTurn.interaction_type == interaction_type)
+            return [item.to_dict() for item in query.limit(limit).all()]
+        finally:
+            session.close()
+
+    def store_agent_interaction(
+        self,
+        user_id: str,
+        lesson_id: str,
+        interaction_type: str,
+        user_input: str,
+        agent_output: Dict[str, Any],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Persist one live agent turn for later retrieval and continuity."""
+        session = self.SessionLocal()
+        try:
+            item = AgentInteractionTurn(
+                user_id=user_id,
+                lesson_id=uuid.UUID(lesson_id),
+                interaction_type=interaction_type,
+                user_input=user_input,
+                agent_output=agent_output or {},
+                turn_metadata=metadata or {},
+            )
+            session.add(item)
+            session.commit()
+            session.refresh(item)
+            return item.to_dict()
+        except Exception:
+            session.rollback()
+            raise
         finally:
             session.close()
 

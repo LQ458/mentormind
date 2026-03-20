@@ -21,6 +21,10 @@ const principles = {
       title: 'Ownership Through Co-Creation',
       body: 'You can shape the lesson before rendering by adding context, choosing modes like seminar or simulation, and attaching your own examples or goals.',
     },
+    {
+      title: 'Teach-to-Learn and Desirable Difficulties',
+      body: 'Some of the strongest learning effects appear when you have to explain, defend, or repair an idea under light pressure. MentorMind uses debates, oral defenses, and deliberate errors to create that kind of useful difficulty.',
+    },
   ],
   zh: [
     {
@@ -38,6 +42,10 @@ const principles = {
     {
       title: '共同创作，增强拥有感',
       body: '你可以在生成前加入自己的背景、案例、目标和模式偏好，让课程真正围绕你的学习过程来构建。',
+    },
+    {
+      title: '以教促学与“有益难度”',
+      body: '很多深层学习，恰恰发生在你必须解释、辩护或修正一个观点的时候。MentorMind 会用研讨、口头答辩和刻意错误来制造这种“刚刚好的难度”。',
     },
   ],
 }
@@ -60,8 +68,8 @@ export default function PrinciplesPage() {
           </h1>
           <p className="mt-4 text-lg leading-8 text-slate-600">
             {language === 'zh'
-              ? 'MentorMind 的目标，是把学生从被动观看者，变成主动管理自己学习过程的人。我们的核心机制来自间隔重复、检索练习、生成效应与适度认知摩擦。'
-              : 'MentorMind is designed to move learners from passive watching to active management of their own learning process. The product draws from spaced repetition, retrieval practice, the generation effect, and productive cognitive friction.'}
+              ? 'MentorMind 的目标，是把学生从被动观看者，变成主动管理自己学习过程的人。我们的核心机制来自间隔重复、检索练习、生成效应、以教促学，以及适度认知摩擦。'
+              : 'MentorMind is designed to move learners from passive watching to active management of their own learning process. The product draws from spaced repetition, retrieval practice, the generation effect, teach-to-learn, and productive cognitive friction.'}
           </p>
         </div>
       </div>
@@ -82,7 +90,7 @@ export default function PrinciplesPage() {
         <ul className="mt-3 space-y-2 text-blue-900">
           <li>{language === 'zh' ? '仪表盘会在最该复习的时候推送 3 分钟挑战。' : 'The dashboard surfaces 3-minute challenges when forgetting risk is highest.'}</li>
           <li>{language === 'zh' ? '创建流程里可以开启研讨、模拟、答辩和刻意错误。' : 'The create flow lets you enable seminar, simulation, oral-defense, and deliberate-error modes.'}</li>
-          <li>{language === 'zh' ? '课程页不只是播放视频，还会让你主持讨论、练习解释和做决策。' : 'The lesson room does more than play video. It asks you to moderate, explain, and decide.'}</li>
+          <li>{language === 'zh' ? '课程页不只是播放视频，还会让你主持讨论、练习解释、做决策并接受专家追问。' : 'The lesson room does more than play video. It asks you to moderate, explain, decide, and defend under questioning.'}</li>
         </ul>
         <div className="mt-5">
           <Link href="/dashboard" className="text-sm font-semibold text-blue-700 hover:text-blue-900">

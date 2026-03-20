@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useLanguage } from '../components/LanguageContext'
+import { useAuth } from '@clerk/nextjs'
 
 interface Lesson {
   id: string
@@ -15,6 +16,7 @@ interface Lesson {
 
 export default function LessonsPage() {
   const { language, t } = useLanguage()
+  const { getToken, isSignedIn } = useAuth()
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null)
@@ -25,9 +27,23 @@ export default function LessonsPage() {
 
   const fetchLessons = async () => {
     try {
-      const response = await fetch('/api/backend/results')
+      const endpoint = isSignedIn ? '/api/backend/users/me/lessons' : '/api/backend/results'
+      const token = await getToken()
+      const headers: Record<string, string> = {}
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+      const response = await fetch(endpoint, { headers })
       const data = await response.json()
-      setLessons(data.results || [])
+      const rawLessons = Array.isArray(data) ? data : (data.results || [])
+      setLessons(rawLessons.map((lesson: any) => ({
+        id: lesson.id,
+        timestamp: lesson.timestamp || lesson.created_at,
+        query: lesson.query || lesson.topic,
+        lesson_title: lesson.lesson_title || lesson.title,
+        quality_score: lesson.quality_score || 0,
+        cost_usd: lesson.cost_usd || 0,
+      })))
     } catch (error) {
       console.error('Failed to fetch lessons:', error)
     } finally {
@@ -39,7 +55,12 @@ export default function LessonsPage() {
     if (!confirm(t('lessons.deleteConfirm'))) return
 
     try {
-      const response = await fetch(`/api/backend/lessons/${id}`, { method: 'DELETE' })
+      const token = await getToken()
+      const headers: Record<string, string> = {}
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+      const response = await fetch(`/api/backend/lessons/${id}`, { method: 'DELETE', headers })
       if (response.ok) {
         setLessons(lessons.filter(lesson => lesson.id !== id))
       } else {
@@ -57,7 +78,12 @@ export default function LessonsPage() {
     if (!confirm(t('lessons.deleteAllConfirm2'))) return
 
     try {
-      const response = await fetch('/api/backend/lessons', { method: 'DELETE' })
+      const token = await getToken()
+      const headers: Record<string, string> = {}
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+      const response = await fetch('/api/backend/lessons', { method: 'DELETE', headers })
       if (response.ok) {
         setLessons([])
         alert(t('lessons.deletedSuccess'))

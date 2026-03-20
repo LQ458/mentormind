@@ -39,6 +39,7 @@ from auth import get_current_user, get_optional_user
 from config import config
 from core.asr import transcribe_with_local_model_result, get_asr_status, extract_text_with_paddleocr
 from core.summarize import summarize_extracted_content
+from services.api_client import api_client, get_language_instruction
 
 # Initialize PostgreSQL database (Strict)
 print("🔧 Initializing PostgreSQL database...")
@@ -159,6 +160,29 @@ class RecordPerformanceRequest(BaseModel):
     reflection: Optional[str] = None
 
 
+class SeminarTurnRequest(BaseModel):
+    moderator_input: str = Field(min_length=1)
+    focus: Optional[str] = None
+
+
+class SimulationTurnRequest(BaseModel):
+    learner_action: str = Field(min_length=1)
+    scenario_focus: Optional[str] = None
+
+
+class OralDefenseTurnRequest(BaseModel):
+    learner_answer: str = Field(min_length=1)
+    focus: Optional[str] = None
+
+
+class MemoryChallengeRequest(BaseModel):
+    focus: Optional[str] = None
+
+
+class DeliberateErrorRequest(BaseModel):
+    focus: Optional[str] = None
+
+
 def _get_or_create_user_profile(db, user_id: str) -> UserProfile:
     profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
     if profile:
@@ -258,6 +282,887 @@ def _sanitize_topic_and_requirements(topic: str, custom_requirements: Optional[s
 
     return cleaned_topic, merged_requirements or None
 
+
+def _build_process_layer(
+    lesson: Dict[str, Any],
+    lesson_state: Optional[Dict[str, Any]] = None,
+    profile: Optional[UserProfile] = None,
+) -> Dict[str, Any]:
+    """Derive a transparent process-first learning layer for the lesson room."""
+    objectives = lesson.get("objectives") or []
+    objective_texts = [
+        item.get("objective") if isinstance(item, dict) else str(item)
+        for item in objectives
+        if item
+    ]
+    ai_insights = lesson.get("ai_insights") or {}
+    title = lesson.get("title") or lesson.get("topic") or "Lesson"
+    description = lesson.get("description") or ai_insights.get("class_description") or ""
+    language = lesson.get("language", "en")
+    is_chinese = language == "zh"
+
+    primary_goal = objective_texts[0] if objective_texts else (
+        "用自己的话解释核心概念" if is_chinese else "Explain the core concept in your own words"
+    )
+    stretch_goal = objective_texts[1] if len(objective_texts) > 1 else (
+        "把规则和图像联系起来" if is_chinese else "Connect the rule to a concrete representation"
+    )
+
+    profile_hint = None
+    if profile and profile.long_term_goals:
+        profile_hint = profile.long_term_goals
+    elif profile and profile.current_challenges:
+        profile_hint = profile.current_challenges
+
+    mastery = None
+    if lesson_state and lesson_state.get("next_review"):
+        mastery = (lesson_state.get("next_review", {}).get("metadata") or {}).get("mastery")
+
+    if mastery is None and lesson_state and lesson_state.get("latest_performance"):
+        mastery = lesson_state["latest_performance"].get("score")
+
+    if mastery is None:
+        intervention_mode = "memory_challenge"
+    elif mastery >= 0.82:
+        intervention_mode = "deliberate_error"
+    elif mastery >= 0.62:
+        intervention_mode = "oral_defense"
+    else:
+        intervention_mode = "memory_challenge"
+
+    if profile_hint and mastery is not None and mastery >= 0.78:
+        simulation_title = (
+            f"把 {profile_hint} 变成一个应用任务"
+            if is_chinese else
+            f"Turn {profile_hint} into an applied scenario"
+        )
+    else:
+        simulation_title = (
+            f"在真实情境中运用 {title}"
+            if is_chinese else
+            f"Use {title} in a real situation"
+        )
+
+    return {
+        "thinking_path": {
+            "summary": (
+                "先看核心概念，再连接图像、边界条件与常见错误。"
+                if is_chinese else
+                "Move from the core concept into representation, boundary conditions, and common mistakes."
+            ),
+            "nodes": [
+                {"id": "topic", "label": title, "kind": "topic"},
+                {"id": "goal_1", "label": primary_goal, "kind": "objective"},
+                {"id": "goal_2", "label": stretch_goal, "kind": "objective"},
+                {
+                    "id": "friction",
+                    "label": "刻意错误 / Deliberate Error" if is_chinese else "Deliberate Error Check",
+                    "kind": "friction",
+                },
+            ],
+            "edges": [
+                {"from": "topic", "to": "goal_1"},
+                {"from": "goal_1", "to": "goal_2"},
+                {"from": "goal_2", "to": "friction"},
+            ],
+        },
+        "seminar": {
+            "moderator_prompt": (
+                "你是主持人。请判断哪一个角色最接近完整理解，并用自己的例子做最后裁决。"
+                if is_chinese else
+                "You are the moderator. Decide which role is closest to a full understanding, then settle it with your own example."
+            ),
+            "roles": [
+                {
+                    "name": "导师" if is_chinese else "Mentor",
+                    "stance": (
+                        f"先把 {title} 的核心模型说清楚。"
+                        if is_chinese else
+                        f"Clarify the core mental model behind {title}."
+                    ),
+                },
+                {
+                    "name": "高水平同伴" if is_chinese else "High Achiever",
+                    "stance": (
+                        f"把它和这个目标连接起来：{primary_goal}"
+                        if is_chinese else
+                        f"Connect it directly to this objective: {primary_goal}"
+                    ),
+                },
+                {
+                    "name": "吃力中的同伴" if is_chinese else "Struggling Learner",
+                    "stance": (
+                        f"指出最容易混淆的地方：{stretch_goal}"
+                        if is_chinese else
+                        f"Surface the likely confusion point: {stretch_goal}"
+                    ),
+                },
+            ],
+        },
+        "simulation": {
+            "title": simulation_title,
+            "scenario": (
+                f"请把 {title} 放进一个需要你做判断的现实情境中，并解释你的选择。"
+                if is_chinese else
+                f"Place {title} inside a realistic decision-making scenario and justify your choice."
+            ),
+            "success_criteria": [
+                "能解释决策依据" if is_chinese else "Explain the decision rule",
+                "能指出错误代价" if is_chinese else "Identify the cost of being wrong",
+                "能根据反馈调整" if is_chinese else "Adjust after feedback",
+            ],
+        },
+        "oral_defense": {
+            "panel_title": "专家小组答辩" if is_chinese else "Expert Panel Oral Defense",
+            "questions": [
+                (
+                    f"为什么 {title} 是合理的？"
+                    if is_chinese else
+                    f"Why does {title} make sense?"
+                ),
+                (
+                    "它在什么条件下会失效或被误用？"
+                    if is_chinese else
+                    "Under what conditions does it break down or get misused?"
+                ),
+                (
+                    "如果你要教给另一个学生，你会先讲什么？"
+                    if is_chinese else
+                    "If you had to teach this to another learner, what would you explain first?"
+                ),
+            ],
+        },
+        "intervention_recommendation": {
+            "mode": intervention_mode,
+            "label": {
+                "memory_challenge": "3 分钟记忆挑战" if is_chinese else "3-Minute Memory Challenge",
+                "deliberate_error": "刻意错误审计" if is_chinese else "Deliberate Error Audit",
+                "oral_defense": "口头答辩" if is_chinese else "Oral Defense",
+            }[intervention_mode],
+            "reason": (
+                "基于当前掌握度，先进行主动回忆最有效。"
+                if intervention_mode == "memory_challenge" and is_chinese else
+                "Based on current mastery, retrieval practice is the highest-value next step."
+                if intervention_mode == "memory_challenge" else
+                "你已经有一定掌握度，现在更适合通过错误审计或口头辩护来加深理解。"
+                if is_chinese else
+                "You have enough baseline understanding to benefit from critique and defense instead of simple review."
+            ),
+        },
+        "description": description,
+    }
+
+
+def _fallback_seminar_turn(
+    lesson: Dict[str, Any],
+    process_layer: Dict[str, Any],
+    moderator_input: str,
+) -> Dict[str, Any]:
+    """Deterministic fallback when the LLM seminar call is unavailable."""
+    roles = process_layer.get("seminar", {}).get("roles", [])
+    language = lesson.get("language", "en")
+    is_chinese = language == "zh"
+    base_messages = []
+    for role in roles:
+        if is_chinese:
+            base_messages.append({
+                "role": role.get("name", "角色"),
+                "message": f"{role.get('stance', '')} 我会围绕“{moderator_input}”给出我的判断。",
+            })
+        else:
+            base_messages.append({
+                "role": role.get("name", "Role"),
+                "message": f"{role.get('stance', '')} I would frame my response around: {moderator_input}",
+            })
+
+    return {
+        "messages": base_messages,
+        "synthesis": (
+            f"综合来看，你需要把讨论重新拉回到这个问题：{moderator_input}"
+            if is_chinese else
+            f"The strongest next move is to pull the discussion back to this core question: {moderator_input}"
+        ),
+        "next_moderator_prompt": (
+            "请要求三位角色都用一个具体例子来支持自己的判断。"
+            if is_chinese else
+            "Ask each role to support their claim with one concrete example."
+        ),
+    }
+
+
+def _fallback_simulation_turn(
+    lesson: Dict[str, Any],
+    process_layer: Dict[str, Any],
+    learner_action: str,
+) -> Dict[str, Any]:
+    """Deterministic fallback when live simulation generation is unavailable."""
+    language = lesson.get("language", "en")
+    is_chinese = language == "zh"
+    title = lesson.get("title") or lesson.get("topic") or ("本课主题" if is_chinese else "this lesson")
+    return {
+        "counterparty_role": "苛刻客户" if is_chinese else "Demanding Customer",
+        "counterparty_message": (
+            f"你的做法已经有方向了，但请把它更具体地应用到“{title}”里。"
+            if is_chinese else
+            f"Your move has potential, but make it more concrete inside the context of {title}."
+        ),
+        "pressure": (
+            "现在加一个限制条件：时间更少、错误代价更高。你会怎么调整？"
+            if is_chinese else
+            "Now add one constraint: less time and a higher cost of being wrong. How would you adapt?"
+        ),
+        "coach_feedback": (
+            f"你刚才的回答是：{learner_action}。下一步请明确你的判断规则，而不是只给结论。"
+            if is_chinese else
+            f"You said: {learner_action}. The next improvement is to state your decision rule, not just the conclusion."
+        ),
+        "next_prompt": (
+            "请再回答一次，这次要包含：判断依据、最可能的风险、以及你会如何根据反馈修正。"
+            if is_chinese else
+            "Answer again, but this time include: your rule, the main risk, and how you would revise after feedback."
+        ),
+        "score_hint": {
+            "score": 0.62,
+            "confidence": 0.58,
+            "strengths": ["开始把概念放进情境中"] if is_chinese else ["starting to apply the concept in context"],
+            "struggles": ["推理规则还不够明确"] if is_chinese else ["decision rule still needs sharpening"],
+            "reflection": (
+                "我开始能把概念放进应用场景里，但还需要更清楚地说明如何做判断。"
+                if is_chinese else
+                "I am starting to apply the concept, but I still need to explain my decision rule more clearly."
+            ),
+        },
+    }
+
+
+def _fallback_oral_defense_turn(
+    lesson: Dict[str, Any],
+    learner_answer: str,
+) -> Dict[str, Any]:
+    """Deterministic fallback when live oral-defense generation is unavailable."""
+    language = lesson.get("language", "en")
+    is_chinese = language == "zh"
+    title = lesson.get("title") or lesson.get("topic") or ("本课主题" if is_chinese else "this topic")
+    panel = [
+        {
+            "role": "概念专家" if is_chinese else "Concept Expert",
+            "message": (
+                f"你的回答已经触及 {title} 的核心，但还需要更明确地点出它为什么成立。"
+                if is_chinese else
+                f"Your answer touches the core of {title}, but it still needs a clearer statement of why it works."
+            ),
+        },
+        {
+            "role": "边界条件专家" if is_chinese else "Boundary Expert",
+            "message": (
+                "请补充它在什么条件下会失效、被误用，或者需要特别小心。"
+                if is_chinese else
+                "Add the conditions under which it breaks down, gets misused, or needs extra caution."
+            ),
+        },
+        {
+            "role": "教学专家" if is_chinese else "Teaching Expert",
+            "message": (
+                "如果你要教给别人，请先给一个简单例子，再讲规则。"
+                if is_chinese else
+                "If you had to teach it, start with one simple example and then name the rule."
+            ),
+        },
+    ]
+    return {
+        "panel": panel,
+        "verdict": (
+            f"你已经开始形成对 {title} 的口头解释，但还需要把“为什么成立”和“何时失效”说得更完整。"
+            if is_chinese else
+            f"You are forming a workable defense of {title}, but you still need a fuller explanation of why it works and when it fails."
+        ),
+        "next_question": (
+            "现在请用一个反例或边界情形，证明你不是只记住了结论。"
+            if is_chinese else
+            "Now use one counterexample or boundary case to prove you are not just recalling the conclusion."
+        ),
+        "score_hint": {
+            "score": 0.64,
+            "confidence": 0.6,
+            "strengths": ["能够开始解释概念"] if is_chinese else ["able to begin explaining the concept"],
+            "struggles": ["边界条件还不够清楚"] if is_chinese else ["boundary conditions are still fuzzy"],
+            "reflection": (
+                f"我已经能开始为 {title} 做口头辩护，但还需要更完整地说明原理和限制。"
+                if is_chinese else
+                f"I can begin defending {title}, but I still need to explain the mechanism and limits more completely."
+            ),
+        },
+    }
+
+
+def _fallback_memory_challenge(lesson: Dict[str, Any]) -> Dict[str, Any]:
+    """Deterministic fallback for retrieval-practice generation."""
+    language = lesson.get("language", "en")
+    is_chinese = language == "zh"
+    title = lesson.get("title") or lesson.get("topic") or ("本课主题" if is_chinese else "this lesson")
+    return {
+        "title": "3 分钟记忆挑战" if is_chinese else "3-Minute Memory Challenge",
+        "prompt": (
+            f"不用回看材料，请先用自己的话解释 {title} 的核心概念。"
+            if is_chinese else
+            f"Without replaying the material, explain the core idea of {title} in your own words."
+        ),
+        "questions": [
+            "关键规则是什么？" if is_chinese else "What is the key rule or pattern?",
+            "举一个你自己的例子。" if is_chinese else "Give one example of your own.",
+            "最常见的误解是什么？" if is_chinese else "What is the most common misconception?",
+        ],
+        "self_check": [
+            "我能不看提示说明核心概念" if is_chinese else "I can explain the core idea without prompts",
+            "我能给出一个新例子" if is_chinese else "I can generate a new example",
+            "我知道最容易犯的错误" if is_chinese else "I know the likeliest mistake",
+        ],
+        "recommended_reflection": (
+            "如果你卡住了，说明应该更早复习，而不是更晚。"
+            if is_chinese else
+            "If you got stuck, the review window should move earlier, not later."
+        ),
+    }
+
+
+def _fallback_deliberate_error_challenge(lesson: Dict[str, Any]) -> Dict[str, Any]:
+    """Deterministic fallback for deliberate-error generation."""
+    language = lesson.get("language", "en")
+    is_chinese = language == "zh"
+    title = lesson.get("title") or lesson.get("topic") or ("本课主题" if is_chinese else "this lesson")
+    return {
+        "title": "刻意错误审计" if is_chinese else "Deliberate Error Audit",
+        "flawed_claim": (
+            f"关于 {title}，只要记住结论就够了，条件与边界几乎不会影响判断。"
+            if is_chinese else
+            f"For {title}, remembering the final answer is enough; conditions and edge cases rarely change the decision."
+        ),
+        "audit_prompt": (
+            "请指出这句话最危险的错误，并解释为什么它会误导学习者。"
+            if is_chinese else
+            "Identify the most dangerous mistake in this claim and explain why it would mislead a learner."
+        ),
+        "hints": [
+            "先看它忽略了哪些条件。" if is_chinese else "Start by asking which conditions it ignores.",
+            "再看它是否把结果当成了规则本身。" if is_chinese else "Then ask whether it confuses the result with the reasoning.",
+        ],
+        "correction_target": (
+            "一个更好的回答应该同时说清：规则、条件、以及何时容易误用。"
+            if is_chinese else
+            "A stronger correction should name the rule, the conditions, and when the idea is easy to misuse."
+        ),
+        "score_hint": {
+            "score": 0.7,
+            "confidence": 0.64,
+            "strengths": ["开始审计边界条件"] if is_chinese else ["starting to audit boundary conditions"],
+            "struggles": ["还需要更明确地区分规则和结论"] if is_chinese else ["still needs a sharper distinction between rule and conclusion"],
+            "reflection": (
+                "我开始能找出推理中的危险跳步，但还需要更清楚地说明正确说法。"
+                if is_chinese else
+                "I am starting to catch risky leaps in reasoning, but I still need to state the corrected version more clearly."
+            ),
+        },
+    }
+
+
+def _format_interaction_history(recent_interactions: Optional[List[Dict[str, Any]]]) -> str:
+    """Compress recent stored turns into prompt-friendly context."""
+    if not recent_interactions:
+        return "- No prior interaction history"
+
+    lines: List[str] = []
+    for item in recent_interactions[-4:]:
+        lines.append(f"- User: {item.get('user_input', '')}")
+        agent_output = item.get("agent_output") or {}
+        if "synthesis" in agent_output:
+            lines.append(f"  System synthesis: {agent_output.get('synthesis')}")
+        elif "coach_feedback" in agent_output:
+            lines.append(f"  Coach feedback: {agent_output.get('coach_feedback')}")
+        elif "verdict" in agent_output:
+            lines.append(f"  Panel verdict: {agent_output.get('verdict')}")
+    return "\n".join(lines) if lines else "- No prior interaction history"
+
+
+async def _generate_multi_agent_seminar_turn(
+    lesson: Dict[str, Any],
+    process_layer: Dict[str, Any],
+    moderator_input: str,
+    focus: Optional[str] = None,
+    profile: Optional[UserProfile] = None,
+    lesson_state: Optional[Dict[str, Any]] = None,
+    recent_interactions: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Generate a live seminar turn with mentor/high-achiever/struggling-learner responses."""
+    language = lesson.get("language", "en")
+    lang_instruction = get_language_instruction(language)
+    roles = process_layer.get("seminar", {}).get("roles", [])
+    role_lines = "\n".join(f"- {role.get('name')}: {role.get('stance')}" for role in roles)
+    objective_lines = "\n".join(
+        f"- {item.get('objective')}"
+        for item in (lesson.get("objectives") or [])
+        if isinstance(item, dict) and item.get("objective")
+    )
+    profile_lines = "\n".join(profile.to_ai_context_lines()) if profile else ""
+    state_lines = []
+    if lesson_state:
+        latest = lesson_state.get("latest_performance") or {}
+        next_review = lesson_state.get("next_review") or {}
+        if latest:
+            state_lines.append(f"Latest score: {latest.get('score')}")
+            state_lines.append(f"Latest confidence: {latest.get('confidence')}")
+        if next_review:
+            state_lines.append(f"Recommended intervention mode: {(next_review.get('metadata') or {}).get('trigger', 'memory_challenge')}")
+
+    prompt = f"""
+{lang_instruction}
+
+You are orchestrating a multi-agent educational seminar for one learner.
+
+Lesson title: {lesson.get('title') or lesson.get('topic')}
+Lesson description: {lesson.get('description') or ''}
+Learning objectives:
+{objective_lines or '- No explicit objectives available'}
+
+Seminar roles:
+{role_lines}
+
+Learner profile:
+{profile_lines or '- No extra profile context'}
+
+Current learner state:
+{chr(10).join(f'- {line}' for line in state_lines) if state_lines else '- No current state recorded'}
+
+Recent seminar history:
+{_format_interaction_history(recent_interactions)}
+
+Moderator focus: {focus or 'General understanding'}
+Moderator input: {moderator_input}
+
+Return strict JSON with this schema:
+{{
+  "messages": [
+    {{"role": "Mentor", "message": "..."}},
+    {{"role": "High Achiever", "message": "..."}},
+    {{"role": "Struggling Learner", "message": "..."}}
+  ],
+  "synthesis": "Short synthesis that helps the student compare the three views",
+  "next_moderator_prompt": "One concrete follow-up question for the student to ask next"
+}}
+
+Rules:
+- Each message should be concise but substantive, around 2-4 sentences.
+- The three roles must genuinely differ in perspective.
+- The synthesis should not repeat the messages verbatim.
+- Keep it educational, clear, and grounded in the lesson.
+""".strip()
+
+    try:
+        response = await api_client.deepseek.chat_completion(
+            messages=[
+                {"role": "system", "content": f"You are a careful seminar orchestrator. {lang_instruction}"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.4,
+            max_tokens=1200,
+        )
+        if not response.success or not response.data:
+            return _fallback_seminar_turn(lesson, process_layer, moderator_input)
+
+        content = response.data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        import re
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        if not match:
+            return _fallback_seminar_turn(lesson, process_layer, moderator_input)
+        parsed = json.loads(match.group(0))
+        if not isinstance(parsed, dict) or "messages" not in parsed:
+            return _fallback_seminar_turn(lesson, process_layer, moderator_input)
+        return parsed
+    except Exception as exc:
+        print(f"⚠️ Seminar generation failed, using fallback: {exc}")
+        return _fallback_seminar_turn(lesson, process_layer, moderator_input)
+
+
+async def _generate_simulation_turn(
+    lesson: Dict[str, Any],
+    process_layer: Dict[str, Any],
+    learner_action: str,
+    scenario_focus: Optional[str] = None,
+    profile: Optional[UserProfile] = None,
+    lesson_state: Optional[Dict[str, Any]] = None,
+    recent_interactions: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Generate one live applied-simulation turn for the learner."""
+    language = lesson.get("language", "en")
+    lang_instruction = get_language_instruction(language)
+    simulation = process_layer.get("simulation", {})
+    title = lesson.get("title") or lesson.get("topic")
+    profile_lines = "\n".join(profile.to_ai_context_lines()) if profile else ""
+    state_lines = []
+    if lesson_state:
+        latest = lesson_state.get("latest_performance") or {}
+        next_review = lesson_state.get("next_review") or {}
+        if latest:
+            state_lines.append(f"Latest score: {latest.get('score')}")
+            state_lines.append(f"Latest confidence: {latest.get('confidence')}")
+        if next_review:
+            state_lines.append(f"Next review trigger: {(next_review.get('metadata') or {}).get('trigger', 'memory_challenge')}")
+
+    prompt = f"""
+{lang_instruction}
+
+You are running a short educational simulation that tests applied reasoning.
+
+Lesson title: {title}
+Lesson description: {lesson.get('description') or ''}
+Simulation title: {simulation.get('title') or ''}
+Scenario: {simulation.get('scenario') or ''}
+Success criteria:
+{chr(10).join(f"- {item}" for item in (simulation.get("success_criteria") or [])) or '- Explain the decision rule'}
+
+Learner profile:
+{profile_lines or '- No extra profile context'}
+
+Current learner state:
+{chr(10).join(f'- {line}' for line in state_lines) if state_lines else '- No current state recorded'}
+
+Recent simulation history:
+{_format_interaction_history(recent_interactions)}
+
+Scenario focus: {scenario_focus or 'General application'}
+Learner action: {learner_action}
+
+Return strict JSON with this schema:
+{{
+  "counterparty_role": "Demanding Customer",
+  "counterparty_message": "A realistic response to the learner's move",
+  "pressure": "A new constraint or twist that raises the stakes",
+  "coach_feedback": "Short coaching feedback on the quality of the learner's reasoning",
+  "next_prompt": "A concrete follow-up move the learner should answer next",
+  "score_hint": {{
+    "score": 0.0,
+    "confidence": 0.0,
+    "strengths": ["..."],
+    "struggles": ["..."],
+    "reflection": "One-sentence learner reflection"
+  }}
+}}
+
+Rules:
+- Keep this grounded in the lesson's actual concept.
+- Make the counterparty feel realistic, not theatrical.
+- Reward reasoning, adaptation, and clarity more than correctness alone.
+- Keep score and confidence between 0 and 1.
+- Keep each field concise and useful.
+""".strip()
+
+    try:
+        response = await api_client.deepseek.chat_completion(
+            messages=[
+                {"role": "system", "content": f"You run short educational simulations. {lang_instruction}"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.45,
+            max_tokens=1200,
+        )
+        if not response.success or not response.data:
+            return _fallback_simulation_turn(lesson, process_layer, learner_action)
+
+        content = response.data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        import re
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        if not match:
+            return _fallback_simulation_turn(lesson, process_layer, learner_action)
+        parsed = json.loads(match.group(0))
+        if not isinstance(parsed, dict) or "counterparty_message" not in parsed:
+            return _fallback_simulation_turn(lesson, process_layer, learner_action)
+        return parsed
+    except Exception as exc:
+        print(f"⚠️ Simulation generation failed, using fallback: {exc}")
+        return _fallback_simulation_turn(lesson, process_layer, learner_action)
+
+
+async def _generate_oral_defense_turn(
+    lesson: Dict[str, Any],
+    process_layer: Dict[str, Any],
+    learner_answer: str,
+    focus: Optional[str] = None,
+    profile: Optional[UserProfile] = None,
+    lesson_state: Optional[Dict[str, Any]] = None,
+    recent_interactions: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Generate one live oral-defense turn for the learner."""
+    language = lesson.get("language", "en")
+    lang_instruction = get_language_instruction(language)
+    oral_defense = process_layer.get("oral_defense", {})
+    title = lesson.get("title") or lesson.get("topic")
+    objective_lines = "\n".join(
+        f"- {item.get('objective')}"
+        for item in (lesson.get("objectives") or [])
+        if isinstance(item, dict) and item.get("objective")
+    )
+    profile_lines = "\n".join(profile.to_ai_context_lines()) if profile else ""
+    state_lines = []
+    if lesson_state:
+        latest = lesson_state.get("latest_performance") or {}
+        if latest:
+            state_lines.append(f"Latest score: {latest.get('score')}")
+            state_lines.append(f"Latest confidence: {latest.get('confidence')}")
+
+    prompt = f"""
+{lang_instruction}
+
+You are running a short oral defense with a three-expert panel.
+
+Lesson title: {title}
+Lesson description: {lesson.get('description') or ''}
+Learning objectives:
+{objective_lines or '- No explicit objectives available'}
+
+Panel title: {oral_defense.get('panel_title') or 'Expert Panel'}
+Suggested questions:
+{chr(10).join(f"- {item}" for item in (oral_defense.get("questions") or [])) or '- Ask the learner to explain why it works'}
+
+Learner profile:
+{profile_lines or '- No extra profile context'}
+
+Current learner state:
+{chr(10).join(f'- {line}' for line in state_lines) if state_lines else '- No current state recorded'}
+
+Recent oral-defense history:
+{_format_interaction_history(recent_interactions)}
+
+Defense focus: {focus or 'General understanding'}
+Learner answer: {learner_answer}
+
+Return strict JSON with this schema:
+{{
+  "panel": [
+    {{"role": "Concept Expert", "message": "..."}},
+    {{"role": "Boundary Expert", "message": "..."}},
+    {{"role": "Teaching Expert", "message": "..."}}
+  ],
+  "verdict": "Short verdict on the strength of the student's reasoning",
+  "next_question": "One follow-up question that probes deeper",
+  "score_hint": {{
+    "score": 0.0,
+    "confidence": 0.0,
+    "strengths": ["..."],
+    "struggles": ["..."],
+    "reflection": "One-sentence learner reflection"
+  }}
+}}
+
+Rules:
+- The three experts must probe different dimensions.
+- Focus on reasoning quality, not just factual accuracy.
+- Keep score and confidence between 0 and 1.
+- Be concise, sharp, and educational.
+""".strip()
+
+    try:
+        response = await api_client.deepseek.chat_completion(
+            messages=[
+                {"role": "system", "content": f"You are an educational oral-defense panel. {lang_instruction}"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.4,
+            max_tokens=1200,
+        )
+        if not response.success or not response.data:
+            return _fallback_oral_defense_turn(lesson, learner_answer)
+
+        content = response.data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        import re
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        if not match:
+            return _fallback_oral_defense_turn(lesson, learner_answer)
+        parsed = json.loads(match.group(0))
+        if not isinstance(parsed, dict) or "panel" not in parsed:
+            return _fallback_oral_defense_turn(lesson, learner_answer)
+        return parsed
+    except Exception as exc:
+        print(f"⚠️ Oral-defense generation failed, using fallback: {exc}")
+        return _fallback_oral_defense_turn(lesson, learner_answer)
+
+
+async def _generate_memory_challenge(
+    lesson: Dict[str, Any],
+    profile: Optional[UserProfile] = None,
+    lesson_state: Optional[Dict[str, Any]] = None,
+    focus: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Generate a short retrieval-practice challenge based on forgetting risk."""
+    language = lesson.get("language", "en")
+    lang_instruction = get_language_instruction(language)
+    title = lesson.get("title") or lesson.get("topic")
+    objective_lines = "\n".join(
+        f"- {item.get('objective')}"
+        for item in (lesson.get("objectives") or [])
+        if isinstance(item, dict) and item.get("objective")
+    )
+    profile_lines = "\n".join(profile.to_ai_context_lines()) if profile else ""
+    state_lines = []
+    if lesson_state:
+        latest = lesson_state.get("latest_performance") or {}
+        next_review = lesson_state.get("next_review") or {}
+        if latest:
+            state_lines.append(f"Latest score: {latest.get('score')}")
+            state_lines.append(f"Latest confidence: {latest.get('confidence')}")
+        if next_review:
+            state_lines.append(f"Next review in hours: {next_review.get('interval_hours')}")
+
+    prompt = f"""
+{lang_instruction}
+
+Create a short retrieval-practice challenge for a learner.
+
+Lesson title: {title}
+Lesson description: {lesson.get('description') or ''}
+Learning objectives:
+{objective_lines or '- No explicit objectives available'}
+
+Learner profile:
+{profile_lines or '- No extra profile context'}
+
+Current learner state:
+{chr(10).join(f'- {line}' for line in state_lines) if state_lines else '- No current state recorded'}
+
+Focus: {focus or 'Core concept recall'}
+
+Return strict JSON with this schema:
+{{
+  "title": "3-Minute Memory Challenge",
+  "prompt": "One short instruction",
+  "questions": ["...", "...", "..."],
+  "self_check": ["...", "...", "..."],
+  "recommended_reflection": "One sentence"
+}}
+
+Rules:
+- Prioritize retrieval, explanation, and misconception checking.
+- Keep it short enough to finish in about 3 minutes.
+- Make the questions specific to the lesson.
+""".strip()
+
+    try:
+        response = await api_client.deepseek.chat_completion(
+            messages=[
+                {"role": "system", "content": f"You design short retrieval-practice challenges. {lang_instruction}"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.35,
+            max_tokens=900,
+        )
+        if not response.success or not response.data:
+            return _fallback_memory_challenge(lesson)
+
+        content = response.data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        import re
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        if not match:
+            return _fallback_memory_challenge(lesson)
+        parsed = json.loads(match.group(0))
+        if not isinstance(parsed, dict) or "questions" not in parsed:
+            return _fallback_memory_challenge(lesson)
+        return parsed
+    except Exception as exc:
+        print(f"⚠️ Memory challenge generation failed, using fallback: {exc}")
+        return _fallback_memory_challenge(lesson)
+
+
+async def _generate_deliberate_error_challenge(
+    lesson: Dict[str, Any],
+    profile: Optional[UserProfile] = None,
+    lesson_state: Optional[Dict[str, Any]] = None,
+    focus: Optional[str] = None,
+    recent_interactions: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Generate a deliberate-error audit to create productive friction."""
+    language = lesson.get("language", "en")
+    lang_instruction = get_language_instruction(language)
+    title = lesson.get("title") or lesson.get("topic")
+    objective_lines = "\n".join(
+        f"- {item.get('objective')}"
+        for item in (lesson.get("objectives") or [])
+        if isinstance(item, dict) and item.get("objective")
+    )
+    profile_lines = "\n".join(profile.to_ai_context_lines()) if profile else ""
+    state_lines = []
+    if lesson_state:
+        latest = lesson_state.get("latest_performance") or {}
+        if latest:
+            state_lines.append(f"Latest score: {latest.get('score')}")
+            state_lines.append(f"Latest confidence: {latest.get('confidence')}")
+
+    prompt = f"""
+{lang_instruction}
+
+Create one deliberate-error audit for a learner.
+
+Lesson title: {title}
+Lesson description: {lesson.get('description') or ''}
+Learning objectives:
+{objective_lines or '- No explicit objectives available'}
+
+Learner profile:
+{profile_lines or '- No extra profile context'}
+
+Current learner state:
+{chr(10).join(f'- {line}' for line in state_lines) if state_lines else '- No current state recorded'}
+
+Recent deliberate-error history:
+{_format_interaction_history(recent_interactions)}
+
+Focus: {focus or 'Boundary conditions and reasoning quality'}
+
+Return strict JSON with this schema:
+{{
+  "title": "Deliberate Error Audit",
+  "flawed_claim": "One plausible but meaningfully flawed claim or step",
+  "audit_prompt": "Ask the learner to find and explain the error",
+  "hints": ["...", "..."],
+  "correction_target": "Describe what a strong correction should include",
+  "score_hint": {{
+    "score": 0.0,
+    "confidence": 0.0,
+    "strengths": ["..."],
+    "struggles": ["..."],
+    "reflection": "One-sentence learner reflection"
+  }}
+}}
+
+Rules:
+- The flaw should be plausible, not silly.
+- The error should target reasoning, conditions, or misuse, not a trivial typo.
+- Keep it concise and educational.
+- Keep score and confidence between 0 and 1.
+""".strip()
+
+    try:
+        response = await api_client.deepseek.chat_completion(
+            messages=[
+                {"role": "system", "content": f"You design deliberate-error audits for learning. {lang_instruction}"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.4,
+            max_tokens=1000,
+        )
+        if not response.success or not response.data:
+            return _fallback_deliberate_error_challenge(lesson)
+
+        content = response.data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        import re
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        if not match:
+            return _fallback_deliberate_error_challenge(lesson)
+        parsed = json.loads(match.group(0))
+        if not isinstance(parsed, dict) or "flawed_claim" not in parsed:
+            return _fallback_deliberate_error_challenge(lesson)
+        return parsed
+    except Exception as exc:
+        print(f"⚠️ Deliberate-error generation failed, using fallback: {exc}")
+        return _fallback_deliberate_error_challenge(lesson)
+
 @app.get("/users/me")
 def get_me(current_user: User = Depends(get_current_user)):
     """Return the current authenticated user's profile."""
@@ -343,6 +1248,55 @@ def get_my_review_queue(current_user: User = Depends(get_current_user)):
     }
 
 
+@app.post("/users/me/notifications/sync")
+def sync_my_notifications(current_user: User = Depends(get_current_user)):
+    """Materialize proactive in-app notifications from forgetting-curve risk."""
+    items = lesson_storage.sync_proactive_notifications(str(current_user.id))
+    return {"success": True, "created": items, "count": len(items)}
+
+
+@app.get("/users/me/notifications")
+def get_my_notifications(
+    unread_only: bool = False,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+):
+    """Return current user's in-app proactive notifications."""
+    return {
+        "success": True,
+        "items": lesson_storage.get_notifications(
+            str(current_user.id),
+            unread_only=unread_only,
+            limit=limit,
+            auto_sync=True,
+        ),
+    }
+
+
+@app.post("/users/me/notifications/{notification_id}/read")
+def mark_my_notification_read(
+    notification_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """Mark a proactive notification as read."""
+    notification = lesson_storage.mark_notification_status(str(current_user.id), notification_id, "read")
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return {"success": True, "notification": notification}
+
+
+@app.post("/users/me/notifications/{notification_id}/dismiss")
+def dismiss_my_notification(
+    notification_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """Dismiss a proactive notification."""
+    notification = lesson_storage.mark_notification_status(str(current_user.id), notification_id, "dismissed")
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return {"success": True, "notification": notification}
+
+
 @app.get("/users/me/lessons/{lesson_id}/state")
 def get_my_lesson_state(lesson_id: str, current_user: User = Depends(get_current_user)):
     """Return progress and next-review state for the current user and lesson."""
@@ -391,6 +1345,263 @@ def record_my_lesson_performance(
             reflection=req.reflection,
         ),
     }
+
+
+@app.post("/users/me/lessons/{lesson_id}/seminar")
+async def run_my_lesson_seminar(
+    lesson_id: str,
+    req: SeminarTurnRequest,
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """Generate one live multi-agent seminar turn for the learner."""
+    lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    lesson_state = lesson_storage.get_lesson_state(str(current_user.id), lesson_id)
+    recent_interactions = lesson_storage.get_recent_agent_interactions(str(current_user.id), lesson_id, "seminar")
+    profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+    process_layer = _build_process_layer(lesson, lesson_state, profile)
+    seminar_result = await _generate_multi_agent_seminar_turn(
+        lesson,
+        process_layer,
+        req.moderator_input,
+        focus=req.focus,
+        profile=profile,
+        lesson_state=lesson_state,
+        recent_interactions=recent_interactions,
+    )
+    lesson_storage.store_agent_interaction(
+        str(current_user.id),
+        lesson_id,
+        "seminar",
+        req.moderator_input,
+        seminar_result,
+        metadata={"focus": req.focus},
+    )
+
+    return {
+        "success": True,
+        "seminar": seminar_result,
+        "process_layer": process_layer.get("seminar"),
+    }
+
+
+@app.post("/users/me/lessons/{lesson_id}/simulation")
+async def run_my_lesson_simulation(
+    lesson_id: str,
+    req: SimulationTurnRequest,
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """Generate one live applied-simulation turn for the learner."""
+    lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    lesson_state = lesson_storage.get_lesson_state(str(current_user.id), lesson_id)
+    recent_interactions = lesson_storage.get_recent_agent_interactions(str(current_user.id), lesson_id, "simulation")
+    profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+    process_layer = _build_process_layer(lesson, lesson_state, profile)
+    simulation_result = await _generate_simulation_turn(
+        lesson,
+        process_layer,
+        req.learner_action,
+        scenario_focus=req.scenario_focus,
+        profile=profile,
+        lesson_state=lesson_state,
+        recent_interactions=recent_interactions,
+    )
+    lesson_storage.store_agent_interaction(
+        str(current_user.id),
+        lesson_id,
+        "simulation",
+        req.learner_action,
+        simulation_result,
+        metadata={"scenario_focus": req.scenario_focus},
+    )
+
+    return {
+        "success": True,
+        "simulation": simulation_result,
+        "process_layer": process_layer.get("simulation"),
+    }
+
+
+@app.post("/users/me/lessons/{lesson_id}/oral-defense")
+async def run_my_lesson_oral_defense(
+    lesson_id: str,
+    req: OralDefenseTurnRequest,
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """Generate one live oral-defense turn for the learner."""
+    lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    lesson_state = lesson_storage.get_lesson_state(str(current_user.id), lesson_id)
+    recent_interactions = lesson_storage.get_recent_agent_interactions(str(current_user.id), lesson_id, "oral_defense")
+    profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+    process_layer = _build_process_layer(lesson, lesson_state, profile)
+    oral_defense_result = await _generate_oral_defense_turn(
+        lesson,
+        process_layer,
+        req.learner_answer,
+        focus=req.focus,
+        profile=profile,
+        lesson_state=lesson_state,
+        recent_interactions=recent_interactions,
+    )
+    lesson_storage.store_agent_interaction(
+        str(current_user.id),
+        lesson_id,
+        "oral_defense",
+        req.learner_answer,
+        oral_defense_result,
+        metadata={"focus": req.focus},
+    )
+
+    return {
+        "success": True,
+        "oral_defense": oral_defense_result,
+        "process_layer": process_layer.get("oral_defense"),
+    }
+
+
+@app.post("/users/me/lessons/{lesson_id}/memory-challenge")
+async def run_my_lesson_memory_challenge(
+    lesson_id: str,
+    req: MemoryChallengeRequest,
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """Generate a short retrieval-practice challenge for the learner."""
+    lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    lesson_state = lesson_storage.get_lesson_state(str(current_user.id), lesson_id)
+    profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+    challenge = await _generate_memory_challenge(
+        lesson,
+        profile=profile,
+        lesson_state=lesson_state,
+        focus=req.focus,
+    )
+
+    return {
+        "success": True,
+        "memory_challenge": challenge,
+    }
+
+
+@app.post("/users/me/lessons/{lesson_id}/deliberate-error")
+async def run_my_lesson_deliberate_error(
+    lesson_id: str,
+    req: DeliberateErrorRequest,
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """Generate one deliberate-error audit for the learner."""
+    lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    lesson_state = lesson_storage.get_lesson_state(str(current_user.id), lesson_id)
+    recent_interactions = lesson_storage.get_recent_agent_interactions(str(current_user.id), lesson_id, "deliberate_error")
+    profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+    challenge = await _generate_deliberate_error_challenge(
+        lesson,
+        profile=profile,
+        lesson_state=lesson_state,
+        focus=req.focus,
+        recent_interactions=recent_interactions,
+    )
+    lesson_storage.store_agent_interaction(
+        str(current_user.id),
+        lesson_id,
+        "deliberate_error",
+        req.focus or "deliberate_error_audit",
+        challenge,
+        metadata={"focus": req.focus},
+    )
+
+    return {
+        "success": True,
+        "deliberate_error": challenge,
+    }
+
+
+@app.get("/lessons")
+def get_lessons(
+    language: Optional[str] = None,
+    student_level: Optional[str] = None,
+    difficulty: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    """List published lessons."""
+    lessons, total = lesson_storage.get_all_lessons(
+        language=language,
+        student_level=student_level,
+        difficulty=difficulty,
+        limit=limit,
+        offset=offset,
+    )
+    return {"success": True, "lessons": lessons, "total": total}
+
+
+@app.get("/lessons/{lesson_id}")
+def get_lesson_detail(
+    lesson_id: str,
+    current_user: Optional[User] = Depends(get_optional_user),
+    db = Depends(get_db),
+):
+    """Return a single lesson with a derived process-first layer."""
+    lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    lesson_state = None
+    profile = None
+    if current_user:
+        lesson_state = lesson_storage.get_lesson_state(str(current_user.id), lesson_id)
+        profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+
+    lesson["process_layer"] = _build_process_layer(lesson, lesson_state, profile)
+    if lesson_state:
+        lesson["user_state"] = lesson_state
+
+    return {"success": True, "lesson": lesson}
+
+
+@app.delete("/lessons/{lesson_id}")
+def delete_lesson(
+    lesson_id: str,
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    """Delete a lesson if it exists and belongs to the current user when authenticated."""
+    lesson = lesson_storage.get_lesson(lesson_id, include_relationships=False)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    if current_user and lesson.get("user_id") and lesson.get("user_id") != str(current_user.id):
+        raise HTTPException(status_code=403, detail="You do not have permission to delete this lesson")
+    if not lesson_storage.delete_lesson(lesson_id):
+        raise HTTPException(status_code=500, detail="Failed to delete lesson")
+    return {"success": True, "lesson_id": lesson_id}
+
+
+@app.delete("/lessons")
+def delete_all_my_lessons(current_user: User = Depends(get_current_user)):
+    """Delete all lessons owned by the current user."""
+    lessons = lesson_storage.get_lessons_by_user(str(current_user.id), limit=1000)
+    deleted = 0
+    for lesson in lessons:
+        if lesson_storage.delete_lesson(lesson["id"]):
+            deleted += 1
+    return {"success": True, "deleted": deleted}
 
 
 # ── Status ───────────────────────────────────────────────────────────────────

@@ -13,6 +13,13 @@ interface LessonState {
   is_completed: boolean
   time_spent_minutes: number
   last_accessed_at: string | null
+  recent_interactions_by_type?: Record<string, Array<{
+    id: number
+    interaction_type: string
+    user_input: string
+    agent_output?: Record<string, any>
+    created_at?: string | null
+  }>>
   latest_performance?: {
     assessment_type: string
     score: number
@@ -29,6 +36,59 @@ interface LessonState {
   } | null
 }
 
+interface SeminarTurnResult {
+  messages: Array<{
+    role: string
+    message: string
+  }>
+  synthesis: string
+  next_moderator_prompt: string
+}
+
+interface AssessmentScoreHint {
+  score: number
+  confidence: number
+  strengths: string[]
+  struggles: string[]
+  reflection: string
+}
+
+interface SimulationTurnResult {
+  counterparty_role: string
+  counterparty_message: string
+  pressure: string
+  coach_feedback: string
+  next_prompt: string
+  score_hint?: AssessmentScoreHint
+}
+
+interface OralDefenseTurnResult {
+  panel: Array<{
+    role: string
+    message: string
+  }>
+  verdict: string
+  next_question: string
+  score_hint?: AssessmentScoreHint
+}
+
+interface MemoryChallengeResult {
+  title: string
+  prompt: string
+  questions: string[]
+  self_check: string[]
+  recommended_reflection: string
+}
+
+interface DeliberateErrorResult {
+  title: string
+  flawed_claim: string
+  audit_prompt: string
+  hints: string[]
+  correction_target: string
+  score_hint?: AssessmentScoreHint
+}
+
 export default function LessonDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -40,6 +100,19 @@ export default function LessonDetailPage() {
   const [activeTab, setActiveTab] = useState<LessonTab>('seminar')
   const [savingProgress, setSavingProgress] = useState(false)
   const [recordingAssessment, setRecordingAssessment] = useState<string | null>(null)
+  const [seminarPrompt, setSeminarPrompt] = useState('')
+  const [seminarLoading, setSeminarLoading] = useState(false)
+  const [seminarTurn, setSeminarTurn] = useState<SeminarTurnResult | null>(null)
+  const [simulationInput, setSimulationInput] = useState('')
+  const [simulationLoading, setSimulationLoading] = useState(false)
+  const [simulationTurn, setSimulationTurn] = useState<SimulationTurnResult | null>(null)
+  const [oralDefenseInput, setOralDefenseInput] = useState('')
+  const [oralDefenseLoading, setOralDefenseLoading] = useState(false)
+  const [oralDefenseTurn, setOralDefenseTurn] = useState<OralDefenseTurnResult | null>(null)
+  const [memoryChallengeLoading, setMemoryChallengeLoading] = useState(false)
+  const [memoryChallenge, setMemoryChallenge] = useState<MemoryChallengeResult | null>(null)
+  const [deliberateErrorLoading, setDeliberateErrorLoading] = useState(false)
+  const [deliberateErrorChallenge, setDeliberateErrorChallenge] = useState<DeliberateErrorResult | null>(null)
 
   useEffect(() => {
     if (params?.id) {
@@ -57,7 +130,12 @@ export default function LessonDetailPage() {
 
   const fetchLessonDetails = async (id: string) => {
     try {
-      const response = await fetch(`/api/backend/lessons/${id}`)
+      const token = await getToken()
+      const headers: Record<string, string> = {}
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+      const response = await fetch(`/api/backend/lessons/${id}`, { headers })
       if (!response.ok) {
         throw new Error('Failed to fetch lesson')
       }
@@ -168,6 +246,193 @@ export default function LessonDetailPage() {
     }
   }
 
+  const runSeminarTurn = async () => {
+    if (!params?.id || !isSignedIn || !seminarPrompt.trim()) return
+    setSeminarLoading(true)
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+
+      const response = await fetch(`/api/backend/users/me/lessons/${params.id}/seminar`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          moderator_input: seminarPrompt.trim(),
+          focus: lesson?.process_layer?.intervention_recommendation?.label || undefined,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to run seminar: ${response.status}`)
+      }
+
+      const data = await response.json()
+      setSeminarTurn(data.seminar)
+      await fetchLessonState(params.id as string)
+    } catch (error) {
+      console.error('Failed to run seminar turn:', error)
+    } finally {
+      setSeminarLoading(false)
+    }
+  }
+
+  const runSimulationTurn = async () => {
+    if (!params?.id || !isSignedIn || !simulationInput.trim()) return
+    setSimulationLoading(true)
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+
+      const response = await fetch(`/api/backend/users/me/lessons/${params.id}/simulation`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          learner_action: simulationInput.trim(),
+          scenario_focus: lesson?.process_layer?.simulation?.title || undefined,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to run simulation: ${response.status}`)
+      }
+
+      const data = await response.json()
+      setSimulationTurn(data.simulation)
+      await fetchLessonState(params.id as string)
+    } catch (error) {
+      console.error('Failed to run simulation turn:', error)
+    } finally {
+      setSimulationLoading(false)
+    }
+  }
+
+  const runOralDefenseTurn = async () => {
+    if (!params?.id || !isSignedIn || !oralDefenseInput.trim()) return
+    setOralDefenseLoading(true)
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+
+      const response = await fetch(`/api/backend/users/me/lessons/${params.id}/oral-defense`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          learner_answer: oralDefenseInput.trim(),
+          focus: lesson?.process_layer?.oral_defense?.panel_title || undefined,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to run oral defense: ${response.status}`)
+      }
+
+      const data = await response.json()
+      setOralDefenseTurn(data.oral_defense)
+      await fetchLessonState(params.id as string)
+    } catch (error) {
+      console.error('Failed to run oral defense turn:', error)
+    } finally {
+      setOralDefenseLoading(false)
+    }
+  }
+
+  const generateMemoryChallenge = async () => {
+    if (!params?.id || !isSignedIn) return
+    setMemoryChallengeLoading(true)
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+
+      const response = await fetch(`/api/backend/users/me/lessons/${params.id}/memory-challenge`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          focus: lesson?.process_layer?.intervention_recommendation?.label || undefined,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to generate memory challenge: ${response.status}`)
+      }
+
+      const data = await response.json()
+      setMemoryChallenge(data.memory_challenge)
+    } catch (error) {
+      console.error('Failed to generate memory challenge:', error)
+    } finally {
+      setMemoryChallengeLoading(false)
+    }
+  }
+
+  const generateDeliberateErrorChallenge = async () => {
+    if (!params?.id || !isSignedIn) return
+    setDeliberateErrorLoading(true)
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+
+      const response = await fetch(`/api/backend/users/me/lessons/${params.id}/deliberate-error`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          focus: lesson?.process_layer?.intervention_recommendation?.label || undefined,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to generate deliberate error challenge: ${response.status}`)
+      }
+
+      const data = await response.json()
+      setDeliberateErrorChallenge(data.deliberate_error)
+      await fetchLessonState(params.id as string)
+    } catch (error) {
+      console.error('Failed to generate deliberate error challenge:', error)
+    } finally {
+      setDeliberateErrorLoading(false)
+    }
+  }
+
+  const saveGeneratedAssessment = async (
+    assessmentType: string,
+    scoreHint?: AssessmentScoreHint
+  ) => {
+    if (!scoreHint) return
+    await recordPerformance(
+      assessmentType,
+      scoreHint.score,
+      scoreHint.confidence,
+      scoreHint.reflection,
+      scoreHint.strengths,
+      scoreHint.struggles,
+    )
+  }
+
   const toProxyUrl = (rawPath: string | null): string | null => {
     if (!rawPath) return null
     if (rawPath.startsWith('http')) return rawPath
@@ -177,6 +442,18 @@ export default function LessonDetailPage() {
 
   const seminarCards = useMemo(() => {
     if (!lesson) return []
+    const roleCards = lesson.process_layer?.seminar?.roles
+    if (Array.isArray(roleCards) && roleCards.length > 0) {
+      return roleCards.map((role: any, index: number) => ({
+        role: role.name,
+        accent: index === 0
+          ? 'bg-slate-100 text-slate-900'
+          : index === 1
+          ? 'bg-emerald-100 text-emerald-900'
+          : 'bg-amber-100 text-amber-900',
+        prompt: role.stance,
+      }))
+    }
     const objectives = lesson.objectives?.map((item: any) => item.objective) || []
     const firstObjective = objectives[0] || (language === 'zh' ? '解释本课的核心概念' : 'Explain the core concept of the lesson')
     const secondObjective = objectives[1] || (language === 'zh' ? '连接图像、规则与例子' : 'Connect the visual model, rule, and example')
@@ -207,6 +484,10 @@ export default function LessonDetailPage() {
 
   const moderatorPrompts = useMemo(() => {
     if (!lesson) return []
+    const moderatorPrompt = lesson.process_layer?.seminar?.moderator_prompt
+    if (moderatorPrompt) {
+      return [moderatorPrompt]
+    }
     return language === 'zh'
       ? [
           '先总结三位角色分别代表的观点。',
@@ -354,6 +635,15 @@ export default function LessonDetailPage() {
         ]
   ), [language])
 
+  const recommendedIntervention = lesson?.process_layer?.intervention_recommendation
+  const oralDefenseQuestions = lesson?.process_layer?.oral_defense?.questions || []
+  const simulationScenario = lesson?.process_layer?.simulation
+  const thinkingPath = lesson?.process_layer?.thinking_path
+  const recentSeminarHistory = lessonState?.recent_interactions_by_type?.seminar || []
+  const recentSimulationHistory = lessonState?.recent_interactions_by_type?.simulation || []
+  const recentOralDefenseHistory = lessonState?.recent_interactions_by_type?.oral_defense || []
+  const recentDeliberateErrorHistory = lessonState?.recent_interactions_by_type?.deliberate_error || []
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -476,6 +766,25 @@ export default function LessonDetailPage() {
                       </p>
                     </div>
 
+                    {thinkingPath && (
+                      <div className="rounded-xl border border-slate-200 bg-white p-5">
+                        <div className="text-sm font-semibold text-slate-900">
+                          {language === 'zh' ? '思维路径' : 'Thinking Path'}
+                        </div>
+                        <p className="mt-2 text-sm text-slate-600">
+                          {thinkingPath.summary}
+                        </p>
+                        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-slate-700">
+                          {thinkingPath.nodes?.map((node: any, index: number) => (
+                            <div key={node.id} className="flex items-center gap-2">
+                              <span className="rounded-full bg-slate-100 px-3 py-1">{node.label}</span>
+                              {index < (thinkingPath.nodes?.length || 0) - 1 && <span className="text-slate-400">→</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="grid md:grid-cols-3 gap-4">
                       {seminarCards.map((card) => (
                         <div key={card.role} className="rounded-xl border border-slate-200 bg-white p-5">
@@ -497,11 +806,445 @@ export default function LessonDetailPage() {
                         ))}
                       </div>
                     </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-900">
+                            {language === 'zh' ? '主持一轮真实研讨' : 'Run a Live Seminar Turn'}
+                          </h4>
+                          <p className="mt-2 text-sm text-slate-600">
+                            {language === 'zh'
+                              ? '输入你想追问的角度，后台会生成三位角色的即时回应和一段综合判断。'
+                              : 'Enter the angle you want to probe, and the backend will generate fresh responses from the three roles plus a synthesis.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex gap-3">
+                        <input
+                          type="text"
+                          value={seminarPrompt}
+                          onChange={(e) => setSeminarPrompt(e.target.value)}
+                          placeholder={language === 'zh' ? '例如：请你们用一个例子争论谁的理解更完整' : 'For example: Use one example to argue whose understanding is more complete'}
+                          className="flex-1 rounded-lg border border-slate-300 px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                        <button
+                          onClick={runSeminarTurn}
+                          disabled={!isSignedIn || seminarLoading || !seminarPrompt.trim()}
+                          className="rounded-lg bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                        >
+                          {seminarLoading
+                            ? (language === 'zh' ? '生成中...' : 'Generating...')
+                            : (language === 'zh' ? '开始研讨' : 'Run Seminar')}
+                        </button>
+                      </div>
+
+                      {!isSignedIn && (
+                        <p className="mt-3 text-xs text-slate-500">
+                          {language === 'zh'
+                            ? '登录后即可使用真实多智能体研讨。'
+                            : 'Sign in to use the live multi-agent seminar.'}
+                        </p>
+                      )}
+                    </div>
+
+                    {seminarTurn && (
+                      <div className="space-y-4">
+                        <div className="grid md:grid-cols-3 gap-4">
+                          {seminarTurn.messages.map((item, index) => (
+                            <div key={`${item.role}-${index}`} className="rounded-xl border border-slate-200 bg-white p-5">
+                              <div className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                                index === 0 ? 'bg-slate-100 text-slate-900' : index === 1 ? 'bg-emerald-100 text-emerald-900' : 'bg-amber-100 text-amber-900'
+                              }`}>
+                                {item.role}
+                              </div>
+                              <p className="mt-4 text-sm leading-7 text-slate-700">{item.message}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
+                          <div className="text-sm font-semibold uppercase tracking-wide text-blue-900">
+                            {language === 'zh' ? '综合判断' : 'Synthesis'}
+                          </div>
+                          <p className="mt-2 text-sm text-blue-900">{seminarTurn.synthesis}</p>
+                          <div className="mt-4 text-sm font-medium text-blue-950">
+                            {language === 'zh' ? '下一步主持问题：' : 'Next moderator prompt:'}
+                          </div>
+                          <p className="mt-1 text-sm text-blue-900">{seminarTurn.next_moderator_prompt}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {recentSeminarHistory.length > 0 && (
+                      <div className="rounded-xl border border-slate-200 bg-white p-5">
+                        <div className="text-sm font-semibold uppercase tracking-wide text-slate-900">
+                          {language === 'zh' ? '最近的主持轨迹' : 'Recent Moderation Trail'}
+                        </div>
+                        <div className="mt-4 space-y-3">
+                          {recentSeminarHistory.slice(-3).map((item) => (
+                            <div key={item.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                              <div className="text-xs font-medium text-slate-500">
+                                {item.created_at ? new Date(item.created_at).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US') : ''}
+                              </div>
+                              <div className="mt-2 text-sm text-slate-900">
+                                <span className="font-medium">{language === 'zh' ? '你问：' : 'You asked:'}</span> {item.user_input}
+                              </div>
+                              <div className="mt-2 text-sm text-slate-600">
+                                <span className="font-medium">{language === 'zh' ? '系统综合：' : 'System synthesis:'}</span> {String(item.agent_output?.synthesis || '')}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {activeTab === 'practice' && (
                   <div className="space-y-4">
+                    {recommendedIntervention && (
+                      <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
+                        <div className="text-sm font-semibold uppercase tracking-wide text-blue-900">
+                          {language === 'zh' ? '当前最推荐的下一步' : 'Recommended Next Move'}
+                        </div>
+                        <h3 className="mt-2 text-lg font-semibold text-blue-950">{recommendedIntervention.label}</h3>
+                        <p className="mt-2 text-sm text-blue-900">{recommendedIntervention.reason}</p>
+                        <div className="mt-4">
+                          <div className="flex flex-wrap gap-3">
+                            <button
+                              onClick={generateMemoryChallenge}
+                              disabled={!isSignedIn || memoryChallengeLoading}
+                              className="rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-50"
+                            >
+                              {memoryChallengeLoading
+                                ? (language === 'zh' ? '生成中...' : 'Generating...')
+                                : (language === 'zh' ? '生成 3 分钟挑战' : 'Generate 3-Minute Challenge')}
+                            </button>
+                            <button
+                              onClick={generateDeliberateErrorChallenge}
+                              disabled={!isSignedIn || deliberateErrorLoading}
+                              className="rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-blue-800 border border-blue-300 hover:border-blue-400 disabled:opacity-50"
+                            >
+                              {deliberateErrorLoading
+                                ? (language === 'zh' ? '生成中...' : 'Generating...')
+                                : (language === 'zh' ? '生成刻意错误审计' : 'Generate Error Audit')}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {memoryChallenge && (
+                      <div className="rounded-xl border border-blue-200 bg-white p-5">
+                        <h3 className="text-lg font-semibold text-slate-900">{memoryChallenge.title}</h3>
+                        <p className="mt-2 text-sm text-slate-600">{memoryChallenge.prompt}</p>
+                        <div className="mt-4 space-y-2">
+                          {memoryChallenge.questions.map((question) => (
+                            <div key={question} className="text-sm text-slate-700">• {question}</div>
+                          ))}
+                        </div>
+                        <div className="mt-4 rounded-lg bg-blue-50 p-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-blue-900">
+                            {language === 'zh' ? '自检清单' : 'Self-Check'}
+                          </div>
+                          <div className="mt-2 space-y-2">
+                            {memoryChallenge.self_check.map((item) => (
+                              <div key={item} className="text-sm text-blue-900">• {item}</div>
+                            ))}
+                          </div>
+                          <p className="mt-3 text-sm text-blue-900">{memoryChallenge.recommended_reflection}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {deliberateErrorChallenge && (
+                      <div className="rounded-xl border border-amber-200 bg-white p-5">
+                        <h3 className="text-lg font-semibold text-slate-900">{deliberateErrorChallenge.title}</h3>
+                        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-amber-900">
+                            {language === 'zh' ? '带错的说法' : 'Flawed Claim'}
+                          </div>
+                          <p className="mt-2 text-sm text-amber-950">{deliberateErrorChallenge.flawed_claim}</p>
+                        </div>
+                        <p className="mt-4 text-sm text-slate-700">{deliberateErrorChallenge.audit_prompt}</p>
+                        <div className="mt-4 space-y-2">
+                          {deliberateErrorChallenge.hints.map((hint) => (
+                            <div key={hint} className="text-sm text-slate-700">• {hint}</div>
+                          ))}
+                        </div>
+                        <div className="mt-4 rounded-lg bg-amber-50 p-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-amber-900">
+                            {language === 'zh' ? '修正目标' : 'Correction Target'}
+                          </div>
+                          <p className="mt-2 text-sm text-amber-950">{deliberateErrorChallenge.correction_target}</p>
+                        </div>
+                        {deliberateErrorChallenge.score_hint && (
+                          <div className="mt-4 flex flex-wrap gap-3">
+                            <button
+                              onClick={() => saveGeneratedAssessment('deliberate_error', deliberateErrorChallenge.score_hint)}
+                              disabled={!isSignedIn || recordingAssessment === 'deliberate_error'}
+                              className="rounded-lg bg-amber-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-800 disabled:opacity-50"
+                            >
+                              {recordingAssessment === 'deliberate_error'
+                                ? (language === 'zh' ? '保存中...' : 'Saving...')
+                                : (language === 'zh' ? '保存这一轮表现' : 'Save This Round')}
+                            </button>
+                            <div className="text-xs text-amber-900">
+                              {(language === 'zh' ? '建议得分' : 'Suggested score')} {Math.round((deliberateErrorChallenge.score_hint.score || 0) * 100)}%
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {recentDeliberateErrorHistory.length > 0 && (
+                      <div className="rounded-xl border border-slate-200 bg-white p-5">
+                        <div className="text-sm font-semibold uppercase tracking-wide text-slate-900">
+                          {language === 'zh' ? '最近的错误审计轨迹' : 'Recent Error-Audit Trail'}
+                        </div>
+                        <div className="mt-4 space-y-3">
+                          {recentDeliberateErrorHistory.slice(-3).map((item) => (
+                            <div key={item.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                              <div className="text-xs font-medium text-slate-500">
+                                {item.created_at ? new Date(item.created_at).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US') : ''}
+                              </div>
+                              <div className="mt-2 text-sm text-slate-900">
+                                <span className="font-medium">{language === 'zh' ? '审计焦点：' : 'Audit focus:'}</span> {item.user_input}
+                              </div>
+                              <div className="mt-2 text-sm text-slate-600">
+                                <span className="font-medium">{language === 'zh' ? '错误说法：' : 'Flawed claim:'}</span> {String(item.agent_output?.flawed_claim || '')}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {simulationScenario && (
+                      <div className="rounded-xl border border-slate-200 bg-white p-5">
+                        <h3 className="text-lg font-semibold text-slate-900">{simulationScenario.title}</h3>
+                        <p className="mt-2 text-sm text-slate-600">{simulationScenario.scenario}</p>
+                        <div className="mt-4 space-y-2">
+                          {simulationScenario.success_criteria?.map((criterion: string) => (
+                            <div key={criterion} className="text-sm text-slate-700">• {criterion}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-5">
+                      <h3 className="text-lg font-semibold text-slate-900">
+                        {language === 'zh' ? '实时应用模拟' : 'Live Applied Simulation'}
+                      </h3>
+                      <p className="mt-2 text-sm text-slate-600">
+                        {language === 'zh'
+                          ? '把这节课真正放进一个决策情境里。写下你的做法，系统会让环境“回击”你。'
+                          : 'Put the lesson into a real decision context. Write your move, and the environment will push back.'}
+                      </p>
+                      <div className="mt-4 flex gap-3">
+                        <input
+                          type="text"
+                          value={simulationInput}
+                          onChange={(e) => setSimulationInput(e.target.value)}
+                          placeholder={language === 'zh' ? '例如：我会先比较图像开口方向和顶点位置，再判断函数行为' : 'For example: I would compare the opening direction and vertex first, then decide how the function behaves'}
+                          className="flex-1 rounded-lg border border-slate-300 px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                        <button
+                          onClick={runSimulationTurn}
+                          disabled={!isSignedIn || simulationLoading || !simulationInput.trim()}
+                          className="rounded-lg bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                        >
+                          {simulationLoading
+                            ? (language === 'zh' ? '生成中...' : 'Generating...')
+                            : (language === 'zh' ? '运行模拟' : 'Run Simulation')}
+                        </button>
+                      </div>
+                      {!isSignedIn && (
+                        <p className="mt-3 text-xs text-slate-500">
+                          {language === 'zh'
+                            ? '登录后即可使用实时模拟。'
+                            : 'Sign in to use the live simulation.'}
+                        </p>
+                      )}
+                    </div>
+
+                    {simulationTurn && (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+                        <div className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-900">
+                          {simulationTurn.counterparty_role}
+                        </div>
+                        <p className="mt-4 text-sm leading-7 text-emerald-950">{simulationTurn.counterparty_message}</p>
+                        <div className="mt-4 rounded-lg bg-white/70 p-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-900">
+                            {language === 'zh' ? '压力变化' : 'Pressure Shift'}
+                          </div>
+                          <p className="mt-2 text-sm text-emerald-950">{simulationTurn.pressure}</p>
+                        </div>
+                        <div className="mt-4 rounded-lg bg-white/70 p-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-900">
+                            {language === 'zh' ? '教练反馈' : 'Coach Feedback'}
+                          </div>
+                          <p className="mt-2 text-sm text-emerald-950">{simulationTurn.coach_feedback}</p>
+                          <p className="mt-3 text-sm text-emerald-900">
+                            <span className="font-medium">{language === 'zh' ? '下一步：' : 'Next move:'}</span> {simulationTurn.next_prompt}
+                          </p>
+                        </div>
+                        {simulationTurn.score_hint && (
+                          <div className="mt-4 flex flex-wrap gap-3">
+                            <button
+                              onClick={() => saveGeneratedAssessment('simulation', simulationTurn.score_hint)}
+                              disabled={!isSignedIn || recordingAssessment === 'simulation'}
+                              className="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+                            >
+                              {recordingAssessment === 'simulation'
+                                ? (language === 'zh' ? '保存中...' : 'Saving...')
+                                : (language === 'zh' ? '保存这一轮表现' : 'Save This Round')}
+                            </button>
+                            <div className="text-xs text-emerald-900">
+                              {(language === 'zh' ? '建议得分' : 'Suggested score')} {Math.round((simulationTurn.score_hint.score || 0) * 100)}%
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {recentSimulationHistory.length > 0 && (
+                      <div className="rounded-xl border border-slate-200 bg-white p-5">
+                        <div className="text-sm font-semibold uppercase tracking-wide text-slate-900">
+                          {language === 'zh' ? '最近的应用轨迹' : 'Recent Application Trail'}
+                        </div>
+                        <div className="mt-4 space-y-3">
+                          {recentSimulationHistory.slice(-3).map((item) => (
+                            <div key={item.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                              <div className="text-xs font-medium text-slate-500">
+                                {item.created_at ? new Date(item.created_at).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US') : ''}
+                              </div>
+                              <div className="mt-2 text-sm text-slate-900">
+                                <span className="font-medium">{language === 'zh' ? '你的做法：' : 'Your move:'}</span> {item.user_input}
+                              </div>
+                              <div className="mt-2 text-sm text-slate-600">
+                                <span className="font-medium">{language === 'zh' ? '反馈：' : 'Feedback:'}</span> {String(item.agent_output?.coach_feedback || '')}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {oralDefenseQuestions.length > 0 && (
+                      <div className="rounded-xl border border-slate-200 bg-white p-5">
+                        <h3 className="text-lg font-semibold text-slate-900">
+                          {lesson.process_layer?.oral_defense?.panel_title || (language === 'zh' ? '口头答辩' : 'Oral Defense')}
+                        </h3>
+                        <div className="mt-4 space-y-2">
+                          {oralDefenseQuestions.map((question: string) => (
+                            <div key={question} className="text-sm text-slate-700">• {question}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-5">
+                      <h3 className="text-lg font-semibold text-slate-900">
+                        {language === 'zh' ? '实时口头答辩' : 'Live Oral Defense'}
+                      </h3>
+                      <p className="mt-2 text-sm text-slate-600">
+                        {language === 'zh'
+                          ? '像在专家面前答辩一样，用你自己的语言解释原理、条件和边界。'
+                          : 'Defend the idea in your own words, as if a panel of experts were probing your reasoning.'}
+                      </p>
+                      <div className="mt-4 space-y-3">
+                        <textarea
+                          value={oralDefenseInput}
+                          onChange={(e) => setOralDefenseInput(e.target.value)}
+                          placeholder={language === 'zh' ? '试着回答：为什么这个概念成立？它在什么条件下会失效？' : 'Try answering: why does the idea work, and under what conditions does it break down?'}
+                          className="min-h-[120px] w-full rounded-lg border border-slate-300 px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                        <button
+                          onClick={runOralDefenseTurn}
+                          disabled={!isSignedIn || oralDefenseLoading || !oralDefenseInput.trim()}
+                          className="rounded-lg bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                        >
+                          {oralDefenseLoading
+                            ? (language === 'zh' ? '生成中...' : 'Generating...')
+                            : (language === 'zh' ? '开始答辩' : 'Run Oral Defense')}
+                        </button>
+                      </div>
+                      {!isSignedIn && (
+                        <p className="mt-3 text-xs text-slate-500">
+                          {language === 'zh'
+                            ? '登录后即可使用实时口头答辩。'
+                            : 'Sign in to use the live oral defense.'}
+                        </p>
+                      )}
+                    </div>
+
+                    {oralDefenseTurn && (
+                      <div className="space-y-4">
+                        <div className="grid md:grid-cols-3 gap-4">
+                          {oralDefenseTurn.panel.map((item, index) => (
+                            <div key={`${item.role}-${index}`} className="rounded-xl border border-violet-200 bg-violet-50 p-5">
+                              <div className="inline-flex rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-900">
+                                {item.role}
+                              </div>
+                              <p className="mt-4 text-sm leading-7 text-violet-950">{item.message}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="rounded-xl border border-violet-200 bg-violet-50 p-5">
+                          <div className="text-sm font-semibold uppercase tracking-wide text-violet-900">
+                            {language === 'zh' ? '答辩结论' : 'Defense Verdict'}
+                          </div>
+                          <p className="mt-2 text-sm text-violet-950">{oralDefenseTurn.verdict}</p>
+                          <div className="mt-4 text-sm font-medium text-violet-950">
+                            {language === 'zh' ? '下一问：' : 'Next question:'}
+                          </div>
+                          <p className="mt-1 text-sm text-violet-900">{oralDefenseTurn.next_question}</p>
+                          {oralDefenseTurn.score_hint && (
+                            <div className="mt-4 flex flex-wrap gap-3">
+                              <button
+                                onClick={() => saveGeneratedAssessment('oral_defense', oralDefenseTurn.score_hint)}
+                                disabled={!isSignedIn || recordingAssessment === 'oral_defense'}
+                                className="rounded-lg bg-violet-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-50"
+                              >
+                                {recordingAssessment === 'oral_defense'
+                                  ? (language === 'zh' ? '保存中...' : 'Saving...')
+                                  : (language === 'zh' ? '保存这一轮表现' : 'Save This Round')}
+                              </button>
+                              <div className="text-xs text-violet-900">
+                                {(language === 'zh' ? '建议得分' : 'Suggested score')} {Math.round((oralDefenseTurn.score_hint.score || 0) * 100)}%
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {recentOralDefenseHistory.length > 0 && (
+                      <div className="rounded-xl border border-slate-200 bg-white p-5">
+                        <div className="text-sm font-semibold uppercase tracking-wide text-slate-900">
+                          {language === 'zh' ? '最近的答辩轨迹' : 'Recent Defense Trail'}
+                        </div>
+                        <div className="mt-4 space-y-3">
+                          {recentOralDefenseHistory.slice(-3).map((item) => (
+                            <div key={item.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                              <div className="text-xs font-medium text-slate-500">
+                                {item.created_at ? new Date(item.created_at).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US') : ''}
+                              </div>
+                              <div className="mt-2 text-sm text-slate-900">
+                                <span className="font-medium">{language === 'zh' ? '你的回答：' : 'Your answer:'}</span> {item.user_input}
+                              </div>
+                              <div className="mt-2 text-sm text-slate-600">
+                                <span className="font-medium">{language === 'zh' ? '结论：' : 'Verdict:'}</span> {String(item.agent_output?.verdict || '')}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {practiceMissions.map((mission) => (
                       <div key={mission.id} className="rounded-xl border border-slate-200 bg-slate-50 p-5">
                         <div className="flex items-start justify-between gap-4">

@@ -9,6 +9,8 @@ from datetime import datetime
 # Import Mentormind dependencies
 from core.create_classes import ClassCreator, ClassCreationRequest, Language
 from database import LessonStorageSQL, init_database
+from database.base import SessionLocal
+from database.models.user import User
 from core.asr import transcribe_with_local_model_result
 from core.summarize import summarize_extracted_content
 
@@ -35,6 +37,35 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=600,  # 10 minutes max for Manim rendering tasks
 )
+
+
+@celery_app.task(bind=True, name="mentormind.sync_proactive_notifications")
+def sync_proactive_notifications_task(self):
+    """
+    Background task: materialize in-app proactive notifications for all active users.
+    Safe to run periodically from celery beat or cron-triggered worker calls.
+    """
+    print("🔔 Syncing proactive notifications for active users...")
+    try:
+        init_database()
+        lesson_storage = LessonStorageSQL()
+        session = SessionLocal()
+        try:
+            users = session.query(User).filter(User.is_active.is_(True)).all()
+            total_created = 0
+            for user in users:
+                try:
+                    created = lesson_storage.sync_proactive_notifications(str(user.id))
+                    total_created += len(created)
+                except Exception as exc:
+                    print(f"⚠️ Failed notification sync for user {user.id}: {exc}")
+            print(f"✅ Proactive notification sync complete. Created {total_created} notifications.")
+            return {"success": True, "users_processed": len(users), "created": total_created}
+        finally:
+            session.close()
+    except Exception as exc:
+        print(f"❌ Proactive notification sync failed: {exc}")
+        return {"success": False, "error": str(exc)}
 
 @celery_app.task(bind=True, name="mentormind.create_class_video")
 def create_class_video_task(self, request_data: dict, job_id: str):

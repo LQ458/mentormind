@@ -80,6 +80,8 @@ class User(Base):
     user_lessons = relationship("UserLesson", back_populates="user", cascade="all, delete-orphan")
     performance_records = relationship("StudentPerformance", back_populates="user", cascade="all, delete-orphan")
     memory_reviews = relationship("MemoryReview", back_populates="user", cascade="all, delete-orphan")
+    agent_interactions = relationship("AgentInteractionTurn", back_populates="user", cascade="all, delete-orphan")
+    proactive_notifications = relationship("ProactiveNotification", back_populates="user", cascade="all, delete-orphan")
     
     # Indexes
     __table_args__ = (
@@ -365,6 +367,94 @@ class MemoryReview(Base):
             "last_presented_at": self.last_presented_at.isoformat() if self.last_presented_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "metadata": self.review_metadata or {},
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class AgentInteractionTurn(Base):
+    """
+    Lightweight process log for seminar, simulation, and oral-defense turns.
+    """
+    __tablename__ = "agent_interaction_turns"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False)
+    interaction_type = Column(String(50), nullable=False)
+    user_input = Column(Text, nullable=False)
+    agent_output = Column(JSON, default=dict)
+    turn_metadata = Column(JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="agent_interactions")
+    lesson = relationship("Lesson")
+
+    __table_args__ = (
+        Index('idx_agent_interaction_turns_user_id', 'user_id'),
+        Index('idx_agent_interaction_turns_lesson_id', 'lesson_id'),
+        Index('idx_agent_interaction_turns_type', 'interaction_type'),
+        Index('idx_agent_interaction_turns_created_at', 'created_at'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": str(self.user_id),
+            "lesson_id": str(self.lesson_id),
+            "interaction_type": self.interaction_type,
+            "user_input": self.user_input,
+            "agent_output": self.agent_output or {},
+            "metadata": self.turn_metadata or {},
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ProactiveNotification(Base):
+    """
+    Lightweight in-app notification record for review nudges and process interventions.
+    """
+    __tablename__ = "proactive_notifications"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id", ondelete="CASCADE"))
+    notification_type = Column(String(50), nullable=False)
+    title = Column(String(255), nullable=False)
+    body = Column(Text)
+    action_url = Column(String(500))
+    status = Column(String(20), nullable=False, default="unread")
+    delivery_channel = Column(String(20), nullable=False, default="in_app")
+    scheduled_for = Column(DateTime(timezone=True))
+    read_at = Column(DateTime(timezone=True))
+    notification_metadata = Column(JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", back_populates="proactive_notifications")
+    lesson = relationship("Lesson")
+
+    __table_args__ = (
+        Index('idx_proactive_notifications_user_id', 'user_id'),
+        Index('idx_proactive_notifications_status', 'status'),
+        Index('idx_proactive_notifications_scheduled_for', 'scheduled_for'),
+        Index('idx_proactive_notifications_type', 'notification_type'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": str(self.user_id),
+            "lesson_id": str(self.lesson_id) if self.lesson_id else None,
+            "notification_type": self.notification_type,
+            "title": self.title,
+            "body": self.body,
+            "action_url": self.action_url,
+            "status": self.status,
+            "delivery_channel": self.delivery_channel,
+            "scheduled_for": self.scheduled_for.isoformat() if self.scheduled_for else None,
+            "read_at": self.read_at.isoformat() if self.read_at else None,
+            "metadata": self.notification_metadata or {},
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
