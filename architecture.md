@@ -2,7 +2,7 @@
 
 ## Overview
 
-MentorMind is a bilingual (Chinese/English) AI-powered educational platform that generates lesson content, animated videos (Manim/Remotion), narrated audio (TTS), and interactive exercises from a student's learning query.
+MentorMind is a bilingual (Chinese/English) AI-powered educational platform that generates lesson content, animated videos (Manim), narrated audio (TTS), and interactive learning experiences from a student's learning query.
 
 **API rule: All LLM/TTS calls use DeepSeek or SiliconFlow only. No OpenAI services are used or allowed.**
 
@@ -10,9 +10,9 @@ MentorMind is a bilingual (Chinese/English) AI-powered educational platform that
 mentormind/
 ├── backend/               ← Python FastAPI server + all AI pipeline logic
 ├── web/                   ← Next.js 13 App Router frontend
-├── docker-compose.yml     ← Local full-stack launcher (Postgres + Backend + FunASR + PaddleOCR)
+├── docker-compose.yml     ← Full-stack launcher (Postgres + Redis + Backend + Celery + FunASR + PaddleOCR)
 ├── .env / .env.example    ← All API keys and connection strings
-└── start.sh               ← Convenience dev startup script
+└── architecture.md        ← This file
 ```
 
 ---
@@ -27,29 +27,30 @@ sequenceDiagram
     participant Redis Queue
     participant Celery Worker (celery_app.py)
     participant ClassCreator (core/create_classes.py)
-    participant ManimService / RemotionService
+    participant ManimService
     participant SiliconFlow TTS
-    participant CloudStorageManager (OSS/R2)
+    participant CloudStorageManager
     participant PostgreSQL
 
-    Browser->>Next.js (web/): POST /api/backend [create-class]
-    Next.js (web/)->>FastAPI (server.py): Proxy to POST /create-class
+    Browser->>Next.js (web/): POST /api/backend/create-class (with Clerk JWT)
+    Next.js (web/)->>FastAPI (server.py): Proxy → POST /create-class
     FastAPI (server.py)->>Redis Queue: celery_task.delay(request_data, job_id)
     FastAPI (server.py)-->>Browser: { job_id: "..." } (instant)
 
-    Browser->>FastAPI (server.py): GET /job-status/{job_id} (poll every 5s)
+    Browser->>FastAPI (server.py): GET /job-stream/{job_id} (SSE)
+    Note over Browser,FastAPI (server.py): Falls back to polling /job-status/{job_id} if SSE breaks
 
     Redis Queue->>Celery Worker (celery_app.py): Pick up task
-    Celery Worker (celery_app.py)->>ClassCreator (core/create_classes.py): create_class_chinese/english()
-    ClassCreator (core/create_classes.py)->>SiliconFlow TTS: Synthesize narration audio
-    ClassCreator (core/create_classes.py)->>ManimService / RemotionService: Render video
-    ManimService / RemotionService-->>ClassCreator (core/create_classes.py): local video file path
-    ClassCreator (core/create_classes.py)->>CloudStorageManager (OSS/R2): upload_file()
-    CloudStorageManager (OSS/R2)-->>ClassCreator (core/create_classes.py): public CDN URL
+    Celery Worker (celery_app.py)->>ClassCreator: create_class_chinese/english()
+    ClassCreator->>SiliconFlow TTS: Synthesize narration audio
+    ClassCreator->>ManimService: Render video (with Chinese font support)
+    ManimService-->>ClassCreator: local video file path
+    ClassCreator->>CloudStorageManager: upload_file()
+    CloudStorageManager-->>ClassCreator: public CDN URL
     Celery Worker (celery_app.py)->>PostgreSQL: lesson_storage.save_lesson()
     Celery Worker (celery_app.py)-->>Redis Queue: Mark task SUCCESS
 
-    FastAPI (server.py)-->>Browser: { status: "completed", result: { video_url, audio_url ... } }
+    FastAPI (server.py)-->>Browser: SSE event { status: "completed", result: { video_url, ... } }
 ```
 
 ---
@@ -61,26 +62,54 @@ sequenceDiagram
 | File | Role |
 | :--- | :--- |
 | `server.py` | **FastAPI app** — all HTTP endpoints. Initializes DB on startup. Imports `celery_app`. |
-| `celery_app.py` | **Celery task runner** — wraps `ClassCreator` pipeline as an async background task. Connects to Redis via `CELERY_BROKER_URL`. |
+| `celery_app.py` | **Celery task runner** — wraps `ClassCreator` pipeline as an async background task. Also contains `sync_proactive_notifications` Celery task. |
 
 ### API Endpoints (in `server.py`)
+
+#### Lesson Generation
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
 | `POST` | `/create-class` | Dispatches class generation job to Celery. Returns `{ job_id }` instantly. |
-| `GET` | `/job-status/{job_id}` | Polls Celery result backend. Saves lesson to DB on first `SUCCESS`. |
+| `GET` | `/job-status/{job_id}` | Polls Celery result backend. Returns `{ status, result }`. |
+| `GET` | `/job-stream/{job_id}` | **SSE stream** of job progress events. Returns `{ status: "completed", result }` on finish. Falls back gracefully to polling. |
 | `POST` | `/analyze-topics` | AI topic analysis from student query text. |
-| `GET` | `/lessons` | List all lessons from PostgreSQL. |
-| `GET` | `/lessons/{id}` | Get a specific lesson with video/audio URLs. |
+| `GET` | `/lessons` | List all published lessons. |
+| `GET` | `/lessons/{id}` | Get a specific lesson with full data. |
 | `DELETE` | `/lessons/{id}` | Delete a lesson by ID. |
-| `POST` | `/teach` | Legacy teaching query endpoint. |
-| `GET` | `/health` | Health check. |
 
-> **Missing endpoints (not yet implemented):**
-> - `POST /ingest/audio` — for FunASR transcription of user-uploaded audio
-> - `POST /ingest/image` — for PaddleOCR of user-uploaded images/slides
-> - `POST /auth/register`, `POST /auth/login` — user authentication
-> - `GET /users/me`, `PATCH /users/me` — user profile management
+#### Auth & User Profile (Clerk-based)
+
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `GET` | `/users/me` | Get current user's profile (requires Clerk JWT). |
+| `PATCH` | `/users/me` | Update current user's profile. |
+| `POST` | `/users/me/profile` | Create or update the learner onboarding profile (`UserProfile`). |
+
+#### Process-First Learning Engine
+
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `GET` | `/users/me/lessons` | List lessons created by the current user. |
+| `GET` | `/users/me/lessons/{id}/state` | Get lesson progress, latest performance, next review due, and recent agent interaction history. |
+| `POST` | `/users/me/lessons/{id}/progress` | Upsert progress percentage and completion status. |
+| `POST` | `/users/me/lessons/{id}/performance` | Record a performance score + confidence from any assessment. Triggers spaced-review scheduling. |
+| `POST` | `/users/me/lessons/{id}/seminar` | **Multi-agent seminar** — generates debate from 3 AI roles (Mentor, Top Student, Struggling Peer) + synthesis. |
+| `POST` | `/users/me/lessons/{id}/simulation` | **Applied simulation** — puts the student in a real decision scenario with an AI counterparty. |
+| `POST` | `/users/me/lessons/{id}/oral-defense` | **Oral defense** — AI panel of 3 experts questions the student's understanding. |
+| `POST` | `/users/me/lessons/{id}/memory-challenge` | **Memory challenge** — generates a 3-min retrieval sprint (no replaying). |
+| `POST` | `/users/me/lessons/{id}/deliberate-error` | **Error audit** — presents a plausible-but-flawed claim for the student to find and correct. |
+| `GET` | `/users/me/review-queue` | Returns overdue or due-soon `MemoryReview` items (spaced repetition queue). |
+| `GET` | `/users/me/notifications` | Returns `ProactiveNotification` items (auto-syncs from review queue). |
+| `PATCH` | `/users/me/notifications/{id}` | Mark a notification as read or dismissed. |
+| `POST` | `/users/me/notifications/sync` | Manually trigger sync of proactive notifications from review queue. |
+
+#### Media Ingestion
+
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `POST` | `/ingest/audio` | Upload audio → FunASR transcription (async, returns `job_id`). |
+| `POST` | `/ingest/image` | Upload image → PaddleOCR extraction (async, returns `job_id`). |
 
 ---
 
@@ -88,18 +117,26 @@ sequenceDiagram
 
 | File | Role |
 | :--- | :--- |
-| `core/create_classes.py` | **Main orchestrator.** `ClassCreator` calls cognitive, agentic, and output modules to assemble a `ClassCreationResult`. Supports `create_class_chinese()` and `create_class_english()`. |
-| `core/database.py` | SQLAlchemy ORM model definitions + `DatabaseManager`. Has a known bug: `pool_size=db_config.max_connections` crashes if `db_config` is `None`. |
-| `core/lesson_storage.py` | `LessonStorage` (file-based, legacy) and `LessonStorageSQL` (PostgreSQL, production). |
+| `core/create_classes.py` | **Main orchestrator.** `ClassCreator` calls cognitive, agentic, and output modules. Supports `create_class_chinese()` and `create_class_english()`. Accepts `user_id` and `lesson_design` preferences. |
 | `core/modules/agentic.py` | Agentic reasoning — plans lesson structure using LLM tool-calling. |
 | `core/modules/cognitive.py` | Cognitive processing — understands and categorizes student learning intent. |
-| `core/modules/ingestion.py` | `MultimodalIngestionPipeline` — processes audio (FunASR) and video slides (PaddleOCR scene detection). **Backend logic exists but no API endpoints or frontend UI expose it.** |
+| `core/modules/ingestion.py` | `MultimodalIngestionPipeline` — processes audio (FunASR) and images (PaddleOCR). |
 | `core/modules/output.py` | `OutputPipeline` — orchestrates TTS, video rendering, and cloud upload. |
-| `core/modules/video_scripting.py` | `VideoScriptGenerator` — generates JSON Director Script (scenes, narration, visual types) via LLM. |
-| `core/modules/storage_manager.py` | `CloudStorageManager` — uploads MP4/MP3 to S3-compatible endpoints via `boto3`. Controlled by `S3_ENABLED` env. |
-| `core/modules/sophisticated_pipeline.py` | Advanced multi-step pipeline combining all modules. |
-| `core/rendering/manim_renderer.py` | `ManimService` — LLM generates Manim Python code → executes locally → self-corrects on failure (max 3 retries). Used for math/physics topics. |
-| `core/rendering/remotion_renderer.py` | `RemotionService` — React + Puppeteer renderer for general/history-style lessons. |
+| `core/modules/video_scripting.py` | `VideoScriptGenerator` — generates JSON Director Script via LLM. Enforces Chinese-safe rendering (no CJK in LaTeX). |
+| `core/modules/storage_manager.py` | `CloudStorageManager` — uploads MP4/MP3 to S3-compatible endpoints via `boto3`. |
+| `core/rendering/manim_renderer.py` | `ManimService` — LLM generates Manim Python code → executes → self-corrects (max 3 retries). Detects CJK chars in `write_tex` and falls back to `Text` renderer. |
+
+### Process-First Learning Helpers (in `server.py`)
+
+| Helper Function | Role |
+| :--- | :--- |
+| `_generate_multi_agent_seminar_turn()` | Calls DeepSeek to generate 3-role debate + synthesis + next moderator prompt. |
+| `_generate_simulation_turn()` | Generates counterparty response, coach feedback, and pressure level for a scenario. |
+| `_generate_oral_defense_turn()` | Generates panel questions, verdict, and follow-up from 3 expert personas. |
+| `_generate_memory_challenge()` | Produces a title, 3 recall questions, and self-check anchors. |
+| `_generate_deliberate_error_audit()` | Produces a flawed claim, distractor elements, and the correction. |
+
+All helpers include DeepSeek LLM calls with JSON-structured fallbacks if the LLM call fails.
 
 ---
 
@@ -108,142 +145,149 @@ sequenceDiagram
 | File | Service | Notes |
 | :--- | :--- | :--- |
 | `services/api_client.py` | **Unified LLM client** | Calls DeepSeek V3 or SiliconFlow endpoints only. **No OpenAI.** |
-| `services/tts/` | TTS synthesis | Calls **SiliconFlow TTS** only. **No OpenAI TTS.** |
+| `services/tts/` | TTS synthesis | Calls **SiliconFlow TTS** only. |
 | `services/siliconflow.py` | SiliconFlow API wrapper | For LLM and image model calls. |
-| `services/funasr/` | **Aliyun FunASR** | Audio-to-text transcription. Used by `ingestion.py`. Runs locally in Docker on port `10095`. |
-| `services/paddleocr/` | **Baidu PaddleOCR** | Document OCR + video slide text extraction. Runs locally in Docker on port `8866`. |
-| `services/heygen.py` | HeyGen Avatar | Not integrated into main pipeline. |
+| `services/funasr/` | **Aliyun FunASR** | Audio-to-text transcription. Runs in Docker on port `10095`. |
+| `services/paddleocr/` | **Baidu PaddleOCR** | Document OCR. Runs in Docker on port `8866`. |
 
 ---
 
-## Database Models (`backend/core/database.py`)
+## Database (`backend/database/`)
 
-### `lessons` table — `class Lesson`
+### ORM Models
 
-| Column | Type | Notes |
-| :--- | :--- | :--- |
-| `id` | UUID (PK) | Auto-generated `uuid4` |
-| `title` | String(255) | Required |
-| `description` | Text | Optional |
-| `topic` | String(255) | Required |
-| `language` | String(10) | `zh`, `en`, `ja`, `ko` |
-| `student_level` | String(20) | `beginner`, `intermediate`, `advanced` |
-| `difficulty_level` | String(20) | `easy`, `medium`, `hard` |
-| `duration_minutes` | Integer | Default: 30 |
-| `quality_score` | Float | 0.0–1.0 AI confidence estimate |
-| `cost_usd` | Float | API cost estimate |
-| `ai_insights` | JSON | Stores `video_url`, `audio_url`, `provider`, `confidence`, full lesson plan |
-| `created_at` | DateTime (TZ) | Auto set on insert |
-| `updated_at` | DateTime (TZ) | Auto set on update |
+#### `lessons` — `class Lesson`
+Core lesson content, AI insights (video_url, audio_url, lesson plan stored in JSON), quality score.
 
-**Relationships:** `objectives` → `LessonObjective`, `resources` → `LessonResource`, `exercises` → `LessonExercise`
+#### `users` — `class User`
+Clerk user ID as primary key (`String(255)`). Email, username, role, subscription tier, language preference.
 
-**Indexes:** `language`, `student_level`, `created_at`, `quality_score`, `topic`
+#### `user_profiles` — `class UserProfile` ✨ NEW
+Learner onboarding profile: grade level, subject interests, current challenges, long-term goals, preferred learning style, weekly study hours, `onboarding_completed` flag.
 
-> **Note:** `video_url` and `audio_url` are stored **inside** `ai_insights` JSON, not dedicated columns. Consider adding dedicated columns for easier querying and indexing.
+#### `user_lessons` — `class UserLesson`
+Progress tracking per user per lesson: `progress_percentage`, `is_completed`, `time_spent_minutes`.
 
----
+#### `student_performance` — `class StudentPerformance` ✨ NEW
+Fine-grained assessment records from seminars, simulations, oral defenses: score, confidence, strengths, struggles, reflection, assessment type.
 
-### `lesson_objectives` table — `class LessonObjective`
+#### `memory_reviews` — `class MemoryReview` ✨ NEW
+Spaced repetition queue using a forgetting-curve scheduler. Fields: `review_type`, `status`, `review_count`, `ease_factor`, `interval_hours`, `due_at`. Unique constraint: `(user_id, lesson_id, review_type)`.
 
-| Column | Type | Notes |
-| :--- | :--- | :--- |
-| `id` | Integer (PK) | Auto-increment |
-| `lesson_id` | UUID (FK → lessons.id) | CASCADE DELETE |
-| `objective` | Text | Required learning objective |
-| `order_index` | Integer | Display order |
+#### `agent_interaction_turns` — `class AgentInteractionTurn` ✨ NEW
+Lightweight log of live seminar, simulation, and oral-defense turns for context continuity. Fields: `interaction_type`, `user_input`, `agent_output`.
 
----
+#### `proactive_notifications` — `class ProactiveNotification` ✨ NEW
+In-app notification records derived from the review queue. Fields: `notification_type`, `title`, `body`, `action_url`, `status`, `delivery_channel`, `scheduled_for`, `read_at`.
 
-### `lesson_resources` table — `class LessonResource`
+### Storage Layer (`backend/database/storage.py`)
 
-| Column | Type | Notes |
-| :--- | :--- | :--- |
-| `id` | Integer (PK) | Auto-increment |
-| `lesson_id` | UUID (FK → lessons.id) | CASCADE DELETE |
-| `resource_type` | String(50) | `video`, `document`, `link`, etc. |
-| `title` | String(255) | Optional |
-| `url` | Text | Optional |
-| `description` | Text | Optional |
+`LessonStorageSQL` class provides all persistence. Key methods:
 
----
-
-### `lesson_exercises` table — `class LessonExercise`
-
-| Column | Type | Notes |
-| :--- | :--- | :--- |
-| `id` | Integer (PK) | Auto-increment |
-| `lesson_id` | UUID (FK → lessons.id) | CASCADE DELETE |
-| `exercise_type` | String(50) | `quiz`, `coding`, `discussion` |
-| `question` | Text | Required |
-| `answer` | Text | Optional (model answer) |
-| `difficulty` | String(20) | Optional |
-
----
-
-> [!CAUTION]
-> **No `users` table exists.** There is no User database model, no auth system, and no `user_id` on lessons. All lessons are global and anonymous. This must be implemented before any production launch.
-
----
-
-## Configuration (`backend/config/config.py`)
-
-| Config Class | Controls |
+| Method | Description |
 | :--- | :--- |
-| `LLMModelConfig` | Model name, API endpoint (DeepSeek/SiliconFlow), API key, temperature, max_tokens |
-| `DatabaseConfig` | Host, port, user, password, max_connections |
-| `ProcessingConfig` | Timeout, max_retries, batch_size, cache |
-| `CostOptimizationConfig` | Monthly budget, fallback model threshold |
-| `StorageConfig` | S3/OSS credentials, bucket name, `S3_ENABLED` flag |
-
-**Configured AI Models (no OpenAI):**
-- `deepseek_v3` — DeepSeek V3 via `api.deepseek.com`
-- `deepseek_r1` — DeepSeek R1 (reasoning) via `api.deepseek.com`
-- `siliconflow_*` — Multiple models via `api.siliconflow.cn`
-- `funasr` — Local FunASR at `ws://localhost:10095`
-- `paddle_ocr` — Local PaddleOCR at `http://localhost:8866`
+| `save_lesson()` | Persist full lesson with objectives, resources, exercises. |
+| `get_lesson_state()` | Combined query: progress + latest performance + next review + recent interactions by type. |
+| `upsert_user_lesson_progress()` | Create or update `UserLesson` progress record. |
+| `record_student_performance()` | Save assessment result + trigger `_schedule_memory_review()`. |
+| `get_review_queue()` | Return overdue/upcoming `MemoryReview` items within a rolling horizon. |
+| `sync_proactive_notifications()` | Derive new in-app notifications from overdue reviews; avoids duplicates. |
+| `get_notifications()` | Fetch notifications, auto-syncing if needed. |
+| `mark_notification_status()` | Mark a notification read/dismissed. |
+| `store_agent_interaction()` | Persist one live agent turn. |
+| `get_recent_agent_interactions()` | Fetch recent turns for continuity (last N by type). |
+| `_schedule_memory_review()` | Spaced-review scheduler: ease factor + interval ladder based on mastery score. |
 
 ---
 
 ## Frontend (`web/`)
 
-Next.js 13 App Router. All backend API calls are proxied through `web/app/api/backend/` which injects `NEXT_PUBLIC_API_URL`.
+Next.js 13 App Router. All backend API calls are proxied through `web/app/api/backend/`.
 
 ### Pages
 
-| Route | File | Description |
-| :--- | :--- | :--- |
-| `/` | `app/page.tsx` | Landing page |
-| `/create` | `app/create/page.tsx` | **Main lesson creation flow**: chat → topic select → configure → generate (polls job-status) → video player |
-| `/lessons/[id]` | `app/lessons/[id]/page.tsx` | Lesson detail: video, audio, lesson plan, exercises |
-| `/dashboard` | `app/dashboard/page.tsx` | Lesson history |
-| `/settings` | `app/settings/page.tsx` | Settings page |
-| `/analytics` | `app/analytics/page.tsx` | Analytics |
+| Route | Description |
+| :--- | :--- |
+| `/` | Landing page |
+| `/create` | Lesson creation: chat → topic → configure (with `LessonDesign` options) → generate (SSE + fallback polling) → preview |
+| `/lessons/[id]` | Lesson detail with 5 tabs: **Seminar**, Practice, Content, Transcript, Video |
+| `/dashboard` | Lesson history + **Process Inbox** (notifications) + **Today's Proactive Interventions** (review queue) |
+| `/principles` | About / Features page — all 9 features + learning loop + design principles |
+| `/settings` | Settings page |
+| `/analytics` | Analytics |
+| `/dev-form` | Direct upload speed test (audio/image ASR/OCR) |
+
+### Lesson Detail Tabs (`/lessons/[id]`)
+
+| Tab | Feature |
+| :--- | :--- |
+| **Seminar** | Multi-agent debate (Mentor / Top Student / Struggling Peer) + live moderator input |
+| **Practice** | Memory Challenge · Oral Defense · Simulation · Deliberate Error Audit |
+| **Content** | Structured lesson plan |
+| **Transcript** | Manim scene narration text |
+| **Video** | AI insights and video player |
 
 ### API Proxy Routes (`web/app/api/backend/`)
 
-| Route | Forwards To |
+| Proxy Path | Forwards To |
 | :--- | :--- |
-| `api/backend/route.ts` | `POST /create-class` |
-| `api/backend/results/route.ts` | `GET /lessons` |
-| `api/backend/lessons/route.ts` | `POST /lessons` |
-| `api/backend/lessons/[id]/route.ts` | `GET / DELETE /lessons/{id}` |
-
-> **Missing:** No proxy route for `/job-status`, `/ingest/*`, or any auth endpoints.
+| `create-class/` | `POST /create-class` |
+| `job-status/[id]/` | `GET /job-status/{id}` |
+| `job-stream/[id]/` | `GET /job-stream/{id}` (SSE) |
+| `lessons/` | `GET /lessons` |
+| `lessons/[id]/` | `GET / DELETE /lessons/{id}` |
+| `users/me/` | `GET / PATCH /users/me` |
+| `users/me/lessons/` | `GET /users/me/lessons` |
+| `users/me/lessons/[id]/state/` | `GET /users/me/lessons/{id}/state` |
+| `users/me/lessons/[id]/progress/` | `POST /users/me/lessons/{id}/progress` |
+| `users/me/lessons/[id]/performance/` | `POST /users/me/lessons/{id}/performance` |
+| `users/me/lessons/[id]/seminar/` | `POST /users/me/lessons/{id}/seminar` |
+| `users/me/lessons/[id]/simulation/` | `POST /users/me/lessons/{id}/simulation` |
+| `users/me/lessons/[id]/oral-defense/` | `POST /users/me/lessons/{id}/oral-defense` |
+| `users/me/lessons/[id]/memory-challenge/` | `POST /users/me/lessons/{id}/memory-challenge` |
+| `users/me/lessons/[id]/deliberate-error/` | `POST /users/me/lessons/{id}/deliberate-error` |
+| `users/me/review-queue/` | `GET /users/me/review-queue` |
+| `users/me/notifications/` | `GET /users/me/notifications` |
+| `users/me/notifications/[id]/` | `PATCH /users/me/notifications/{id}` |
+| `users/me/notifications/sync/` | `POST /users/me/notifications/sync` |
+| `users/me/profile/` | `POST /users/me/profile` |
+| `ingest/audio/` | `POST /ingest/audio` |
+| `ingest/image/` | `POST /ingest/image` |
+| `media/[...path]/` | Static media file proxy |
 
 ---
 
-## Local Dev Services (via `docker-compose.yml`)
+## SSE Job Streaming
 
-| Service | Image | Port | Required? |
+The lesson generation flow uses **Server-Sent Events** with an automatic fallback to polling:
+
+```
+Browser
+  │
+  ├─ Opens EventSource → /api/backend/job-stream/{job_id}
+  │     SSE events: { status: "pending|processing|completed", result?, error? }
+  │
+  └─ onerror handler fires (proxy timeout / nginx buffer)
+        │
+        └─ Falls back to polling /api/backend/job-status/{job_id} every 2s
+              Max 90 attempts (~3 min) before timeout error
+```
+
+SSE response headers include `X-Accel-Buffering: no` to prevent nginx from buffering the stream.
+
+---
+
+## Local Dev Services (`docker-compose.yml`)
+
+| Service | Image | Port | Role |
 | :--- | :--- | :--- | :--- |
-| `postgres` | `postgres:15-alpine` | 5432 | ✅ Yes — main database |
-| `backend` | Built from `backend/Dockerfile` | 8000 | ✅ Yes — API server |
-| `funasr` | Aliyun FunASR runtime | 10095 | ✅ Yes — audio transcription |
-| `paddleocr` | Aliyun PaddleOCR | 8866 | ✅ Yes — OCR |
-
-> [!IMPORTANT]
-> `docker-compose.yml` does NOT include **Redis** or a **Celery worker**. These are required for the async class generation queue. Start separately: `docker run -d -p 6379:6379 redis:alpine`
+| `postgres` | `postgres:15-alpine` | 5432 | Main database |
+| `redis` | `redis:alpine` | 6379 | Celery broker + job result backend |
+| `backend` | Built from `backend/Dockerfile` | 8000 | FastAPI server |
+| `celery-worker` | Built from `backend/Dockerfile` | — | Background task runner |
+| `frontend` | Built from `web/Dockerfile` | 3000 | Next.js app |
+| `funasr` | Aliyun FunASR runtime | 10095 | Audio transcription |
+| `paddleocr` | Aliyun PaddleOCR | 8866 | OCR |
 
 ---
 
@@ -251,205 +295,54 @@ Next.js 13 App Router. All backend API calls are proxied through `web/app/api/ba
 
 ```bash
 # === DATABASE ===
-DATABASE_URL=postgresql://user:pass@host:5432/db    # Overrides all POSTGRES_* vars
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_USER=mentormind
-POSTGRES_PASSWORD=mentormind
-POSTGRES_DB=mentormind_metadata
+DATABASE_URL=postgresql://mentormind:mentormind@postgres:5432/mentormind_metadata
 
-# === AI APIs (DeepSeek + SiliconFlow ONLY — no OpenAI keys) ===
+# === AI APIs (DeepSeek + SiliconFlow ONLY) ===
 DEEPSEEK_API_KEY=...
 SILICONFLOW_API_KEY=...
 
-# === CLOUD STORAGE (Aliyun OSS / Cloudflare R2 — S3-compatible) ===
+# === AUTHENTICATION (Clerk) ===
+CLERK_PUBLISHABLE_KEY=...
+CLERK_SECRET_KEY=...
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
+
+# === CLOUD STORAGE (Aliyun OSS / Cloudflare R2) ===
 S3_ENABLED=false
-S3_ENDPOINT_URL=https://<bucket>.<region>.aliyuncs.com
+S3_ENDPOINT_URL=...
 S3_ACCESS_KEY_ID=...
 S3_SECRET_ACCESS_KEY=...
 S3_BUCKET_NAME=mentormind-videos
-S3_PUBLIC_URL_PREFIX=https://...
+S3_PUBLIC_URL_PREFIX=...
 
 # === CELERY / REDIS ===
-CELERY_BROKER_URL=redis://localhost:6379/0
+CELERY_BROKER_URL=redis://redis:6379/0
+CELERY_RESULT_BACKEND=redis://redis:6379/0
 
 # === FRONTEND ===
+BACKEND_URL=http://backend:8000          # internal Docker network name
 NEXT_PUBLIC_API_URL=http://localhost:8000
+
+# === MANIM ===
+MANIM_RENDER_QUALITY=m                   # l=low, m=medium, h=high
+MANIM_RENDER_TIMEOUT_SECONDS=120
 ```
 
 ---
 
-## Missing Features (Not Yet Implemented)
+## Global Language System
 
-> [!WARNING]
-> The following features are architecturally planned or required but have **no implementation** in the current codebase.
+Two-layer approach:
+- **UI Language** — controlled by `LanguageContext` / `useLanguage()`, stored in `localStorage`.
+- **Content Language** — sent as `language` in every AI generation request body. All LLM prompts include an explicit language instruction at the top via `LANGUAGE_INSTRUCTION` dict.
 
-### 1. User System
-- No `users` table in the database
-- No user registration, login, or JWT/session auth
-- No `user_id` FK on `lessons` — all lessons are global and anonymous
-- **Action required:** Create `User` model, add `user_id` to `Lesson`, implement auth endpoints. Supabase Auth is the quickest path.
-
-### 2. Audio Input (FunASR) — User Facing
-- `FunASRService` and `AudioProcessor` backend logic exist and work
-- **Missing:** `POST /ingest/audio` endpoint in `server.py`
-- **Missing:** Microphone button or audio file upload in `/create` frontend page
-- **Missing:** Frontend API proxy route for the audio ingestion endpoint
-
-### 3. Image/OCR Input (PaddleOCR) — User Facing
-- `PaddleOCRService` and `VideoProcessor` backend logic exist and work
-- **Missing:** `POST /ingest/image` endpoint in `server.py`
-- **Missing:** Image/slide upload UI in `/create` frontend page
-- **Missing:** Frontend API proxy route for image upload
-
-### 4. Global Language Context System
-- Language is selected per-request via a `language` parameter
-- **Missing:** Persistent global language preference across user sessions
-- **Missing:** React Context or Zustand store wrapping all API calls with user's language setting
-- **Missing:** `language` field on the (missing) `users` table
-
-### 5. Redis + Celery in `docker-compose.yml`
-- After the async refactoring, the app requires Redis but `docker-compose.yml` has no `redis` service
-- **Action required:** Add `redis:alpine` and a `celery-worker` service to `docker-compose.yml`
-
-### 6. `/job-status` Frontend Proxy Route
-- `app/create/page.tsx` calls `${apiUrl}/job-status/${job_id}` directly, bypassing the Next.js API proxy
-- This will cause CORS errors in production where the backend is on a different domain
-- **Action required:** Create `web/app/api/backend/job-status/[id]/route.ts`
+TTS voice auto-switches: `zh` → CosyVoice Chinese, `en` → CosyVoice English.
 
 ---
 
-## Global Language Context System — Design
+## Manim Video Rendering Notes
 
-### Problem
-
-The app has two distinct language dimensions that must be kept consistent:
-
-1. **UI Language** — The language of all static interface text (navigation, buttons, labels). Managed by `LanguageContext.tsx` and `translations.ts`. Currently working.
-2. **Content Language** — The language of all AI-generated educational content: lesson titles, explanations, narration script, video text, exercise questions, and topic suggestions. This content is generated by DeepSeek and must match the UI language.
-
-**The bug:** Users can change UI to English, but DeepSeek is still prompted to reply in Chinese. The generated lesson content is language-inconsistent.
-
----
-
-### Design: Two-Layer Language System
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Layer 1: UI Language (existing, working)                        │
-│  - Storage: localStorage("app-language")                         │
-│  - Context: LanguageContext / useLanguage()                      │
-│  - Scope: All UI strings via translations.ts                     │
-│  - Changes immediately on toggle, persists across sessions       │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │ auto-synced
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Layer 2: Content Language (new)                                 │
-│  - Storage: localStorage("content-language")                     │
-│  - Context: Same LanguageContext — adds `contentLanguage` field  │
-│  - Scope: All API calls that trigger AI content generation       │
-│  - Default: mirrors UI language; can be set independently        │
-│             (e.g., "UI in Chinese, lesson content in English")   │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │ sent as { language: "en" | "zh" }
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Layer 3: Backend Enforcement                                    │
-│  - FastAPI receives `language` in every request body            │
-│  - `ClassCreationRequest.language` → passed to LLM prompts       │
-│  - Prompts in `agentic.py`, `cognitive.py`, `video_scripting.py` │
-│    inject EXPLICIT language instruction:                         │
-│    "Respond ENTIRELY in {language}. Do not mix languages."       │
-│  - TTS voice selection auto-switches based on language            │
-│    (zh → CosyVoice-zh, en → CosyVoice-en)                       │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-### Frontend State: Updated `LanguageContext.tsx`
-
-```typescript
-interface LanguageContextType {
-    // UI language — controls all static interface text
-    language: Language             // 'zh' | 'en'
-    setLanguage: (lang: Language) => void
-
-    // Content language — controls AI-generated lesson text
-    contentLanguage: Language
-    setContentLanguage: (lang: Language) => void
-
-    // UI translation helper
-    t: (path: string, vars?) => string
-}
-```
-
-**Key rules:**
-- When `setLanguage()` is called, `contentLanguage` is also updated **unless** the user has explicitly overridden it separately via Settings.
-- `contentLanguage` is sent in every API call that generates content: `/analyze-topics`, `/create-class`.
-- If a user sets UI=zh but contentLanguage=en, the UI shows Chinese labels but DeepSeek generates the lesson plan in English.
-
----
-
-### Backend Enforcement: Prompt Language Lock
-
-All prompts in `agentic.py`, `cognitive.py`, and `video_scripting.py` must include a **language instruction at the top**:
-
-```python
-LANGUAGE_INSTRUCTION = {
-    "zh": "请用中文回复。所有内容、标题、说明和练习题均必须用中文书写。禁止使用英文。",
-    "en": "Reply entirely in English. All content, titles, explanations, and exercises must be in English. Do not mix languages."
-}
-
-def build_prompt(base_prompt: str, language: str) -> str:
-    return f"{LANGUAGE_INSTRUCTION[language]}\n\n{base_prompt}"
-```
-
-This is applied to every `api_client.py` call that generates educational content.
-
----
-
-### TTS Voice Auto-Selection
-
-The TTS voice must match the content language to avoid Chinese voice reading English text:
-
-| `contentLanguage` | Default TTS Voice |
-| :--- | :--- |
-| `zh` | `CosyVoice2-0.5B` (Chinese female, `chinese_female_meimei`) |
-| `en` | `CosyVoice2-0.5B` (English neutral, `english_neutral_voice`) |
-
-The voice can be further overridden by the user's explicit voice selection in the UI.
-
----
-
-### Content Consistency Rules (AI-Generated)
-
-The following content types must **all** be in `contentLanguage`:
-
-| Content Type | Module | Required Language Enforcement |
-| :--- | :--- | :--- |
-| Topic suggestions | `analyze-topics` endpoint | ✅ Pass `language`, inject in prompt |
-| Lesson title & description | `cognitive.py` | ✅ Pass `language`, inject in prompt |
-| Learning objectives | `agentic.py` | ✅ Pass `language`, inject in prompt |
-| Video scene narrations | `video_scripting.py` | ✅ Pass `language`, inject in prompt |
-| Manim code comments | `manim_renderer.py` | ✅ Math formulas are language-neutral |
-| Exercise questions & answers | `agentic.py` | ✅ Pass `language`, inject in prompt |
-| Chat assistant response | `/teach` endpoint | ✅ Pass `language`, inject in prompt |
-
----
-
-### Settings UI: Separate Content Language Override
-
-Added to `/settings` page under **Preferences**:
-
-```
-[ Default Language ]
-  ○ 中文（简体）  ● English (US)
-
-[ Content Generation Language ]      ← NEW, separate control
-  ● Match UI Language   ○ Override: [ Select Language ▾ ]
-```
-
-This allows power users to use the app in Chinese but generate lesson content in English (for bilingual teaching).
-
+- Chinese characters are **not** allowed inside `write_tex` actions — the renderer detects CJK chars and falls back to `Text()`.
+- `show_text` should be used for all Chinese labels.
+- Docker image installs `texlive-lang-chinese`, `texlive-xetex`, and `fonts-noto-cjk` for full CJK support.
+- Max 5 scenes are generated per lesson to keep render time under ~2 minutes.
+- Render quality and timeout are configurable via `MANIM_RENDER_QUALITY` and `MANIM_RENDER_TIMEOUT_SECONDS`.

@@ -154,7 +154,7 @@ export default function PrinciplesPage() {
       {/* Features Grid */}
       <div>
         <h2 className="text-2xl font-bold text-slate-900 mb-2">
-          {language === 'zh' ? '核心功能' : 'What's Inside'}
+          {language === 'zh' ? '核心功能' : "What's Inside"}
         </h2>
         <p className="text-slate-500 text-sm mb-8">
           {language === 'zh' ? '每个功能都是完整的学习干预，而不是花哨的包装。' : 'Every feature is a real learning intervention, not a cosmetic add-on.'}

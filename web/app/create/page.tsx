@@ -547,31 +547,78 @@ export default function CreateLessonPage() {
       const data = await response.json()
 
       if (data.job_id) {
+        const pollJobUntilComplete = async (jobId: string) => {
+          const maxAttempts = 90
+          for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+            const statusResponse = await fetch(`/api/backend/job-status/${jobId}`, {
+              cache: 'no-store',
+            })
+            if (!statusResponse.ok) {
+              await new Promise((resolve) => setTimeout(resolve, 2000))
+              continue
+            }
+
+            const statusData = await statusResponse.json()
+            if (statusData.status === 'completed') {
+              return statusData.result
+            }
+            if (statusData.success && !statusData.status) {
+              return statusData
+            }
+            if (statusData.status === 'failed') {
+              throw new Error(statusData.error || 'Job failed on the server.')
+            }
+            await new Promise((resolve) => setTimeout(resolve, 2000))
+          }
+
+          throw new Error('Timed out waiting for course generation to finish.')
+        }
+
         await new Promise((resolve, reject) => {
+          let settled = false
           const eventSource = new EventSource(`/api/backend/job-stream/${data.job_id}`);
 
           eventSource.onmessage = (event) => {
             try {
               const statusData = JSON.parse(event.data);
-              if (statusData.status === 'completed') {
-                setPreview(statusData.result);
+              const completedResult =
+                statusData.status === 'completed'
+                  ? statusData.result
+                  : (statusData.success && !statusData.status ? statusData : null)
+
+              if (completedResult) {
+                settled = true
+                setPreview(completedResult);
                 setPipelineProgress(null);
                 alert(t('create.courseCreatedSuccess'));
                 eventSource.close();
                 resolve(true);
               } else if (statusData.status === 'failed') {
+                settled = true
                 eventSource.close();
                 reject(new Error(statusData.error || 'Job failed on the server.'));
               }
             } catch (err) {
+              settled = true
               eventSource.close();
               reject(err);
             }
           };
 
-          eventSource.onerror = (error) => {
+          eventSource.onerror = async () => {
             eventSource.close();
-            reject(new Error('Connection to generation stream lost. Check server logs.'));
+            if (settled) {
+              return
+            }
+            try {
+              const finalResult = await pollJobUntilComplete(data.job_id)
+              setPreview(finalResult)
+              setPipelineProgress(null)
+              alert(t('create.courseCreatedSuccess'))
+              resolve(true)
+            } catch (pollError) {
+              reject(pollError instanceof Error ? pollError : new Error('Connection to generation stream lost. Check server logs.'))
+            }
           };
         });
       } else if (data.success) {

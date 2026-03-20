@@ -1777,7 +1777,11 @@ async def get_job_status(job_id: str):
     # Check our direct Redis store for the final result payload
     result_json = _redis_client.get(f"job_result:{job_id}")
     if result_json:
-        return json.loads(result_json)
+        try:
+            payload = json.loads(result_json)
+        except Exception:
+            payload = {"raw": str(result_json)}
+        return {"status": "completed", "job_id": job_id, "result": payload}
         
     response = {
         "status": task_result.status.lower(),
@@ -1805,7 +1809,15 @@ async def stream_job_status(job_id: str):
             # First check if result is already in Redis
             result_json = _redis_client.get(f"job_result:{job_id}")
             if result_json:
-                yield f"data: {result_json}\n\n"
+                try:
+                    result_payload = json.loads(result_json)
+                except Exception:
+                    result_payload = {"raw_result": result_json}
+                # Send a keepalive comment first so the browser EventSource
+                # registers the open connection before we deliver the final event.
+                yield ": keepalive\n\n"
+                await asyncio.sleep(0.05)
+                yield f"data: {json.dumps({'status': 'completed', 'job_id': job_id, 'result': result_payload})}\n\n"
                 break
                 
             task_result = AsyncResult(job_id, app=celery_app)
@@ -1817,15 +1829,28 @@ async def stream_job_status(job_id: str):
                     data["error"] = str(task_result.result)
                     yield f"data: {json.dumps(data)}\n\n"
                     break
+                if status == "success":
+                    data["status"] = "completed"
+                    data["result"] = task_result.result
+                    yield f"data: {json.dumps(data)}\n\n"
+                    break
                 yield f"data: {json.dumps(data)}\n\n"
                 last_status = status
                 
-            if status in ["success", "failure", "revoked"]:
+            if status in ["failure", "revoked"]:
                 break
                 
             await asyncio.sleep(2)
             
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 from celery_app import (
