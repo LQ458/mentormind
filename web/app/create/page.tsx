@@ -517,6 +517,63 @@ export default function CreateLessonPage() {
       return
     }
 
+    const normalizeLessonText = (value: string) =>
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9\u4e00-\u9fff\s]/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+    const recoverRecentlyCreatedLesson = async (headers: Record<string, string>) => {
+      if (!isSignedIn) {
+        return null
+      }
+
+      const lessonsResponse = await fetch('/api/backend/users/me/lessons', {
+        headers,
+        cache: 'no-store',
+      })
+      if (!lessonsResponse.ok) {
+        return null
+      }
+
+      const lessons = await lessonsResponse.json()
+      if (!Array.isArray(lessons) || lessons.length === 0) {
+        return null
+      }
+
+      const normalizedTopic = normalizeLessonText(rawTopic)
+      const now = Date.now()
+      const candidate = lessons.find((lesson: any) => {
+        const createdAt = lesson.created_at ? new Date(lesson.created_at).getTime() : 0
+        const isRecent = createdAt > 0 && now - createdAt <= 20 * 60 * 1000
+        if (!isRecent) {
+          return false
+        }
+
+        const lessonText = normalizeLessonText(`${lesson.title || ''} ${lesson.topic || ''}`)
+        return (
+          lessonText.includes(normalizedTopic) ||
+          normalizedTopic.includes(lessonText)
+        )
+      }) || lessons[0]
+
+      if (!candidate?.id) {
+        return null
+      }
+
+      const detailResponse = await fetch(`/api/backend/lessons/${candidate.id}`, {
+        headers,
+        cache: 'no-store',
+      })
+      if (!detailResponse.ok) {
+        return candidate
+      }
+
+      const detailData = await detailResponse.json()
+      return detailData.lesson || candidate
+    }
+
     setGenerating(true)
 
     try {
@@ -548,7 +605,7 @@ export default function CreateLessonPage() {
 
       if (data.job_id) {
         const pollJobUntilComplete = async (jobId: string) => {
-          const maxAttempts = 90
+          const maxAttempts = 240
           for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
             const statusResponse = await fetch(`/api/backend/job-status/${jobId}`, {
               cache: 'no-store',
@@ -576,7 +633,31 @@ export default function CreateLessonPage() {
 
         await new Promise((resolve, reject) => {
           let settled = false
+          let pollingStarted = false
           const eventSource = new EventSource(`/api/backend/job-stream/${data.job_id}`);
+
+          const completeFromPolling = async () => {
+            if (pollingStarted || settled) {
+              return
+            }
+            pollingStarted = true
+            try {
+              const finalResult = await pollJobUntilComplete(data.job_id)
+              if (settled) {
+                return
+              }
+              settled = true
+              setPreview(finalResult)
+              setPipelineProgress(null)
+              alert(t('create.courseCreatedSuccess'))
+              resolve(true)
+            } catch (pollError) {
+              if (!settled) {
+                settled = true
+                reject(pollError instanceof Error ? pollError : new Error('Connection to generation stream lost. Check server logs.'))
+              }
+            }
+          }
 
           eventSource.onmessage = (event) => {
             try {
@@ -605,20 +686,17 @@ export default function CreateLessonPage() {
             }
           };
 
-          eventSource.onerror = async () => {
+          // Start polling in parallel after a short grace period so SSE becomes an optimization, not a single point of failure.
+          window.setTimeout(() => {
+            void completeFromPolling()
+          }, 12000)
+
+          eventSource.onerror = () => {
             eventSource.close();
             if (settled) {
               return
             }
-            try {
-              const finalResult = await pollJobUntilComplete(data.job_id)
-              setPreview(finalResult)
-              setPipelineProgress(null)
-              alert(t('create.courseCreatedSuccess'))
-              resolve(true)
-            } catch (pollError) {
-              reject(pollError instanceof Error ? pollError : new Error('Connection to generation stream lost. Check server logs.'))
-            }
+            void completeFromPolling()
           };
         });
       } else if (data.success) {
@@ -631,6 +709,22 @@ export default function CreateLessonPage() {
       }
     } catch (error) {
       console.error('Create failed:', error)
+      try {
+        const token = await getToken()
+        const recoveryHeaders: Record<string, string> = {}
+        if (token) {
+          recoveryHeaders['Authorization'] = `Bearer ${token}`
+        }
+        const recoveredLesson = await recoverRecentlyCreatedLesson(recoveryHeaders)
+        if (recoveredLesson) {
+          setPreview(recoveredLesson)
+          setPipelineProgress(null)
+          alert(t('create.courseCreatedSuccess'))
+          return
+        }
+      } catch (recoveryError) {
+        console.error('Recovery after create failure failed:', recoveryError)
+      }
       setPipelineProgress(null)
       alert(t('create.creationFailedRetry'))
     } finally {
