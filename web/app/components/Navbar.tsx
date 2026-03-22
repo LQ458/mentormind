@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useLanguage } from './LanguageContext'
+import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
 
 export default function Navbar() {
     const { language, setLanguage, t } = useLanguage()
@@ -46,23 +47,35 @@ export default function Navbar() {
                                 {link.label}
                             </Link>
                         ))}
-
-                        <button
-                            onClick={toggleLanguage}
-                            className="ml-4 px-3 py-1.5 text-xs font-semibold text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors border border-gray-200 flex items-center gap-1"
-                        >
-                            <span>{language === 'zh' ? 'English' : '中文'}</span>
-                        </button>
                     </nav>
 
-                    {/* Mobile menu button could go here */}
-                    <div className="md:hidden flex items-center">
+                    {/* Auth Area */}
+                    <div className="flex items-center space-x-4">
                         <button
                             onClick={toggleLanguage}
-                            className="px-3 py-1.5 text-xs font-semibold text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                            className="px-3 py-1.5 text-xs font-semibold text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors hidden md:flex"
                         >
-                            {language === 'zh' ? 'EN' : '中'}
+                            {language === 'zh' ? 'EN' : '中文'}
                         </button>
+                        
+                        <SignedIn>
+                            <UserButton 
+                                appearance={{
+                                    elements: {
+                                        userButtonAvatarBox: "w-9 h-9"
+                                    }
+                                }}
+                            />
+                        </SignedIn>
+                        <SignedOut>
+                            <div className="flex items-center space-x-3">
+                                <SignInButton mode="modal">
+                                    <button className="text-sm font-medium px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                                        {language === 'zh' ? '登录 / 注册' : 'Sign In'}
+                                    </button>
+                                </SignInButton>
+                            </div>
+                        </SignedOut>
                     </div>
                 </div>
             </div>

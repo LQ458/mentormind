@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
@@ -7,12 +8,19 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { studentQuery, mode = 'batch' } = body
 
+    // Forward the Authorization header from the client if it exists
+    const authHeader = request.headers.get('Authorization')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+
     // Call real backend API
     const backendResponse = await fetch(`${BACKEND_URL}/teach`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({ studentQuery, mode }),
     })
 

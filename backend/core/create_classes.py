@@ -212,8 +212,14 @@ class ClassCreator:
                     ai_data = await self._translate_ai_response(ai_data)
                 
                 # Extract data from AI response
-                class_title = ai_data.get("title") or ai_data.get("class_title") or f"{request.topic} 课程"
-                class_description = ai_data.get("description") or ai_data.get("class_description") or f"关于{request.topic}的详细教学方案"
+                default_title = request.topic if language == Language.ENGLISH else f"{request.topic}课程"
+                default_description = (
+                    f"Detailed teaching plan for {request.topic}"
+                    if language == Language.ENGLISH
+                    else f"关于{request.topic}的详细教学方案"
+                )
+                class_title = ai_data.get("title") or ai_data.get("class_title") or default_title
+                class_description = ai_data.get("description") or ai_data.get("class_description") or default_description
                 
                 # Generate Multimedia (Audio/Video) if requested
                 audio_url = None
@@ -238,64 +244,32 @@ class ClassCreator:
                         multimedia_result = await self.output_pipeline.generate_quick_explanation(
                             concept=class_title,
                             context=class_description,
-                            voice_id=request.voice_id
+                            voice_id=request.voice_id,
+                            language=language.value
                         )
                         
                         if multimedia_result:
-                            # Construct public URLs (assuming served via static/API)
-                            audio_path = multimedia_result.get("audio", {}).get("path", "")
-                            video_path = multimedia_result.get("video", {}).get("path", "")
-                            
-                            print(f"DEBUG: Audio path: {audio_path}")
-                            print(f"DEBUG: Video path: {video_path}")
-                            
-                            # Helper to ensure forward slashes
-                            def to_web_path(path_str):
-                                return path_str.replace(os.sep, '/')
-                                
-                            if audio_path:
-                                try:
-                                    # Check if path is absolute and inside DATA_DIR
-                                    if os.path.isabs(audio_path) and audio_path.startswith(config.DATA_DIR):
-                                        rel_path = os.path.relpath(audio_path, config.DATA_DIR)
-                                        audio_url = f"/api/files/{to_web_path(rel_path)}"
-                                    else:
-                                        # Assume it's just a filename or relative path that needs to be served from audio/
-                                        # Ideally we should verify file existence, but for generated content we trust the generator
-                                        filename = os.path.basename(audio_path)
-                                        audio_url = f"/api/files/audio/{filename}"
-                                        
-                                    print(f"DEBUG: Generated Audio URL: {audio_url}")
-                                except Exception as e:
-                                    print(f"Error generating audio URL: {e}")
-                                    audio_url = None
-                                    
-                            if video_path:
-                                try:
-                                    if os.path.isabs(video_path) and video_path.startswith(config.DATA_DIR):
-                                        rel_path = os.path.relpath(video_path, config.DATA_DIR)
-                                        video_url = f"/api/files/{to_web_path(rel_path)}"
-                                    else:
-                                        filename = os.path.basename(video_path)
-                                        # Determine folder based on extension or context if needed, but 'videos' is safe default for output
-                                        video_url = f"/api/files/videos/{filename}"
+                            # output.py already returns a clean relative path
+                            # (e.g. "videos/manim/.../LessonScene.mp4") or a cloud URL.
+                            # Store it directly — no transformation needed here.
+                            audio_url = multimedia_result.get("audio", {}).get("path") or None
+                            video_url = multimedia_result.get("video", {}).get("path") or None
 
-                                    print(f"DEBUG: Generated Video URL: {video_url}")
-                                except Exception as e:
-                                     print(f"Error generating video URL: {e}")
-                                     video_url = None
-                                
-                            print(f"✅ Multimedia generated: {video_url}")
+                            print(f"✅ Multimedia generated — video_url={video_url!r}  audio_url={audio_url!r}")
                             
                     except Exception as e:
+                        import traceback
                         print(f"⚠️ Multimedia generation failed: {e}")
+                        print(f"⚠️ Full traceback:\n{traceback.format_exc()}")
                         # Don't fail the whole request, just log error
                 
                 # Handle different response formats
+                pipeline_success = (not request.include_video) or bool(video_url)
+
                 if "raw_response" in ai_data:
                     # AI returned raw text response
                     return ClassCreationResult(
-                        success=True,
+                        success=pipeline_success,
                         class_title=class_title,
                         class_description=class_description,
                         learning_objectives=[
@@ -333,7 +307,7 @@ class ClassCreator:
                 else:
                     # AI returned structured data
                     return ClassCreationResult(
-                        success=True,
+                        success=pipeline_success,
                         class_title=class_title,
                         class_description=class_description,
                         learning_objectives=ai_data.get("objectives") or ai_data.get("learning_objectives") or [],

@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server'
 import http from 'http'
 import https from 'https'
@@ -10,7 +11,7 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
 // Fields forwarded from the client to the backend (all optional except file).
 const FORWARDED_FIELDS = [
-    'language', 'process', 'student_level', 'duration_minutes',
+    'language', 'display_language', 'process', 'student_level', 'duration_minutes',
     'include_video', 'include_exercises', 'include_assessment',
     'target_audience', 'difficulty_level', 'voice_id', 'custom_requirements',
 ]
@@ -21,51 +22,50 @@ const httpAgent = new http.Agent({ keepAlive: true, timeout: 360_000 })
 const httpsAgent = new https.Agent({ keepAlive: true, timeout: 360_000 })
 
 async function fetchWithLongTimeout(url: string, init: RequestInit): Promise<Response> {
-    // Next.js uses the undici fetch internally, but we can fall back to
-    // node-fetch style by passing the agent via the (Node-specific) dispatcher.
-    // The simplest cross-compatible approach: attach the agent via 'dispatcher'
-    // if available (undici), otherwise ignore.
     const isHttps = url.startsWith('https')
     const agent = isHttps ? httpsAgent : httpAgent
-
-    // @ts-ignore – `agent` is a Node.js fetch extension not in the W3C types
-    return fetch(url, { ...init, agent })
+    return fetch(url, { ...init, agent } as any)
 }
 
 export async function POST(request: Request) {
+    console.log('📬 [PROXY] Audio ingest request received (Streaming Mode)')
     try {
-        const formData = await request.formData()
-        const file = formData.get('file') as File
-
-        if (!file) {
-            return NextResponse.json({ error: 'No audio file provided' }, { status: 400 })
+        const contentType = request.headers.get('content-type') || ''
+        const authHeader = request.headers.get('Authorization')
+        
+        // Prepare headers for forwarding
+        const headers: Record<string, string> = {
+            'Content-Type': contentType,
+        }
+        if (authHeader) {
+            headers['Authorization'] = authHeader
         }
 
-        // Forward the file and all optional fields to the backend
-        const backendForm = new FormData()
-        backendForm.append('file', file)
-        for (const field of FORWARDED_FIELDS) {
-            const value = formData.get(field)
-            if (value !== null) backendForm.append(field, value as string)
-        }
-
-        const backendResponse = await fetchWithLongTimeout(`${BACKEND_URL}/ingest/audio`, {
+        // Zero-Copy Proxy: Stream the request body directly to the backend
+        // We do NOT call request.formData() here.
+        const backendResponse = await fetch(`${BACKEND_URL}/ingest/audio`, {
             method: 'POST',
-            body: backendForm as unknown as BodyInit,
+            headers,
+            body: request.body as any,
+            // @ts-ignore - 'duplex' is required for streaming request bodies in some environments/undici
+            duplex: 'half'
         })
 
         if (!backendResponse.ok) {
             const errorText = await backendResponse.text()
-            console.error('Audio ingest error:', errorText)
-            throw new Error(`Backend error: ${backendResponse.status}`)
+            console.error('Audio ingest backend error:', errorText)
+            return NextResponse.json(
+                { error: 'Backend error', details: errorText }, 
+                { status: backendResponse.status }
+            )
         }
 
         const data = await backendResponse.json()
         return NextResponse.json(data)
     } catch (error) {
-        console.error('Audio ingest proxy error:', error)
+        console.error('Audio ingest proxy streaming error:', error)
         return NextResponse.json(
-            { error: 'Failed to transcribe audio', details: error instanceof Error ? error.message : 'Unknown error' },
+            { error: 'Failed to proxy audio upload', details: error instanceof Error ? error.message : 'Unknown error' },
             { status: 500 }
         )
     }

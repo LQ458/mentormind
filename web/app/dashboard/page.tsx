@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useLanguage } from '../components/LanguageContext'
+import { useAuth } from '@clerk/nextjs'
 
 interface SystemStatus {
   status: string
@@ -36,16 +37,57 @@ interface SystemStatus {
   error?: string
 }
 
+interface ReviewQueueItem {
+  id: number
+  review_type: string
+  stage: 'due_now' | 'upcoming'
+  due_in_hours: number
+  due_at: string
+  lesson: {
+    id: string
+    title: string
+    topic: string
+    duration_minutes: number
+    video_url?: string | null
+  }
+  metadata?: {
+    trigger?: string
+    mastery?: number
+  }
+}
+
+interface ProactiveNotification {
+  id: number
+  notification_type: string
+  title: string
+  body?: string | null
+  action_url?: string | null
+  status: string
+  scheduled_for?: string | null
+  metadata?: {
+    stage?: string
+    trigger?: string
+    mastery?: number
+  }
+}
+
 export default function DashboardPage() {
   const { language, t } = useLanguage()
+  const { isLoaded, isSignedIn, getToken } = useAuth()
+  
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [recentLessons, setRecentLessons] = useState<any[]>([])
+  const [reviewQueue, setReviewQueue] = useState<ReviewQueueItem[]>([])
+  const [notifications, setNotifications] = useState<ProactiveNotification[]>([])
+  const [notificationActionId, setNotificationActionId] = useState<number | null>(null)
 
   useEffect(() => {
     fetchStatus()
     fetchRecentLessons()
-  }, [])
+    fetchReviewQueue()
+    fetchNotifications()
+  }, [isLoaded, isSignedIn])
 
   const fetchStatus = async () => {
     try {
@@ -61,15 +103,131 @@ export default function DashboardPage() {
 
   const fetchRecentLessons = async () => {
     try {
-      const response = await fetch('/api/backend/results')
+      const endpoint = isSignedIn ? '/api/backend/users/me/lessons' : '/api/backend/results';
+      const token = await getToken();
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+
+      const response = await fetch(endpoint, {
+        headers
+      })
       const data = await response.json()
-      setRecentLessons(data.results || [])
+      // /users/me/lessons returns an array directly, /results returns { results: [] }
+      const rawLessons = Array.isArray(data) ? data : (data.results || [])
+      const normalized = rawLessons.map((lesson: any) => ({
+        id: lesson.id,
+        timestamp: lesson.timestamp || lesson.created_at,
+        query: lesson.query || lesson.topic,
+        lesson_title: lesson.lesson_title || lesson.title,
+        quality_score: lesson.quality_score || 0,
+        cost_usd: lesson.cost_usd || 0,
+      }))
+      setRecentLessons(normalized)
     } catch (error) {
       console.error('Failed to fetch lessons:', error)
     }
   }
 
-  if (loading || !status) {
+  const fetchReviewQueue = async () => {
+    if (!isLoaded || !isSignedIn) {
+      setReviewQueue([])
+      return
+    }
+
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = {}
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+
+      const response = await fetch('/api/backend/users/me/review-queue', { headers })
+      if (!response.ok) {
+        throw new Error(`Failed to fetch review queue: ${response.status}`)
+      }
+
+      const data = await response.json()
+      setReviewQueue(data.items || [])
+    } catch (error) {
+      console.error('Failed to fetch review queue:', error)
+      setReviewQueue([])
+    }
+  }
+
+  const fetchNotifications = async () => {
+    if (!isLoaded || !isSignedIn) {
+      setNotifications([])
+      return
+    }
+
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = {}
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+
+      await fetch('/api/backend/users/me/notifications/sync', {
+        method: 'POST',
+        headers,
+      })
+
+      const response = await fetch('/api/backend/users/me/notifications?unread_only=true&limit=6', { headers })
+      if (!response.ok) {
+        throw new Error(`Failed to fetch notifications: ${response.status}`)
+      }
+
+      const data = await response.json()
+      setNotifications(data.items || [])
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error)
+      setNotifications([])
+    }
+  }
+
+  const updateNotificationStatus = async (id: number, action: 'read' | 'dismiss') => {
+    try {
+      setNotificationActionId(id)
+      const token = await getToken()
+      const headers: Record<string, string> = {}
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+
+      const response = await fetch(`/api/backend/users/me/notifications/${id}/${action}`, {
+        method: 'POST',
+        headers,
+      })
+      if (!response.ok) {
+        throw new Error(`Failed to ${action} notification: ${response.status}`)
+      }
+      await fetchNotifications()
+    } catch (error) {
+      console.error(`Failed to ${action} notification:`, error)
+    } finally {
+      setNotificationActionId(null)
+    }
+  }
+
+  const formatReviewTiming = (item: ReviewQueueItem) => {
+    if (item.stage === 'due_now') {
+      return language === 'zh' ? '现在最适合复习' : 'Best reviewed now'
+    }
+
+    if (item.due_in_hours < 24) {
+      return language === 'zh'
+        ? `${Math.max(1, Math.round(item.due_in_hours))} 小时后进入遗忘风险`
+        : `Memory risk rises in ${Math.max(1, Math.round(item.due_in_hours))}h`
+    }
+
+    return language === 'zh'
+      ? `${Math.round(item.due_in_hours / 24)} 天后建议复习`
+      : `Suggested review in ${Math.round(item.due_in_hours / 24)}d`
+  }
+
+  if (!isLoaded || loading || !status) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="text-gray-500">{t('common.loading')}</div>
@@ -98,6 +256,141 @@ export default function DashboardPage() {
       </div>
 
       {/* Quick Actions + System Status */}
+      {isSignedIn && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="flex items-start justify-between gap-6">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">
+                {language === 'zh' ? '学习流程收件箱' : 'Process Inbox'}
+              </h2>
+              <p className="text-sm text-gray-600 mt-1 max-w-2xl">
+                {language === 'zh'
+                  ? '这里会出现系统主动推送的复习、纠错和练习提醒。'
+                  : 'This is where the system surfaces proactive review, correction, and practice nudges.'}
+              </p>
+            </div>
+            <button
+              onClick={fetchNotifications}
+              className="text-sm font-medium text-blue-600 hover:text-blue-800"
+            >
+              {language === 'zh' ? '刷新' : 'Refresh'}
+            </button>
+          </div>
+
+          <div className="mt-6 grid md:grid-cols-2 gap-4">
+            {notifications.length > 0 ? notifications.map((item) => (
+              <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
+                    {item.metadata?.stage === 'due_now'
+                      ? (language === 'zh' ? '现在处理' : 'Handle Now')
+                      : (language === 'zh' ? '即将到来' : 'Upcoming')}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {item.metadata?.trigger || item.notification_type}
+                  </span>
+                </div>
+                <h3 className="mt-3 text-base font-semibold text-gray-900">{item.title}</h3>
+                {item.body && (
+                  <p className="mt-2 text-sm text-gray-600">{item.body}</p>
+                )}
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {item.action_url && (
+                    <Link
+                      href={item.action_url}
+                      onClick={() => updateNotificationStatus(item.id, 'read')}
+                      className="text-sm font-medium text-blue-600 hover:text-blue-800"
+                    >
+                      {language === 'zh' ? '打开' : 'Open'}
+                    </Link>
+                  )}
+                  <button
+                    onClick={() => updateNotificationStatus(item.id, 'read')}
+                    disabled={notificationActionId === item.id}
+                    className="text-sm font-medium text-slate-700 hover:text-slate-900 disabled:opacity-50"
+                  >
+                    {language === 'zh' ? '标记已读' : 'Mark Read'}
+                  </button>
+                  <button
+                    onClick={() => updateNotificationStatus(item.id, 'dismiss')}
+                    disabled={notificationActionId === item.id}
+                    className="text-sm font-medium text-slate-500 hover:text-slate-700 disabled:opacity-50"
+                  >
+                    {language === 'zh' ? '忽略' : 'Dismiss'}
+                  </button>
+                </div>
+              </div>
+            )) : (
+              <div className="md:col-span-2 rounded-xl border border-dashed border-slate-300 px-5 py-8 text-center">
+                <p className="text-sm text-gray-600">
+                  {language === 'zh'
+                    ? '暂时没有新的主动提醒。继续学习后，这里会自动出现。'
+                    : 'No new proactive nudges yet. As you keep learning, this inbox will fill automatically.'}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {isSignedIn && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="flex items-start justify-between gap-6">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">
+                {language === 'zh' ? '今天的主动干预' : 'Today\'s Proactive Interventions'}
+              </h2>
+              <p className="text-sm text-gray-600 mt-1 max-w-2xl">
+                {language === 'zh'
+                  ? 'MentorMind 会基于间隔重复、检索练习和适度认知摩擦，在最容易遗忘的时刻提醒你复习。'
+                  : 'MentorMind uses spaced repetition, retrieval practice, and productive friction to surface the right review at the right time.'}
+              </p>
+            </div>
+            <Link href="/principles" className="text-sm font-medium text-blue-600 hover:text-blue-800">
+              {language === 'zh' ? '查看设计原则' : 'See Design Principles'}
+            </Link>
+          </div>
+
+          <div className="mt-6 grid md:grid-cols-3 gap-4">
+            {reviewQueue.length > 0 ? reviewQueue.slice(0, 3).map((item) => (
+              <Link
+                key={item.id}
+                href={`/lessons/${item.lesson.id}`}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 hover:border-blue-300 hover:bg-blue-50 transition-colors"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${item.stage === 'due_now' ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800'}`}>
+                    {item.stage === 'due_now'
+                      ? (language === 'zh' ? '立即复习' : 'Review Now')
+                      : (language === 'zh' ? '即将遗忘' : 'Upcoming')}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {item.metadata?.trigger || item.review_type}
+                  </span>
+                </div>
+                <h3 className="mt-3 text-base font-semibold text-gray-900 line-clamp-2">
+                  {item.lesson.title}
+                </h3>
+                <p className="mt-2 text-sm text-gray-600 line-clamp-2">
+                  {formatReviewTiming(item)}
+                </p>
+                <div className="mt-4 text-sm font-medium text-blue-600">
+                  {language === 'zh' ? '进入 3 分钟挑战' : 'Open 3-minute challenge'}
+                </div>
+              </Link>
+            )) : (
+              <div className="md:col-span-3 rounded-xl border border-dashed border-slate-300 px-5 py-8 text-center">
+                <p className="text-sm text-gray-600">
+                  {language === 'zh'
+                    ? '完成一节课程后，这里会自动出现基于遗忘曲线的复习挑战。'
+                    : 'Finish a lesson and this queue will start surfacing forgetting-curve-based review challenges automatically.'}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="grid md:grid-cols-2 gap-6">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">{t('dashboard.quickActions')}</h2>

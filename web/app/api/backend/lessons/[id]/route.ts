@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic';
+
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
 export async function DELETE(
@@ -10,8 +12,15 @@ export async function DELETE(
         const id = params.id
         console.log(`🗑️ Proxying delete request for lesson: ${id}`)
 
+        const authHeader = request.headers.get('Authorization')
+        const headers: Record<string, string> = {}
+        if (authHeader) {
+            headers.Authorization = authHeader
+        }
+
         const backendResponse = await fetch(`${BACKEND_URL}/lessons/${id}`, {
             method: 'DELETE',
+            headers,
         })
 
         if (!backendResponse.ok) {
@@ -40,7 +49,12 @@ export async function GET(
 ) {
     try {
         const id = params.id
-        const backendResponse = await fetch(`${BACKEND_URL}/lessons/${id}`)
+        const authHeader = request.headers.get('Authorization')
+        const headers: Record<string, string> = {}
+        if (authHeader) {
+            headers.Authorization = authHeader
+        }
+        const backendResponse = await fetch(`${BACKEND_URL}/lessons/${id}`, { headers })
 
         if (!backendResponse.ok) {
             return NextResponse.json(

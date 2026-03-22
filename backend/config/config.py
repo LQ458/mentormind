@@ -41,7 +41,7 @@ class DatabaseConfig:
     port: int
     username: Optional[str] = None
     password: Optional[str] = None
-    database: str = "mentormind"
+    database: str = "mentormind_metadata"
     max_connections: int = 20
 
 
@@ -195,7 +195,7 @@ class MentorMindConfig:
     VIDEO_FPS: int = 25
     
     # ===== PATHS AND DIRECTORIES =====
-    BASE_DIR: str = os.path.dirname(os.path.abspath(__file__))
+    BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     DATA_DIR: str = os.path.join(BASE_DIR, "data")
     MODELS_DIR: str = os.path.join(BASE_DIR, "models")
     LOGS_DIR: str = os.path.join(BASE_DIR, "logs")

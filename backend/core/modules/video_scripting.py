@@ -1,7 +1,7 @@
 """
 Video Scripting Engine
 Generates "Director JSON" for programmatically rendering videos.
-Uses DeepSeek-R1 to infer visual structure from teaching concepts.
+Uses DeepSeek to generate Manim-compatible animation scripts for all content types.
 """
 
 import json
@@ -9,6 +9,7 @@ import logging
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, field
 from services.api_client import APIClient
+from prompts.loader import render_prompt, load_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +18,9 @@ class Scene:
     id: str
     duration: float
     narration: str
-    action: str  # plot, write_tex, draw_shape, show_image, etc.
+    action: str  # plot, write_tex, draw_shape, show_text, etc.
     param: str   # content to render
-    visual_type: str = "manim"  # manim or remotion
+    visual_type: str = "manim"  # always manim
     canvas_config: Dict[str, Any] = field(default_factory=dict)
     audio_path: Optional[str] = None
 
@@ -28,25 +29,26 @@ class VideoScript:
     title: str
     scenes: List[Scene]
     total_duration: float
-    engine: str = "hybrid"  # manim, remotion, or hybrid
+    engine: str = "manim"
 
 class VideoScriptGenerator:
-    """Generates programmable video scripts from lesson content"""
+    """Generates programmable Manim video scripts from lesson content"""
     
     def __init__(self):
         self.api_client = APIClient()
     
-    async def generate_script(self, topic: str, content: str, style: str = "math") -> VideoScript:
+    async def generate_script(self, topic: str, content: str, style: str = "general", language: str = "en") -> VideoScript:
         """
-        Generate a director script for the given content.
-        style: 'math' (Manim-heavy) or 'history/language' (Remotion-heavy)
+        Generate a Manim director script for the given content.
+        style: 'math' for equation-heavy content, anything else for general explanations.
+        All styles render via Manim.
         """
 
         import time
         start_time = time.time()
-        logger.info(f"🎬 [Script] Generating video script for: '{topic}' | Style: {style}")
+        logger.info(f"🎬 [Script] Generating video script for: '{topic}' | Style: {style} | Lang: {language}")
         
-        system_prompt = self._get_system_prompt(style)
+        system_prompt = self._get_system_prompt(style, language)
         user_prompt = f"""
         Topic: {topic}
         Content: {content}
@@ -60,14 +62,13 @@ class VideoScriptGenerator:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.2, # Low temp for deterministic structure
+                temperature=0.2,
                 max_tokens=4000
             )
             
             if not response.success:
                 raise Exception(f"Failed to generate script: {response.error}")
             
-            # Parse JSON from response
             script_json = self._parse_json_response(response.data["choices"][0]["message"]["content"])
             
             duration = time.time() - start_time
@@ -78,7 +79,7 @@ class VideoScriptGenerator:
         except Exception as e:
             duration = time.time() - start_time
             logger.error(f"❌ [Script] Generation failed after {duration:.2f}s: {e}")
-            logger.warning("⚠️ [Script] Falling back to MOCK script generation")
+            logger.warning("⚠️ [Script] Falling back to mock script generation")
             return self._generate_mock_script(topic, style)
 
     def _generate_mock_script(self, topic: str, style: str) -> VideoScript:
@@ -91,22 +92,22 @@ class VideoScriptGenerator:
             id="s1",
             duration=4.0,
             narration=f"Welcome to this lesson on {topic}.",
-            action="show_title",
+            action="write_tex",
             param=topic,
-            visual_type="remotion"
+            visual_type="manim"
         ))
         
         # Scene 2: Explanation
         scenes.append(Scene(
             id="s2", 
             duration=6.0,
-            narration=f"In this video, we will explore the core concepts of {topic} using our AI engine.",
+            narration=f"In this video, we will explore the core concepts of {topic}.",
             action="show_text", 
             param=f"Understanding {topic}",
-            visual_type="remotion"
+            visual_type="manim"
         ))
         
-        # Scene 3: Visual/Math
+        # Scene 3: Visual
         if style == "math":
             scenes.append(Scene(
                 id="s3",
@@ -117,13 +118,13 @@ class VideoScriptGenerator:
                 visual_type="manim"
             ))
         else:
-             scenes.append(Scene(
+            scenes.append(Scene(
                 id="s3",
                 duration=5.0,
                 narration="Let's visualize this concept.",
-                action="show_image",
-                param="education",
-                visual_type="remotion"
+                action="show_text",
+                param=f"Key concepts: {topic}",
+                visual_type="manim"
             ))
             
         # Scene 4: Conclusion
@@ -133,70 +134,24 @@ class VideoScriptGenerator:
             narration="Thanks for watching MentorMind.",
             action="show_text",
             param="MentorMind AI",
-            visual_type="remotion"
+            visual_type="manim"
         ))
         
         return VideoScript(
             title=title,
             scenes=scenes,
             total_duration=19.0,
-            engine="hybrid"
+            engine="manim"
         )
 
-    def _get_system_prompt(self, style: str) -> str:
-        base_prompt = """
-        You are a Video Director AI. Your goal is to convert educational content into a 'Programmatic Video Script' (JSON).
-        This script will be executed by a rendering engine (Manim for math, Remotion for UI/Images).
-        
-        OUTPUT FORMAT:
-        {
-          "title": "Video Title",
-          "scenes": [
-            {
-              "id": "scene_1",
-              "duration": 5.0, // estimated seconds
-              "narration": "Text for TTS to speak",
-              "action": "ACTION_TYPE", 
-              "param": "CONTENT_TO_RENDER",
-              "visual_type": "manim" // or "remotion"
-            }
-          ]
-        }
-        
-        """
-        
-        if style == "math":
-            return base_prompt + """
-            STYLE: 3Blue1Brown / Khan Academy / Physics Animation
-            ENGINE: Manim (Python)
-            
-            ALLOWED ACTIONS:
-            - plot: param = function string (e.g. "sin(x)", "x**2", "9.8*t**2")
-            - write_tex: param = LaTeX string (e.g. "E = mc^2", "v = v_0 + at", "d = v_0 t + 0.5 a t^2")
-            - draw_shape: param = shape name (circle, square, triangle, projectile_path)
-            - transform: param = target LaTeX (for equation transformation)
-            
-            RULE: accurate math/physics, clear steps.
-            VISUALS: minimalistic, dark background, white text/lines. Use 'write_tex' for all formulas.
-            """
-        else:
-            return base_prompt + """
-            STYLE: Vox / Kurzgesagt / Documentary
-            ENGINE: Remotion (React)
-            
-            ALLOWED ACTIONS:
-            - show_title: param = title text
-            - show_image: param = search query for image
-            - timeline_event: param = "Year: Event description"
-            - mind_map: param = list of concepts
-            
-            RULE: rich visuals, dynamic layout.
-            """
+    def _get_system_prompt(self, style: str, language: str) -> str:
+        base = render_prompt("video/video_director_base", language=language)
+        style_ext = load_prompt("video/video_director_math" if style == "math" else "video/video_director_general")
+        return f"{base}\n\n{style_ext}"
             
     def _parse_json_response(self, content: str) -> Dict:
         """Extract and parse JSON from potential markdown blocks"""
         try:
-            # Strip markdown code blocks if present
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
             elif "```" in content:
@@ -205,21 +160,21 @@ class VideoScriptGenerator:
             return json.loads(content.strip())
         except Exception as e:
             logger.error(f"Failed to parse JSON: {content[:100]}...")
-            # Fallback: simple dict
             return {"title": "Error", "scenes": []}
 
     def _convert_to_video_script(self, data: Dict) -> VideoScript:
         scenes = []
         total_duration = 0.0
         
-        for s in data.get("scenes", []):
+        max_scenes = 8
+        for s in data.get("scenes", [])[:max_scenes]:
             scene = Scene(
                 id=s.get("id", f"s_{len(scenes)}"),
                 duration=float(s.get("duration", 5.0)),
                 narration=s.get("narration", ""),
                 action=s.get("action", "show_text"),
                 param=s.get("param", ""),
-                visual_type=s.get("visual_type", "manim"),
+                visual_type="manim",  # Always manim, ignore whatever the LLM says
                 canvas_config=s.get("canvas_config", {})
             )
             scenes.append(scene)
@@ -229,5 +184,5 @@ class VideoScriptGenerator:
             title=data.get("title", "Untitled Lesson"),
             scenes=scenes,
             total_duration=total_duration,
-            engine="hybrid"
+            engine="manim"
         )

@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   postgres:
@@ -14,7 +13,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/database/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U mentormind" ]
+      test: [ "CMD-SHELL", "pg_isready -U mentormind -d mentormind_metadata" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -39,10 +38,11 @@ services:
       redis:
         condition: service_healthy
     environment:
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: mentormind-postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: mentormind
       POSTGRES_PASSWORD: mentormind
+      DATABASE_URL: postgresql://mentormind:mentormind@mentormind-postgres:5432/mentormind_metadata
       CELERY_BROKER_URL: redis://redis:6379/0
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
@@ -59,6 +59,8 @@ services:
       - ./backend:/app
       - ./backend/data:/app/data
       - modelscope_cache:/root/.cache/modelscope
+      - whisper_cache:/root/.cache/whisper
+      - paddleocr_cache:/root/.paddleocr
     command: uvicorn server:app --host 0.0.0.0 --port 8000
 
   celery-worker:
@@ -70,10 +72,11 @@ services:
       redis:
         condition: service_healthy
     environment:
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: mentormind-postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: mentormind
       POSTGRES_PASSWORD: mentormind
+      DATABASE_URL: postgresql://mentormind:mentormind@mentormind-postgres:5432/mentormind_metadata
       CELERY_BROKER_URL: redis://redis:6379/0
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
@@ -87,40 +90,55 @@ services:
       - ./backend:/app
       - ./backend/data:/app/data
       - modelscope_cache:/root/.cache/modelscope
+      - whisper_cache:/root/.cache/whisper
+      - paddleocr_cache:/root/.paddleocr
     command: celery -A celery_app worker --loglevel=info --concurrency=4
 
   frontend:
-    build: ./web
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
     container_name: mentormind-frontend
     depends_on:
       - backend
+    env_file:
+      - .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      # Point to the backend running on the host machine if needed
-      BACKEND_URL: http://host.docker.internal:8000
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: '/'
+      NEXT_PUBLIC_CLERK_SIGN_UP_URL: '/'
+      # Point to the backend running in the same Docker network
+      BACKEND_URL: http://backend:8000
+      # Pass ALLOWED_ORIGIN from host .env variable to Next.js payload for CSRF check
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-}
       # Tells Next.js its own public-facing URL so Server Actions origin checks pass
       NEXTAUTH_URL: http://localhost:3000
       NEXT_PUBLIC_APP_URL: http://localhost:3000
     ports:
       - "3000:3000"
 
-  funasr:
-    image: registry.cn-hangzhou.aliyuncs.com/funasr/funasr-runtime-sdk-cpu:latest
-    container_name: mentormind-funasr
-    ports:
-      - "10095:10095"
-    command: bash -c "/workspace/FunASR/funasr-runtime-resources/download_model.sh && /workspace/FunASR/runtime/run_server.sh --download-model-dir /workspace/models --vad-dir damo/speech_fsmn_vad_zh-cn-16k-common-onnx --model-dir damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-onnx --punc-dir damo/punc_ct-transformer_zh-cn-common-vocab272727-onnx --lm-dir damo/speech_ngram_lm_zh-cn-ai-wesp-2021-lm --itn-dir thudm/speech_itn_zh-cn-16k-common-vocab8404-onnx --hotword /workspace/models/hotwords.txt"
-    volumes:
-      - ./backend/models/funasr:/workspace/models
-
-  paddleocr:
-    image: registry.cn-hangzhou.aliyuncs.com/paddlepaddle/paddleocr:latest
-    container_name: mentormind-paddleocr
-    ports:
-      - "8866:8866"
-    command: paddleocr --use_angle_cls true --lang ch --use_gpu false --show_log false --port 8866 --type structure
+#  funasr:
+#    image: registry.cn-hangzhou.aliyuncs.com/funasr/funasr-runtime-sdk-cpu:latest
+#    container_name: mentormind-funasr
+#    ports:
+#      - "10095:10095"
+#    command: bash -c "/workspace/FunASR/funasr-runtime-resources/download_model.sh && /workspace/FunASR/runtime/run_server.sh --download-model-dir /workspace/models --vad-dir damo/speech_fsmn_vad_zh-cn-16k-common-onnx --model-dir damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-onnx --punc-dir damo/punc_ct-transformer_zh-cn-common-vocab272727-onnx --lm-dir damo/speech_ngram_lm_zh-cn-ai-wesp-2021-lm --itn-dir thudm/speech_itn_zh-cn-16k-common-vocab8404-onnx --hotword /workspace/models/hotwords.txt"
+#    volumes:
+#      - ./backend/models/funasr:/workspace/models
+#
+#  paddleocr:
+#    image: registry.cn-hangzhou.aliyuncs.com/paddlepaddle/paddleocr:latest
+#    container_name: mentormind-paddleocr
+#    ports:
+#      - "8866:8866"
+#    command: paddleocr --use_angle_cls true --lang ch --use_gpu false --show_log false --port 8866 --type structure
 
 volumes:
   postgres_data:
   modelscope_cache:
+  whisper_cache:
+  paddleocr_cache:

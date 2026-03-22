@@ -23,7 +23,6 @@ except ImportError:
     from services.tts import TTSService
 from core.modules.video_scripting import VideoScriptGenerator, VideoScript, Scene
 from core.rendering.manim_renderer import ManimService
-from core.rendering.remotion_renderer import RemotionService
 from core.modules.storage_manager import CloudStorageManager
 
 logger = logging.getLogger(__name__)
@@ -188,31 +187,59 @@ class ScriptGenerator:
         请生成完整的教学脚本。
         """
     
-    async def generate_short_explanation(self, concept: str, context: Optional[str] = None) -> str:
+    async def generate_short_explanation(
+        self,
+        concept: str,
+        context: Optional[str] = None,
+        language: str = "zh"
+    ) -> str:
         """Generate a short explanation for a concept"""
         prompt = f"""
-        请用简单易懂的语言解释以下概念：
-        
-        概念：{concept}
-        {f"上下文：{context}" if context else ""}
-        
-        要求：
-        1. 不超过3句话
-        2. 使用比喻或例子帮助理解
-        3. 语气积极鼓励
-        4. 用中文
-        
-        请生成解释。
+        {"Please explain the following concept in simple and encouraging English." if language == "en" else "请用简单易懂的中文解释以下概念："}
+
+        {"Concept" if language == "en" else "概念"}: {concept}
+        {f"{'Context' if language == 'en' else '上下文'}: {context}" if context else ""}
+
+        {"Requirements" if language == "en" else "要求"}:
+        1. {"No more than 3 short sentences" if language == "en" else "不超过3句短句"}
+        2. {"Use one concrete example or visual analogy" if language == "en" else "使用一个具体例子或形象比喻"}
+        3. {"Keep the wording friendly and clear for students" if language == "en" else "语气友好清晰，适合学生理解"}
+        4. {"Reply only in English" if language == "en" else "只用中文回答"}
+
+        {"Generate the explanation." if language == "en" else "请生成解释。"}
         """
-        
-        # Mock generation
+
+        # Mock generation fallback kept concise so downstream Manim scenes stay lightweight.
         explanations = {
-            "二次方程": "二次方程就像数学中的'抛物线游戏'，它描述的是变量平方的关系。比如扔一个球，它的轨迹就是二次方程。记住a不能为0哦！",
-            "导数": "导数就像速度计，告诉你变化有多快。比如汽车加速时，导数就是加速度。理解导数就能预测变化趋势！",
-            "积分": "积分就像累积计数器，把小的变化加起来得到总量。比如计算路程，就是把每个时刻的速度加起来。积分让整体变得清晰！"
+            "zh": {
+                "二次方程": "二次方程像一条弯弯的抛物线，能描述球的轨迹这类变化。抓住平方项，你就抓住了它的形状关键。",
+                "导数": "导数像变化速度计，告诉我们一个量此刻变得有多快。理解它，就更容易看懂函数的趋势。",
+                "积分": "积分像把很多很小的部分累加成整体。它能帮助我们从局部变化看出总量。"
+            },
+            "en": {
+                "quadratic equation": "A quadratic equation is a rule that creates a curved parabola. It is useful for modeling shapes like the path of a thrown ball.",
+                "derivative": "A derivative measures how fast something is changing at one moment. It works like a speedometer for a function.",
+                "integral": "An integral adds many small pieces into one whole. It helps us turn local change into total amount."
+            },
         }
-        
-        return explanations.get(concept, f"{concept}是一个重要的数学概念，理解它需要一些练习。让我慢慢解释给你听...")
+
+        normalized_concept = concept.strip().lower()
+        localized_examples = explanations["en" if language == "en" else "zh"]
+        if normalized_concept in localized_examples:
+            return localized_examples[normalized_concept]
+
+        if language == "en":
+            context_hint = f" In this lesson, we focus on {context.strip()}." if context else ""
+            return (
+                f"{concept} is an important idea that becomes easier once you connect it to a picture or pattern."
+                f"{context_hint} We will break it into a few simple steps and one concrete example."
+            )
+
+        context_hint = f" 这节课会结合{context.strip()}来理解它。" if context else ""
+        return (
+            f"{concept}是一个重要概念，只要把它和图像、规律联系起来就会更好懂。"
+            f"{context_hint}我们会用几个简单步骤和一个具体例子来拆开理解。"
+        )
 
 
 class TTSSynthesizer:
@@ -542,48 +569,45 @@ class ProgrammaticVideoGenerator:
         self.script_generator = VideoScriptGenerator()
         self.tts_synthesizer = TTSSynthesizer()
         self.manim_service = ManimService()
-        self.remotion_service = RemotionService()
         
-    async def generate_video(self, topic: str, content: str, style: str = "math", voice_id: str = "anna") -> Dict:
+    async def generate_video(self, topic: str, content: str, style: str = "math", voice_id: str = "anna", language: str = "en") -> Dict:
         """
         Generate a programmatic video from content
         """
-        logger.info(f"Generating programmatic video for: {topic} ({style}) Voice: {voice_id}")
+        logger.info(f"Generating programmatic video for: {topic} ({style}) Voice: {voice_id} Lang: {language}")
         
         # 1. Generate Director JSON Script
-        video_script = await self.script_generator.generate_script(topic, content, style)
+        video_script = await self.script_generator.generate_script(topic, content, style, language)
         
         # 2. Generate Audio & Sync Durations
-        logger.info("Synthesizing audio and syncing timestamps...")
-        total_audio_duration = 0.0
+        logger.info("Synthesizing audio concurrently for all scenes...")
         
-        for scene in video_script.scenes:
+        async def process_scene_audio(scene: Scene) -> float:
             if not scene.narration:
-                continue
+                return 0.0
                 
             audio_path, duration = await self.tts_synthesizer.synthesize(
                 scene.narration, f"{video_script.title}_{scene.id}", voice=voice_id
             )
             
             # Update scene with exact audio duration and path
-            scene.duration = max(scene.duration, duration) # Ensure visual is at least as long as audio
+            scene.duration = duration # Ensure visual strictly matches audio length
             scene.audio_path = audio_path
-            total_audio_duration += scene.duration
+            return scene.duration
             
+        # Execute all TTS requests in parallel
+        tasks = [process_scene_audio(scene) for scene in video_script.scenes]
+        audio_durations = await asyncio.gather(*tasks)
+        
+        total_audio_duration = sum(audio_durations)
         video_script.total_duration = total_audio_duration
         
-        # 3. Render Video
-        logger.info(f"Rendering with engine: {style} (Manim/Remotion)")
-        
-        if style == "math" or any(s.visual_type == "manim" for s in video_script.scenes):
-            # Prefer Manim for math content
-            # Manim is now async with self-correction
-            video_path = await self.manim_service.render_script(video_script)
-            provider = "Manim"
-        else:
-            # Use Remotion for general/history
-            video_path = await self.remotion_service.render_script(video_script)
-            provider = "Remotion"
+        # 3. Render Video — always use Manim.
+        # Remotion requires the web/ Next.js directory inside the container, which is not available.
+        # Manim handles both math and general visualizations and is installed in this container.
+        logger.info(f"Rendering with engine: Manim (style={style})")
+        video_path = await self.manim_service.render_script(video_script)
+        provider = "Manim"
             
         return {
             "video_path": video_path,
@@ -591,6 +615,21 @@ class ProgrammaticVideoGenerator:
             "provider": provider,
             "duration": total_audio_duration
         }
+
+
+def _to_relative_path(absolute_path: str | None) -> str | None:
+    """Convert an absolute local path to a path relative to DATA_DIR (with forward slashes).
+    Cloud URLs are returned as-is. None/empty stays None."""
+    if not absolute_path:
+        return None
+    if absolute_path.startswith("http"):
+        return absolute_path  # Cloud URL — keep as-is
+    if os.path.isabs(absolute_path):
+        try:
+            absolute_path = os.path.relpath(absolute_path, config.DATA_DIR)
+        except ValueError:
+            pass  # Different drive on Windows — keep as-is
+    return absolute_path.replace(os.sep, "/")
 
 
 class OutputPipeline:
@@ -661,9 +700,9 @@ class OutputPipeline:
         scene_audio_url = await self.storage_manager.upload_file(audio_local_scene_path, f"audio/{os.path.basename(audio_local_scene_path)}", "audio/mpeg") if audio_local_scene_path else None
         main_audio_url = await self.storage_manager.upload_file(audio_path, f"audio/{os.path.basename(audio_path)}", "audio/mpeg") if audio_path else None
         
-        final_video_path = video_url or video_local_path
-        final_scene_audio_path = scene_audio_url or audio_local_scene_path
-        final_main_audio_path = main_audio_url or audio_path
+        final_video_path = video_url or _to_relative_path(video_local_path)
+        final_scene_audio_path = scene_audio_url or _to_relative_path(audio_local_scene_path)
+        final_main_audio_path = main_audio_url or _to_relative_path(audio_path)
         
         # Mock AvatarVideo object for compatibility
         video = AvatarVideo(
@@ -740,13 +779,18 @@ class OutputPipeline:
         self,
         concept: str,
         context: Optional[str] = None,
-        voice_id: str = "anna"
+        voice_id: str = "anna",
+        language: str = "en"
     ) -> Dict:
         """
         Generate quick explanation with audio and real video
         """
         # Generate explanation
-        explanation = await self.script_generator.generate_short_explanation(concept, context)
+        explanation = await self.script_generator.generate_short_explanation(
+            concept,
+            context,
+            language=language
+        )
         
         # Synthesize audio
         # Synthesize audio (not strictly needed as Programmatic generator does it, but good for quick audio return)
@@ -770,7 +814,8 @@ class OutputPipeline:
             topic=concept,
             content=explanation,
             style=style,
-            voice_id=voice_id
+            voice_id=voice_id,
+            language=language
         )
         video_local_path = video_result['video_path']
         audio_local_path = video_result['script'].scenes[0].audio_path if video_result['script'].scenes else ""
@@ -779,8 +824,8 @@ class OutputPipeline:
         video_url = await self.storage_manager.upload_file(video_local_path, f"videos/{os.path.basename(video_local_path)}", "video/mp4")
         audio_url = await self.storage_manager.upload_file(audio_local_path, f"audio/{os.path.basename(audio_local_path)}", "audio/mpeg") if audio_local_path else None
         
-        final_video_path = video_url or video_local_path
-        final_audio_path = audio_url or audio_local_path
+        final_video_path = video_url or _to_relative_path(video_local_path)
+        final_audio_path = audio_url or _to_relative_path(audio_local_path)
         
         return {
             "concept": concept,

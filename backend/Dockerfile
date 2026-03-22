@@ -14,6 +14,9 @@ RUN apt-get update && apt-get install -y \
     texlive-fonts-extra \
     texlive-latex-recommended \
     texlive-science \
+    texlive-lang-chinese \
+    texlive-xetex \
+    fonts-noto-cjk \
     tipa \
     libcairo2-dev \
     libpango1.0-dev \
@@ -30,11 +33,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create data directories
-RUN mkdir -p /app/data
-RUN mkdir -p /app/config/data/videos/manim
-RUN mkdir -p /app/config/data/videos/remotion
-RUN mkdir -p /app/config/data/audio
+# Create data directories (matches volume mount ./backend/data:/app/data)
+RUN mkdir -p /app/data/videos/manim \
+    && mkdir -p /app/data/audio
 
 # Expose port
 EXPOSE 8000
