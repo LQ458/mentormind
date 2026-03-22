@@ -1654,6 +1654,7 @@ async def stream_job_status(job_id: str):
         from celery_app import celery_app, _redis_client
         
         last_status = None
+        keepalive_tick = 0
         while True:
             # First check if result is already in Redis
             result_json = _redis_client.get(f"job_result:{job_id}")
@@ -1685,6 +1686,12 @@ async def stream_job_status(job_id: str):
                     break
                 yield f"data: {json.dumps(data)}\n\n"
                 last_status = status
+            else:
+                keepalive_tick += 1
+                if keepalive_tick >= 3:
+                    # Prevent proxies/browsers from treating a long render as a dead chunked response.
+                    yield ": keepalive\n\n"
+                    keepalive_tick = 0
                 
             if status in ["failure", "revoked"]:
                 break
