@@ -61,8 +61,8 @@ class RobustVideoGenerationPipeline:
         custom_requirements: Optional[str] = None,
     ) -> Dict[str, Any]:
         duration_minutes = max(10, int(duration_minutes or 10))
-        # Increase scene count to ensure > 6 mins. 18-24 scenes @ ~25s each.
-        target_scene_count = max(18, min(24, duration_minutes + 8))
+        # Increase scene count significantly for long-form lessons
+        target_scene_count = max(24, min(32, duration_minutes + 14))
         language_instruction = get_language_instruction(language)
         syllabus_fallback = self._fallback_syllabus(topic, style, student_level)
         syllabus = await self._run_stage(
@@ -101,7 +101,7 @@ class RobustVideoGenerationPipeline:
             },
             storyboard_fallback,
             temperature=0.2,
-            max_tokens=4200,
+            max_tokens=6000,
         )
 
         render_fallback = self._fallback_render_plan(topic, storyboard, language)
@@ -118,7 +118,7 @@ class RobustVideoGenerationPipeline:
             },
             render_fallback,
             temperature=0.1,
-            max_tokens=4200,
+            max_tokens=6000,
         )
 
         validation = self._validate_render_plan(render_plan, language, duration_minutes)
@@ -242,7 +242,7 @@ class RobustVideoGenerationPipeline:
         warnings: List[str] = []
         validated_scenes: List[Dict[str, Any]] = []
         # Target higher scene count for stability
-        minimum_scene_count = max(18, min(24, duration_minutes + 8))
+        minimum_scene_count = max(24, min(32, duration_minutes + 14))
 
         if not scenes:
             warnings.append("Render plan returned no scenes; using deterministic fallback scenes.")
@@ -542,23 +542,28 @@ class RobustVideoGenerationPipeline:
         scene_templates = [
             ("scene_1", "chapter_1", "hook", "show_title", topic, "title_card"),
             ("scene_2", "chapter_1", "explain", "show_text", f"What is {topic}?", "callout_card"),
-            ("scene_3", "chapter_1", "explain", "show_text", "Establishing the context.", "callout_card"),
-            ("scene_4", "chapter_2", "explain", "show_text", "Key idea and structure", "two_column"),
-            ("scene_5", "chapter_2", "explain", "show_text", "How this idea relates to previous topics.", "two_column"),
-            ("scene_6", "chapter_3", "worked_example", "write_tex", "y=x^2", "equation_focus"),
-            ("scene_7", "chapter_3", "worked_example", "plot", "x**2", "graph_focus"),
-            ("scene_8", "chapter_3", "worked_example", "show_text", "Intermediate calculation steps.", "equation_focus"),
-            ("scene_9", "chapter_3", "worked_example", "show_text", "Applying the final result.", "callout_card"),
-            ("scene_10", "chapter_3", "worked_example", "show_text", "What changes if one condition shifts?", "callout_card"),
-            ("scene_11", "chapter_4", "misconception", "show_text", "Common mistake to avoid", "callout_card"),
-            ("scene_12", "chapter_4", "misconception", "show_text", "Why the mistake feels tempting", "callout_card"),
-            ("scene_13", "chapter_4", "misconception", "show_text", "How to self-correct this mistake.", "callout_card"),
-            ("scene_14", "chapter_4", "retrieval", "show_text", "Pause and predict the next step.", "recap_card"),
-            ("scene_15", "chapter_4", "retrieval", "show_text", "Try one quick self-check example.", "recap_card"),
-            ("scene_16", "chapter_4", "retrieval", "show_text", "Another challenge to test your intuition.", "recap_card"),
-            ("scene_17", "chapter_4", "recap", "show_text", "Main takeaway in one sentence", "recap_card"),
-            ("scene_18", "chapter_4", "recap", "show_text", "Connecting today's idea to future concepts.", "recap_card"),
-            ("scene_19", "chapter_4", "recap", "show_text", "Next practice move", "recap_card"),
+            ("scene_3", "chapter_1", "explain", "show_text", "Establishing the context and why this matters for your learning journey.", "callout_card"),
+            ("scene_4", "chapter_1", "explain", "show_text", "A brief overview of the key terminology we will use today.", "callout_card"),
+            ("scene_5", "chapter_2", "explain", "show_text", "Key idea and structure - breaking it down into manageable pieces.", "two_column"),
+            ("scene_6", "chapter_2", "explain", "show_text", "How this idea relates to previous topics and builds upon your existing knowledge.", "two_column"),
+            ("scene_7", "chapter_2", "explain", "show_text", "Visualizing the relationships between different components of the concept.", "two_column"),
+            ("scene_8", "chapter_3", "worked_example", "write_tex", "y=x^2", "equation_focus"),
+            ("scene_9", "chapter_3", "worked_example", "plot", "x**2", "graph_focus"),
+            ("scene_10", "chapter_3", "worked_example", "show_text", "Intermediate calculation steps and logical reasoning behind each move.", "equation_focus"),
+            ("scene_11", "chapter_3", "worked_example", "show_text", "Applying the final result to solve the problem completely.", "callout_card"),
+            ("scene_12", "chapter_3", "worked_example", "show_text", "What changes if one condition shifts? Let's explore the sensitivity.", "callout_card"),
+            ("scene_13", "chapter_3", "worked_example", "show_text", "A second quick example to reinforce the pattern we just saw.", "callout_card"),
+            ("scene_14", "chapter_4", "misconception", "show_text", "Common mistake to avoid - why it's easy to trip up here.", "callout_card"),
+            ("scene_15", "chapter_4", "misconception", "show_text", "Why the mistake feels tempting and how to recognize the warning signs.", "callout_card"),
+            ("scene_16", "chapter_4", "misconception", "show_text", "How to self-correct this mistake and verify your answer.", "callout_card"),
+            ("scene_17", "chapter_4", "retrieval", "show_text", "Pause and predict the next step. What would you do here?", "recap_card"),
+            ("scene_18", "chapter_4", "retrieval", "show_text", "Try one quick self-check example to prove your mastery.", "recap_card"),
+            ("scene_19", "chapter_4", "retrieval", "show_text", "Another challenge to test your intuition and deepen understanding.", "recap_card"),
+            ("scene_20", "chapter_4", "retrieval", "show_text", "Final quick-fire questions to solidify the core concepts.", "recap_card"),
+            ("scene_21", "chapter_4", "recap", "show_text", "Main takeaway in one sentence - the absolute core of today.", "recap_card"),
+            ("scene_22", "chapter_4", "recap", "show_text", "Connecting today's idea to future concepts and real-world apps.", "recap_card"),
+            ("scene_23", "chapter_4", "recap", "show_text", "Summary of the key steps we took to reach our conclusion.", "recap_card"),
+            ("scene_24", "chapter_4", "recap", "show_text", "Next practice move - what you should do right after this video.", "recap_card"),
         ]
         scenes: List[Dict[str, Any]] = []
         for scene_id, chapter_id, move, action, param, layout in scene_templates:

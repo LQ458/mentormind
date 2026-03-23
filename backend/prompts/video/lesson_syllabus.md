@@ -41,10 +41,11 @@ The JSON schema must be:
 }
 
 Rules:
-- Produce 4 to 7 chapters.
-- Each chapter should teach exactly one main move.
+- Produce 6 to 9 chapters.
+- Each chapter MUST contain at least 3 to 4 detailed sub-steps that can be turned into individual scenes.
 - The lesson must be understandable for the specified student level.
 - Include at least one worked example and one misconception-focused chapter.
 - Use beginner-friendly language in explanations even for advanced topics unless the student level is advanced.
 - Keep titles short and concrete.
-- The syllabus should support a long-form lesson of at least 10 minutes when rendered.
+- The syllabus MUST support a long-form lesson of AT LEAST 10 minutes. 
+- Avoid surface-level summaries; provide depth for each sub-topic.
