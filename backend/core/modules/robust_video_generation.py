@@ -249,7 +249,7 @@ class RobustVideoGenerationPipeline:
             render_plan = self._fallback_render_plan(render_plan.get("title") or "Lesson", {}, language)
             scenes = render_plan["scenes"]
 
-        for index, raw_scene in enumerate(scenes[:8], start=1):
+        for index, raw_scene in enumerate(scenes, start=1):
             if not isinstance(raw_scene, dict):
                 warnings.append(f"Scene {index} was not an object and was dropped.")
                 continue
@@ -542,16 +542,23 @@ class RobustVideoGenerationPipeline:
         scene_templates = [
             ("scene_1", "chapter_1", "hook", "show_title", topic, "title_card"),
             ("scene_2", "chapter_1", "explain", "show_text", f"What is {topic}?", "callout_card"),
-            ("scene_3", "chapter_2", "explain", "show_text", "Key idea and structure", "two_column"),
-            ("scene_4", "chapter_3", "worked_example", "write_tex", "y=x^2", "equation_focus"),
-            ("scene_5", "chapter_3", "worked_example", "plot", "x**2", "graph_focus"),
-            ("scene_6", "chapter_3", "worked_example", "show_text", "What changes if one condition shifts?", "callout_card"),
-            ("scene_7", "chapter_4", "misconception", "show_text", "Common mistake to avoid", "callout_card"),
-            ("scene_8", "chapter_4", "misconception", "show_text", "Why the mistake feels tempting", "callout_card"),
-            ("scene_9", "chapter_4", "retrieval", "show_text", "Pause and predict the next step.", "recap_card"),
-            ("scene_10", "chapter_4", "retrieval", "show_text", "Try one quick self-check example.", "recap_card"),
-            ("scene_11", "chapter_4", "recap", "show_text", "Main takeaway in one sentence", "recap_card"),
-            ("scene_12", "chapter_4", "recap", "show_text", "Next practice move", "recap_card"),
+            ("scene_3", "chapter_1", "explain", "show_text", "Establishing the context.", "callout_card"),
+            ("scene_4", "chapter_2", "explain", "show_text", "Key idea and structure", "two_column"),
+            ("scene_5", "chapter_2", "explain", "show_text", "How this idea relates to previous topics.", "two_column"),
+            ("scene_6", "chapter_3", "worked_example", "write_tex", "y=x^2", "equation_focus"),
+            ("scene_7", "chapter_3", "worked_example", "plot", "x**2", "graph_focus"),
+            ("scene_8", "chapter_3", "worked_example", "show_text", "Intermediate calculation steps.", "equation_focus"),
+            ("scene_9", "chapter_3", "worked_example", "show_text", "Applying the final result.", "callout_card"),
+            ("scene_10", "chapter_3", "worked_example", "show_text", "What changes if one condition shifts?", "callout_card"),
+            ("scene_11", "chapter_4", "misconception", "show_text", "Common mistake to avoid", "callout_card"),
+            ("scene_12", "chapter_4", "misconception", "show_text", "Why the mistake feels tempting", "callout_card"),
+            ("scene_13", "chapter_4", "misconception", "show_text", "How to self-correct this mistake.", "callout_card"),
+            ("scene_14", "chapter_4", "retrieval", "show_text", "Pause and predict the next step.", "recap_card"),
+            ("scene_15", "chapter_4", "retrieval", "show_text", "Try one quick self-check example.", "recap_card"),
+            ("scene_16", "chapter_4", "retrieval", "show_text", "Another challenge to test your intuition.", "recap_card"),
+            ("scene_17", "chapter_4", "recap", "show_text", "Main takeaway in one sentence", "recap_card"),
+            ("scene_18", "chapter_4", "recap", "show_text", "Connecting today's idea to future concepts.", "recap_card"),
+            ("scene_19", "chapter_4", "recap", "show_text", "Next practice move", "recap_card"),
         ]
         scenes: List[Dict[str, Any]] = []
         for scene_id, chapter_id, move, action, param, layout in scene_templates:
@@ -592,11 +599,11 @@ class RobustVideoGenerationPipeline:
                 syllabus=self._fallback_syllabus(topic, "general", "beginner"),
                 language=language,
             )["scenes"]
-        for index, raw in enumerate(storyboard_scenes[:8], start=1):
+        for index, raw in enumerate(storyboard_scenes, start=1):
             primary = raw.get("primary_visual") or {}
             action = self._normalize_action(primary.get("action"))
             layout = self._normalize_layout(raw.get("visual_layout"), action)
-            narration = self._compact_text(raw.get("narration") or f"Learn {topic}.", 240)
+            narration = self._compact_text(raw.get("narration") or f"Learn {topic}.", 1200)
             scene = {
                 "id": raw.get("id") or f"scene_{index}",
                 "duration": raw.get("estimated_seconds") or self._estimate_duration_from_narration(narration),

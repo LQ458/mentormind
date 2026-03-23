@@ -889,9 +889,9 @@ class OutputPipeline:
     async def generate_quick_explanation(
         self,
         concept: str,
-        context: Optional[str] = None,
+        context: str = "",
+        language: str = "zh",
         voice_id: str = "anna",
-        language: str = "en",
         student_level: str = "beginner",
         target_audience: str = "students",
         duration_minutes: int = 10,

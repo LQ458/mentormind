@@ -45,11 +45,12 @@ The JSON schema must be:
 }
 
 Rules:
-- Produce exactly {{target_scene_count}} scenes unless doing so would create obvious redundancy.
+- Produce EXACTLY {{target_scene_count}} scenes. Do not skip any.
 - Each scene should have one teaching goal only.
 - Keep `on_screen_text` under 80 characters.
-- Keep narration teachable, but substantial enough for a long-form lesson.
-- Each scene narration should roughly support 30 to 55 seconds of spoken explanation.
+- Keep narration teachable, but VERY substantial for a long-form lesson.
+- Each scene narration MUST support at least 45 to 60 seconds of spoken explanation.
+- Each narration block should be around 120-150 words in length.
 - If using `write_tex`, keep `param` pure LaTeX only.
 - If using `plot`, keep `param` a safe Python expression in x.
 - Use `graph_focus` only when a graph is essential.
@@ -59,3 +60,5 @@ Rules:
   - never combine multiple dense labels in one frame
   - if a scene needs more explanation, put the words in narration, not on screen
 - Prefer bullets, short labels, and callouts over sentence blocks.
+- Transition naturally between scenes to maintain a cohesive 10+ minute flow.
+- Ensure the complexity grows gradually from scene 1 to scene {{target_scene_count}}.
