@@ -63,9 +63,9 @@ services:
       - paddleocr_cache:/root/.paddleocr
     command: uvicorn server:app --host 0.0.0.0 --port 8000
 
-  celery-worker:
+  celery-orchestration:
     build: ./backend
-    container_name: mentormind-celery-worker
+    container_name: mentormind-celery-orchestration
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,10 +89,67 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/data:/app/data
+    command: celery -A celery_app worker --loglevel=info --concurrency=4 -Q orchestration
+
+  celery-rendering:
+    build: ./backend
+    container_name: mentormind-celery-rendering
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: mentormind-postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: mentormind
+      POSTGRES_PASSWORD: mentormind
+      DATABASE_URL: postgresql://mentormind:mentormind@mentormind-postgres:5432/mentormind_metadata
+      CELERY_BROKER_URL: redis://redis:6379/0
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
+      S3_ENABLED: ${S3_ENABLED:-false}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-mentormind-videos}
+      S3_PUBLIC_URL_PREFIX: ${S3_PUBLIC_URL_PREFIX:-}
+    volumes:
+      - ./backend:/app
+      - ./backend/data:/app/data
+    command: celery -A celery_app worker --loglevel=info --concurrency=1 -Q rendering
+
+  celery-heavy-ml:
+    build: ./backend
+    container_name: mentormind-celery-heavy-ml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: mentormind-postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: mentormind
+      POSTGRES_PASSWORD: mentormind
+      DATABASE_URL: postgresql://mentormind:mentormind@mentormind-postgres:5432/mentormind_metadata
+      CELERY_BROKER_URL: redis://redis:6379/0
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
+      S3_ENABLED: ${S3_ENABLED:-false}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-mentormind-videos}
+      S3_PUBLIC_URL_PREFIX: ${S3_PUBLIC_URL_PREFIX:-}
+      PRELOAD_ASR_LANG: ${PRELOAD_ASR_LANG:-en}
+    volumes:
+      - ./backend:/app
+      - ./backend/data:/app/data
       - modelscope_cache:/root/.cache/modelscope
       - whisper_cache:/root/.cache/whisper
       - paddleocr_cache:/root/.paddleocr
-    command: celery -A celery_app worker --loglevel=info --concurrency=4
+    command: celery -A celery_app worker --loglevel=info --concurrency=2 -Q heavy_ml
 
   frontend:
     build:

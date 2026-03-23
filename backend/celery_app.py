@@ -46,9 +46,11 @@ celery_app.conf.update(
     task_default_queue="orchestration",
     task_routes={
         "mentormind.create_class_video": {"queue": "orchestration"},
+        "mentormind.transcript_to_lesson": {"queue": "orchestration"},
+        "mentormind.sync_proactive_notifications": {"queue": "orchestration"},
         "mentormind.render_manim_scene": {"queue": "rendering"},
         "mentormind.transcribe_audio": {"queue": "heavy_ml"},
-        "mentormind.sync_proactive_notifications": {"queue": "orchestration"},
+        "mentormind.ocr_image": {"queue": "heavy_ml"},
     },
 )
 
