@@ -3,44 +3,6 @@ import { NextResponse } from 'next/server'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
-export async function POST(request: Request) {
-  try {
-    const body = await request.json()
-    const { studentQuery, mode = 'batch' } = body
-
-    // Forward the Authorization header from the client if it exists
-    const authHeader = request.headers.get('Authorization')
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
-    if (authHeader) {
-      headers['Authorization'] = authHeader
-    }
-
-    // Call real backend API
-    const backendResponse = await fetch(`${BACKEND_URL}/teach`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ studentQuery, mode }),
-    })
-
-    if (!backendResponse.ok) {
-      const errorText = await backendResponse.text()
-      console.error('Backend API error:', errorText)
-      throw new Error(`Backend API error: ${backendResponse.status}`)
-    }
-
-    const response = await backendResponse.json()
-
-    return NextResponse.json(response)
-  } catch (error) {
-    console.error('Backend API error:', error)
-    return NextResponse.json(
-      { error: 'Failed to process request', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    )
-  }
-}
 
 export async function GET() {
   try {

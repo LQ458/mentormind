@@ -46,18 +46,18 @@ from prompts.loader import render_prompt
 
 # Initialize PostgreSQL database (Strict)
 print("🔧 Initializing PostgreSQL database...")
-lesson_storage = None
+_global_lesson_storage = None
 try:
     if init_database():
         print("✅ PostgreSQL database initialized successfully")
-        lesson_storage = LessonStorageSQL()
+        _global_lesson_storage = LessonStorageSQL()
     else:
         print("⚠️  PostgreSQL database initialization failed")
 except Exception as e:
     print(f"⚠️  PostgreSQL database initialization error: {e}")
 
 # If PostgreSQL fails, use a dummy storage to prevent crashes but log errors
-if lesson_storage is None:
+if _global_lesson_storage is None:
     print("❌ PostgreSQL storage is required but not initialized. Server will have no persistence.")
     class DummyStorage:
         def __getattr__(self, name):
@@ -65,7 +65,12 @@ if lesson_storage is None:
                 print(f"❌ Storage operation '{name}' failed: PostgreSQL not connected")
                 return None if name != "get_all_lessons" else ([], 0)
             return method
-    lesson_storage = DummyStorage()
+    _global_lesson_storage = DummyStorage()
+
+
+def get_lesson_storage(db: Session = Depends(get_db)):
+    """Dependency to get a LessonStorageSQL instance with an active session."""
+    return LessonStorageSQL(session=db)
 
 
 app = FastAPI(

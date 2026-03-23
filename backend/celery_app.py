@@ -36,6 +36,20 @@ celery_app.conf.update(
     enable_utc=True,
     task_track_started=True,
     task_time_limit=600,  # 10 minutes max for Manim rendering tasks
+    
+    # --- RESOURCE ISOLATION QUEUES ---
+    task_queues={
+        "orchestration": {"exchange": "orchestration", "routing_key": "orchestration"},
+        "rendering": {"exchange": "rendering", "routing_key": "rendering"},
+        "heavy_ml": {"exchange": "heavy_ml", "routing_key": "heavy_ml"},
+    },
+    task_default_queue="orchestration",
+    task_routes={
+        "mentormind.create_class_video": {"queue": "orchestration"},
+        "mentormind.render_manim_scene": {"queue": "rendering"},
+        "mentormind.transcribe_audio": {"queue": "heavy_ml"},
+        "mentormind.sync_proactive_notifications": {"queue": "orchestration"},
+    },
 )
 
 

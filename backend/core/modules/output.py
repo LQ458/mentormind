@@ -745,28 +745,16 @@ class OutputPipeline:
         self.processing_config = config.PROCESSING
         self.storage_manager = CloudStorageManager()
     
-    async def generate_teaching_output(self, lesson_plan: Dict) -> Dict:
+    async def generate_teaching_output(self, lesson_plan: Dict, include_video: bool = True) -> Dict:
         """
-        Generate complete teaching output from lesson plan
+        Generate complete teaching output from lesson plan.
+        Optimized to avoid redundant LLM calls and parallelize asset generation.
         """
-        print("Starting output generation pipeline...")
+        print(f"Starting output generation pipeline (include_video={include_video})...")
         
-        # 1. Generate script
-        print(f"⏳ [Step 1/3] Generating teaching script...")
-        script = await self.script_generator.generate_script(lesson_plan)
-        print(f"✅ [Step 1/3] Script generated: {script.title}")
-        
-        # 2. Synthesize speech
-        print(f"⏳ [Step 2/3] Synthesizing audio (TTS)...")
-        audio_path, audio_duration = await self.tts_synthesizer.synthesize(
-            script.script_text, script.id
-        )
-        print(f"✅ [Step 2/3] Audio synthesized: {audio_duration:.1f}s")
-        
-        # 3. Generate Programmatic Video (Code-to-Video)
-        print(f"⏳ [Step 3/3] Rendering video content...")
-        # Determine style based on title keywords
-        title_lower = lesson_plan.get("title", "").lower()
+        # Determine style and parameters
+        title = lesson_plan.get("title", "Lesson")
+        title_lower = title.lower()
         math_keywords = [
             "math", "algebra", "geometry", "calculus", "equation", "function", "graph", 
             "number", "arithmetic", "probability", "statistics", "theorem", "proof",
@@ -777,81 +765,96 @@ class OutputPipeline:
             "数学", "代数", "几何", "微积分", "方程", "函数", "图象", "数论", "概率", "统计",
             "物理", "运动", "力", "速度", "加速度", "重力", "能量", "牛顿"
         ]
-        
         style = "math" if any(k in title_lower for k in math_keywords) else "general"
-        
-        # Get voice choice if available
         voice_id = lesson_plan.get("voice_id", "anna")
+        language = lesson_plan.get("language", "en")
         
-        video_result = await self.programmatic_generator.generate_video(
-            topic=lesson_plan.get("title", "Lesson"),
-            content=script.script_text, # Use the generated text script as input for visual scripting
-            style=style,
-            voice_id=voice_id
-        )
-        print(f"✓ Generated video: {video_result['video_path']}")
-        
-        # Adapt video object for response
-        video_local_path = video_result['video_path']
-        video_duration = video_result['duration']
-        audio_local_scene_path = video_result['script'].scenes[0].audio_path if video_result['script'].scenes else ""
-        
-        # Upload to Cloud Storage if enabled
-        print(f"☁️ Uploading artifacts to cloud storage (if enabled)...")
-        video_url = await self.storage_manager.upload_file(video_local_path, f"videos/{os.path.basename(video_local_path)}", "video/mp4")
-        scene_audio_url = await self.storage_manager.upload_file(audio_local_scene_path, f"audio/{os.path.basename(audio_local_scene_path)}", "audio/mpeg") if audio_local_scene_path else None
-        main_audio_url = await self.storage_manager.upload_file(audio_path, f"audio/{os.path.basename(audio_path)}", "audio/mpeg") if audio_path else None
-        
-        final_video_path = video_url or _to_relative_path(video_local_path)
-        final_scene_audio_path = scene_audio_url or _to_relative_path(audio_local_scene_path)
-        final_main_audio_path = main_audio_url or _to_relative_path(audio_path)
-        
-        # Mock AvatarVideo object for compatibility
-        video = AvatarVideo(
-            id=f"vid_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            script_id=script.id,
-            video_path=final_video_path,
-            audio_path=final_scene_audio_path,
-            duration_seconds=video_duration,
-            resolution=(1920, 1080),
-            fps=30,
-            generated_at=datetime.now(),
-            metadata={"provider": video_result['provider']}
-        )
-        
-        # 4. Prepare metadata
-        metadata = {
-            "pipeline_version": "1.0",
-            "processing_timestamp": datetime.now().isoformat(),
-            "models_used": {
-                "script_generation": self.script_generator.model_config.name,
-                "tts_voice": self.tts_synthesizer.voice,
-                "avatar_generator": "LivePortrait (mock)"
-            },
-            "cost_estimation": self._estimate_costs(script, audio_duration),
-            "quality_metrics": {
-                "script_length_chars": len(script.script_text),
-                "audio_duration_seconds": audio_duration,
-                "video_resolution": list(video.resolution),
-                "video_fps": video.fps
+        if include_video:
+            # 1. Generate Programmatic Video (Handles its own scripting and concurrent TTS)
+            print(f"⏳ [Step 1/1] Generating full video content...")
+            video_result = await self.programmatic_generator.generate_video(
+                topic=title,
+                content=lesson_plan.get("description", ""),
+                style=style,
+                voice_id=voice_id,
+                language=language,
+                duration_minutes=lesson_plan.get("duration_minutes", 10)
+            )
+            
+            video_local_path = video_result['video_path']
+            video_duration = video_result['duration']
+            
+            # Extract first scene audio as the "main" audio if needed, or just use video
+            audio_local_path = video_result['script'].scenes[0].audio_path if video_result['script'].scenes else ""
+            
+            # Parallel Upload to Cloud
+            print(f"☁️ Uploading video artifacts to cloud storage...")
+            upload_tasks = [
+                self.storage_manager.upload_file(video_local_path, f"videos/{os.path.basename(video_local_path)}", "video/mp4"),
+                self.storage_manager.upload_file(audio_local_path, f"audio/{os.path.basename(audio_local_path)}", "audio/mpeg") if audio_local_path else asyncio.sleep(0, result=None)
+            ]
+            video_url, audio_url = await asyncio.gather(*upload_tasks)
+            
+            final_video_path = video_url or _to_relative_path(video_local_path)
+            final_audio_path = audio_url or _to_relative_path(audio_local_path)
+            
+            # Create a TeachingScript for compatibility
+            full_transcript = "\n\n".join([s.narration for s in video_result['script'].scenes if s.narration])
+            script = TeachingScript(
+                id=f"script_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                title=title,
+                script_text=full_transcript,
+                duration_seconds=video_duration,
+                target_concepts=[]
+            )
+            
+            # Mock AvatarVideo object for compatibility
+            video = AvatarVideo(
+                id=f"vid_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                script_id=script.id,
+                video_path=final_video_path,
+                audio_path=final_audio_path,
+                duration_seconds=video_duration,
+                resolution=(1920, 1080),
+                fps=30,
+                generated_at=datetime.now(),
+                metadata={"provider": video_result['provider']}
+            )
+            
+            return {
+                "script": script.to_dict(),
+                "audio": {"path": final_audio_path, "duration_seconds": video_duration, "voice": voice_id},
+                "video": video.to_dict(),
+                "metadata": {"pipeline": "programmatic_video", "timestamp": datetime.now().isoformat()},
+                "download_urls": {
+                    "script": f"/api/scripts/{script.id}/download",
+                    "audio": f"/api/audio/{Path(audio_local_path).stem}/download" if audio_local_path else None,
+                    "video": f"/api/videos/{video.id}/download"
+                },
+                "debug": video_result.get("debug") or {}
             }
-        }
-        
-        return {
-            "script": script.to_dict(),
-            "audio": {
-                "path": final_main_audio_path,
-                "duration_seconds": audio_duration,
-                "voice": self.tts_synthesizer.voice
-            },
-            "video": video.to_dict(),
-            "metadata": metadata,
-            "download_urls": {
-                "script": f"/api/scripts/{script.id}/download",
-                "audio": f"/api/audio/{Path(audio_path).stem}/download",
-                "video": f"/api/videos/{video.id}/download"
+        else:
+            # Traditional Audio-only Pipeline
+            print(f"⏳ [Step 1/2] Generating teaching script...")
+            script = await self.script_generator.generate_script(lesson_plan)
+            
+            print(f"⏳ [Step 2/2] Synthesizing audio (TTS)...")
+            audio_path, audio_duration = await self.tts_synthesizer.synthesize(script.script_text, script.id)
+            
+            print(f"☁️ Uploading audio artifact...")
+            audio_url = await self.storage_manager.upload_file(audio_path, f"audio/{os.path.basename(audio_path)}", "audio/mpeg")
+            final_audio_path = audio_url or _to_relative_path(audio_path)
+            
+            return {
+                "script": script.to_dict(),
+                "audio": {"path": final_audio_path, "duration_seconds": audio_duration, "voice": voice_id},
+                "video": None,
+                "metadata": {"pipeline": "audio_only", "timestamp": datetime.now().isoformat()},
+                "download_urls": {
+                    "script": f"/api/scripts/{script.id}/download",
+                    "audio": f"/api/audio/{Path(audio_path).stem}/download"
+                }
             }
-        }
     
     def _estimate_costs(self, script: TeachingScript, audio_duration: float) -> Dict[str, float]:
         """Estimate costs for output generation"""
