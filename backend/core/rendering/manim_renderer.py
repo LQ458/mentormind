@@ -190,6 +190,14 @@ class ManimService:
             # Note: We process ALL scenes if sent to Manim, regardless of visual_type tag
             # to ensure we don't produce empty videos.
 
+            layout = scene.canvas_config or {}
+            position = str(layout.get("position", "center")).lower()
+            font_size = layout.get("font_size", 28)
+            safe_scale = layout.get("safe_scale", 0.82)
+            graph = layout.get("graph", {}) if isinstance(layout.get("graph"), dict) else {}
+            x_range = graph.get("x_range", [-3, 3])
+            y_range = graph.get("y_range", [-2, 2])
+
             code.append(f"        # Scene: {scene.id}")
             if scene.audio_path:
                 # Use raw string for paths to handle backslashes on Windows if needed
@@ -198,7 +206,7 @@ class ManimService:
             # Action Mapping
             if scene.action == "plot":
                 # param: "sin(x)"
-                code.append(f"        ax = Axes(x_range=[-3, 3], y_range=[-2, 2])")
+                code.append(f"        ax = Axes(x_range={x_range}, y_range={y_range})")
                 code.append(f"        curve = ax.plot(lambda x: {scene.param}, color=BLUE)")
                 code.append(f"        plot_intro = min(2.5, max(0.8, {scene.duration} * 0.2))")
                 code.append(f"        self.play(Create(ax), Create(curve), run_time=plot_intro)")
@@ -217,7 +225,14 @@ class ManimService:
                     # Fallback to Text if non-ASCII is present or LaTeX is missing
                     # Standard math symbols replacement for plain Text fallback
                     clean_text = scene.param.replace('^2', '²').replace('^3', '³').replace('_', '').replace('\\', '').replace('text', '')
-                    code.append(f"        eq = Text(r\"\"\"{clean_text}\"\"\", font_size=40)")
+                    code.append(f"        eq = Text(r\"\"\"{clean_text}\"\"\", font_size={font_size})")
+                code.append(f"        eq.scale({safe_scale})")
+                if position == "top":
+                    code.append("        eq.to_edge(UP)")
+                elif position == "left":
+                    code.append("        eq.to_edge(LEFT)")
+                elif position == "right":
+                    code.append("        eq.to_edge(RIGHT)")
                     
                 code.append(f"        self.animate_with_audio(eq, {scene.duration}, animation='write')")
                 # Clear for next scene if needed
@@ -236,13 +251,21 @@ class ManimService:
             
             elif scene.action == "show_title":
                 # Big title text
-                code.append(f"        title = Text(r\"\"\"{scene.param}\"\"\", font_size=64, color=BLUE)")
+                code.append(f"        title = Text(r\"\"\"{scene.param}\"\"\", font_size=max({font_size}, 48), color=BLUE)")
+                code.append(f"        title.scale({safe_scale})")
                 code.append(f"        self.animate_with_audio(title, {scene.duration})")
                 code.append(f"        self.clear()")
 
             elif scene.action == "show_text":
                 display_text = scene.param or scene.narration
-                code.append(f"        text = Text(self.wrap_text(self.compact_text(r\"\"\"{display_text}\"\"\")), font_size=28)")
+                code.append(f"        text = Text(self.wrap_text(self.compact_text(r\"\"\"{display_text}\"\"\", max_chars={layout.get('max_chars', 120)})), font_size={font_size})")
+                code.append(f"        text.scale({safe_scale})")
+                if position == "top":
+                    code.append("        text.to_edge(UP)")
+                elif position == "left":
+                    code.append("        text.to_edge(LEFT)")
+                elif position == "right":
+                    code.append("        text.to_edge(RIGHT)")
                 code.append(f"        self.animate_with_audio(text, {scene.duration})")
                 code.append(f"        self.clear()")
 
@@ -257,7 +280,8 @@ class ManimService:
                 # Default text
                 # Default text with helper wrapping
                 fallback_text = scene.param or scene.narration
-                code.append(f"        text = Text(self.wrap_text(self.compact_text(r\"\"\"{fallback_text}\"\"\")), font_size=24)")
+                code.append(f"        text = Text(self.wrap_text(self.compact_text(r\"\"\"{fallback_text}\"\"\", max_chars={layout.get('max_chars', 120)})), font_size={font_size})")
+                code.append(f"        text.scale({safe_scale})")
                 code.append(f"        self.animate_with_audio(text, {scene.duration})")
                 code.append(f"        self.clear()")
                 

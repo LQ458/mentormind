@@ -27,9 +27,12 @@ ALLOWED ACTIONS (Manim):
 
 RULES:
 - All `visual_type` values must be `"manim"`
-- Target 4–8 scenes — clear, structured, efficient to render
+- Target **10–15 scenes** — clear, structured, efficient to render
+- Each `narration` MUST be **60–100 words** (this is critical — it controls lesson length)
+- The total narration across all scenes should be enough to fill at least 6 minutes of spoken audio
 - Include concrete examples and step-by-step conceptual breakdowns
 - Narration should be detailed and educational, matching the visual content
+- Do NOT write one-sentence narrations — speak to the learner fully within each scene
 - For general topics: use `show_text` and `write_tex` for key terms, definitions, and examples
 - For math/science topics: include step-by-step calculations, equations, and graphs using `write_tex`, `plot`, and `transform`
 

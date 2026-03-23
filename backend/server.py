@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy.orm import Session
 import uvicorn
 from dotenv import load_dotenv
 import tempfile
@@ -30,6 +31,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # Import core modules
 from core.create_classes import ClassCreator, ClassCreationRequest, Language, ClassCreationResult
 from core.modules.output import TTSSynthesizer
+from core.modules.robust_video_generation import RobustVideoGenerationPipeline
+from core.modules.video_scripting import VideoScriptGenerator
 from celery.result import AsyncResult
 from celery_app import create_class_video_task, transcript_to_lesson_task, transcribe_audio_task, celery_app
 from database import LessonStorageSQL, init_database
@@ -44,18 +47,18 @@ from prompts.loader import render_prompt
 
 # Initialize PostgreSQL database (Strict)
 print("🔧 Initializing PostgreSQL database...")
-lesson_storage = None
+_global_lesson_storage = None
 try:
     if init_database():
         print("✅ PostgreSQL database initialized successfully")
-        lesson_storage = LessonStorageSQL()
+        _global_lesson_storage = LessonStorageSQL()
     else:
         print("⚠️  PostgreSQL database initialization failed")
 except Exception as e:
     print(f"⚠️  PostgreSQL database initialization error: {e}")
 
 # If PostgreSQL fails, use a dummy storage to prevent crashes but log errors
-if lesson_storage is None:
+if _global_lesson_storage is None:
     print("❌ PostgreSQL storage is required but not initialized. Server will have no persistence.")
     class DummyStorage:
         def __getattr__(self, name):
@@ -63,7 +66,12 @@ if lesson_storage is None:
                 print(f"❌ Storage operation '{name}' failed: PostgreSQL not connected")
                 return None if name != "get_all_lessons" else ([], 0)
             return method
-    lesson_storage = DummyStorage()
+    _global_lesson_storage = DummyStorage()
+
+
+def get_lesson_storage(db: Session = Depends(get_db)):
+    """Dependency to get a LessonStorageSQL instance with an active session."""
+    return LessonStorageSQL(session=db)
 
 
 app = FastAPI(
@@ -182,6 +190,16 @@ class MemoryChallengeRequest(BaseModel):
 
 class DeliberateErrorRequest(BaseModel):
     focus: Optional[str] = None
+
+
+class GenerationDebugRequest(BaseModel):
+    topic: str
+    content: str
+    style: str = "general"
+    language: str = "en"
+    student_level: str = "beginner"
+    target_audience: str = "students"
+    custom_requirements: Optional[str] = None
 
 
 def _get_or_create_user_profile(db, user_id: str) -> UserProfile:
@@ -1083,13 +1101,19 @@ def upsert_my_interest_profile(
 
 
 @app.get("/users/me/lessons")
-def get_my_lessons(current_user: User = Depends(get_current_user)):
+def get_my_lessons(
+    current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
+):
     """Return lessons created by the current authenticated user."""
     return lesson_storage.get_lessons_by_user(str(current_user.id))
 
 
 @app.get("/users/me/review-queue")
-def get_my_review_queue(current_user: User = Depends(get_current_user)):
+def get_my_review_queue(
+    current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
+):
     """Return psychology-driven review prompts ordered by forgetting risk."""
     return {
         "success": True,
@@ -1098,7 +1122,10 @@ def get_my_review_queue(current_user: User = Depends(get_current_user)):
 
 
 @app.post("/users/me/notifications/sync")
-def sync_my_notifications(current_user: User = Depends(get_current_user)):
+def sync_my_notifications(
+    current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
+):
     """Materialize proactive in-app notifications from forgetting-curve risk."""
     items = lesson_storage.sync_proactive_notifications(str(current_user.id))
     return {"success": True, "created": items, "count": len(items)}
@@ -1109,6 +1136,7 @@ def get_my_notifications(
     unread_only: bool = False,
     limit: int = 20,
     current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Return current user's in-app proactive notifications."""
     return {
@@ -1126,6 +1154,7 @@ def get_my_notifications(
 def mark_my_notification_read(
     notification_id: int,
     current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Mark a proactive notification as read."""
     notification = lesson_storage.mark_notification_status(str(current_user.id), notification_id, "read")
@@ -1138,6 +1167,7 @@ def mark_my_notification_read(
 def dismiss_my_notification(
     notification_id: int,
     current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Dismiss a proactive notification."""
     notification = lesson_storage.mark_notification_status(str(current_user.id), notification_id, "dismissed")
@@ -1147,7 +1177,11 @@ def dismiss_my_notification(
 
 
 @app.get("/users/me/lessons/{lesson_id}/state")
-def get_my_lesson_state(lesson_id: str, current_user: User = Depends(get_current_user)):
+def get_my_lesson_state(
+    lesson_id: str,
+    current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
+):
     """Return progress and next-review state for the current user and lesson."""
     return {
         "success": True,
@@ -1160,6 +1194,7 @@ def update_my_lesson_progress(
     lesson_id: str,
     req: UpdateLessonProgressRequest,
     current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Update progress and schedule spaced review when a lesson is completed."""
     return {
@@ -1179,6 +1214,7 @@ def record_my_lesson_performance(
     lesson_id: str,
     req: RecordPerformanceRequest,
     current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Record quiz/seminar/oral-defense performance and refresh spaced review schedule."""
     return {
@@ -1201,7 +1237,8 @@ async def run_my_lesson_seminar(
     lesson_id: str,
     req: SeminarTurnRequest,
     current_user: User = Depends(get_current_user),
-    db = Depends(get_db),
+    db: Session = Depends(get_db),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Generate one live multi-agent seminar turn for the learner."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
@@ -1242,7 +1279,8 @@ async def run_my_lesson_simulation(
     lesson_id: str,
     req: SimulationTurnRequest,
     current_user: User = Depends(get_current_user),
-    db = Depends(get_db),
+    db: Session = Depends(get_db),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Generate one live applied-simulation turn for the learner."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
@@ -1283,7 +1321,8 @@ async def run_my_lesson_oral_defense(
     lesson_id: str,
     req: OralDefenseTurnRequest,
     current_user: User = Depends(get_current_user),
-    db = Depends(get_db),
+    db: Session = Depends(get_db),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Generate one live oral-defense turn for the learner."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
@@ -1324,7 +1363,8 @@ async def run_my_lesson_memory_challenge(
     lesson_id: str,
     req: MemoryChallengeRequest,
     current_user: User = Depends(get_current_user),
-    db = Depends(get_db),
+    db: Session = Depends(get_db),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Generate a short retrieval-practice challenge for the learner."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
@@ -1351,7 +1391,8 @@ async def run_my_lesson_deliberate_error(
     lesson_id: str,
     req: DeliberateErrorRequest,
     current_user: User = Depends(get_current_user),
-    db = Depends(get_db),
+    db: Session = Depends(get_db),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Generate one deliberate-error audit for the learner."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
@@ -1390,6 +1431,7 @@ def get_lessons(
     difficulty: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """List published lessons."""
     lessons, total = lesson_storage.get_all_lessons(
@@ -1406,7 +1448,8 @@ def get_lessons(
 def get_lesson_detail(
     lesson_id: str,
     current_user: Optional[User] = Depends(get_optional_user),
-    db = Depends(get_db),
+    db: Session = Depends(get_db),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Return a single lesson with a derived process-first layer."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
@@ -1430,6 +1473,7 @@ def get_lesson_detail(
 def delete_lesson(
     lesson_id: str,
     current_user: Optional[User] = Depends(get_optional_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Delete a lesson if it exists and belongs to the current user when authenticated."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=False)
@@ -1443,7 +1487,10 @@ def delete_lesson(
 
 
 @app.delete("/lessons")
-def delete_all_my_lessons(current_user: User = Depends(get_current_user)):
+def delete_all_my_lessons(
+    current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
+):
     """Delete all lessons owned by the current user."""
     lessons = lesson_storage.get_lessons_by_user(str(current_user.id), limit=1000)
     deleted = 0
@@ -1573,6 +1620,64 @@ async def analyze_topics(
             content={"success": False, "error": str(e)}
         )
 
+@app.post("/debug/generation/pipeline")
+async def debug_generation_pipeline(request: GenerationDebugRequest):
+    """Inspect syllabus, storyboard, render-plan, and validation artifacts without rendering."""
+    try:
+        pipeline = RobustVideoGenerationPipeline()
+        bundle = await pipeline.build_generation_bundle(
+            topic=request.topic,
+            content=request.content,
+            style=request.style,
+            language=request.language,
+            student_level=request.student_level,
+            target_audience=request.target_audience,
+            custom_requirements=request.custom_requirements,
+        )
+        return {"success": True, "bundle": bundle}
+    except Exception as e:
+        print(f"❌ Error building generation pipeline debug bundle: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/debug/generation/video-script")
+async def debug_generation_video_script(request: GenerationDebugRequest):
+    """Inspect the final validated renderer payload without kicking off a Celery job."""
+    try:
+        generator = VideoScriptGenerator()
+        script = await generator.generate_script(
+            topic=request.topic,
+            content=request.content,
+            style=request.style,
+            language=request.language,
+            student_level=request.student_level,
+            target_audience=request.target_audience,
+            custom_requirements=request.custom_requirements,
+        )
+        return {
+            "success": True,
+            "video_script": {
+                "title": script.title,
+                "total_duration": script.total_duration,
+                "engine": script.engine,
+                "scenes": [
+                    {
+                        "id": scene.id,
+                        "duration": scene.duration,
+                        "narration": scene.narration,
+                        "action": scene.action,
+                        "param": scene.param,
+                        "visual_type": scene.visual_type,
+                        "canvas_config": scene.canvas_config,
+                    }
+                    for scene in script.scenes
+                ],
+                "debug_artifacts": script.debug_artifacts,
+            },
+        }
+    except Exception as e:
+        print(f"❌ Error building generation video script debug payload: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/create-class")
 async def create_class(
     request: ClassCreationRequest,
@@ -1588,12 +1693,13 @@ async def create_class(
         
         # Determine language code for Celery
         lang_code = request.language.value if hasattr(request.language, 'value') else request.language
+        duration_minutes = max(10, int(request.duration_minutes or 10))
         
         request_data = {
             "topic": clean_topic,
             "language": lang_code,
             "student_level": request.student_level,
-            "duration_minutes": request.duration_minutes,
+            "duration_minutes": duration_minutes,
             "include_video": request.include_video,
             "include_exercises": request.include_exercises,
             "include_assessment": request.include_assessment,
@@ -1852,7 +1958,10 @@ async def serve_media(file_path: str):
     return FileResponse(abs_path)
 
 @app.get("/results")
-async def get_results_get(current_user: User = Depends(get_current_user)):
+async def get_results_get(
+    current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
+):
     """Get saved lessons for current user"""
     try:
         lessons = lesson_storage.get_lessons_by_user(str(current_user.id))

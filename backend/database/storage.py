@@ -19,20 +19,28 @@ from .models.analytics import AnalyticsEvent, AnalyticsEventType, DailyMetrics, 
 class LessonStorageSQL:
     """PostgreSQL-based storage for lessons with advanced querying"""
     
-    def __init__(self):
+    def __init__(self, session: Optional[Session] = None):
         self.SessionLocal = SessionLocal
+        self._session = session
     
-    def save_lesson(self, lesson_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _get_session(self) -> Session:
+        if self._session:
+            return self._session
+        return self.SessionLocal()
+
+    def save_lesson(self, lesson_data: Dict[str, Any], session: Optional[Session] = None) -> Dict[str, Any]:
         """
         Save a created lesson to PostgreSQL database.
         
         Args:
             lesson_data: The full lesson data from create-class endpoint
+            session: Optional external session for atomic transactions
             
         Returns:
             Dictionary with saved lesson info including ID
         """
-        session = self.SessionLocal()
+        local_session = session or self._get_session()
+        should_close = session is None and not self._session
         try:
             # Extract core data
             title = lesson_data.get("class_title", "")
@@ -131,13 +139,12 @@ class LessonStorageSQL:
                     )
             
             # Save to database
-            session.add(lesson)
-            session.commit()
-            session.refresh(lesson)
+            local_session.add(lesson)
+            local_session.flush()
             
             # Log analytics event
             self._log_analytics_event(
-                session=session,
+                session=local_session,
                 event_type=AnalyticsEventType.LESSON_CREATED,
                 lesson_id=lesson.id,
                 metadata={
@@ -149,6 +156,10 @@ class LessonStorageSQL:
                     "cost_usd": cost_usd
                 }
             )
+            
+            if should_close:
+                local_session.commit()
+                local_session.refresh(lesson)
             
             print(f"✅ Lesson saved to database: {lesson.id} - {title}")
             
@@ -167,18 +178,21 @@ class LessonStorageSQL:
             }
             
         except Exception as e:
-            session.rollback()
+            if should_close:
+                local_session.rollback()
             print(f"❌ Failed to save lesson to database: {e}")
             raise
         finally:
-            session.close()
+            if should_close:
+                local_session.close()
     
-    def get_lessons_by_user(self, user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_lessons_by_user(self, user_id: str, limit: int = 100, session: Optional[Session] = None) -> List[Dict[str, Any]]:
         """Return all lessons owned by a specific user, newest first."""
-        session = self.SessionLocal()
+        local_session = session or self._get_session()
+        should_close = session is None and not self._session
         try:
             lessons = (
-                session.query(Lesson)
+                local_session.query(Lesson)
                 .filter(Lesson.user_id == user_id, Lesson.status != LessonStatus.DELETED.value)
                 .order_by(Lesson.created_at.desc())
                 .limit(limit)
@@ -186,32 +200,34 @@ class LessonStorageSQL:
             )
             return [l.to_dict(include_relationships=False) for l in lessons]
         finally:
-            session.close()
+            if should_close:
+                local_session.close()
 
-    def get_lesson_state(self, user_id: str, lesson_id: str) -> Dict[str, Any]:
+    def get_lesson_state(self, user_id: str, lesson_id: str, session: Optional[Session] = None) -> Dict[str, Any]:
         """Return user-specific lesson progress, latest performance, and next review."""
-        session = self.SessionLocal()
+        local_session = session or self._get_session()
+        should_close = session is None and not self._session
         try:
             lesson_uuid = uuid.UUID(lesson_id)
             user_lesson = (
-                session.query(UserLesson)
+                local_session.query(UserLesson)
                 .filter(UserLesson.user_id == user_id, UserLesson.lesson_id == lesson_uuid)
                 .first()
             )
             latest_performance = (
-                session.query(StudentPerformance)
+                local_session.query(StudentPerformance)
                 .filter(StudentPerformance.user_id == user_id, StudentPerformance.lesson_id == lesson_uuid)
                 .order_by(StudentPerformance.created_at.desc())
                 .first()
             )
             review = (
-                session.query(MemoryReview)
+                local_session.query(MemoryReview)
                 .filter(MemoryReview.user_id == user_id, MemoryReview.lesson_id == lesson_uuid)
                 .order_by(MemoryReview.due_at.asc())
                 .first()
             )
             recent_interactions = (
-                session.query(AgentInteractionTurn)
+                local_session.query(AgentInteractionTurn)
                 .filter(AgentInteractionTurn.user_id == user_id, AgentInteractionTurn.lesson_id == lesson_uuid)
                 .order_by(AgentInteractionTurn.created_at.desc())
                 .limit(12)
@@ -232,7 +248,8 @@ class LessonStorageSQL:
                 "recent_interactions_by_type": interactions_by_type,
             }
         finally:
-            session.close()
+            if should_close:
+                local_session.close()
 
     def upsert_user_lesson_progress(
         self,
@@ -736,27 +753,29 @@ class LessonStorageSQL:
         finally:
             session.close()
     
-    def get_lesson(self, lesson_id: str, include_relationships: bool = True) -> Optional[Dict[str, Any]]:
+    def get_lesson(self, lesson_id: str, include_relationships: bool = True, session: Optional[Session] = None) -> Optional[Dict[str, Any]]:
         """
         Get full lesson data by ID.
         
         Args:
             lesson_id: UUID of the lesson
             include_relationships: Whether to include objectives, resources, exercises
+            session: Optional external session
             
         Returns:
             Full lesson data or None if not found
         """
-        session = self.SessionLocal()
+        local_session = session or self._get_session()
+        should_close = session is None and not self._session
         try:
-            lesson = session.query(Lesson).filter(Lesson.id == uuid.UUID(lesson_id)).first()
+            lesson = local_session.query(Lesson).filter(Lesson.id == uuid.UUID(lesson_id)).first()
             
             if not lesson:
                 return None
             
             # Log view analytics
             self._log_analytics_event(
-                session=session,
+                session=local_session,
                 event_type=AnalyticsEventType.LESSON_VIEWED,
                 lesson_id=lesson.id
             )
@@ -768,38 +787,47 @@ class LessonStorageSQL:
             print(f"❌ Failed to get lesson {lesson_id} from database: {e}")
             return None
         finally:
-            session.close()
+            if should_close:
+                local_session.close()
     
-    def delete_lesson(self, lesson_id: str) -> bool:
+    def delete_lesson(self, lesson_id: str, session: Optional[Session] = None) -> bool:
         """
         Delete a lesson by ID (soft delete by changing status).
         
         Args:
             lesson_id: UUID of the lesson
+            session: Optional external session
             
         Returns:
             True if deleted, False if not found
         """
-        session = self.SessionLocal()
+        local_session = session or self._get_session()
+        should_close = session is None and not self._session
         try:
-            lesson = session.query(Lesson).filter(Lesson.id == uuid.UUID(lesson_id)).first()
+            lesson = local_session.query(Lesson).filter(Lesson.id == uuid.UUID(lesson_id)).first()
             
             if not lesson:
                 return False
             
             # Soft delete by changing status
             lesson.status = LessonStatus.DELETED.value
-            session.commit()
+            
+            if should_close:
+                local_session.commit()
+            else:
+                local_session.flush()
             
             print(f"🗑️ Lesson marked as deleted: {lesson_id}")
             return True
             
         except Exception as e:
-            session.rollback()
+            if should_close:
+                local_session.rollback()
             print(f"❌ Failed to delete lesson {lesson_id} from database: {e}")
             return False
         finally:
-            session.close()
+            if should_close:
+                local_session.close()
     
     def search_lessons(
         self, 

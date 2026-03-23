@@ -639,6 +639,11 @@ export default function LessonDetailPage() {
   const oralDefenseQuestions = lesson?.process_layer?.oral_defense?.questions || []
   const simulationScenario = lesson?.process_layer?.simulation
   const thinkingPath = lesson?.process_layer?.thinking_path
+  const clearLessonPlan = lesson?.ai_insights?.lesson_plan || {}
+  const lessonBlueprint = lesson?.ai_insights?.lesson_blueprint || lesson?.ai_insights?.generation_debug?.generation_pipeline || {}
+  const lessonChapters = clearLessonPlan?.chapters || lessonBlueprint?.syllabus?.chapters || []
+  const transcriptText = lesson?.ai_insights?.full_transcript || lesson?.ai_insights?.script?.script_text || ''
+  const sceneScript = lesson?.ai_insights?.script?.scene_script || []
   const recentSeminarHistory = lessonState?.recent_interactions_by_type?.seminar || []
   const recentSimulationHistory = lessonState?.recent_interactions_by_type?.simulation || []
   const recentOralDefenseHistory = lessonState?.recent_interactions_by_type?.oral_defense || []
@@ -1292,31 +1297,126 @@ export default function LessonDetailPage() {
                 )}
 
                 {activeTab === 'content' && (
-                  <div className="prose max-w-none">
-                    <h3 className="text-lg font-bold mb-4">{t('lessonDetail.learningObjectives')}</h3>
-                    <ul className="list-disc pl-5 mb-6 space-y-2">
-                      {lesson.objectives?.map((obj: any, i: number) => (
-                        <li key={i} className="text-gray-700">{obj.objective}</li>
-                      )) || <li>{t('lessonDetail.noObjectives')}</li>}
-                    </ul>
-
-                    <h3 className="text-lg font-bold mb-4">{t('lessonDetail.coreConcepts')}</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                      {Object.entries(lesson.ai_insights?.lesson_plan || {}).map(([key, value]: [string, any]) => (
-                        <div key={key} className="bg-gray-50 p-4 rounded-lg">
-                          <span className="font-semibold capitalize text-gray-700 block mb-1">{key}</span>
-                          <span className="text-sm text-gray-600">{String(value).slice(0, 100)}...</span>
-                        </div>
-                      ))}
+                  <div className="space-y-6">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                      <div className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                        {language === 'zh' ? '课程概览' : 'Lesson Overview'}
+                      </div>
+                      <p className="mt-3 text-sm leading-7 text-slate-700">
+                        {clearLessonPlan?.overview || lesson.description}
+                      </p>
                     </div>
+
+                    <div>
+                      <h3 className="text-lg font-bold mb-4">{t('lessonDetail.learningObjectives')}</h3>
+                      <ul className="list-disc pl-5 mb-6 space-y-2">
+                        {lesson.objectives?.length
+                          ? lesson.objectives.map((obj: any, i: number) => (
+                              <li key={i} className="text-gray-700">{obj.objective}</li>
+                            ))
+                          : (clearLessonPlan?.learning_objectives || []).map((obj: string, i: number) => (
+                              <li key={i} className="text-gray-700">{obj}</li>
+                            ))}
+                      </ul>
+                    </div>
+
+                    {Array.isArray(clearLessonPlan?.prerequisites) && clearLessonPlan.prerequisites.length > 0 && (
+                      <div>
+                        <h3 className="text-lg font-bold mb-4">{language === 'zh' ? '先修知识' : 'Prerequisites'}</h3>
+                        <div className="flex flex-wrap gap-2">
+                          {clearLessonPlan.prerequisites.map((item: string) => (
+                            <span key={item} className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700">
+                              {item}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <h3 className="text-lg font-bold mb-4">{language === 'zh' ? '课程流程' : 'Lesson Flow'}</h3>
+                      <div className="space-y-4">
+                        {lessonChapters.map((chapter: any, index: number) => (
+                          <div key={chapter.id || `${chapter.title}-${index}`} className="rounded-xl border border-slate-200 bg-white p-5">
+                            <div className="flex items-start justify-between gap-4">
+                              <div>
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                  {language === 'zh' ? `部分 ${index + 1}` : `Part ${index + 1}`}
+                                </div>
+                                <h4 className="mt-1 text-base font-semibold text-slate-900">
+                                  {chapter.title || chapter.learning_goal || chapter.id}
+                                </h4>
+                              </div>
+                              {chapter.duration_minutes && (
+                                <div className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-800">
+                                  {chapter.duration_minutes} {t('common.minutes')}
+                                </div>
+                              )}
+                            </div>
+                            <p className="mt-3 text-sm leading-7 text-slate-700">
+                              {chapter.summary || chapter.learning_goal || chapter.content || ''}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {Array.isArray(clearLessonPlan?.practice) && clearLessonPlan.practice.length > 0 && (
+                      <div>
+                        <h3 className="text-lg font-bold mb-4">{language === 'zh' ? '练习与应用' : 'Practice and Application'}</h3>
+                        <div className="space-y-2">
+                          {clearLessonPlan.practice.map((item: string) => (
+                            <div key={item} className="rounded-lg bg-slate-50 p-4 text-sm text-slate-700">
+                              • {item}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {activeTab === 'script' && (
                   <div className="space-y-4">
-                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 font-mono text-sm leading-relaxed text-gray-700 whitespace-pre-wrap max-h-[500px] overflow-y-auto">
-                      {lesson.ai_insights?.script?.script_text || t('lessonDetail.noScript')}
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                      <div className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                        {language === 'zh' ? '完整讲稿 / Transcript' : 'Full Transcript'}
+                      </div>
+                      <div className="mt-3 bg-white p-4 rounded-lg border border-gray-200 font-mono text-sm leading-relaxed text-gray-700 whitespace-pre-wrap max-h-[420px] overflow-y-auto">
+                        {transcriptText || t('lessonDetail.noScript')}
+                      </div>
                     </div>
+
+                    {sceneScript.length > 0 && (
+                      <div className="space-y-3">
+                        {sceneScript.map((scene: any, index: number) => (
+                          <div key={scene.id || index} className="rounded-xl border border-slate-200 bg-white p-5">
+                            <div className="flex items-center justify-between gap-4">
+                              <div className="text-sm font-semibold text-slate-900">
+                                {language === 'zh' ? `场景 ${index + 1}` : `Scene ${index + 1}`}
+                              </div>
+                              <div className="text-xs font-medium text-slate-500">
+                                {Math.round(scene.duration || 0)}s • {scene.action}
+                              </div>
+                            </div>
+                            <div className="mt-3 grid gap-3 md:grid-cols-2">
+                              <div className="rounded-lg bg-slate-50 p-4">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                  {language === 'zh' ? '画面内容' : 'On Screen'}
+                                </div>
+                                <p className="mt-2 text-sm text-slate-700">{scene.on_screen_text || '—'}</p>
+                              </div>
+                              <div className="rounded-lg bg-blue-50 p-4">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+                                  {language === 'zh' ? '旁白' : 'Narration'}
+                                </div>
+                                <p className="mt-2 text-sm text-blue-900">{scene.narration || '—'}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 

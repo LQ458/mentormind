@@ -7,6 +7,8 @@ import asyncio
 import json
 import os
 import logging
+import shutil
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -570,51 +572,173 @@ class ProgrammaticVideoGenerator:
         self.tts_synthesizer = TTSSynthesizer()
         self.manim_service = ManimService()
         
-    async def generate_video(self, topic: str, content: str, style: str = "math", voice_id: str = "anna", language: str = "en") -> Dict:
+    async def generate_video(
+        self,
+        topic: str,
+        content: str,
+        style: str = "math",
+        voice_id: str = "anna",
+        language: str = "en",
+        student_level: str = "beginner",
+        target_audience: str = "students",
+        duration_minutes: int = 10,
+        custom_requirements: Optional[str] = None,
+    ) -> Dict:
         """
         Generate a programmatic video from content
         """
         logger.info(f"Generating programmatic video for: {topic} ({style}) Voice: {voice_id} Lang: {language}")
-        
-        # 1. Generate Director JSON Script
-        video_script = await self.script_generator.generate_script(topic, content, style, language)
-        
-        # 2. Generate Audio & Sync Durations
-        logger.info("Synthesizing audio concurrently for all scenes...")
-        
-        async def process_scene_audio(scene: Scene) -> float:
-            if not scene.narration:
-                return 0.0
-                
-            audio_path, duration = await self.tts_synthesizer.synthesize(
-                scene.narration, f"{video_script.title}_{scene.id}", voice=voice_id
+        required_duration_seconds = max(10, int(duration_minutes or 10)) * 60
+
+        async def build_video(expanded_requirements: Optional[str], attempt: int) -> Dict:
+            video_script = await self.script_generator.generate_script(
+                topic,
+                content,
+                style,
+                language,
+                student_level=student_level,
+                target_audience=target_audience,
+                duration_minutes=duration_minutes,
+                custom_requirements=expanded_requirements,
             )
+
+            logger.info("Synthesizing audio concurrently for all scenes...")
+
+            async def process_scene_audio(scene: Scene) -> float:
+                if not scene.narration:
+                    return 0.0
+
+                audio_path, duration = await self.tts_synthesizer.synthesize(
+                    scene.narration, f"{video_script.title}_{scene.id}", voice=voice_id
+                )
+                if not audio_path or not os.path.exists(audio_path):
+                    raise ValueError(f"TTS did not produce an audio file for {scene.id}")
+                if duration <= 0:
+                    raise ValueError(f"TTS returned a non-positive duration for {scene.id}")
+
+                scene.duration = duration
+                scene.audio_path = audio_path
+                return scene.duration
+
+            tasks = [process_scene_audio(scene) for scene in video_script.scenes]
+            audio_durations = await asyncio.gather(*tasks)
+
+            total_audio_duration = sum(audio_durations)
+            video_script.total_duration = total_audio_duration
+
+            # Preferred length: > 6 minutes (360s). 
+            # We no longer fail hard, but we'll use this to trigger a better retry if attempt == 1.
+            preferred_duration_seconds = 360
             
-            # Update scene with exact audio duration and path
-            scene.duration = duration # Ensure visual strictly matches audio length
-            scene.audio_path = audio_path
-            return scene.duration
+            if total_audio_duration < preferred_duration_seconds and attempt == 1:
+                logger.info(f"Lesson length {total_audio_duration:.1f}s is below preferred {preferred_duration_seconds}s. Triggering enhanced retry.")
+                raise ValueError("preferred_length_not_met")
             
-        # Execute all TTS requests in parallel
-        tasks = [process_scene_audio(scene) for scene in video_script.scenes]
-        audio_durations = await asyncio.gather(*tasks)
+            # On attempt 2+, we accept whatever length we got, as long as it's not empty.
+            if total_audio_duration < 30: # absolute safety floor of 30 seconds to prevent empty/broken results
+                raise ValueError(f"Generated lesson is critically short ({total_audio_duration:.1f}s).")
+
+            logger.info(f"Rendering with engine: Manim (style={style})")
+            video_path = await self.manim_service.render_script(video_script)
+            video_probe = await asyncio.to_thread(self._probe_rendered_video, video_path)
+            if video_probe.get("has_audio_stream") is False:
+                raise ValueError(f"Rendered video is missing an audio stream: {video_path}")
+
+            return {
+                "video_path": video_path,
+                "script": video_script,
+                "provider": "Manim",
+                "duration": total_audio_duration,
+                "debug": {
+                    "generation_pipeline": video_script.debug_artifacts,
+                    "video_probe": video_probe,
+                    "duration_target_seconds": required_duration_seconds,
+                    "generation_attempt": attempt,
+                    "scene_audio": [
+                        {
+                            "scene_id": scene.id,
+                            "duration": scene.duration,
+                            "audio_path": scene.audio_path,
+                        }
+                        for scene in video_script.scenes
+                    ],
+                },
+            }
+
+        base_requirements = custom_requirements
+        retry_requirements = "\n".join(
+            part
+            for part in [
+                custom_requirements or "",
+                (
+                    f"CRITICAL RETRY REQUIREMENT: The previous attempt was too short. "
+                    f"The final lesson MUST run for at least 10 full minutes. "
+                    "Each scene narration MUST be at least 150 words long. "
+                    "Use a slow, pedagogical pace. Add more detailed explanations, "
+                    "repeat key concepts for emphasis, and add 'Let's pause and think about this' transitions. "
+                    "Expand every mathematical step with verbal reasoning."
+                ),
+            ]
+            if part
+        )
+
+        last_error: Optional[Exception] = None
+        for attempt, requirements in enumerate([base_requirements, retry_requirements], start=1):
+            try:
+                return await build_video(requirements, attempt)
+            except ValueError as exc:
+                last_error = exc
+                if str(exc) == "preferred_length_not_met":
+                    logger.warning("Attempt %s was shorter than 6 mins. Retrying with expanded requirements.", attempt)
+                    continue
+                # If it's a real failure (not just preferred length), re-raise immediately
+                raise
         
-        total_audio_duration = sum(audio_durations)
-        video_script.total_duration = total_audio_duration
+        # If we reached here and have a result but it was short, the loop would have returned it in the try block
+        # unless it was still short on the second attempt.
+        # But wait, we need to handle the case where attempt 2 is still short.
         
-        # 3. Render Video — always use Manim.
-        # Remotion requires the web/ Next.js directory inside the container, which is not available.
-        # Manim handles both math and general visualizations and is installed in this container.
-        logger.info(f"Rendering with engine: Manim (style={style})")
-        video_path = await self.manim_service.render_script(video_script)
-        provider = "Manim"
-            
-        return {
-            "video_path": video_path,
-            "script": video_script,
-            "provider": provider,
-            "duration": total_audio_duration
-        }
+        # Redesigning slightly to return whatever we have on attempt 2 even if short
+        try:
+            return await build_video(retry_requirements, attempt=2)
+        except ValueError as exc:
+            if "critically short" in str(exc): raise
+            # If attempt 2 is just "preferred_length_not_met", ignore it and try to return the result
+            # but build_video raised it instead of returning. 
+            # Let's fix build_video to not raise if attempt == 2.
+            raise last_error or exc
+
+    def _probe_rendered_video(self, video_path: str) -> Dict[str, Optional[bool]]:
+        if not video_path or not os.path.exists(video_path):
+            return {"checked": True, "has_audio_stream": False}
+
+        ffprobe = shutil.which("ffprobe")
+        if not ffprobe:
+            return {"checked": False, "has_audio_stream": None}
+
+        try:
+            result = subprocess.run(
+                [
+                    ffprobe,
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "stream=codec_type",
+                    "-of",
+                    "json",
+                    video_path,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            data = json.loads(result.stdout or "{}")
+            streams = data.get("streams") or []
+            has_audio_stream = any(stream.get("codec_type") == "audio" for stream in streams)
+            return {"checked": True, "has_audio_stream": has_audio_stream}
+        except Exception as exc:
+            logger.warning("Unable to probe rendered video %s: %s", video_path, exc)
+            return {"checked": False, "has_audio_stream": None}
 
 
 def _to_relative_path(absolute_path: str | None) -> str | None:
@@ -643,28 +767,16 @@ class OutputPipeline:
         self.processing_config = config.PROCESSING
         self.storage_manager = CloudStorageManager()
     
-    async def generate_teaching_output(self, lesson_plan: Dict) -> Dict:
+    async def generate_teaching_output(self, lesson_plan: Dict, include_video: bool = True) -> Dict:
         """
-        Generate complete teaching output from lesson plan
+        Generate complete teaching output from lesson plan.
+        Optimized to avoid redundant LLM calls and parallelize asset generation.
         """
-        print("Starting output generation pipeline...")
+        print(f"Starting output generation pipeline (include_video={include_video})...")
         
-        # 1. Generate script
-        print(f"⏳ [Step 1/3] Generating teaching script...")
-        script = await self.script_generator.generate_script(lesson_plan)
-        print(f"✅ [Step 1/3] Script generated: {script.title}")
-        
-        # 2. Synthesize speech
-        print(f"⏳ [Step 2/3] Synthesizing audio (TTS)...")
-        audio_path, audio_duration = await self.tts_synthesizer.synthesize(
-            script.script_text, script.id
-        )
-        print(f"✅ [Step 2/3] Audio synthesized: {audio_duration:.1f}s")
-        
-        # 3. Generate Programmatic Video (Code-to-Video)
-        print(f"⏳ [Step 3/3] Rendering video content...")
-        # Determine style based on title keywords
-        title_lower = lesson_plan.get("title", "").lower()
+        # Determine style and parameters
+        title = lesson_plan.get("title", "Lesson")
+        title_lower = title.lower()
         math_keywords = [
             "math", "algebra", "geometry", "calculus", "equation", "function", "graph", 
             "number", "arithmetic", "probability", "statistics", "theorem", "proof",
@@ -675,81 +787,96 @@ class OutputPipeline:
             "数学", "代数", "几何", "微积分", "方程", "函数", "图象", "数论", "概率", "统计",
             "物理", "运动", "力", "速度", "加速度", "重力", "能量", "牛顿"
         ]
-        
         style = "math" if any(k in title_lower for k in math_keywords) else "general"
-        
-        # Get voice choice if available
         voice_id = lesson_plan.get("voice_id", "anna")
+        language = lesson_plan.get("language", "en")
         
-        video_result = await self.programmatic_generator.generate_video(
-            topic=lesson_plan.get("title", "Lesson"),
-            content=script.script_text, # Use the generated text script as input for visual scripting
-            style=style,
-            voice_id=voice_id
-        )
-        print(f"✓ Generated video: {video_result['video_path']}")
-        
-        # Adapt video object for response
-        video_local_path = video_result['video_path']
-        video_duration = video_result['duration']
-        audio_local_scene_path = video_result['script'].scenes[0].audio_path if video_result['script'].scenes else ""
-        
-        # Upload to Cloud Storage if enabled
-        print(f"☁️ Uploading artifacts to cloud storage (if enabled)...")
-        video_url = await self.storage_manager.upload_file(video_local_path, f"videos/{os.path.basename(video_local_path)}", "video/mp4")
-        scene_audio_url = await self.storage_manager.upload_file(audio_local_scene_path, f"audio/{os.path.basename(audio_local_scene_path)}", "audio/mpeg") if audio_local_scene_path else None
-        main_audio_url = await self.storage_manager.upload_file(audio_path, f"audio/{os.path.basename(audio_path)}", "audio/mpeg") if audio_path else None
-        
-        final_video_path = video_url or _to_relative_path(video_local_path)
-        final_scene_audio_path = scene_audio_url or _to_relative_path(audio_local_scene_path)
-        final_main_audio_path = main_audio_url or _to_relative_path(audio_path)
-        
-        # Mock AvatarVideo object for compatibility
-        video = AvatarVideo(
-            id=f"vid_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            script_id=script.id,
-            video_path=final_video_path,
-            audio_path=final_scene_audio_path,
-            duration_seconds=video_duration,
-            resolution=(1920, 1080),
-            fps=30,
-            generated_at=datetime.now(),
-            metadata={"provider": video_result['provider']}
-        )
-        
-        # 4. Prepare metadata
-        metadata = {
-            "pipeline_version": "1.0",
-            "processing_timestamp": datetime.now().isoformat(),
-            "models_used": {
-                "script_generation": self.script_generator.model_config.name,
-                "tts_voice": self.tts_synthesizer.voice,
-                "avatar_generator": "LivePortrait (mock)"
-            },
-            "cost_estimation": self._estimate_costs(script, audio_duration),
-            "quality_metrics": {
-                "script_length_chars": len(script.script_text),
-                "audio_duration_seconds": audio_duration,
-                "video_resolution": list(video.resolution),
-                "video_fps": video.fps
+        if include_video:
+            # 1. Generate Programmatic Video (Handles its own scripting and concurrent TTS)
+            print(f"⏳ [Step 1/1] Generating full video content...")
+            video_result = await self.programmatic_generator.generate_video(
+                topic=title,
+                content=lesson_plan.get("description", ""),
+                style=style,
+                voice_id=voice_id,
+                language=language,
+                duration_minutes=lesson_plan.get("duration_minutes", 10)
+            )
+            
+            video_local_path = video_result['video_path']
+            video_duration = video_result['duration']
+            
+            # Extract first scene audio as the "main" audio if needed, or just use video
+            audio_local_path = video_result['script'].scenes[0].audio_path if video_result['script'].scenes else ""
+            
+            # Parallel Upload to Cloud
+            print(f"☁️ Uploading video artifacts to cloud storage...")
+            upload_tasks = [
+                self.storage_manager.upload_file(video_local_path, f"videos/{os.path.basename(video_local_path)}", "video/mp4"),
+                self.storage_manager.upload_file(audio_local_path, f"audio/{os.path.basename(audio_local_path)}", "audio/mpeg") if audio_local_path else asyncio.sleep(0, result=None)
+            ]
+            video_url, audio_url = await asyncio.gather(*upload_tasks)
+            
+            final_video_path = video_url or _to_relative_path(video_local_path)
+            final_audio_path = audio_url or _to_relative_path(audio_local_path)
+            
+            # Create a TeachingScript for compatibility
+            full_transcript = "\n\n".join([s.narration for s in video_result['script'].scenes if s.narration])
+            script = TeachingScript(
+                id=f"script_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                title=title,
+                script_text=full_transcript,
+                duration_seconds=video_duration,
+                target_concepts=[]
+            )
+            
+            # Mock AvatarVideo object for compatibility
+            video = AvatarVideo(
+                id=f"vid_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                script_id=script.id,
+                video_path=final_video_path,
+                audio_path=final_audio_path,
+                duration_seconds=video_duration,
+                resolution=(1920, 1080),
+                fps=30,
+                generated_at=datetime.now(),
+                metadata={"provider": video_result['provider']}
+            )
+            
+            return {
+                "script": script.to_dict(),
+                "audio": {"path": final_audio_path, "duration_seconds": video_duration, "voice": voice_id},
+                "video": video.to_dict(),
+                "metadata": {"pipeline": "programmatic_video", "timestamp": datetime.now().isoformat()},
+                "download_urls": {
+                    "script": f"/api/scripts/{script.id}/download",
+                    "audio": f"/api/audio/{Path(audio_local_path).stem}/download" if audio_local_path else None,
+                    "video": f"/api/videos/{video.id}/download"
+                },
+                "debug": video_result.get("debug") or {}
             }
-        }
-        
-        return {
-            "script": script.to_dict(),
-            "audio": {
-                "path": final_main_audio_path,
-                "duration_seconds": audio_duration,
-                "voice": self.tts_synthesizer.voice
-            },
-            "video": video.to_dict(),
-            "metadata": metadata,
-            "download_urls": {
-                "script": f"/api/scripts/{script.id}/download",
-                "audio": f"/api/audio/{Path(audio_path).stem}/download",
-                "video": f"/api/videos/{video.id}/download"
+        else:
+            # Traditional Audio-only Pipeline
+            print(f"⏳ [Step 1/2] Generating teaching script...")
+            script = await self.script_generator.generate_script(lesson_plan)
+            
+            print(f"⏳ [Step 2/2] Synthesizing audio (TTS)...")
+            audio_path, audio_duration = await self.tts_synthesizer.synthesize(script.script_text, script.id)
+            
+            print(f"☁️ Uploading audio artifact...")
+            audio_url = await self.storage_manager.upload_file(audio_path, f"audio/{os.path.basename(audio_path)}", "audio/mpeg")
+            final_audio_path = audio_url or _to_relative_path(audio_path)
+            
+            return {
+                "script": script.to_dict(),
+                "audio": {"path": final_audio_path, "duration_seconds": audio_duration, "voice": voice_id},
+                "video": None,
+                "metadata": {"pipeline": "audio_only", "timestamp": datetime.now().isoformat()},
+                "download_urls": {
+                    "script": f"/api/scripts/{script.id}/download",
+                    "audio": f"/api/audio/{Path(audio_path).stem}/download"
+                }
             }
-        }
     
     def _estimate_costs(self, script: TeachingScript, audio_duration: float) -> Dict[str, float]:
         """Estimate costs for output generation"""
@@ -778,9 +905,13 @@ class OutputPipeline:
     async def generate_quick_explanation(
         self,
         concept: str,
-        context: Optional[str] = None,
+        context: str = "",
+        language: str = "zh",
         voice_id: str = "anna",
-        language: str = "en"
+        student_level: str = "beginner",
+        target_audience: str = "students",
+        duration_minutes: int = 10,
+        custom_requirements: Optional[str] = None,
     ) -> Dict:
         """
         Generate quick explanation with audio and real video
@@ -815,10 +946,30 @@ class OutputPipeline:
             content=explanation,
             style=style,
             voice_id=voice_id,
-            language=language
+            language=language,
+            student_level=student_level,
+            target_audience=target_audience,
+            duration_minutes=duration_minutes,
+            custom_requirements=custom_requirements or context,
         )
         video_local_path = video_result['video_path']
         audio_local_path = video_result['script'].scenes[0].audio_path if video_result['script'].scenes else ""
+        full_transcript = "\n\n".join(
+            f"[{index + 1:02d}] {scene.narration}"
+            for index, scene in enumerate(video_result['script'].scenes)
+            if scene.narration
+        )
+        scene_script = [
+            {
+                "id": scene.id,
+                "duration": scene.duration,
+                "action": scene.action,
+                "on_screen_text": scene.param,
+                "narration": scene.narration,
+                "canvas_config": scene.canvas_config,
+            }
+            for scene in video_result['script'].scenes
+        ]
         
         # Upload to Cloud
         video_url = await self.storage_manager.upload_file(video_local_path, f"videos/{os.path.basename(video_local_path)}", "video/mp4")
@@ -839,6 +990,15 @@ class OutputPipeline:
                 "duration_seconds": video_result['duration'],
                 "id": f"vid_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             },
+            "script": {
+                "title": video_result['script'].title,
+                "script_text": full_transcript,
+                "scene_script": scene_script,
+                "total_duration_seconds": video_result['duration'],
+            },
+            "full_transcript": full_transcript,
+            "lesson_blueprint": (video_result.get("debug") or {}).get("generation_pipeline", {}),
+            "debug": video_result.get("debug") or {},
             "generated_at": datetime.now().isoformat()
         }
     

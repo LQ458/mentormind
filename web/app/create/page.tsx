@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '@clerk/nextjs'
@@ -80,8 +80,8 @@ export default function CreateLessonPage() {
           id: '1',
           role: 'assistant',
           content: uiLanguage === 'zh'
-            ? '你好！我是你的AI学习导师。请告诉我你想学习什么，或者在学习中遇到了什么困难？我会通过对话了解你的需求，然后为你推荐最适合的学习主题。'
-            : 'Hello! I am your AI learning mentor. Please tell me what you want to learn, or what difficulties you are having in your studies? I will understand your needs through conversation and then recommend the most suitable learning topics for you.',
+            ? '告诉我你的目标、卡点或考试方向。\n我会：\n- 推荐主题\n- 生成课程\n- 自动保存到课程库'
+            : 'Tell me your goal, blocker, or exam target.\nI will:\n- suggest topics\n- build the lesson\n- save it automatically',
           timestamp: new Date()
         }
       ])
@@ -466,6 +466,39 @@ export default function CreateLessonPage() {
     progress: number
   } | null>(null)
 
+  const suggestedTopics = useMemo(() => {
+    const interestSeeds = interestProfile?.subject_interests || []
+    const zhPool = ['二次函数图像', 'AP Calculus BC 导数直觉', 'Python 循环与条件', '牛顿第二定律', '概率入门', '数据可视化基础']
+    const enPool = ['Quadratic functions', 'AP Calculus BC derivatives', 'Python loops and conditionals', 'Newton’s second law', 'Probability basics', 'Data visualization']
+
+    const mapped = interestSeeds.flatMap((seed) => {
+      if (seed === 'mathematics') return uiLanguage === 'zh' ? ['二次函数图像', 'AP Calculus BC 导数直觉'] : ['Quadratic functions', 'AP Calculus BC derivatives']
+      if (seed === 'computer-science') return uiLanguage === 'zh' ? ['Python 循环与条件', '算法思维入门'] : ['Python loops and conditionals', 'Algorithmic thinking']
+      if (seed === 'physics') return uiLanguage === 'zh' ? ['牛顿第二定律', '速度与加速度'] : ['Newton’s second law', 'Velocity and acceleration']
+      return []
+    })
+
+    return Array.from(new Set([...(uiLanguage === 'zh' ? zhPool : enPool), ...mapped])).slice(0, 6)
+  }, [interestProfile?.subject_interests, uiLanguage])
+
+  const workflowSteps = useMemo(() => ([
+    {
+      id: 'chatting',
+      label: uiLanguage === 'zh' ? '1. 说目标' : '1. Goal',
+      active: workflowPhase === 'chatting',
+    },
+    {
+      id: 'topic-selection',
+      label: uiLanguage === 'zh' ? '2. 选主题' : '2. Topic',
+      active: workflowPhase === 'topic-selection',
+    },
+    {
+      id: 'generating',
+      label: uiLanguage === 'zh' ? '3. 生成并进入课程' : '3. Generate',
+      active: workflowPhase === 'generating' || workflowPhase === 'preview',
+    },
+  ]), [uiLanguage, workflowPhase])
+
   // Simulated progress effect
   useEffect(() => {
     if (!generating) return
@@ -585,6 +618,23 @@ export default function CreateLessonPage() {
         headers['Authorization'] = `Bearer ${token}`
       }
 
+      const finalizeGeneration = async (result: any) => {
+        if (result?.lesson_id) {
+          router.push(`/lessons/${result.lesson_id}`)
+          return
+        }
+
+        const recoveredLesson = await recoverRecentlyCreatedLesson(headers)
+        if (recoveredLesson?.id) {
+          router.push(`/lessons/${recoveredLesson.id}`)
+          return
+        }
+
+        setPreview(result)
+        setWorkflowPhase('preview')
+        setPipelineProgress(null)
+      }
+
       const response = await fetch('/api/backend/create-class', {
         method: 'POST',
         headers,
@@ -647,8 +697,7 @@ export default function CreateLessonPage() {
                 return
               }
               settled = true
-              setPreview(finalResult)
-              setPipelineProgress(null)
+              void finalizeGeneration(finalResult)
               alert(t('create.courseCreatedSuccess'))
               resolve(true)
             } catch (pollError) {
@@ -669,8 +718,7 @@ export default function CreateLessonPage() {
 
               if (completedResult) {
                 settled = true
-                setPreview(completedResult);
-                setPipelineProgress(null);
+                void finalizeGeneration(completedResult);
                 alert(t('create.courseCreatedSuccess'));
                 eventSource.close();
                 resolve(true);
@@ -700,8 +748,7 @@ export default function CreateLessonPage() {
           };
         });
       } else if (data.success) {
-        setPreview(data)
-        setPipelineProgress(null)
+        await finalizeGeneration(data)
         alert(t('create.courseCreatedSuccess'))
       } else {
         setPipelineProgress(null)
@@ -716,9 +763,8 @@ export default function CreateLessonPage() {
           recoveryHeaders['Authorization'] = `Bearer ${token}`
         }
         const recoveredLesson = await recoverRecentlyCreatedLesson(recoveryHeaders)
-        if (recoveredLesson) {
-          setPreview(recoveredLesson)
-          setPipelineProgress(null)
+        if (recoveredLesson?.id) {
+          router.push(`/lessons/${recoveredLesson.id}`)
           alert(t('create.courseCreatedSuccess'))
           return
         }
@@ -750,8 +796,8 @@ export default function CreateLessonPage() {
       id: (Date.now() + 1).toString(),
       role: 'assistant',
       content: uiLanguage === 'zh'
-        ? `我理解了你想学习"${userInput}"。让我为你分析一下这个主题，并推荐最相关的学习内容...`
-        : `I understand you want to learn about "${userInput}". Let me analyze this topic for you and recommend the most relevant learning content...`,
+        ? `收到，我来把“${userInput}”拆成更适合学习的主题。`
+        : `Got it. I’ll turn "${userInput}" into focused lesson options.`,
       timestamp: new Date()
     }
 
@@ -800,8 +846,8 @@ export default function CreateLessonPage() {
           id: (Date.now() + 2).toString(),
           role: 'assistant',
           content: uiLanguage === 'zh'
-            ? `分析完成！我为你找到了 ${analyzedTopics.length} 个相关学习主题。请选择你感兴趣的主题：`
-            : `Analysis complete! I found ${analyzedTopics.length} relevant learning topics for you. Please select the topics you're interested in:`,
+            ? `我整理了 ${analyzedTopics.length} 个可学主题。选一个最想先攻克的。`
+            : `I found ${analyzedTopics.length} learnable directions. Pick the one you want first.`,
           timestamp: new Date()
         }
 
@@ -848,15 +894,6 @@ export default function CreateLessonPage() {
     handleGenerate(selectedTopicNames)
   }
 
-  const handleSave = () => {
-    if (!preview) {
-      alert(t('create.generateCourseFirst'))
-      return
-    }
-    alert(t('create.courseSaved'))
-    router.push('/lessons')
-  }
-
   return (
     <div className="max-w-6xl mx-auto px-4 py-4 space-y-8">
       <div className="flex justify-between items-center">
@@ -865,7 +902,7 @@ export default function CreateLessonPage() {
             {t('nav.create')}
           </h1>
           <p className="text-gray-600 mt-1">
-            {uiLanguage === 'zh' ? 'AI驱动的个性化教学课程生成' : 'AI-powered personalized teaching course generation'}
+            {uiLanguage === 'zh' ? '更少输入，更清晰的课程生成流程。' : 'Less friction, clearer lesson generation.'}
           </p>
         </div>
         <div className="flex items-center space-x-4">
@@ -873,6 +910,21 @@ export default function CreateLessonPage() {
             {t('common.remainingLessons', { count: 958 })}
           </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {workflowSteps.map((step) => (
+          <div
+            key={step.id}
+            className={`rounded-xl border px-4 py-3 text-sm font-medium ${
+              step.active
+                ? 'border-blue-300 bg-blue-50 text-blue-900'
+                : 'border-gray-200 bg-white text-gray-500'
+            }`}
+          >
+            {step.label}
+          </div>
+        ))}
       </div>
 
       <div className="w-full">
@@ -896,6 +948,24 @@ export default function CreateLessonPage() {
                   {t('create.chatTitle')}
                 </h2>
                 <div className="space-y-4">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {uiLanguage === 'zh' ? '快速开始' : 'Quick Start'}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {suggestedTopics.map((topic) => (
+                        <button
+                          key={topic}
+                          type="button"
+                          onClick={() => setUserInput(topic)}
+                          className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:border-blue-300 hover:text-blue-700"
+                        >
+                          {topic}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="h-[550px] overflow-y-auto space-y-4 p-4 bg-gray-50/50 rounded-lg">
                     {chatMessages.map((message) => (
                       <div
@@ -996,13 +1066,20 @@ export default function CreateLessonPage() {
 
             {workflowPhase === 'topic-selection' && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                  {t('create.topicSelectionTitle')}
-                </h2>
-                <div className="space-y-6">
-                  <p className="text-gray-600">
-                    {uiLanguage === 'zh' ? '请选择一个最感兴趣的学习主题：' : 'Please select the topic you are most interested in:'}
-                  </p>
+	                <h2 className="text-lg font-semibold text-gray-900 mb-4">
+	                  {t('create.topicSelectionTitle')}
+	                </h2>
+	                <div className="space-y-6">
+	                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+	                    <div className="font-semibold text-slate-900">
+	                      {uiLanguage === 'zh' ? '选择一个主主题，我们会自动生成完整课程。' : 'Pick one main topic and we will generate the full lesson automatically.'}
+	                    </div>
+	                    <div className="mt-2 space-y-1 text-slate-600">
+	                      <div>• {uiLanguage === 'zh' ? '默认长视频课程，目标不少于 10 分钟' : 'Long-form lesson by default, targeting at least 10 minutes'}</div>
+	                      <div>• {uiLanguage === 'zh' ? '自动保存，无需再点保存课程' : 'Auto-saved, no separate save-course step'}</div>
+	                      <div>• {uiLanguage === 'zh' ? '完成后直接进入正式课程页' : 'Opens directly in the lesson room when ready'}</div>
+	                    </div>
+	                  </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
                     {identifiedTopics.map((topic) => (
@@ -1017,12 +1094,19 @@ export default function CreateLessonPage() {
                         <div className="font-bold text-gray-900 text-xl mb-3 line-clamp-2 min-h-[3.5rem]">
                           {uiLanguage === 'zh' ? (topic.name_zh || topic.name) : (topic.name_en || topic.name)}
                         </div>
-                        <div className="text-base text-gray-600 flex-grow leading-relaxed line-clamp-6">
-                          {uiLanguage === 'zh' ? (topic.description_zh || topic.description) : (topic.description_en || topic.description)}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
+	                        <div className="text-base text-gray-600 flex-grow leading-relaxed line-clamp-6">
+	                          {uiLanguage === 'zh' ? (topic.description_zh || topic.description) : (topic.description_en || topic.description)}
+	                        </div>
+	                        {((uiLanguage === 'zh' ? topic.follow_up_questions_zh : topic.follow_up_questions_en) || []).slice(0, 2).length > 0 && (
+	                          <div className="mt-4 space-y-1 text-xs text-slate-500">
+	                            {((uiLanguage === 'zh' ? topic.follow_up_questions_zh : topic.follow_up_questions_en) || []).slice(0, 2).map((question) => (
+	                              <div key={question}>• {question}</div>
+	                            ))}
+	                          </div>
+	                        )}
+	                      </button>
+	                    ))}
+	                  </div>
 
                   {selectedTopics.length > 0 && (
                     <div className="mt-8 bg-gray-50 rounded-xl p-6 border border-gray-200 animate-fade-in">
@@ -1043,17 +1127,18 @@ export default function CreateLessonPage() {
                             ))}
                           </select>
                         </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            {uiLanguage === 'zh' ? '补充具体要求 (可选)' : 'Additional Requirements (Optional)'}
-                          </label>
-                          <textarea
-                            value={form.studentQuery}
-                            onChange={(e) => setForm({ ...form, studentQuery: e.target.value })}
-                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-[50px] min-h-[50px]"
-                            rows={1}
-                          />
-                        </div>
+	                        <div>
+	                          <label className="block text-sm font-medium text-gray-700 mb-2">
+	                            {uiLanguage === 'zh' ? '补充说明 (可选)' : 'Extra Notes (Optional)'}
+	                          </label>
+	                          <textarea
+	                            value={form.studentQuery}
+	                            onChange={(e) => setForm({ ...form, studentQuery: e.target.value })}
+	                            placeholder={uiLanguage === 'zh' ? '例如：多用图像，少用大段文字' : 'For example: use more visuals and less wall-of-text explanation'}
+	                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-[72px] min-h-[72px]"
+	                            rows={1}
+	                          />
+	                        </div>
                       </div>
 
                       <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
@@ -1062,16 +1147,16 @@ export default function CreateLessonPage() {
                             <h3 className="text-sm font-semibold text-slate-900">
                               {uiLanguage === 'zh' ? '协作式课程蓝图' : 'Collaborative Lesson Blueprint'}
                             </h3>
-                            <p className="text-sm text-slate-600 mt-1">
-                              {uiLanguage === 'zh'
-                                ? '在正式渲染前，决定这节课是偏向推理、讨论、模拟还是带一点“刻意摩擦”。'
-                                : 'Choose whether this lesson should lean toward reasoning, debate, simulation, or a bit of productive friction before we render it.'}
-                            </p>
-                          </div>
-                          <div className="text-xs font-medium text-slate-500">
-                            {uiLanguage === 'zh' ? '最少界面，最多控制' : 'Minimal UI, maximum control'}
-                          </div>
-                        </div>
+	                            <p className="text-sm text-slate-600 mt-1">
+	                              {uiLanguage === 'zh'
+	                                ? '只选你真正想要的学习体验。细节交给系统。'
+	                                : 'Pick only the learning behavior you want. The system handles the rest.'}
+	                            </p>
+	                          </div>
+	                          <div className="text-xs font-medium text-slate-500">
+	                            {uiLanguage === 'zh' ? '自动保存' : 'Auto-saved'}
+	                          </div>
+	                        </div>
 
                         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4">
                           {([
@@ -1145,14 +1230,14 @@ export default function CreateLessonPage() {
                         </div>
                       </div>
 
-                      <div className="mt-4 flex justify-end">
-                        <button
-                          onClick={handleConfirmTopics}
-                          className="px-8 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-bold hover:shadow-lg hover:scale-105 transition-all transform"
-                        >
-                          {uiLanguage === 'zh' ? '开始生成课程 ✨' : 'Start Generating Lesson ✨'}
-                        </button>
-                      </div>
+	                      <div className="mt-4 flex justify-end">
+	                        <button
+	                          onClick={handleConfirmTopics}
+	                          className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-all"
+	                        >
+	                          {uiLanguage === 'zh' ? '开始生成课程' : 'Generate Lesson'}
+	                        </button>
+	                      </div>
                     </div>
                   )}
 
@@ -1190,18 +1275,18 @@ export default function CreateLessonPage() {
                   </div>
                 ) : preview ? (
                   <div className="space-y-8">
-                    <div className="bg-green-50 rounded-xl p-6 border border-green-200 flex items-center justify-between">
-                      <div>
-                        <h2 className="text-2xl font-bold text-green-800 mb-1">
-                          {uiLanguage === 'zh' ? '课程生成完成！' : 'Lesson Generation Complete!'}
-                        </h2>
-                        <p className="text-green-700">
-                          {uiLanguage === 'zh' ? '您的个性化AI视频课程已准备就绪。' : 'Your personalized AI video lesson is ready.'}
-                        </p>
+                    <div className="rounded-xl border border-green-200 bg-green-50 p-6">
+                      <div className="text-sm font-semibold uppercase tracking-wide text-green-700">
+                        {uiLanguage === 'zh' ? '课程已生成' : 'Lesson Ready'}
                       </div>
-                      <div className="bg-white p-3 rounded-full shadow-sm">
-                        <span className="text-4xl">🎉</span>
-                      </div>
+                      <h2 className="mt-2 text-2xl font-bold text-green-900">
+                        {preview.class_title || preview.topic || (uiLanguage === 'zh' ? '新课程' : 'New Lesson')}
+                      </h2>
+                      <p className="mt-2 text-sm text-green-800">
+                        {preview.class_description || preview.lesson_plan?.overview || (uiLanguage === 'zh'
+                          ? '课程已自动保存，系统通常会直接带你进入正式课程页。'
+                          : 'The lesson is already saved and the app will usually take you directly into the lesson room.')}
+                      </p>
                     </div>
 
                     {preview.video_url ? (
@@ -1216,10 +1301,81 @@ export default function CreateLessonPage() {
                       </div>
                     )}
 
-                    <div className="flex justify-end pt-6 border-t">
-                      <button onClick={handleSave} className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-lg">
-                        {t('create.saveCourseButton')}
-                      </button>
+                    <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+                      <div className="space-y-6">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                          <div className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                            {uiLanguage === 'zh' ? '课程概览' : 'Lesson Overview'}
+                          </div>
+                          <p className="mt-3 text-sm leading-7 text-slate-700">
+                            {preview.lesson_plan?.overview || preview.class_description || '—'}
+                          </p>
+                        </div>
+
+                        {Array.isArray(preview.learning_objectives) && preview.learning_objectives.length > 0 && (
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-900">
+                              {uiLanguage === 'zh' ? '学习目标' : 'Learning Objectives'}
+                            </h3>
+                            <div className="mt-4 space-y-2">
+                              {preview.learning_objectives.slice(0, 6).map((item: string, index: number) => (
+                                <div key={`${item}-${index}`} className="rounded-lg bg-white border border-slate-200 p-4 text-sm text-slate-700">
+                                  • {item}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {Array.isArray(preview.lesson_plan?.chapters) && preview.lesson_plan.chapters.length > 0 && (
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-900">
+                              {uiLanguage === 'zh' ? '课程流程' : 'Lesson Flow'}
+                            </h3>
+                            <div className="mt-4 space-y-3">
+                              {preview.lesson_plan.chapters.slice(0, 8).map((chapter: any, index: number) => (
+                                <div key={chapter.id || `${chapter.title}-${index}`} className="rounded-xl border border-slate-200 bg-white p-5">
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div>
+                                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                        {uiLanguage === 'zh' ? `部分 ${index + 1}` : `Part ${index + 1}`}
+                                      </div>
+                                      <div className="mt-1 text-base font-semibold text-slate-900">
+                                        {chapter.title || chapter.learning_goal || chapter.id}
+                                      </div>
+                                    </div>
+                                    {chapter.duration_minutes && (
+                                      <div className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-800">
+                                        {chapter.duration_minutes} {uiLanguage === 'zh' ? '分钟' : 'min'}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <p className="mt-3 text-sm leading-7 text-slate-700">
+                                    {chapter.summary || chapter.content || chapter.learning_goal || '—'}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-6">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                          <div className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                            {uiLanguage === 'zh' ? '完整讲稿' : 'Full Transcript'}
+                          </div>
+                          <div className="mt-3 max-h-[520px] overflow-y-auto rounded-lg border border-slate-200 bg-white p-4 font-mono text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">
+                            {preview.ai_insights?.full_transcript || preview.full_transcript || preview.ai_insights?.script?.script_text || '—'}
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                          {uiLanguage === 'zh'
+                            ? '课程已自动保存。通常会直接跳转到正式课程页；如果没有跳转，也可以去 Lessons 查看。'
+                            : 'The lesson is already saved. Usually you will be redirected to the lesson room; if not, you can still open it from Lessons.'}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 ) : null}

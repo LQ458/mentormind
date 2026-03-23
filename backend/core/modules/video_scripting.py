@@ -4,12 +4,11 @@ Generates "Director JSON" for programmatically rendering videos.
 Uses DeepSeek to generate Manim-compatible animation scripts for all content types.
 """
 
-import json
 import logging
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, field
 from services.api_client import APIClient
-from prompts.loader import render_prompt, load_prompt
+from core.modules.robust_video_generation import RobustVideoGenerationPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -30,14 +29,26 @@ class VideoScript:
     scenes: List[Scene]
     total_duration: float
     engine: str = "manim"
+    debug_artifacts: Dict[str, Any] = field(default_factory=dict)
 
 class VideoScriptGenerator:
     """Generates programmable Manim video scripts from lesson content"""
     
     def __init__(self):
         self.api_client = APIClient()
+        self.robust_pipeline = RobustVideoGenerationPipeline(self.api_client)
     
-    async def generate_script(self, topic: str, content: str, style: str = "general", language: str = "en") -> VideoScript:
+    async def generate_script(
+        self,
+        topic: str,
+        content: str,
+        style: str = "general",
+        language: str = "en",
+        student_level: str = "beginner",
+        target_audience: str = "students",
+        duration_minutes: int = 10,
+        custom_requirements: Optional[str] = None,
+    ) -> VideoScript:
         """
         Generate a Manim director script for the given content.
         style: 'math' for equation-heavy content, anything else for general explanations.
@@ -48,39 +59,44 @@ class VideoScriptGenerator:
         start_time = time.time()
         logger.info(f"🎬 [Script] Generating video script for: '{topic}' | Style: {style} | Lang: {language}")
         
-        system_prompt = self._get_system_prompt(style, language)
-        user_prompt = f"""
-        Topic: {topic}
-        Content: {content}
-        
-        Generate a standardized JSON director script.
-        """
-        
         try:
-            response = await self.api_client.deepseek.chat_completion(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.2,
-                max_tokens=4000
+            generation_bundle = await self.robust_pipeline.build_generation_bundle(
+                topic=topic,
+                content=content,
+                style=style,
+                language=language,
+                student_level=student_level,
+                target_audience=target_audience,
+                duration_minutes=duration_minutes,
+                custom_requirements=custom_requirements,
             )
-            
-            if not response.success:
-                raise Exception(f"Failed to generate script: {response.error}")
-            
-            script_json = self._parse_json_response(response.data["choices"][0]["message"]["content"])
-            
+
             duration = time.time() - start_time
             logger.info(f"✅ [Script] DeepSeek generation complete in {duration:.2f}s")
-            
-            return self._convert_to_video_script(script_json)
+
+            return self._convert_to_video_script(
+                generation_bundle.get("render_plan") or {},
+                debug_artifacts=generation_bundle,
+            )
             
         except Exception as e:
             duration = time.time() - start_time
             logger.error(f"❌ [Script] Generation failed after {duration:.2f}s: {e}")
-            logger.warning("⚠️ [Script] Falling back to mock script generation")
-            return self._generate_mock_script(topic, style)
+            logger.warning("⚠️ [Script] Falling back to deterministic syllabus-based script generation")
+            generation_bundle = await self.robust_pipeline.build_generation_bundle(
+                topic=topic,
+                content=content,
+                style=style,
+                language=language,
+                student_level=student_level,
+                target_audience=target_audience,
+                duration_minutes=duration_minutes,
+                custom_requirements=custom_requirements,
+            )
+            return self._convert_to_video_script(
+                generation_bundle.get("render_plan") or {},
+                debug_artifacts=generation_bundle,
+            )
 
     def _generate_mock_script(self, topic: str, style: str) -> VideoScript:
         """Generate a guaranteed valid mock script when API fails"""
@@ -144,29 +160,11 @@ class VideoScriptGenerator:
             engine="manim"
         )
 
-    def _get_system_prompt(self, style: str, language: str) -> str:
-        base = render_prompt("video/video_director_base", language=language)
-        style_ext = load_prompt("video/video_director_math" if style == "math" else "video/video_director_general")
-        return f"{base}\n\n{style_ext}"
-            
-    def _parse_json_response(self, content: str) -> Dict:
-        """Extract and parse JSON from potential markdown blocks"""
-        try:
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-                
-            return json.loads(content.strip())
-        except Exception as e:
-            logger.error(f"Failed to parse JSON: {content[:100]}...")
-            return {"title": "Error", "scenes": []}
-
-    def _convert_to_video_script(self, data: Dict) -> VideoScript:
+    def _convert_to_video_script(self, data: Dict, debug_artifacts: Optional[Dict[str, Any]] = None) -> VideoScript:
         scenes = []
         total_duration = 0.0
         
-        max_scenes = 8
+        max_scenes = 18
         for s in data.get("scenes", [])[:max_scenes]:
             scene = Scene(
                 id=s.get("id", f"s_{len(scenes)}"),
@@ -184,5 +182,6 @@ class VideoScriptGenerator:
             title=data.get("title", "Untitled Lesson"),
             scenes=scenes,
             total_duration=total_duration,
-            engine="manim"
+            engine="manim",
+            debug_artifacts=debug_artifacts or {},
         )
