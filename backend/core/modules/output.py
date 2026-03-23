@@ -626,11 +626,14 @@ class ProgrammaticVideoGenerator:
             total_audio_duration = sum(audio_durations)
             video_script.total_duration = total_audio_duration
 
-            min_duration_seconds = 360  # 6 minutes
+            # User requirement: Constantly > 6 minute lessons (360 seconds)
+            min_duration_seconds = 360
+            
             if total_audio_duration < min_duration_seconds:
                 raise ValueError(
                     f"Generated lesson is too short ({total_audio_duration:.1f}s < {min_duration_seconds}s target). "
-                    f"Try expanding the narration."
+                    f"Current narration is approximately {int(total_audio_duration * 2.1)} words. "
+                    f"Need at least {int(min_duration_seconds * 2.1)} words total."
                 )
 
             logger.info(f"Rendering with engine: Manim (style={style})")
@@ -666,9 +669,12 @@ class ProgrammaticVideoGenerator:
             for part in [
                 custom_requirements or "",
                 (
-                    f"Retry requirement: the lesson must run for at least {max(10, int(duration_minutes or 10))} full minutes. "
-                    "Expand the narration substantially, add more worked examples, recap transitions, and short retrieval checks. "
-                    "Keep on-screen wording concise and avoid dense overlapping text over graphs or equations."
+                    f"CRITICAL RETRY REQUIREMENT: The previous attempt was too short. "
+                    f"The final lesson MUST run for at least 10 full minutes. "
+                    "Each scene narration MUST be at least 150 words long. "
+                    "Use a slow, pedagogical pace. Add more detailed explanations, "
+                    "repeat key concepts for emphasis, and add 'Let's pause and think about this' transitions. "
+                    "Expand every mathematical step with verbal reasoning."
                 ),
             ]
             if part

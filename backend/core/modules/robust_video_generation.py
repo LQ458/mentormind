@@ -61,7 +61,8 @@ class RobustVideoGenerationPipeline:
         custom_requirements: Optional[str] = None,
     ) -> Dict[str, Any]:
         duration_minutes = max(10, int(duration_minutes or 10))
-        target_scene_count = max(12, min(18, duration_minutes + 2))
+        # Increase scene count to ensure > 6 mins. 18-24 scenes @ ~25s each.
+        target_scene_count = max(18, min(24, duration_minutes + 8))
         language_instruction = get_language_instruction(language)
         syllabus_fallback = self._fallback_syllabus(topic, style, student_level)
         syllabus = await self._run_stage(
@@ -240,7 +241,8 @@ class RobustVideoGenerationPipeline:
         scenes = render_plan.get("scenes") or []
         warnings: List[str] = []
         validated_scenes: List[Dict[str, Any]] = []
-        minimum_scene_count = max(12, min(18, duration_minutes + 2))
+        # Target higher scene count for stability
+        minimum_scene_count = max(18, min(24, duration_minutes + 8))
 
         if not scenes:
             warnings.append("Render plan returned no scenes; using deterministic fallback scenes.")
@@ -438,13 +440,31 @@ class RobustVideoGenerationPipeline:
         elif "```" in payload:
             payload = payload.split("```", 1)[1].split("```", 1)[0]
         payload = payload.strip()
+        
         try:
             return json.loads(payload)
         except json.JSONDecodeError:
-            match = re.search(r"\{.*\}", payload, re.DOTALL)
-            if match:
-                return json.loads(match.group(0))
-            raise
+            # Attempt to fix common LLM JSON errors
+            fixed_payload = self._attempt_json_repair(payload)
+            try:
+                return json.loads(fixed_payload)
+            except json.JSONDecodeError:
+                # Fallback to regex search
+                match = re.search(r"\{.*\}", fixed_payload, re.DOTALL)
+                if match:
+                    try:
+                        return json.loads(match.group(0))
+                    except json.JSONDecodeError:
+                        pass
+                raise
+
+    def _attempt_json_repair(self, payload: str) -> str:
+        """Fix common LLM JSON errors like trailing commas or unescaped characters."""
+        # Remove trailing commas before closing braces/brackets
+        repaired = re.sub(r",\s*([\]}])", r"\1", payload)
+        # Fix missing commas between key-value pairs (heuristic)
+        repaired = re.sub(r'("[\w\d_]+")\s*:\s*([^,\]}]+)\s*("[\w\d_]+")\s*:', r'\1: \2, \3:', repaired)
+        return repaired
 
     def _prompt_version(self, prompt_name: str) -> str:
         content = load_prompt(prompt_name)
