@@ -46,6 +46,7 @@ class VideoScriptGenerator:
         language: str = "en",
         student_level: str = "beginner",
         target_audience: str = "students",
+        duration_minutes: int = 10,
         custom_requirements: Optional[str] = None,
     ) -> VideoScript:
         """
@@ -66,6 +67,7 @@ class VideoScriptGenerator:
                 language=language,
                 student_level=student_level,
                 target_audience=target_audience,
+                duration_minutes=duration_minutes,
                 custom_requirements=custom_requirements,
             )
 
@@ -88,6 +90,7 @@ class VideoScriptGenerator:
                 language=language,
                 student_level=student_level,
                 target_audience=target_audience,
+                duration_minutes=duration_minutes,
                 custom_requirements=custom_requirements,
             )
             return self._convert_to_video_script(
@@ -161,7 +164,7 @@ class VideoScriptGenerator:
         scenes = []
         total_duration = 0.0
         
-        max_scenes = 8
+        max_scenes = 18
         for s in data.get("scenes", [])[:max_scenes]:
             scene = Scene(
                 id=s.get("id", f"s_{len(scenes)}"),

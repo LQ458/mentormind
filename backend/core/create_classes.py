@@ -220,10 +220,12 @@ class ClassCreator:
                 )
                 class_title = ai_data.get("title") or ai_data.get("class_title") or default_title
                 class_description = ai_data.get("description") or ai_data.get("class_description") or default_description
+                normalized_lesson_plan = self._build_clear_lesson_plan(ai_data, class_title, class_description)
                 
                 # Generate Multimedia (Audio/Video) if requested
                 audio_url = None
                 video_url = None
+                multimedia_result = None
                 
                 if request.include_video:
                     try:
@@ -241,13 +243,21 @@ class ClassCreator:
                         
                         # Use simpler pipeline call directly to avoid complex mapping error
                         # Create a simple explanation script based on description
+                        generation_source = self._build_generation_source_content(
+                            class_title=class_title,
+                            class_description=class_description,
+                            ai_data=ai_data,
+                            lesson_plan=normalized_lesson_plan,
+                        )
+
                         multimedia_result = await self.output_pipeline.generate_quick_explanation(
                             concept=class_title,
-                            context=class_description,
+                            context=generation_source,
                             voice_id=request.voice_id,
                             language=language.value,
                             student_level=request.student_level,
                             target_audience=request.target_audience,
+                            duration_minutes=max(10, request.duration_minutes),
                             custom_requirements=request.custom_requirements,
                         )
                         
@@ -282,12 +292,7 @@ class ClassCreator:
                         ],
                         prerequisites=["基本知识背景"],
                         teaching_methodology="AI个性化教学",
-                        lesson_plan={
-                            "introduction": "课程介绍",
-                            "content": "核心内容讲解",
-                            "practice": "练习与实践",
-                            "summary": "总结与回顾"
-                        },
+                        lesson_plan=normalized_lesson_plan,
                         exercises=["基础练习", "进阶挑战"],
                         assessment="综合评估",
                         resources=["课程材料", "参考书籍"],
@@ -302,7 +307,10 @@ class ClassCreator:
                             "raw_ai_response": ai_data["raw_response"][:500] + "...",
                             "video_url": video_url,
                             "audio_url": audio_url,
-                            "generation_debug": multimedia_result.get("debug") if request.include_video and 'multimedia_result' in locals() else None,
+                            "generation_debug": multimedia_result.get("debug") if multimedia_result else None,
+                            "lesson_blueprint": multimedia_result.get("lesson_blueprint") if multimedia_result else None,
+                            "script": multimedia_result.get("script") if multimedia_result else None,
+                            "full_transcript": multimedia_result.get("full_transcript") if multimedia_result else None,
                         },
                         language_used=language,
                         audio_url=audio_url,
@@ -317,7 +325,7 @@ class ClassCreator:
                         learning_objectives=ai_data.get("objectives") or ai_data.get("learning_objectives") or [],
                         prerequisites=ai_data.get("prerequisites") or [],
                         teaching_methodology=ai_data.get("methodology") or ai_data.get("teaching_methodology") or "个性化教学",
-                        lesson_plan=ai_data.get("lesson_plan") or {},
+                        lesson_plan=normalized_lesson_plan,
                         exercises=ai_data.get("exercises") or [],
                         assessment=ai_data.get("assessment") or "",
                         resources=ai_data.get("resources") or [],
@@ -332,7 +340,10 @@ class ClassCreator:
                             "ai_provider": "DeepSeek",
                             "video_url": video_url,
                             "audio_url": audio_url,
-                            "generation_debug": multimedia_result.get("debug") if request.include_video and 'multimedia_result' in locals() else None,
+                            "generation_debug": multimedia_result.get("debug") if multimedia_result else None,
+                            "lesson_blueprint": multimedia_result.get("lesson_blueprint") if multimedia_result else None,
+                            "script": multimedia_result.get("script") if multimedia_result else None,
+                            "full_transcript": multimedia_result.get("full_transcript") if multimedia_result else None,
                         },
                         language_used=language,
                         audio_url=audio_url,
@@ -345,6 +356,115 @@ class ClassCreator:
         except Exception as e:
             print(f"Error creating class with AI: {e}")
             return self._create_ai_fallback_class(request, language)
+
+    def _build_generation_source_content(
+        self,
+        *,
+        class_title: str,
+        class_description: str,
+        ai_data: Dict[str, Any],
+        lesson_plan: Dict[str, Any],
+    ) -> str:
+        sections = [
+            f"Lesson title: {class_title}",
+            f"Lesson description: {class_description}",
+        ]
+
+        objectives = ai_data.get("objectives") or ai_data.get("learning_objectives") or lesson_plan.get("learning_objectives") or []
+        if objectives:
+            sections.append("Learning objectives:\n- " + "\n- ".join(str(item) for item in objectives[:6]))
+
+        prerequisites = ai_data.get("prerequisites") or lesson_plan.get("prerequisites") or []
+        if prerequisites:
+            sections.append("Prerequisites:\n- " + "\n- ".join(str(item) for item in prerequisites[:4]))
+
+        chapters = lesson_plan.get("chapters") or []
+        if chapters:
+            chapter_lines = []
+            for chapter in chapters[:10]:
+                if isinstance(chapter, dict):
+                    title = chapter.get("title") or chapter.get("step") or "Chapter"
+                    summary = chapter.get("summary") or chapter.get("content") or chapter.get("learning_goal") or ""
+                    chapter_lines.append(f"- {title}: {summary}")
+                else:
+                    chapter_lines.append(f"- {chapter}")
+            sections.append("Teaching flow:\n" + "\n".join(chapter_lines))
+
+        practice = lesson_plan.get("practice") or []
+        if practice:
+            sections.append("Practice:\n- " + "\n- ".join(str(item) for item in practice[:5]))
+
+        assessment = lesson_plan.get("assessment")
+        if assessment:
+            sections.append(f"Assessment: {assessment}")
+
+        methodology = ai_data.get("methodology") or ai_data.get("teaching_methodology")
+        if methodology:
+            sections.append(f"Teaching methodology: {methodology}")
+
+        return "\n\n".join(section for section in sections if section)
+
+    def _build_clear_lesson_plan(
+        self,
+        ai_data: Dict[str, Any],
+        class_title: str,
+        class_description: str,
+    ) -> Dict[str, Any]:
+        raw_plan = ai_data.get("lesson_plan") or {}
+        objectives = ai_data.get("objectives") or ai_data.get("learning_objectives") or []
+        prerequisites = ai_data.get("prerequisites") or []
+        exercises = ai_data.get("exercises") or []
+        assessment = ai_data.get("assessment") or ""
+
+        chapters: List[Dict[str, Any]] = []
+        if isinstance(raw_plan, list):
+            for index, item in enumerate(raw_plan, start=1):
+                if isinstance(item, dict):
+                    chapters.append({
+                        "id": f"chapter_{index}",
+                        "title": item.get("title") or item.get("step") or f"Part {index}",
+                        "summary": item.get("content") or item.get("description") or "",
+                        "duration_minutes": item.get("duration_minutes"),
+                    })
+                else:
+                    chapters.append({
+                        "id": f"chapter_{index}",
+                        "title": f"Part {index}",
+                        "summary": str(item),
+                        "duration_minutes": None,
+                    })
+        elif isinstance(raw_plan, dict):
+            for index, (key, value) in enumerate(raw_plan.items(), start=1):
+                if isinstance(value, dict):
+                    summary = value.get("content") or value.get("description") or json.dumps(value, ensure_ascii=False)
+                elif isinstance(value, list):
+                    summary = "; ".join(str(item) for item in value[:5])
+                else:
+                    summary = str(value)
+                chapters.append({
+                    "id": f"chapter_{index}",
+                    "title": key.replace("_", " ").strip().title(),
+                    "summary": summary,
+                    "duration_minutes": None,
+                })
+
+        if not chapters:
+            chapters = [
+                {"id": "chapter_1", "title": "Introduction", "summary": class_description, "duration_minutes": None},
+                {"id": "chapter_2", "title": "Core Concepts", "summary": "Explain the core idea and why it works.", "duration_minutes": None},
+                {"id": "chapter_3", "title": "Worked Example", "summary": "Walk through one concrete example step by step.", "duration_minutes": None},
+                {"id": "chapter_4", "title": "Practice and Recap", "summary": "Check understanding and recap the key takeaway.", "duration_minutes": None},
+            ]
+
+        return {
+            "title": class_title,
+            "overview": class_description,
+            "learning_objectives": [str(item) for item in objectives[:6]],
+            "prerequisites": [str(item) for item in prerequisites[:4]],
+            "chapters": chapters[:12],
+            "practice": [str(item) for item in exercises[:6]],
+            "assessment": assessment,
+        }
     
     async def _format_english_query(self, query: str, current_lang: str) -> str:
         """Convert query to English if it's in Chinese using AI translation"""

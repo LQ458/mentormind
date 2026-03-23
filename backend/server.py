@@ -1658,12 +1658,13 @@ async def create_class(
         
         # Determine language code for Celery
         lang_code = request.language.value if hasattr(request.language, 'value') else request.language
+        duration_minutes = max(10, int(request.duration_minutes or 10))
         
         request_data = {
             "topic": clean_topic,
             "language": lang_code,
             "student_level": request.student_level,
-            "duration_minutes": request.duration_minutes,
+            "duration_minutes": duration_minutes,
             "include_video": request.include_video,
             "include_exercises": request.include_exercises,
             "include_assessment": request.include_assessment,

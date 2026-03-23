@@ -57,8 +57,11 @@ class RobustVideoGenerationPipeline:
         language: str = "en",
         student_level: str = "beginner",
         target_audience: str = "students",
+        duration_minutes: int = 10,
         custom_requirements: Optional[str] = None,
     ) -> Dict[str, Any]:
+        duration_minutes = max(10, int(duration_minutes or 10))
+        target_scene_count = max(12, min(18, duration_minutes + 2))
         language_instruction = get_language_instruction(language)
         syllabus_fallback = self._fallback_syllabus(topic, style, student_level)
         syllabus = await self._run_stage(
@@ -71,6 +74,8 @@ class RobustVideoGenerationPipeline:
                 "language_instruction": language_instruction,
                 "student_level": student_level,
                 "target_audience": target_audience,
+                "duration_minutes": duration_minutes,
+                "target_scene_count": target_scene_count,
                 "custom_requirements": custom_requirements or "None provided.",
             },
             syllabus_fallback,
@@ -87,6 +92,8 @@ class RobustVideoGenerationPipeline:
                 "style": style,
                 "student_level": student_level,
                 "target_audience": target_audience,
+                "duration_minutes": duration_minutes,
+                "target_scene_count": target_scene_count,
                 "custom_requirements": custom_requirements or "None provided.",
                 "language_instruction": language_instruction,
                 "syllabus_json": json.dumps(syllabus, ensure_ascii=False, indent=2),
@@ -104,6 +111,7 @@ class RobustVideoGenerationPipeline:
                 "topic": topic,
                 "style": style,
                 "student_level": student_level,
+                "duration_minutes": duration_minutes,
                 "language_instruction": language_instruction,
                 "storyboard_json": json.dumps(storyboard, ensure_ascii=False, indent=2),
             },
@@ -112,7 +120,7 @@ class RobustVideoGenerationPipeline:
             max_tokens=3200,
         )
 
-        validation = self._validate_render_plan(render_plan, language)
+        validation = self._validate_render_plan(render_plan, language, duration_minutes)
         repaired_render_plan = validation["render_plan"]
 
         review = await self._review_render_plan(topic, style, repaired_render_plan)
@@ -140,6 +148,8 @@ class RobustVideoGenerationPipeline:
             "language": language,
             "student_level": student_level,
             "target_audience": target_audience,
+            "duration_minutes": duration_minutes,
+            "target_scene_count": target_scene_count,
             "syllabus": syllabus,
             "storyboard": storyboard,
             "render_plan": repaired_render_plan,
@@ -226,10 +236,11 @@ class RobustVideoGenerationPipeline:
             applied.append(scene_id)
         return render_plan, applied
 
-    def _validate_render_plan(self, render_plan: Dict[str, Any], language: str) -> Dict[str, Any]:
+    def _validate_render_plan(self, render_plan: Dict[str, Any], language: str, duration_minutes: int) -> Dict[str, Any]:
         scenes = render_plan.get("scenes") or []
         warnings: List[str] = []
         validated_scenes: List[Dict[str, Any]] = []
+        minimum_scene_count = max(12, min(18, duration_minutes + 2))
 
         if not scenes:
             warnings.append("Render plan returned no scenes; using deterministic fallback scenes.")
@@ -245,21 +256,32 @@ class RobustVideoGenerationPipeline:
             self._normalize_scene(scene, scene_id, language)
             validated_scenes.append(scene)
 
-        if len(validated_scenes) < 4:
+        if len(validated_scenes) < minimum_scene_count:
             warnings.append("Render plan had too few valid scenes; appending recap-safe fallbacks.")
             fallback = self._fallback_render_plan(render_plan.get("title") or "Lesson", {}, language)["scenes"]
             for scene in fallback:
-                if len(validated_scenes) >= 4:
+                if len(validated_scenes) >= minimum_scene_count:
                     break
-                validated_scenes.append(scene)
+                copied_scene = dict(scene)
+                copied_scene["id"] = f"scene_{len(validated_scenes) + 1}"
+                validated_scenes.append(copied_scene)
+
+        total_duration = sum(float(scene.get("duration") or 0.0) for scene in validated_scenes)
+        minimum_total_duration = duration_minutes * 60
+        if total_duration < minimum_total_duration and validated_scenes:
+            scale_factor = minimum_total_duration / max(total_duration, 1.0)
+            warnings.append("Scaled scene durations upward to honor the requested lesson length.")
+            for scene in validated_scenes:
+                scene["duration"] = max(18.0, min(60.0, round(float(scene["duration"]) * scale_factor, 1)))
 
         fixed_plan = {
             "title": render_plan.get("title") or "Untitled Lesson",
-            "scenes": validated_scenes[:8],
+            "scenes": validated_scenes[: max(minimum_scene_count, 18)],
         }
         return {
             "warnings": warnings,
-            "scene_count": len(validated_scenes[:8]),
+            "scene_count": len(fixed_plan["scenes"]),
+            "estimated_total_seconds": sum(float(scene.get("duration") or 0.0) for scene in fixed_plan["scenes"]),
             "render_plan": fixed_plan,
         }
 
@@ -276,7 +298,14 @@ class RobustVideoGenerationPipeline:
         canvas["layout"] = self._normalize_layout(canvas.get("layout"), scene["action"])
         canvas["position"] = canvas.get("position") or self._default_position(canvas["layout"])
         canvas["font_size"] = self._safe_int(canvas.get("font_size"), self._default_font_size(canvas["layout"]))
-        canvas["max_chars"] = self._safe_int(canvas.get("max_chars"), 80)
+        requested_max_chars = self._safe_int(canvas.get("max_chars"), 80)
+        if canvas["layout"] == "graph_focus":
+            requested_max_chars = min(requested_max_chars, 36)
+        elif canvas["layout"] == "equation_focus":
+            requested_max_chars = min(requested_max_chars, 48)
+        else:
+            requested_max_chars = min(requested_max_chars, 72)
+        canvas["max_chars"] = requested_max_chars
         canvas["safe_scale"] = self._safe_float(canvas.get("safe_scale"), 0.82)
         graph = canvas.get("graph") if isinstance(canvas.get("graph"), dict) else {}
         canvas["graph"] = {
@@ -334,16 +363,16 @@ class RobustVideoGenerationPipeline:
             numeric = 0.0
         if numeric <= 0:
             numeric = self._estimate_duration_from_narration(narration)
-        return max(4.0, min(16.0, round(numeric, 1)))
+        return max(18.0, min(60.0, round(numeric, 1)))
 
     def _estimate_duration_from_narration(self, narration: str) -> float:
         words = len(narration.split())
         chars = len(narration)
         if words > 0:
-            estimate = words / 2.4
+            estimate = words / 2.1
         else:
-            estimate = chars / 8.0
-        return max(5.5, min(14.0, estimate))
+            estimate = chars / 5.5
+        return max(24.0, min(55.0, estimate))
 
     def _sanitize_plot_expression(self, expression: str) -> str:
         expr = expression.strip() or "x"
@@ -487,9 +516,13 @@ class RobustVideoGenerationPipeline:
             ("scene_3", "chapter_2", "explain", "show_text", "Key idea and structure", "two_column"),
             ("scene_4", "chapter_3", "worked_example", "write_tex", "y=x^2", "equation_focus"),
             ("scene_5", "chapter_3", "worked_example", "plot", "x**2", "graph_focus"),
-            ("scene_6", "chapter_4", "misconception", "show_text", "Common mistake to avoid", "callout_card"),
-            ("scene_7", "chapter_4", "retrieval", "show_text", "Pause and predict the next step.", "recap_card"),
-            ("scene_8", "chapter_4", "recap", "show_text", "Main takeaway and next practice step", "recap_card"),
+            ("scene_6", "chapter_3", "worked_example", "show_text", "What changes if one condition shifts?", "callout_card"),
+            ("scene_7", "chapter_4", "misconception", "show_text", "Common mistake to avoid", "callout_card"),
+            ("scene_8", "chapter_4", "misconception", "show_text", "Why the mistake feels tempting", "callout_card"),
+            ("scene_9", "chapter_4", "retrieval", "show_text", "Pause and predict the next step.", "recap_card"),
+            ("scene_10", "chapter_4", "retrieval", "show_text", "Try one quick self-check example.", "recap_card"),
+            ("scene_11", "chapter_4", "recap", "show_text", "Main takeaway in one sentence", "recap_card"),
+            ("scene_12", "chapter_4", "recap", "show_text", "Next practice move", "recap_card"),
         ]
         scenes: List[Dict[str, Any]] = []
         for scene_id, chapter_id, move, action, param, layout in scene_templates:

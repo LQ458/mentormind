@@ -10,6 +10,8 @@ Topic: {{topic}}
 Style: {{style}}
 Student level: {{student_level}}
 Target audience: {{target_audience}}
+Target duration minutes: {{duration_minutes}}
+Target scene count: {{target_scene_count}}
 Additional learner context: {{custom_requirements}}
 
 Syllabus JSON:
@@ -43,11 +45,17 @@ The JSON schema must be:
 }
 
 Rules:
-- Produce 5 to 8 scenes.
+- Produce exactly {{target_scene_count}} scenes unless doing so would create obvious redundancy.
 - Each scene should have one teaching goal only.
 - Keep `on_screen_text` under 80 characters.
-- Keep narration compact and teachable. Avoid long paragraphs.
+- Keep narration teachable, but substantial enough for a long-form lesson.
+- Each scene narration should roughly support 30 to 55 seconds of spoken explanation.
 - If using `write_tex`, keep `param` pure LaTeX only.
 - If using `plot`, keep `param` a safe Python expression in x.
 - Use `graph_focus` only when a graph is essential.
 - Use at least one retrieval or recap scene near the end.
+- Avoid overlapping words and visuals:
+  - never place a paragraph over a graph
+  - never combine multiple dense labels in one frame
+  - if a scene needs more explanation, put the words in narration, not on screen
+- Prefer bullets, short labels, and callouts over sentence blocks.

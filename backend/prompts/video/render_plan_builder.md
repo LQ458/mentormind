@@ -9,6 +9,7 @@ Transform the storyboard into a strict Manim render plan with safe actions and c
 Topic: {{topic}}
 Style: {{style}}
 Student level: {{student_level}}
+Target duration minutes: {{duration_minutes}}
 
 Storyboard JSON:
 {{storyboard_json}}
@@ -41,9 +42,13 @@ The JSON schema must be:
 
 Rules:
 - All scenes must use visual_type "manim".
-- Keep scene durations between 4 and 16 seconds.
+- Keep scene durations between 18 and 60 seconds.
 - Keep `show_text` and `show_title` params short enough to fit on mobile.
 - Use `show_title` only for intro or chapter transitions.
 - Use `write_tex` only for compact formulas.
 - If a storyboard item is too dense, simplify it rather than cramming.
 - Never include unsupported renderer actions.
+- Be overlap-aware:
+  - use at most one text block in graph-focused scenes
+  - prefer narration for detail, not on-screen paragraphs
+  - keep central graph area clear of long labels
