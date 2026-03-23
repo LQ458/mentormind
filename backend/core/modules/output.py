@@ -626,9 +626,11 @@ class ProgrammaticVideoGenerator:
             total_audio_duration = sum(audio_durations)
             video_script.total_duration = total_audio_duration
 
-            if total_audio_duration < required_duration_seconds:
+            min_duration_seconds = 360  # 6 minutes
+            if total_audio_duration < min_duration_seconds:
                 raise ValueError(
-                    f"Generated lesson is too short ({total_audio_duration:.1f}s < {required_duration_seconds}s target)"
+                    f"Generated lesson is too short ({total_audio_duration:.1f}s < {min_duration_seconds}s target). "
+                    f"Try expanding the narration."
                 )
 
             logger.info(f"Rendering with engine: Manim (style={style})")
