@@ -1101,13 +1101,19 @@ def upsert_my_interest_profile(
 
 
 @app.get("/users/me/lessons")
-def get_my_lessons(current_user: User = Depends(get_current_user)):
+def get_my_lessons(
+    current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
+):
     """Return lessons created by the current authenticated user."""
     return lesson_storage.get_lessons_by_user(str(current_user.id))
 
 
 @app.get("/users/me/review-queue")
-def get_my_review_queue(current_user: User = Depends(get_current_user)):
+def get_my_review_queue(
+    current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
+):
     """Return psychology-driven review prompts ordered by forgetting risk."""
     return {
         "success": True,
@@ -1116,7 +1122,10 @@ def get_my_review_queue(current_user: User = Depends(get_current_user)):
 
 
 @app.post("/users/me/notifications/sync")
-def sync_my_notifications(current_user: User = Depends(get_current_user)):
+def sync_my_notifications(
+    current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
+):
     """Materialize proactive in-app notifications from forgetting-curve risk."""
     items = lesson_storage.sync_proactive_notifications(str(current_user.id))
     return {"success": True, "created": items, "count": len(items)}
@@ -1127,6 +1136,7 @@ def get_my_notifications(
     unread_only: bool = False,
     limit: int = 20,
     current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Return current user's in-app proactive notifications."""
     return {
@@ -1144,6 +1154,7 @@ def get_my_notifications(
 def mark_my_notification_read(
     notification_id: int,
     current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Mark a proactive notification as read."""
     notification = lesson_storage.mark_notification_status(str(current_user.id), notification_id, "read")
@@ -1156,6 +1167,7 @@ def mark_my_notification_read(
 def dismiss_my_notification(
     notification_id: int,
     current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Dismiss a proactive notification."""
     notification = lesson_storage.mark_notification_status(str(current_user.id), notification_id, "dismissed")
@@ -1165,7 +1177,11 @@ def dismiss_my_notification(
 
 
 @app.get("/users/me/lessons/{lesson_id}/state")
-def get_my_lesson_state(lesson_id: str, current_user: User = Depends(get_current_user)):
+def get_my_lesson_state(
+    lesson_id: str,
+    current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
+):
     """Return progress and next-review state for the current user and lesson."""
     return {
         "success": True,
@@ -1178,6 +1194,7 @@ def update_my_lesson_progress(
     lesson_id: str,
     req: UpdateLessonProgressRequest,
     current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Update progress and schedule spaced review when a lesson is completed."""
     return {
@@ -1197,6 +1214,7 @@ def record_my_lesson_performance(
     lesson_id: str,
     req: RecordPerformanceRequest,
     current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Record quiz/seminar/oral-defense performance and refresh spaced review schedule."""
     return {
@@ -1219,7 +1237,8 @@ async def run_my_lesson_seminar(
     lesson_id: str,
     req: SeminarTurnRequest,
     current_user: User = Depends(get_current_user),
-    db = Depends(get_db),
+    db: Session = Depends(get_db),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Generate one live multi-agent seminar turn for the learner."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
@@ -1260,7 +1279,8 @@ async def run_my_lesson_simulation(
     lesson_id: str,
     req: SimulationTurnRequest,
     current_user: User = Depends(get_current_user),
-    db = Depends(get_db),
+    db: Session = Depends(get_db),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Generate one live applied-simulation turn for the learner."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
@@ -1301,7 +1321,8 @@ async def run_my_lesson_oral_defense(
     lesson_id: str,
     req: OralDefenseTurnRequest,
     current_user: User = Depends(get_current_user),
-    db = Depends(get_db),
+    db: Session = Depends(get_db),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Generate one live oral-defense turn for the learner."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
@@ -1342,7 +1363,8 @@ async def run_my_lesson_memory_challenge(
     lesson_id: str,
     req: MemoryChallengeRequest,
     current_user: User = Depends(get_current_user),
-    db = Depends(get_db),
+    db: Session = Depends(get_db),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Generate a short retrieval-practice challenge for the learner."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
@@ -1369,7 +1391,8 @@ async def run_my_lesson_deliberate_error(
     lesson_id: str,
     req: DeliberateErrorRequest,
     current_user: User = Depends(get_current_user),
-    db = Depends(get_db),
+    db: Session = Depends(get_db),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Generate one deliberate-error audit for the learner."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
@@ -1408,6 +1431,7 @@ def get_lessons(
     difficulty: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """List published lessons."""
     lessons, total = lesson_storage.get_all_lessons(
@@ -1424,7 +1448,8 @@ def get_lessons(
 def get_lesson_detail(
     lesson_id: str,
     current_user: Optional[User] = Depends(get_optional_user),
-    db = Depends(get_db),
+    db: Session = Depends(get_db),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Return a single lesson with a derived process-first layer."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
@@ -1448,6 +1473,7 @@ def get_lesson_detail(
 def delete_lesson(
     lesson_id: str,
     current_user: Optional[User] = Depends(get_optional_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
     """Delete a lesson if it exists and belongs to the current user when authenticated."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=False)
@@ -1461,7 +1487,10 @@ def delete_lesson(
 
 
 @app.delete("/lessons")
-def delete_all_my_lessons(current_user: User = Depends(get_current_user)):
+def delete_all_my_lessons(
+    current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
+):
     """Delete all lessons owned by the current user."""
     lessons = lesson_storage.get_lessons_by_user(str(current_user.id), limit=1000)
     deleted = 0
@@ -1929,7 +1958,10 @@ async def serve_media(file_path: str):
     return FileResponse(abs_path)
 
 @app.get("/results")
-async def get_results_get(current_user: User = Depends(get_current_user)):
+async def get_results_get(
+    current_user: User = Depends(get_current_user),
+    lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
+):
     """Get saved lessons for current user"""
     try:
         lessons = lesson_storage.get_lessons_by_user(str(current_user.id))

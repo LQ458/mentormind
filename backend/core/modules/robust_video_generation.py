@@ -81,7 +81,7 @@ class RobustVideoGenerationPipeline:
             },
             syllabus_fallback,
             temperature=0.2,
-            max_tokens=2600,
+            max_tokens=3200,
         )
 
         storyboard_fallback = self._fallback_storyboard(topic, content, syllabus, language)
@@ -101,7 +101,7 @@ class RobustVideoGenerationPipeline:
             },
             storyboard_fallback,
             temperature=0.2,
-            max_tokens=3200,
+            max_tokens=4200,
         )
 
         render_fallback = self._fallback_render_plan(topic, storyboard, language)
@@ -118,7 +118,7 @@ class RobustVideoGenerationPipeline:
             },
             render_fallback,
             temperature=0.1,
-            max_tokens=3200,
+            max_tokens=4200,
         )
 
         validation = self._validate_render_plan(render_plan, language, duration_minutes)
@@ -460,10 +460,19 @@ class RobustVideoGenerationPipeline:
 
     def _attempt_json_repair(self, payload: str) -> str:
         """Fix common LLM JSON errors like trailing commas or unescaped characters."""
-        # Remove trailing commas before closing braces/brackets
+        # 1. Remove trailing commas before closing braces/brackets
         repaired = re.sub(r",\s*([\]}])", r"\1", payload)
-        # Fix missing commas between key-value pairs (heuristic)
+        # 2. Fix missing commas between key-value pairs
         repaired = re.sub(r'("[\w\d_]+")\s*:\s*([^,\]}]+)\s*("[\w\d_]+")\s*:', r'\1: \2, \3:', repaired)
+        # 3. Fix missing commas between objects in an array
+        repaired = re.sub(r'\}\s*\{', '}, {', repaired)
+        # 4. Handle truncated JSON by closing open braces/brackets
+        open_braces = repaired.count("{") - repaired.count("}")
+        open_brackets = repaired.count("[") - repaired.count("]")
+        if open_brackets > 0:
+            repaired += "]" * open_brackets
+        if open_braces > 0:
+            repaired += "}" * open_braces
         return repaired
 
     def _prompt_version(self, prompt_name: str) -> str:
