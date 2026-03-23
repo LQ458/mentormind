@@ -14,9 +14,13 @@ prompts/
 │   └── language_instruction.md      ← Per-language enforcement instructions (zh, en, ja, ko)
 │
 ├── video/
-│   ├── video_director_base.md       ← Base system prompt for the Video Director AI (Manim)
-│   ├── video_director_math.md       ← Math/physics style extension (3Blue1Brown style)
-│   └── video_director_general.md   ← General explainer style extension (Kurzgesagt-inspired)
+│   ├── lesson_syllabus.md           ← Stage 1: pedagogical syllabus / chapter blueprint
+│   ├── storyboard_builder.md        ← Stage 2: scene-by-scene teaching storyboard
+│   ├── render_plan_builder.md       ← Stage 3: renderer-safe Manim action plan
+│   ├── render_plan_review.md        ← Stage 4: review / patch recommendations
+│   ├── video_director_base.md       ← Legacy base director prompt
+│   ├── video_director_math.md       ← Legacy math style extension
+│   └── video_director_general.md   ← Legacy general explainer style extension
 │
 ├── rendering/
 │   └── manim_fix.md                 ← Prompt to self-correct broken Manim code via LLM
@@ -35,10 +39,10 @@ prompts/
 from prompts.loader import load_prompt, render_prompt
 
 # Load raw markdown content
-system_prompt = load_prompt("video/video_director_base")
+system_prompt = load_prompt("video/lesson_syllabus")
 
 # Render with template variables (replaces {{variable}} placeholders)
-user_prompt = render_prompt("learning/seminar", language="en", lesson_title="Calculus", ...)
+user_prompt = render_prompt("video/storyboard_builder", topic="Calculus", syllabus_json="{...}", ...)
 ```
 
 ## Adding a New Prompt
@@ -46,4 +50,4 @@ user_prompt = render_prompt("learning/seminar", language="en", lesson_title="Cal
 1. Create a `.md` file in the appropriate subfolder.
 2. Use `{{variable_name}}` for dynamic values.
 3. Load it with `render_prompt("folder/filename", variable_name=value)`.
-4. Keep system prompts and user prompts in the same file separated by a `---` divider if needed.
+4. Prefer one prompt per generation stage so failures are easy to debug.

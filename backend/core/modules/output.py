@@ -7,6 +7,8 @@ import asyncio
 import json
 import os
 import logging
+import shutil
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -570,14 +572,32 @@ class ProgrammaticVideoGenerator:
         self.tts_synthesizer = TTSSynthesizer()
         self.manim_service = ManimService()
         
-    async def generate_video(self, topic: str, content: str, style: str = "math", voice_id: str = "anna", language: str = "en") -> Dict:
+    async def generate_video(
+        self,
+        topic: str,
+        content: str,
+        style: str = "math",
+        voice_id: str = "anna",
+        language: str = "en",
+        student_level: str = "beginner",
+        target_audience: str = "students",
+        custom_requirements: Optional[str] = None,
+    ) -> Dict:
         """
         Generate a programmatic video from content
         """
         logger.info(f"Generating programmatic video for: {topic} ({style}) Voice: {voice_id} Lang: {language}")
         
         # 1. Generate Director JSON Script
-        video_script = await self.script_generator.generate_script(topic, content, style, language)
+        video_script = await self.script_generator.generate_script(
+            topic,
+            content,
+            style,
+            language,
+            student_level=student_level,
+            target_audience=target_audience,
+            custom_requirements=custom_requirements,
+        )
         
         # 2. Generate Audio & Sync Durations
         logger.info("Synthesizing audio concurrently for all scenes...")
@@ -589,6 +609,10 @@ class ProgrammaticVideoGenerator:
             audio_path, duration = await self.tts_synthesizer.synthesize(
                 scene.narration, f"{video_script.title}_{scene.id}", voice=voice_id
             )
+            if not audio_path or not os.path.exists(audio_path):
+                raise ValueError(f"TTS did not produce an audio file for {scene.id}")
+            if duration <= 0:
+                raise ValueError(f"TTS returned a non-positive duration for {scene.id}")
             
             # Update scene with exact audio duration and path
             scene.duration = duration # Ensure visual strictly matches audio length
@@ -607,14 +631,61 @@ class ProgrammaticVideoGenerator:
         # Manim handles both math and general visualizations and is installed in this container.
         logger.info(f"Rendering with engine: Manim (style={style})")
         video_path = await self.manim_service.render_script(video_script)
+        video_probe = await asyncio.to_thread(self._probe_rendered_video, video_path)
+        if video_probe.get("has_audio_stream") is False:
+            raise ValueError(f"Rendered video is missing an audio stream: {video_path}")
         provider = "Manim"
             
         return {
             "video_path": video_path,
             "script": video_script,
             "provider": provider,
-            "duration": total_audio_duration
+            "duration": total_audio_duration,
+            "debug": {
+                "generation_pipeline": video_script.debug_artifacts,
+                "video_probe": video_probe,
+                "scene_audio": [
+                    {
+                        "scene_id": scene.id,
+                        "duration": scene.duration,
+                        "audio_path": scene.audio_path,
+                    }
+                    for scene in video_script.scenes
+                ],
+            },
         }
+
+    def _probe_rendered_video(self, video_path: str) -> Dict[str, Optional[bool]]:
+        if not video_path or not os.path.exists(video_path):
+            return {"checked": True, "has_audio_stream": False}
+
+        ffprobe = shutil.which("ffprobe")
+        if not ffprobe:
+            return {"checked": False, "has_audio_stream": None}
+
+        try:
+            result = subprocess.run(
+                [
+                    ffprobe,
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "stream=codec_type",
+                    "-of",
+                    "json",
+                    video_path,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            data = json.loads(result.stdout or "{}")
+            streams = data.get("streams") or []
+            has_audio_stream = any(stream.get("codec_type") == "audio" for stream in streams)
+            return {"checked": True, "has_audio_stream": has_audio_stream}
+        except Exception as exc:
+            logger.warning("Unable to probe rendered video %s: %s", video_path, exc)
+            return {"checked": False, "has_audio_stream": None}
 
 
 def _to_relative_path(absolute_path: str | None) -> str | None:
@@ -780,7 +851,10 @@ class OutputPipeline:
         concept: str,
         context: Optional[str] = None,
         voice_id: str = "anna",
-        language: str = "en"
+        language: str = "en",
+        student_level: str = "beginner",
+        target_audience: str = "students",
+        custom_requirements: Optional[str] = None,
     ) -> Dict:
         """
         Generate quick explanation with audio and real video
@@ -815,7 +889,10 @@ class OutputPipeline:
             content=explanation,
             style=style,
             voice_id=voice_id,
-            language=language
+            language=language,
+            student_level=student_level,
+            target_audience=target_audience,
+            custom_requirements=custom_requirements or context,
         )
         video_local_path = video_result['video_path']
         audio_local_path = video_result['script'].scenes[0].audio_path if video_result['script'].scenes else ""
@@ -839,6 +916,7 @@ class OutputPipeline:
                 "duration_seconds": video_result['duration'],
                 "id": f"vid_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             },
+            "debug": video_result.get("debug") or {},
             "generated_at": datetime.now().isoformat()
         }
     

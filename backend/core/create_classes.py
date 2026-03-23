@@ -245,7 +245,10 @@ class ClassCreator:
                             concept=class_title,
                             context=class_description,
                             voice_id=request.voice_id,
-                            language=language.value
+                            language=language.value,
+                            student_level=request.student_level,
+                            target_audience=request.target_audience,
+                            custom_requirements=request.custom_requirements,
                         )
                         
                         if multimedia_result:
@@ -298,7 +301,8 @@ class ClassCreator:
                             "confidence": 0.9,
                             "raw_ai_response": ai_data["raw_response"][:500] + "...",
                             "video_url": video_url,
-                            "audio_url": audio_url
+                            "audio_url": audio_url,
+                            "generation_debug": multimedia_result.get("debug") if request.include_video and 'multimedia_result' in locals() else None,
                         },
                         language_used=language,
                         audio_url=audio_url,
@@ -327,7 +331,8 @@ class ClassCreator:
                             "confidence": 0.95,
                             "ai_provider": "DeepSeek",
                             "video_url": video_url,
-                            "audio_url": audio_url
+                            "audio_url": audio_url,
+                            "generation_debug": multimedia_result.get("debug") if request.include_video and 'multimedia_result' in locals() else None,
                         },
                         language_used=language,
                         audio_url=audio_url,

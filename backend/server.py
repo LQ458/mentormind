@@ -30,6 +30,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # Import core modules
 from core.create_classes import ClassCreator, ClassCreationRequest, Language, ClassCreationResult
 from core.modules.output import TTSSynthesizer
+from core.modules.robust_video_generation import RobustVideoGenerationPipeline
+from core.modules.video_scripting import VideoScriptGenerator
 from celery.result import AsyncResult
 from celery_app import create_class_video_task, transcript_to_lesson_task, transcribe_audio_task, celery_app
 from database import LessonStorageSQL, init_database
@@ -182,6 +184,16 @@ class MemoryChallengeRequest(BaseModel):
 
 class DeliberateErrorRequest(BaseModel):
     focus: Optional[str] = None
+
+
+class GenerationDebugRequest(BaseModel):
+    topic: str
+    content: str
+    style: str = "general"
+    language: str = "en"
+    student_level: str = "beginner"
+    target_audience: str = "students"
+    custom_requirements: Optional[str] = None
 
 
 def _get_or_create_user_profile(db, user_id: str) -> UserProfile:
@@ -1572,6 +1584,64 @@ async def analyze_topics(
             status_code=500,
             content={"success": False, "error": str(e)}
         )
+
+@app.post("/debug/generation/pipeline")
+async def debug_generation_pipeline(request: GenerationDebugRequest):
+    """Inspect syllabus, storyboard, render-plan, and validation artifacts without rendering."""
+    try:
+        pipeline = RobustVideoGenerationPipeline()
+        bundle = await pipeline.build_generation_bundle(
+            topic=request.topic,
+            content=request.content,
+            style=request.style,
+            language=request.language,
+            student_level=request.student_level,
+            target_audience=request.target_audience,
+            custom_requirements=request.custom_requirements,
+        )
+        return {"success": True, "bundle": bundle}
+    except Exception as e:
+        print(f"❌ Error building generation pipeline debug bundle: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/debug/generation/video-script")
+async def debug_generation_video_script(request: GenerationDebugRequest):
+    """Inspect the final validated renderer payload without kicking off a Celery job."""
+    try:
+        generator = VideoScriptGenerator()
+        script = await generator.generate_script(
+            topic=request.topic,
+            content=request.content,
+            style=request.style,
+            language=request.language,
+            student_level=request.student_level,
+            target_audience=request.target_audience,
+            custom_requirements=request.custom_requirements,
+        )
+        return {
+            "success": True,
+            "video_script": {
+                "title": script.title,
+                "total_duration": script.total_duration,
+                "engine": script.engine,
+                "scenes": [
+                    {
+                        "id": scene.id,
+                        "duration": scene.duration,
+                        "narration": scene.narration,
+                        "action": scene.action,
+                        "param": scene.param,
+                        "visual_type": scene.visual_type,
+                        "canvas_config": scene.canvas_config,
+                    }
+                    for scene in script.scenes
+                ],
+                "debug_artifacts": script.debug_artifacts,
+            },
+        }
+    except Exception as e:
+        print(f"❌ Error building generation video script debug payload: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/create-class")
 async def create_class(

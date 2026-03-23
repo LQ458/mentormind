@@ -27,6 +27,7 @@ sequenceDiagram
     participant Redis Queue
     participant Celery Worker (celery_app.py)
     participant ClassCreator (core/create_classes.py)
+    participant RobustVideoGenerationPipeline
     participant ManimService
     participant SiliconFlow TTS
     participant CloudStorageManager
@@ -42,9 +43,12 @@ sequenceDiagram
 
     Redis Queue->>Celery Worker (celery_app.py): Pick up task
     Celery Worker (celery_app.py)->>ClassCreator: create_class_chinese/english()
-    ClassCreator->>SiliconFlow TTS: Synthesize narration audio
-    ClassCreator->>ManimService: Render video (with Chinese font support)
+    ClassCreator->>RobustVideoGenerationPipeline: syllabus -> storyboard -> render_plan
+    RobustVideoGenerationPipeline-->>ClassCreator: validated render plan + debug artifacts
+    ClassCreator->>SiliconFlow TTS: Synthesize narration audio per scene
+    ClassCreator->>ManimService: Render validated plan (with layout-aware canvas_config)
     ManimService-->>ClassCreator: local video file path
+    ClassCreator->>ClassCreator: ffprobe audio-stream validation + artifact packaging
     ClassCreator->>CloudStorageManager: upload_file()
     CloudStorageManager-->>ClassCreator: public CDN URL
     Celery Worker (celery_app.py)->>PostgreSQL: lesson_storage.save_lesson()
@@ -74,6 +78,8 @@ sequenceDiagram
 | `GET` | `/job-status/{job_id}` | Polls Celery result backend. Returns `{ status, result }`. |
 | `GET` | `/job-stream/{job_id}` | **SSE stream** of job progress events. Returns `{ status: "completed", result }` on finish. Falls back gracefully to polling. |
 | `POST` | `/analyze-topics` | AI topic analysis from student query text. |
+| `POST` | `/debug/generation/pipeline` | Stage-level debug route. Returns syllabus, storyboard, render plan, review, and validation artifacts without rendering. |
+| `POST` | `/debug/generation/video-script` | Stage-level debug route. Returns the final validated `VideoScript` payload that would be sent to Manim. |
 | `GET` | `/lessons` | List all published lessons. |
 | `GET` | `/lessons/{id}` | Get a specific lesson with full data. |
 | `DELETE` | `/lessons/{id}` | Delete a lesson by ID. |
@@ -121,10 +127,23 @@ sequenceDiagram
 | `core/modules/agentic.py` | Agentic reasoning — plans lesson structure using LLM tool-calling. |
 | `core/modules/cognitive.py` | Cognitive processing — understands and categorizes student learning intent. |
 | `core/modules/ingestion.py` | `MultimodalIngestionPipeline` — processes audio (FunASR) and images (PaddleOCR). |
-| `core/modules/output.py` | `OutputPipeline` — orchestrates TTS, video rendering, and cloud upload. |
-| `core/modules/video_scripting.py` | `VideoScriptGenerator` — generates JSON Director Script via LLM. Enforces Chinese-safe rendering (no CJK in LaTeX). |
+| `core/modules/output.py` | `OutputPipeline` — orchestrates TTS, renderer execution, ffprobe validation, and cloud upload. |
+| `core/modules/robust_video_generation.py` | **New staged pipeline.** Builds `syllabus -> storyboard -> render_plan`, applies deterministic validation/repair, and records debug artifacts + prompt versions. |
+| `core/modules/video_scripting.py` | `VideoScriptGenerator` — converts the validated render plan into the final `VideoScript` object for Manim. |
 | `core/modules/storage_manager.py` | `CloudStorageManager` — uploads MP4/MP3 to S3-compatible endpoints via `boto3`. |
-| `core/rendering/manim_renderer.py` | `ManimService` — LLM generates Manim Python code → executes → self-corrects (max 3 retries). Detects CJK chars in `write_tex` and falls back to `Text` renderer. |
+| `core/rendering/manim_renderer.py` | `ManimService` — renders the validated `VideoScript` with layout-aware `canvas_config`, graph ranges, and self-correction retries (max 3). Detects CJK chars in `write_tex` and falls back to `Text` renderer. |
+
+### Robust Video Generation Stages
+
+| Stage | Input | Output | Failure Handling |
+| :--- | :--- | :--- | :--- |
+| `Syllabus` | topic + source content + learner context | chaptered teaching blueprint | deterministic syllabus fallback |
+| `Storyboard` | syllabus | scene-by-scene pedagogy + layout intent | deterministic storyboard fallback |
+| `Render Plan` | storyboard | renderer-safe actions + `canvas_config` | deterministic render-plan fallback |
+| `Validation` | render plan | repaired render plan + warnings | clamps duration, text length, actions, graph ranges |
+| `Review` | repaired render plan | optional patch recommendations | only safe scene-level patches are applied |
+
+This replaces the older “single freeform director prompt -> direct render” path. The new system is intentionally easier to debug because every stage can be inspected independently.
 
 ### Process-First Learning Helpers (in `server.py`)
 
@@ -256,6 +275,31 @@ Next.js 13 App Router. All backend API calls are proxied through `web/app/api/ba
 | `media/[...path]/` | Static media file proxy |
 
 ---
+
+## Prompt Architecture
+
+The prompt library is now split by responsibility:
+
+| Prompt File | Role |
+| :--- | :--- |
+| `backend/prompts/video/lesson_syllabus.md` | Generates the pedagogical syllabus / chapter plan |
+| `backend/prompts/video/storyboard_builder.md` | Converts syllabus into scene-level teaching moves + layout intent |
+| `backend/prompts/video/render_plan_builder.md` | Converts storyboard into renderer-safe actions and `canvas_config` |
+| `backend/prompts/video/render_plan_review.md` | Reviews render plan for density, coherence, and safety |
+| `backend/prompts/rendering/manim_fix.md` | Repairs broken Manim code when execution fails |
+
+Prompt hashes are recorded in the generation debug artifacts so a bad render can be traced back to the exact prompt version.
+
+---
+
+## Debugging Philosophy
+
+The generation stack is now designed to fail in visible, inspectable layers:
+
+- Prompt-stage failures should be debugged with `/debug/generation/pipeline`
+- Renderer-payload issues should be debugged with `/debug/generation/video-script`
+- Audio/video artifact issues should be debugged from `ai_insights.generation_debug`
+- Final media files are validated with `ffprobe` so “render succeeded but audio is missing” is easier to catch
 
 ## SSE Job Streaming
 
