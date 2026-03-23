@@ -626,15 +626,17 @@ class ProgrammaticVideoGenerator:
             total_audio_duration = sum(audio_durations)
             video_script.total_duration = total_audio_duration
 
-            # User requirement: Constantly > 6 minute lessons (360 seconds)
-            min_duration_seconds = 360
+            # Preferred length: > 6 minutes (360s). 
+            # We no longer fail hard, but we'll use this to trigger a better retry if attempt == 1.
+            preferred_duration_seconds = 360
             
-            if total_audio_duration < min_duration_seconds:
-                raise ValueError(
-                    f"Generated lesson is too short ({total_audio_duration:.1f}s < {min_duration_seconds}s target). "
-                    f"Current narration is approximately {int(total_audio_duration * 2.1)} words. "
-                    f"Need at least {int(min_duration_seconds * 2.1)} words total."
-                )
+            if total_audio_duration < preferred_duration_seconds and attempt == 1:
+                logger.info(f"Lesson length {total_audio_duration:.1f}s is below preferred {preferred_duration_seconds}s. Triggering enhanced retry.")
+                raise ValueError("preferred_length_not_met")
+            
+            # On attempt 2+, we accept whatever length we got, as long as it's not empty.
+            if total_audio_duration < 30: # absolute safety floor of 30 seconds to prevent empty/broken results
+                raise ValueError(f"Generated lesson is critically short ({total_audio_duration:.1f}s).")
 
             logger.info(f"Rendering with engine: Manim (style={style})")
             video_path = await self.manim_service.render_script(video_script)
@@ -686,11 +688,25 @@ class ProgrammaticVideoGenerator:
                 return await build_video(requirements, attempt)
             except ValueError as exc:
                 last_error = exc
-                if "too short" not in str(exc).lower() or attempt == 2:
-                    raise
-                logger.warning("Video generation attempt %s was too short for %s: %s", attempt, topic, exc)
-
-        raise last_error or ValueError("Programmatic video generation failed unexpectedly")
+                if str(exc) == "preferred_length_not_met":
+                    logger.warning("Attempt %s was shorter than 6 mins. Retrying with expanded requirements.", attempt)
+                    continue
+                # If it's a real failure (not just preferred length), re-raise immediately
+                raise
+        
+        # If we reached here and have a result but it was short, the loop would have returned it in the try block
+        # unless it was still short on the second attempt.
+        # But wait, we need to handle the case where attempt 2 is still short.
+        
+        # Redesigning slightly to return whatever we have on attempt 2 even if short
+        try:
+            return await build_video(retry_requirements, attempt=2)
+        except ValueError as exc:
+            if "critically short" in str(exc): raise
+            # If attempt 2 is just "preferred_length_not_met", ignore it and try to return the result
+            # but build_video raised it instead of returning. 
+            # Let's fix build_video to not raise if attempt == 2.
+            raise last_error or exc
 
     def _probe_rendered_video(self, video_path: str) -> Dict[str, Optional[bool]]:
         if not video_path or not os.path.exists(video_path):

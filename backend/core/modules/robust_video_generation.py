@@ -101,7 +101,7 @@ class RobustVideoGenerationPipeline:
             },
             storyboard_fallback,
             temperature=0.2,
-            max_tokens=6000,
+            max_tokens=8000,
         )
 
         render_fallback = self._fallback_render_plan(topic, storyboard, language)
@@ -118,7 +118,7 @@ class RobustVideoGenerationPipeline:
             },
             render_fallback,
             temperature=0.1,
-            max_tokens=6000,
+            max_tokens=8000,
         )
 
         validation = self._validate_render_plan(render_plan, language, duration_minutes)
@@ -278,7 +278,7 @@ class RobustVideoGenerationPipeline:
 
         fixed_plan = {
             "title": render_plan.get("title") or "Untitled Lesson",
-            "scenes": validated_scenes[: max(minimum_scene_count, 18)],
+            "scenes": validated_scenes,
         }
         return {
             "warnings": warnings,
@@ -289,7 +289,7 @@ class RobustVideoGenerationPipeline:
 
     def _normalize_scene(self, scene: Dict[str, Any], scene_id: str, language: str) -> None:
         scene["id"] = scene_id
-        narration = self._compact_text(scene.get("narration") or scene.get("param") or scene_id, 240)
+        narration = self._compact_text(scene.get("narration") or scene.get("param") or scene_id, 1200)
         scene["narration"] = narration
         scene["action"] = self._normalize_action(scene.get("action"))
         scene["visual_type"] = "manim"
