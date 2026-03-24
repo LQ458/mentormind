@@ -123,6 +123,7 @@ export default function CreateLessonPage() {
   const [isUploadingAudio, setIsUploadingAudio] = useState(false)
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const [sessionContext, setSessionContext] = useState<LearningContext[]>([])
+  const [preferredVoice, setPreferredVoice] = useState('anna')
   
   const audioInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -651,7 +652,7 @@ export default function CreateLessonPage() {
           include_video: form.includeVideo,
           include_exercises: true,
           include_assessment: true,
-          voice_id: form.voiceId,
+          voice_id: preferredVoice,
           custom_requirements: thinkingProcess || buildGenerationRequirements(rawTopic),
           syllabus: proposedSyllabus, // Pass the locked syllabus
         }),
@@ -827,6 +828,10 @@ export default function CreateLessonPage() {
           setProposedSyllabus(data.proposed_syllabus)
           setThinkingProcess(data.thinking_process)
           setNextActionLabel(data.next_action_label)
+          // Store voice preference if suggested
+          if (data.preferred_voice) {
+            setPreferredVoice(data.preferred_voice)
+          }
           setWorkflowPhase('roadmap')
         } else if (data.stage === 'diagnostic') {
           setDiagnosticQuestion(data.diagnostic_question)
@@ -842,28 +847,7 @@ export default function CreateLessonPage() {
     }
   }
 
-  const handleTopicSelect = (topicId: string) => {
-    if (selectedTopics.includes(topicId)) {
-      setSelectedTopics(prev => prev.filter(id => id !== topicId))
-    } else {
-      setSelectedTopics(prev => [...prev, topicId])
-    }
-  }
-
-  const handleConfirmTopics = () => {
-    if (selectedTopics.length === 0) {
-      alert(t('create.selectAtLeastOneTopic'))
-      return
-    }
-
-    const selectedTopicNames = identifiedTopics
-      .filter(topic => selectedTopics.includes(topic.id))
-      .map(topic => topic.name)
-      .join(', ')
-
-    setWorkflowPhase('generating')
-    handleGenerate(selectedTopicNames)
-  }
+  // Remove options-related functions as we no longer use them
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-4 space-y-8">

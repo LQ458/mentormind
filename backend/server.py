@@ -75,6 +75,7 @@ class MentorChatResponse(BaseModel):
     proposed_syllabus: Optional[Dict[str, Any]] = None
     diagnostic_question: Optional[str] = None
     next_action_label: Optional[str] = None
+    preferred_voice: Optional[str] = None
 
 # ... (existing schemas)
 
@@ -99,7 +100,8 @@ async def mentor_chat(req: MentorChatRequest):
             thinking_process=response.thinking_process,
             proposed_syllabus=response.proposed_syllabus,
             diagnostic_question=response.diagnostic_question,
-            next_action_label=response.next_action_label
+            next_action_label=response.next_action_label,
+            preferred_voice=response.preferred_voice
         )
     except Exception as e:
         logger.error(f"Mentor chat failed: {e}")

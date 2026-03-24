@@ -28,6 +28,7 @@ class MentorResponse:
     proposed_syllabus: Optional[Dict[str, Any]] = None
     diagnostic_question: Optional[str] = None
     next_action_label: Optional[str] = None
+    preferred_voice: Optional[str] = None
 
 class MentorAgent:
     """Manages the conversational stages before lesson generation."""
@@ -115,7 +116,12 @@ class MentorAgent:
         
         Your task:
         1. Reveal your "Thinking Process" in a very friendly, mentor-like way. Explain *why* you chose this specific path for them based on their pulse check.
-        2. Propose a SINGLE roadmap (syllabus) for a high-quality visual lesson.
+        2. Based on their communication style, suggest an appropriate teaching voice. You MUST choose one of the following exact string values (these are the official default voices for CosyVoice):
+           - "alex" (warm, friendly male)
+           - "anna" (encouraging, energetic female)
+           - "lucy" (calm, professional female)
+           - "michael" (authoritative, clear male)
+        3. Propose a SINGLE roadmap (syllabus) for a high-quality visual lesson.
         
         The roadmap should have 4-6 chapters. Each chapter needs:
         - title: Short and concrete (e.g., "The Weightlifting Analogy", "Visualizing the Derivative")
@@ -128,6 +134,7 @@ class MentorAgent:
         ```json
         {{
             "title": "A custom title for the lesson",
+            "voice_preference": "anna",
             "chapters": [
                 {{"title": "...", "visual": "...", "goal": "..."}},
                 ...
@@ -149,12 +156,14 @@ class MentorAgent:
         thinking_process = ""
         proposed_syllabus = None
         
+        preferred_voice = "anna"
         if "```json" in full_content:
             parts = full_content.split("```json")
             thinking_process = parts[0].strip()
             json_str = parts[1].split("```")[0].strip()
             try:
                 proposed_syllabus = json.loads(json_str)
+                preferred_voice = proposed_syllabus.get("voice_preference", "anna")
             except:
                 proposed_syllabus = None
         elif "```" in full_content:
@@ -163,6 +172,7 @@ class MentorAgent:
             json_str = parts[1].strip()
             try:
                 proposed_syllabus = json.loads(json_str)
+                preferred_voice = proposed_syllabus.get("voice_preference", "anna")
             except:
                 proposed_syllabus = None
         else:
@@ -177,7 +187,8 @@ class MentorAgent:
             ),
             thinking_process=thinking_process,
             proposed_syllabus=proposed_syllabus,
-            next_action_label="Looks good, let's go!" if language == "en" else "看起来不错，开始吧！"
+            next_action_label="Looks good, let's go!" if language == "en" else "看起来不错，开始吧！",
+            preferred_voice=preferred_voice
         )
 
     async def _handle_co_creation(self, history: List[Dict[str, str]], language: str, lang_instr: str) -> MentorResponse:
