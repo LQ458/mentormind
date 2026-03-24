@@ -5,3 +5,4 @@
 5. The user's initial interest survey should be more detailed with more options and/or questions
 6. Lesson Analytics and Pricing is not achieved
 7. Maybe the choose option fashion is not best fit for students' lesson generation
+8. maybe we need better initial survey or other inputs to make sure that the system understands the initial level of user. Otherwise the course created can be either too easy or too hard.
