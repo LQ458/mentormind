@@ -1,12 +1,55 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '@clerk/nextjs'
 import { translations } from '../lib/translations'
 import SessionContextCard from '../components/Chat/SessionContextCard'
 import InterestProfileQuiz, { UserInterestProfile } from '../components/InterestProfileQuiz'
+
+// ── Lightweight MD + LaTeX renderer ─────────────────────────────────────────
+function MentorMessage({ content }: { content: string }) {
+  // Split on LaTeX delimiters first, then render markdown inline
+  const renderInline = (text: string, key: string | number) => {
+    // Bold **text**
+    const bold = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    // Italic *text* or _text_
+    const italic = bold.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>')
+                       .replace(/_(.+?)_/g, '<em>$1</em>')
+    // Inline code `code`
+    const code = italic.replace(/`([^`]+)`/g, '<code class="bg-gray-200 rounded px-1 py-0.5 text-xs font-mono">$1</code>')
+    return <span key={key} dangerouslySetInnerHTML={{ __html: code }} />
+  }
+
+  const renderContent = (raw: string) => {
+    const parts: React.ReactNode[] = []
+    // Match $...$ LaTeX blocks
+    const re = /\$([^$]+)\$/g
+    let last = 0, m: RegExpExecArray | null, i = 0
+    while ((m = re.exec(raw)) !== null) {
+      if (m.index > last) parts.push(renderInline(raw.slice(last, m.index), i++))
+      parts.push(
+        <span key={i++} className="font-mono bg-blue-50 text-blue-800 rounded px-1 py-0.5 text-sm border border-blue-100">
+          {m[1]}
+        </span>
+      )
+      last = m.index + m[0].length
+    }
+    if (last < raw.length) parts.push(renderInline(raw.slice(last), i++))
+    return parts
+  }
+
+  return (
+    <div className="text-sm leading-relaxed space-y-1">
+      {content.split('\n').map((line, li) => (
+        <p key={li} className={line.trim() === '' ? 'h-2' : ''}>
+          {renderContent(line)}
+        </p>
+      ))}
+    </div>
+  )
+}
 
 interface ChatMessage {
   id: string
@@ -68,10 +111,17 @@ export default function CreateLessonPage() {
   const { getToken, isLoaded: authLoaded, isSignedIn } = useAuth()
   const [workflowPhase, setWorkflowPhase] = useState<'chatting' | 'roadmap' | 'generating' | 'preview'>('chatting')
   const [mentorStage, setMentorStage] = useState<'opening' | 'diagnostic' | 'roadmap' | 'co_creation' | 'locked'>('opening')
+  const [streamingContent, setStreamingContent] = useState<string | null>(null)
+  const chatEndRef = useRef<HTMLDivElement>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [interestProfile, setInterestProfile] = useState<UserInterestProfile | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileSaving, setProfileSaving] = useState(false)
+
+  // Auto-scroll chat to bottom on new messages or streaming updates
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chatMessages, streamingContent])
 
   // Initialize chat message based on language
   useEffect(() => {
@@ -815,7 +865,18 @@ export default function CreateLessonPage() {
 
       if (data.success) {
         setMentorStage(data.stage)
-        
+
+        // Stream the AI response word by word
+        const words = (data.content as string).split(' ')
+        setStreamingContent('')
+        let built = ''
+        for (let i = 0; i < words.length; i++) {
+          built += (i === 0 ? '' : ' ') + words[i]
+          setStreamingContent(built)
+          await new Promise(r => setTimeout(r, 28))
+        }
+        setStreamingContent(null)
+
         const aiResponse: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
@@ -936,7 +997,7 @@ export default function CreateLessonPage() {
                           <div className="text-sm font-medium mb-1">
                             {message.role === 'user' ? t('create.userName') : t('create.assistantName')}
                           </div>
-                          <div className="text-sm">{message.content}</div>
+                          <MentorMessage content={message.content} />
                           <div className="text-xs text-gray-500 mt-2">
                             {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </div>
@@ -946,16 +1007,21 @@ export default function CreateLessonPage() {
 
                     {isTyping && (
                       <div className="flex justify-start">
-                        <div className="bg-gray-100 text-gray-900 rounded-lg p-4">
+                        <div className="bg-gray-100 text-gray-900 rounded-lg p-4 max-w-[80%]">
                           <div className="text-sm font-medium mb-1">{t('create.assistantName')}</div>
-                          <div className="flex items-center space-x-1">
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                          </div>
+                          {streamingContent !== null ? (
+                            <MentorMessage content={streamingContent + ' ▍'} />
+                          ) : (
+                            <div className="flex items-center space-x-1">
+                              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
+                    <div ref={chatEndRef} />
                   </div>
 
                   <div className="flex gap-2 items-center">
