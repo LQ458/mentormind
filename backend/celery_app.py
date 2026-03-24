@@ -35,7 +35,8 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     task_track_started=True,
-    task_time_limit=600,  # 10 minutes max for Manim rendering tasks
+    task_time_limit=1800,  # 30 minutes hard limit for long-form rendering and retries
+    task_soft_time_limit=1500, # 25 minutes soft limit
     
     # --- RESOURCE ISOLATION QUEUES ---
     task_queues={

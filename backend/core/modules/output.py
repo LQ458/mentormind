@@ -589,8 +589,12 @@ class ProgrammaticVideoGenerator:
         """
         logger.info(f"Generating programmatic video for: {topic} ({style}) Voice: {voice_id} Lang: {language}")
         required_duration_seconds = max(10, int(duration_minutes or 10)) * 60
+        
+        # State to track the last generation bundle for retries
+        last_bundle = {}
 
         async def build_video(expanded_requirements: Optional[str], attempt: int) -> Dict:
+            nonlocal last_bundle
             video_script = await self.script_generator.generate_script(
                 topic,
                 content,
@@ -600,7 +604,11 @@ class ProgrammaticVideoGenerator:
                 target_audience=target_audience,
                 duration_minutes=duration_minutes,
                 custom_requirements=expanded_requirements,
+                existing_bundle=last_bundle,
             )
+            
+            # Save the bundle for the next attempt if this one fails length validation
+            last_bundle = video_script.debug_artifacts
 
             logger.info("Synthesizing audio concurrently for all scenes...")
 
@@ -688,25 +696,14 @@ class ProgrammaticVideoGenerator:
                 return await build_video(requirements, attempt)
             except ValueError as exc:
                 last_error = exc
-                if str(exc) == "preferred_length_not_met":
-                    logger.warning("Attempt %s was shorter than 6 mins. Retrying with expanded requirements.", attempt)
+                if str(exc) == "preferred_length_not_met" and attempt == 1:
+                    logger.warning("Attempt 1 was shorter than 6 mins. Retrying with expanded requirements.")
                     continue
-                # If it's a real failure (not just preferred length), re-raise immediately
+                # If it's a real failure or it's the second attempt and still "preferred_length_not_met",
+                # build_video will have handled it (attempt 2+ accepts any length > 30s).
                 raise
-        
-        # If we reached here and have a result but it was short, the loop would have returned it in the try block
-        # unless it was still short on the second attempt.
-        # But wait, we need to handle the case where attempt 2 is still short.
-        
-        # Redesigning slightly to return whatever we have on attempt 2 even if short
-        try:
-            return await build_video(retry_requirements, attempt=2)
-        except ValueError as exc:
-            if "critically short" in str(exc): raise
-            # If attempt 2 is just "preferred_length_not_met", ignore it and try to return the result
-            # but build_video raised it instead of returning. 
-            # Let's fix build_video to not raise if attempt == 2.
-            raise last_error or exc
+
+        raise last_error or ValueError("Programmatic video generation failed unexpectedly")
 
     def _probe_rendered_video(self, video_path: str) -> Dict[str, Optional[bool]]:
         if not video_path or not os.path.exists(video_path):

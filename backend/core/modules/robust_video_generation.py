@@ -59,30 +59,36 @@ class RobustVideoGenerationPipeline:
         target_audience: str = "students",
         duration_minutes: int = 10,
         custom_requirements: Optional[str] = None,
+        existing_bundle: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         duration_minutes = max(10, int(duration_minutes or 10))
         # Increase scene count significantly for long-form lessons
         target_scene_count = max(24, min(32, duration_minutes + 14))
         language_instruction = get_language_instruction(language)
-        syllabus_fallback = self._fallback_syllabus(topic, style, student_level)
-        syllabus = await self._run_stage(
-            "syllabus",
-            "video/lesson_syllabus",
-            {
-                "topic": topic,
-                "content": content,
-                "style": style,
-                "language_instruction": language_instruction,
-                "student_level": student_level,
-                "target_audience": target_audience,
-                "duration_minutes": duration_minutes,
-                "target_scene_count": target_scene_count,
-                "custom_requirements": custom_requirements or "None provided.",
-            },
-            syllabus_fallback,
-            temperature=0.2,
-            max_tokens=3200,
-        )
+        
+        # Reuse syllabus if available from previous attempt to save time and tokens
+        syllabus = existing_bundle.get("syllabus") if existing_bundle else None
+        
+        if not syllabus:
+            syllabus_fallback = self._fallback_syllabus(topic, style, student_level)
+            syllabus = await self._run_stage(
+                "syllabus",
+                "video/lesson_syllabus",
+                {
+                    "topic": topic,
+                    "content": content,
+                    "style": style,
+                    "language_instruction": language_instruction,
+                    "student_level": student_level,
+                    "target_audience": target_audience,
+                    "duration_minutes": duration_minutes,
+                    "target_scene_count": target_scene_count,
+                    "custom_requirements": custom_requirements or "None provided.",
+                },
+                syllabus_fallback,
+                temperature=0.2,
+                max_tokens=3200,
+            )
 
         storyboard_fallback = self._fallback_storyboard(topic, content, syllabus, language)
         storyboard = await self._run_stage(

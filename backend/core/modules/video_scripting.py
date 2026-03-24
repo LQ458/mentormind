@@ -48,6 +48,7 @@ class VideoScriptGenerator:
         target_audience: str = "students",
         duration_minutes: int = 10,
         custom_requirements: Optional[str] = None,
+        existing_bundle: Optional[Dict[str, Any]] = None,
     ) -> VideoScript:
         """
         Generate a Manim director script for the given content.
@@ -69,6 +70,7 @@ class VideoScriptGenerator:
                 target_audience=target_audience,
                 duration_minutes=duration_minutes,
                 custom_requirements=custom_requirements,
+                existing_bundle=existing_bundle,
             )
 
             duration = time.time() - start_time
@@ -92,6 +94,7 @@ class VideoScriptGenerator:
                 target_audience=target_audience,
                 duration_minutes=duration_minutes,
                 custom_requirements=custom_requirements,
+                existing_bundle=existing_bundle,
             )
             return self._convert_to_video_script(
                 generation_bundle.get("render_plan") or {},
