@@ -69,6 +69,12 @@ class RobustVideoGenerationPipeline:
         # Reuse syllabus if available from previous attempt to save time and tokens
         syllabus = existing_bundle.get("syllabus") if existing_bundle else None
         
+        # Normalize external syllabus to ensure chapters have IDs expected by the prompt
+        if syllabus and isinstance(syllabus.get("chapters"), list):
+            for i, ch in enumerate(syllabus["chapters"]):
+                if isinstance(ch, dict) and "id" not in ch:
+                    ch["id"] = f"chapter_{i+1}"
+        
         if not syllabus:
             syllabus_fallback = self._fallback_syllabus(topic, style, student_level)
             syllabus = await self._run_stage(

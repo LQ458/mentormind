@@ -45,6 +45,8 @@ The JSON schema must be:
 }
 
 Rules:
+- CRITICAL: You MUST use the exact chapters defined in the Syllabus JSON.
+- CRITICAL: Distribute the {{target_scene_count}} scenes across the provided syllabus chapters. Each scene must reference a valid "chapter_id" from the syllabus.
 - Produce EXACTLY {{target_scene_count}} scenes. Do not skip any. Do not summarize multiple chapters into one scene.
 - Each scene should have one teaching goal only.
 - Keep `on_screen_text` under 80 characters.

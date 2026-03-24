@@ -914,20 +914,48 @@ class OutputPipeline:
         """
         Generate quick explanation with audio and real video
         """
-        # If syllabus is provided, we skip short explanation generation and use it as context
         if syllabus:
-            explanation = f"Mentor-led visual roadmap for {concept}"
+            # Build a rich explanation from the locked syllabus chapters
+            chapters = syllabus.get("chapters", [])
+            chapter_lines = "\n".join(
+                f"Chapter {i+1}: {ch.get('title','')}\n  Visual: {ch.get('visual','')}\n  Goal: {ch.get('goal','')}"
+                for i, ch in enumerate(chapters)
+            )
+            explanation = (
+                f"Lesson: {syllabus.get('title', concept)}\n\n"
+                f"{'Chapters:' + chr(10) + chapter_lines if chapter_lines else ''}"
+            ).strip()
         else:
-            # Generate explanation
+            # Generate explanation from scratch
             explanation = await self.script_generator.generate_short_explanation(
                 concept,
                 context,
                 language=language
             )
-        
-        # ... (rest of the logic remains same, but passes syllabus to generate_video)
-        
-        style = "math" if any(k in concept.lower() for k in math_keywords) else "general"
+
+
+        # Ask DeepSeek to classify the subject — much smarter than a keyword list
+        try:
+            from services.api_client import APIClient
+            _classifier = APIClient()
+            _clf_resp = await _classifier.deepseek.chat_completion(
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"Classify this lesson topic into exactly one word — either 'math' or 'general'.\n"
+                        f"'math' means: mathematics, physics, chemistry, engineering, or any STEM subject with equations/formulas.\n"
+                        f"'general' means: history, language, biology, social studies, arts, or any non-formula subject.\n"
+                        f"Topic: \"{concept}\"\n"
+                        f"Reply with only one word: math or general."
+                    )
+                }],
+                temperature=0.0,
+                max_tokens=5,
+            )
+            _label = _clf_resp.data.get("choices", [{}])[0].get("message", {}).get("content", "").strip().lower()
+            style = "math" if "math" in _label else "general"
+        except Exception:
+            style = "general"  # Safe fallback
         
         video_result = await self.programmatic_generator.generate_video(
             topic=concept,

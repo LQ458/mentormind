@@ -675,14 +675,20 @@ export default function CreateLessonPage() {
       }
 
       const finalizeGeneration = async (result: any) => {
-        if (result?.lesson_id) {
-          router.push(`/lessons/${result.lesson_id}`)
+        // Explicitly failed result — show error, do NOT redirect anywhere
+        if (result?.success === false) {
+          setPipelineProgress(null)
+          setWorkflowPhase('chatting')
+          setGenerating(false)
+          alert(uiLanguage === 'zh'
+            ? `课程生成失败：${result.error_message || result.error || '未知错误，请重试。'}`
+            : `Lesson creation failed: ${result.error_message || result.error || 'Unknown error. Please try again.'}`
+          )
           return
         }
 
-        const recoveredLesson = await recoverRecentlyCreatedLesson(headers)
-        if (recoveredLesson?.id) {
-          router.push(`/lessons/${recoveredLesson.id}`)
+        if (result?.lesson_id) {
+          router.push(`/lessons/${result.lesson_id}`)
           return
         }
 
@@ -813,23 +819,13 @@ export default function CreateLessonPage() {
       }
     } catch (error) {
       console.error('Create failed:', error)
-      try {
-        const token = await getToken()
-        const recoveryHeaders: Record<string, string> = {}
-        if (token) {
-          recoveryHeaders['Authorization'] = `Bearer ${token}`
-        }
-        const recoveredLesson = await recoverRecentlyCreatedLesson(recoveryHeaders)
-        if (recoveredLesson?.id) {
-          router.push(`/lessons/${recoveredLesson.id}`)
-          alert(t('create.courseCreatedSuccess'))
-          return
-        }
-      } catch (recoveryError) {
-        console.error('Recovery after create failure failed:', recoveryError)
-      }
       setPipelineProgress(null)
-      alert(t('create.creationFailedRetry'))
+      setWorkflowPhase('chatting')
+      setGenerating(false)
+      alert(uiLanguage === 'zh'
+        ? `课程生成失败：${error instanceof Error ? error.message : '未知错误，请重试。'}`
+        : `Lesson creation failed: ${error instanceof Error ? error.message : 'Unknown error. Please try again.'}`
+      )
     } finally {
       setGenerating(false)
     }
