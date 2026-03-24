@@ -583,6 +583,7 @@ class ProgrammaticVideoGenerator:
         target_audience: str = "students",
         duration_minutes: int = 10,
         custom_requirements: Optional[str] = None,
+        existing_bundle: Optional[Dict[str, Any]] = None,
     ) -> Dict:
         """
         Generate a programmatic video from content
@@ -590,8 +591,8 @@ class ProgrammaticVideoGenerator:
         logger.info(f"Generating programmatic video for: {topic} ({style}) Voice: {voice_id} Lang: {language}")
         required_duration_seconds = max(10, int(duration_minutes or 10)) * 60
         
-        # State to track the last generation bundle for retries
-        last_bundle = {}
+        # State to track the last generation bundle for retries (seeded with syllabus if provided)
+        last_bundle = existing_bundle or {}
 
         async def build_video(expanded_requirements: Optional[str], attempt: int) -> Dict:
             nonlocal last_bundle
