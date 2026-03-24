@@ -153,7 +153,7 @@ Output format — text first, then the JSON block:
 
 ```json
 {{
-    "title": "Lesson title",
+    "title": "Short plain topic title (≤5 words, NO colons or subtitles, e.g. 'Introduction to Derivatives')",
     "voice_preference": "anna",
     "chapters": [
         {{"title": "...", "visual": "...", "goal": "..."}},

@@ -1134,8 +1134,11 @@ export default function CreateLessonPage() {
                 <div className="flex flex-col space-y-3 pt-4 border-t border-gray-100">
                   <button
                     onClick={() => {
-                      setUserInput(nextActionLabel || (uiLanguage === 'zh' ? '这就是我想要的，开始生成！' : "This is exactly what I want, let's go!"))
-                      handleSendMessage()
+                      const topic = proposedSyllabus?.title
+                        || chatMessages.find(m => m.role === 'user')?.content
+                        || ''
+                      setWorkflowPhase('generating')
+                      handleGenerate(topic)
                     }}
                     className="w-full bg-blue-600 text-white rounded-lg py-3 font-semibold hover:bg-blue-700 transition-colors shadow-md"
                   >
