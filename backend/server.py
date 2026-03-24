@@ -42,6 +42,7 @@ from auth import get_current_user, get_optional_user
 from config import config
 from core.asr import transcribe_with_local_model_result, get_asr_status, extract_text_with_paddleocr
 from core.summarize import summarize_extracted_content
+from core.modules.mentor import MentorAgent, MentorStage, MentorResponse
 from services.api_client import api_client, get_language_instruction
 from prompts.loader import render_prompt
 
@@ -56,6 +57,55 @@ try:
         print("⚠️  PostgreSQL database initialization failed")
 except Exception as e:
     print(f"⚠️  PostgreSQL database initialization error: {e}")
+
+# ... (rest of the code)
+
+# ── Mentor Schemas ─────────────────────────────────────────────────────────────
+
+class MentorChatRequest(BaseModel):
+    history: List[Dict[str, str]]
+    stage: str = "opening"
+    language: str = "en"
+
+class MentorChatResponse(BaseModel):
+    success: bool
+    stage: str
+    content: str
+    thinking_process: Optional[str] = None
+    proposed_syllabus: Optional[Dict[str, Any]] = None
+    diagnostic_question: Optional[str] = None
+    next_action_label: Optional[str] = None
+
+# ... (existing schemas)
+
+# ── Mentor Endpoints ─────────────────────────────────────────────────────────
+
+mentor_agent = MentorAgent()
+
+@app.post("/mentor/chat", response_model=MentorChatResponse)
+async def mentor_chat(req: MentorChatRequest):
+    """Main entry point for the conversational mentor."""
+    try:
+        current_stage = MentorStage(req.stage)
+        response = await mentor_agent.get_next_response(
+            history=req.history,
+            current_stage=current_stage,
+            language=req.language
+        )
+        return MentorChatResponse(
+            success=True,
+            stage=response.stage.value,
+            content=response.content,
+            thinking_process=response.thinking_process,
+            proposed_syllabus=response.proposed_syllabus,
+            diagnostic_question=response.diagnostic_question,
+            next_action_label=response.next_action_label
+        )
+    except Exception as e:
+        logger.error(f"Mentor chat failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ... (existing endpoints)
 
 # If PostgreSQL fails, use a dummy storage to prevent crashes but log errors
 if _global_lesson_storage is None:

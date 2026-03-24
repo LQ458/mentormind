@@ -108,7 +108,9 @@ def create_class_video_task(self, request_data: dict, job_id: str):
             custom_requirements=request_data.get("custom_requirements"),
             target_audience=request_data.get("target_audience", "students"),
             difficulty_level=request_data.get("difficulty_level", "intermediate"),
-            voice_id=request_data.get("voice_id", "anna")
+            voice_id=request_data.get("voice_id", "anna"),
+            user_id=request_data.get("user_id"),
+            syllabus=request_data.get("syllabus"), # Pass locked syllabus
         )
         
         # Execute the pipeline

@@ -909,32 +909,23 @@ class OutputPipeline:
         target_audience: str = "students",
         duration_minutes: int = 10,
         custom_requirements: Optional[str] = None,
+        syllabus: Optional[Dict[str, Any]] = None, # Accept locked syllabus
     ) -> Dict:
         """
         Generate quick explanation with audio and real video
         """
-        # Generate explanation
-        explanation = await self.script_generator.generate_short_explanation(
-            concept,
-            context,
-            language=language
-        )
+        # If syllabus is provided, we skip short explanation generation and use it as context
+        if syllabus:
+            explanation = f"Mentor-led visual roadmap for {concept}"
+        else:
+            # Generate explanation
+            explanation = await self.script_generator.generate_short_explanation(
+                concept,
+                context,
+                language=language
+            )
         
-        # Synthesize audio
-        # Synthesize audio (not strictly needed as Programmatic generator does it, but good for quick audio return)
-        # However, programmatic engine handles TTS internally for sync. 
-        # Let's delegate everything to programmatic generator for consistency.
-        
-        math_keywords = [
-            "math", "algebra", "geometry", "calculus", "equation", "function", "graph", 
-            "number", "arithmetic", "probability", "statistics", "theorem", "proof",
-            "quadratic", "linear", "polynomial", "derivative", "integral", "matrix",
-            "vector", "trigonometry", "circle", "triangle", "polygon", "parabola",
-            "physics", "kinematics", "velocity", "acceleration", "force", "gravity",
-            "energy", "momentum", "projectile", "motion", "mechanics", "newton",
-            "数学", "代数", "几何", "微积分", "方程", "函数", "图象", "数论", "概率", "统计",
-            "物理", "运动", "力", "速度", "加速度", "重力", "能量", "牛顿"
-        ]
+        # ... (rest of the logic remains same, but passes syllabus to generate_video)
         
         style = "math" if any(k in concept.lower() for k in math_keywords) else "general"
         
@@ -948,6 +939,7 @@ class OutputPipeline:
             target_audience=target_audience,
             duration_minutes=duration_minutes,
             custom_requirements=custom_requirements or context,
+            existing_bundle={"syllabus": syllabus} if syllabus else None, # Pass syllabus
         )
         video_local_path = video_result['video_path']
         audio_local_path = video_result['script'].scenes[0].audio_path if video_result['script'].scenes else ""
