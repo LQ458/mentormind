@@ -60,54 +60,6 @@ except Exception as e:
 
 # ... (rest of the code)
 
-# ── Mentor Schemas ─────────────────────────────────────────────────────────────
-
-class MentorChatRequest(BaseModel):
-    history: List[Dict[str, str]]
-    stage: str = "opening"
-    language: str = "en"
-
-class MentorChatResponse(BaseModel):
-    success: bool
-    stage: str
-    content: str
-    thinking_process: Optional[str] = None
-    proposed_syllabus: Optional[Dict[str, Any]] = None
-    diagnostic_question: Optional[str] = None
-    next_action_label: Optional[str] = None
-    preferred_voice: Optional[str] = None
-
-# ... (existing schemas)
-
-# ── Mentor Endpoints ─────────────────────────────────────────────────────────
-
-mentor_agent = MentorAgent()
-
-@app.post("/mentor/chat", response_model=MentorChatResponse)
-async def mentor_chat(req: MentorChatRequest):
-    """Main entry point for the conversational mentor."""
-    try:
-        current_stage = MentorStage(req.stage)
-        response = await mentor_agent.get_next_response(
-            history=req.history,
-            current_stage=current_stage,
-            language=req.language
-        )
-        return MentorChatResponse(
-            success=True,
-            stage=response.stage.value,
-            content=response.content,
-            thinking_process=response.thinking_process,
-            proposed_syllabus=response.proposed_syllabus,
-            diagnostic_question=response.diagnostic_question,
-            next_action_label=response.next_action_label,
-            preferred_voice=response.preferred_voice
-        )
-    except Exception as e:
-        logger.error(f"Mentor chat failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ... (existing endpoints)
 
 # If PostgreSQL fails, use a dummy storage to prevent crashes but log errors
 if _global_lesson_storage is None:
@@ -170,6 +122,49 @@ if os.path.exists(config.DATA_DIR):
     print(f"📂 Mounted static files from: {config.DATA_DIR}")
 else:
     print(f"⚠️ Data directory not found: {config.DATA_DIR}")
+
+# ── Mentor Schemas & Endpoints ────────────────────────────────────────────────
+
+class MentorChatRequest(BaseModel):
+    history: List[Dict[str, str]]
+    stage: str = "opening"
+    language: str = "en"
+
+class MentorChatResponse(BaseModel):
+    success: bool
+    stage: str
+    content: str
+    thinking_process: Optional[str] = None
+    proposed_syllabus: Optional[Dict[str, Any]] = None
+    diagnostic_question: Optional[str] = None
+    next_action_label: Optional[str] = None
+    preferred_voice: Optional[str] = None
+
+mentor_agent = MentorAgent()
+
+@app.post("/mentor/chat", response_model=MentorChatResponse)
+async def mentor_chat(req: MentorChatRequest):
+    """Main entry point for the conversational mentor."""
+    try:
+        current_stage = MentorStage(req.stage)
+        response = await mentor_agent.get_next_response(
+            history=req.history,
+            current_stage=current_stage,
+            language=req.language
+        )
+        return MentorChatResponse(
+            success=True,
+            stage=response.stage.value,
+            content=response.content,
+            thinking_process=response.thinking_process,
+            proposed_syllabus=response.proposed_syllabus,
+            diagnostic_question=response.diagnostic_question,
+            next_action_label=response.next_action_label,
+            preferred_voice=response.preferred_voice
+        )
+    except Exception as e:
+        logger.error(f"Mentor chat failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.on_event("startup")
 async def preload_models():
