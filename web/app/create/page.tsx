@@ -534,7 +534,7 @@ export default function CreateLessonPage() {
       return []
     })
 
-    return Array.from(new Set([...(uiLanguage === 'zh' ? zhPool : enPool), ...mapped])).slice(0, 6)
+    return Array.from(new Set([...mapped, ...(uiLanguage === 'zh' ? zhPool : enPool)])).slice(0, 6)
   }, [interestProfile?.subject_interests, uiLanguage])
 
   const workflowSteps = useMemo(() => ([
