@@ -50,6 +50,8 @@ class ClassCreationRequest:
     target_audience: str = "students"
     difficulty_level: str = "intermediate"
     voice_id: str = "anna"
+    user_id: Optional[str] = None
+    syllabus: Optional[Dict[str, Any]] = None  # Locked syllabus from mentor chat
 
 
 @dataclass
@@ -186,27 +188,45 @@ class ClassCreator:
     async def _create_class(self, request: ClassCreationRequest, language: Language) -> ClassCreationResult:
         """Internal method to create class in any language using real AI with translation support"""
         try:
-            # Convert topic to English for processing if needed
-            english_query = await self._format_english_query(request.topic, language.value)
+            ai_data = None
             
-            # Process with real AI (always process in English for better AI performance)
-            result = await api_client.process_query(
-                topic=english_query,
-                student_level=request.student_level,
-                duration_minutes=request.duration_minutes,
-                include_video=request.include_video,
-                include_exercises=request.include_exercises,
-                include_assessment=request.include_assessment,
-                custom_requirements=request.custom_requirements,
-                target_audience=request.target_audience,
-                difficulty_level=request.difficulty_level,
-                language=Language.ENGLISH.value,  # Always use English for AI processing
-                format_type="full_class"
-            )
-            
-            if result.success and result.data:
-                ai_data = result.data
+            # If a locked syllabus is provided, skip the initial AI query processing
+            if request.syllabus:
+                print(f"📌 Using locked syllabus for: {request.topic}")
+                ai_data = {
+                    "title": request.syllabus.get("title") or request.topic,
+                    "class_title": request.syllabus.get("title") or request.topic,
+                    "description": request.custom_requirements or f"Personalized lesson on {request.topic}",
+                    "chapters": request.syllabus.get("chapters", []),
+                    "methodology": "Mentor-led visual roadmap",
+                    "raw_response": json.dumps(request.syllabus)
+                }
+            else:
+                # Convert topic to English for processing if needed
+                english_query = await self._format_english_query(request.topic, language.value)
                 
+                # Process with real AI (always process in English for better AI performance)
+                result = await api_client.process_query(
+                    topic=english_query,
+                    student_level=request.student_level,
+                    duration_minutes=request.duration_minutes,
+                    include_video=request.include_video,
+                    include_exercises=request.include_exercises,
+                    include_assessment=request.include_assessment,
+                    custom_requirements=request.custom_requirements,
+                    target_audience=request.target_audience,
+                    difficulty_level=request.difficulty_level,
+                    language=Language.ENGLISH.value,  # Always use English for AI processing
+                    format_type="full_class"
+                )
+                
+                if result.success and result.data:
+                    ai_data = result.data
+                else:
+                    print(f"AI class creation failed: {result.error}")
+                    return self._create_ai_fallback_class(request, language)
+            
+            if ai_data:
                 # Translate AI responses if language is Chinese
                 if language == Language.CHINESE:
                     ai_data = await self._translate_ai_response(ai_data)
@@ -259,6 +279,7 @@ class ClassCreator:
                             target_audience=request.target_audience,
                             duration_minutes=max(10, request.duration_minutes),
                             custom_requirements=request.custom_requirements,
+                            syllabus=request.syllabus, # Pass locked syllabus to output pipeline
                         )
                         
                         if multimedia_result:

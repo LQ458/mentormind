@@ -3,6 +3,8 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: mentormind-postgres
+    networks:
+      - mentormind-net
     environment:
       POSTGRES_USER: mentormind
       POSTGRES_PASSWORD: mentormind
@@ -21,6 +23,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: mentormind-redis
+    networks:
+      - mentormind-net
     ports:
       - "6379:6379"
     healthcheck:
@@ -32,17 +36,19 @@ services:
   backend:
     build: ./backend
     container_name: mentormind-backend
+    networks:
+      - mentormind-net
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      POSTGRES_HOST: mentormind-postgres
+      POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: mentormind
       POSTGRES_PASSWORD: mentormind
-      DATABASE_URL: postgresql://mentormind:mentormind@mentormind-postgres:5432/mentormind_metadata
+      DATABASE_URL: postgresql://mentormind:mentormind@postgres:5432/mentormind_metadata
       CELERY_BROKER_URL: redis://redis:6379/0
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
@@ -66,17 +72,19 @@ services:
   celery-orchestration:
     build: ./backend
     container_name: mentormind-celery-orchestration
+    networks:
+      - mentormind-net
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      POSTGRES_HOST: mentormind-postgres
+      POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: mentormind
       POSTGRES_PASSWORD: mentormind
-      DATABASE_URL: postgresql://mentormind:mentormind@mentormind-postgres:5432/mentormind_metadata
+      DATABASE_URL: postgresql://mentormind:mentormind@postgres:5432/mentormind_metadata
       CELERY_BROKER_URL: redis://redis:6379/0
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
@@ -94,17 +102,19 @@ services:
   celery-rendering:
     build: ./backend
     container_name: mentormind-celery-rendering
+    networks:
+      - mentormind-net
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      POSTGRES_HOST: mentormind-postgres
+      POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: mentormind
       POSTGRES_PASSWORD: mentormind
-      DATABASE_URL: postgresql://mentormind:mentormind@mentormind-postgres:5432/mentormind_metadata
+      DATABASE_URL: postgresql://mentormind:mentormind@postgres:5432/mentormind_metadata
       CELERY_BROKER_URL: redis://redis:6379/0
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
@@ -122,17 +132,19 @@ services:
   celery-heavy-ml:
     build: ./backend
     container_name: mentormind-celery-heavy-ml
+    networks:
+      - mentormind-net
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      POSTGRES_HOST: mentormind-postgres
+      POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: mentormind
       POSTGRES_PASSWORD: mentormind
-      DATABASE_URL: postgresql://mentormind:mentormind@mentormind-postgres:5432/mentormind_metadata
+      DATABASE_URL: postgresql://mentormind:mentormind@postgres:5432/mentormind_metadata
       CELERY_BROKER_URL: redis://redis:6379/0
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
@@ -157,6 +169,8 @@ services:
       args:
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
     container_name: mentormind-frontend
+    networks:
+      - mentormind-net
     depends_on:
       - backend
     env_file:
@@ -168,11 +182,8 @@ services:
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
       NEXT_PUBLIC_CLERK_SIGN_IN_URL: '/'
       NEXT_PUBLIC_CLERK_SIGN_UP_URL: '/'
-      # Point to the backend running in the same Docker network
       BACKEND_URL: http://backend:8000
-      # Pass ALLOWED_ORIGIN from host .env variable to Next.js payload for CSRF check
       ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-}
-      # Tells Next.js its own public-facing URL so Server Actions origin checks pass
       NEXTAUTH_URL: http://localhost:3000
       NEXT_PUBLIC_APP_URL: http://localhost:3000
     ports:
@@ -193,6 +204,10 @@ services:
 #    ports:
 #      - "8866:8866"
 #    command: paddleocr --use_angle_cls true --lang ch --use_gpu false --show_log false --port 8866 --type structure
+
+networks:
+  mentormind-net:
+    driver: bridge
 
 volumes:
   postgres_data:

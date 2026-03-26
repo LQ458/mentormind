@@ -21,6 +21,8 @@ RUN apt-get update && apt-get install -y \
     libcairo2-dev \
     libpango1.0-dev \
     pkg-config \
+    libgl1 \
+    libglib2.0-0 \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 

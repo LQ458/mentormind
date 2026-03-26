@@ -12,7 +12,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from config import config
@@ -583,14 +583,19 @@ class ProgrammaticVideoGenerator:
         target_audience: str = "students",
         duration_minutes: int = 10,
         custom_requirements: Optional[str] = None,
+        existing_bundle: Optional[Dict[str, Any]] = None,
     ) -> Dict:
         """
         Generate a programmatic video from content
         """
         logger.info(f"Generating programmatic video for: {topic} ({style}) Voice: {voice_id} Lang: {language}")
         required_duration_seconds = max(10, int(duration_minutes or 10)) * 60
+        
+        # State to track the last generation bundle for retries (seeded with syllabus if provided)
+        last_bundle = existing_bundle or {}
 
         async def build_video(expanded_requirements: Optional[str], attempt: int) -> Dict:
+            nonlocal last_bundle
             video_script = await self.script_generator.generate_script(
                 topic,
                 content,
@@ -600,7 +605,11 @@ class ProgrammaticVideoGenerator:
                 target_audience=target_audience,
                 duration_minutes=duration_minutes,
                 custom_requirements=expanded_requirements,
+                existing_bundle=last_bundle,
             )
+            
+            # Save the bundle for the next attempt if this one fails length validation
+            last_bundle = video_script.debug_artifacts
 
             logger.info("Synthesizing audio concurrently for all scenes...")
 
@@ -688,25 +697,14 @@ class ProgrammaticVideoGenerator:
                 return await build_video(requirements, attempt)
             except ValueError as exc:
                 last_error = exc
-                if str(exc) == "preferred_length_not_met":
-                    logger.warning("Attempt %s was shorter than 6 mins. Retrying with expanded requirements.", attempt)
+                if str(exc) == "preferred_length_not_met" and attempt == 1:
+                    logger.warning("Attempt 1 was shorter than 6 mins. Retrying with expanded requirements.")
                     continue
-                # If it's a real failure (not just preferred length), re-raise immediately
+                # If it's a real failure or it's the second attempt and still "preferred_length_not_met",
+                # build_video will have handled it (attempt 2+ accepts any length > 30s).
                 raise
-        
-        # If we reached here and have a result but it was short, the loop would have returned it in the try block
-        # unless it was still short on the second attempt.
-        # But wait, we need to handle the case where attempt 2 is still short.
-        
-        # Redesigning slightly to return whatever we have on attempt 2 even if short
-        try:
-            return await build_video(retry_requirements, attempt=2)
-        except ValueError as exc:
-            if "critically short" in str(exc): raise
-            # If attempt 2 is just "preferred_length_not_met", ignore it and try to return the result
-            # but build_video raised it instead of returning. 
-            # Let's fix build_video to not raise if attempt == 2.
-            raise last_error or exc
+
+        raise last_error or ValueError("Programmatic video generation failed unexpectedly")
 
     def _probe_rendered_video(self, video_path: str) -> Dict[str, Optional[bool]]:
         if not video_path or not os.path.exists(video_path):
@@ -912,34 +910,53 @@ class OutputPipeline:
         target_audience: str = "students",
         duration_minutes: int = 10,
         custom_requirements: Optional[str] = None,
+        syllabus: Optional[Dict[str, Any]] = None, # Accept locked syllabus
     ) -> Dict:
         """
         Generate quick explanation with audio and real video
         """
-        # Generate explanation
-        explanation = await self.script_generator.generate_short_explanation(
-            concept,
-            context,
-            language=language
-        )
-        
-        # Synthesize audio
-        # Synthesize audio (not strictly needed as Programmatic generator does it, but good for quick audio return)
-        # However, programmatic engine handles TTS internally for sync. 
-        # Let's delegate everything to programmatic generator for consistency.
-        
-        math_keywords = [
-            "math", "algebra", "geometry", "calculus", "equation", "function", "graph", 
-            "number", "arithmetic", "probability", "statistics", "theorem", "proof",
-            "quadratic", "linear", "polynomial", "derivative", "integral", "matrix",
-            "vector", "trigonometry", "circle", "triangle", "polygon", "parabola",
-            "physics", "kinematics", "velocity", "acceleration", "force", "gravity",
-            "energy", "momentum", "projectile", "motion", "mechanics", "newton",
-            "数学", "代数", "几何", "微积分", "方程", "函数", "图象", "数论", "概率", "统计",
-            "物理", "运动", "力", "速度", "加速度", "重力", "能量", "牛顿"
-        ]
-        
-        style = "math" if any(k in concept.lower() for k in math_keywords) else "general"
+        if syllabus:
+            # Build a rich explanation from the locked syllabus chapters
+            chapters = syllabus.get("chapters", [])
+            chapter_lines = "\n".join(
+                f"Chapter {i+1}: {ch.get('title','')}\n  Visual: {ch.get('visual','')}\n  Goal: {ch.get('goal','')}"
+                for i, ch in enumerate(chapters)
+            )
+            explanation = (
+                f"Lesson: {syllabus.get('title', concept)}\n\n"
+                f"{'Chapters:' + chr(10) + chapter_lines if chapter_lines else ''}"
+            ).strip()
+        else:
+            # Generate explanation from scratch
+            explanation = await self.script_generator.generate_short_explanation(
+                concept,
+                context,
+                language=language
+            )
+
+
+        # Ask DeepSeek to classify the subject — much smarter than a keyword list
+        try:
+            from services.api_client import APIClient
+            _classifier = APIClient()
+            _clf_resp = await _classifier.deepseek.chat_completion(
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"Classify this lesson topic into exactly one word — either 'math' or 'general'.\n"
+                        f"'math' means: mathematics, physics, chemistry, engineering, or any STEM subject with equations/formulas.\n"
+                        f"'general' means: history, language, biology, social studies, arts, or any non-formula subject.\n"
+                        f"Topic: \"{concept}\"\n"
+                        f"Reply with only one word: math or general."
+                    )
+                }],
+                temperature=0.0,
+                max_tokens=5,
+            )
+            _label = _clf_resp.data.get("choices", [{}])[0].get("message", {}).get("content", "").strip().lower()
+            style = "math" if "math" in _label else "general"
+        except Exception:
+            style = "general"  # Safe fallback
         
         video_result = await self.programmatic_generator.generate_video(
             topic=concept,
@@ -951,6 +968,7 @@ class OutputPipeline:
             target_audience=target_audience,
             duration_minutes=duration_minutes,
             custom_requirements=custom_requirements or context,
+            existing_bundle={"syllabus": syllabus} if syllabus else None, # Pass syllabus
         )
         video_local_path = video_result['video_path']
         audio_local_path = video_result['script'].scenes[0].audio_path if video_result['script'].scenes else ""

@@ -79,7 +79,7 @@ class DeepSeekClient:
                     url,
                     headers=self.headers,
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=120)
+                    timeout=aiohttp.ClientTimeout(total=600) # Increased to 10 mins for long-form reasoning
                 ) as response:
                     
                     if response.status == 200:

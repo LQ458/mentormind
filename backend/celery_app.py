@@ -35,7 +35,8 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     task_track_started=True,
-    task_time_limit=600,  # 10 minutes max for Manim rendering tasks
+    task_time_limit=1800,  # 30 minutes hard limit for long-form rendering and retries
+    task_soft_time_limit=1500, # 25 minutes soft limit
     
     # --- RESOURCE ISOLATION QUEUES ---
     task_queues={
@@ -107,7 +108,9 @@ def create_class_video_task(self, request_data: dict, job_id: str):
             custom_requirements=request_data.get("custom_requirements"),
             target_audience=request_data.get("target_audience", "students"),
             difficulty_level=request_data.get("difficulty_level", "intermediate"),
-            voice_id=request_data.get("voice_id", "anna")
+            voice_id=request_data.get("voice_id", "anna"),
+            user_id=request_data.get("user_id"),
+            syllabus=request_data.get("syllabus"), # Pass locked syllabus
         )
         
         # Execute the pipeline
