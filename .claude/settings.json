@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'if echo \"$CC_EDIT_FILE\" | grep -qE \"(routes|endpoints|views|urls)\"; then echo \"⚠️ Route file changed - remember to restart server\"; fi'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'changed=$(git diff --name-only 2>/dev/null | grep -vE \"^web/\\.next/|\\.pack\\.gz|\\.cache/\"); if [ -n \"$changed\" ]; then echo \"$changed\" | xargs git add && git commit -m \"auto-commit: Claude Code changes $(date +%Y-%m-%d_%H:%M)\"; echo \"{\\\"systemMessage\\\": \\\"Auto-committed $(echo \\\"$changed\\\" | wc -l | tr -d \\\" \\\") file(s)\\\"}\"; else echo \"{\\\"systemMessage\\\": \\\"No source changes to commit\\\"}\"; fi'",
+            "timeout": 30,
+            "statusMessage": "Auto-committing changes..."
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "ralph-loop@claude-plugins-official": true,
+    "planning-with-files@planning-with-files": true,
+    "oh-my-claudecode@omc": true
+  },
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  }
+}
