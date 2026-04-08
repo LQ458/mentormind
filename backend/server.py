@@ -47,7 +47,7 @@ from core.modules.mentor import MentorAgent, MentorStage, MentorResponse
 from services.api_client import api_client, get_language_instruction
 from prompts.loader import render_prompt
 from monitoring import track_performance, track_async_performance, monitor, celery_monitor
-from diagnostic_confidence_v2 import calculate_rigorous_confidence
+from core.diagnostic_confidence import calculate_rigorous_confidence
 from core.rendering.layout_manager import ContentType
 
 # Initialize PostgreSQL database (Strict)
