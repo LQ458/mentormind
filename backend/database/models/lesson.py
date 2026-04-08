@@ -75,7 +75,7 @@ class Lesson(Base):
     status = Column(String(20), default=LessonStatus.PUBLISHED.value)
     
     # Owner — nullable so anonymous lessons remain valid
-    user_id = Column(String(255), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())

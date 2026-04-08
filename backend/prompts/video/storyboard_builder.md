@@ -54,8 +54,9 @@ Rules:
 - Each scene narration MUST support at least 50 to 75 seconds of spoken explanation.
 - Each narration block MUST be around 150-200 words in length. Be verbose and detailed.
 - Do NOT use short placeholder sentences. Every sentence must contribute to the learning goal.
-- If using `write_tex`, keep `param` pure LaTeX only.
-- If using `plot`, keep `param` a safe Python expression in x.
+- If using `write_tex`, keep `param` pure inline LaTeX only — a single compact expression like `E=mc^2` or `\frac{a}{b}`. NEVER wrap in \begin{...}...\end{...} environments.
+- For multi-step derivations, use `show_text` with `on_screen_text` formatted as a bullet list (see bullet rule below).
+- If using `plot`, keep `param` a safe Python expression in x (no imports).
 - Use `graph_focus` only when a graph is essential.
 - Use at least one retrieval or recap scene near the end.
 - Avoid overlapping words and visuals:
@@ -65,3 +66,17 @@ Rules:
 - Prefer bullets, short labels, and callouts over sentence blocks.
 - Transition naturally between scenes to maintain a cohesive 10+ minute flow.
 - Ensure the complexity grows gradually from scene 1 to scene {{target_scene_count}}.
+
+BULLET LIST FORMAT (B — Generative Pacing):
+- When a `show_text` scene has multiple distinct points, format `on_screen_text` as a newline-separated bullet list:
+  "- Point one\n- Point two\n- Point three"
+  Never cram multiple ideas into one long run-on sentence.
+
+MANDATORY LAYOUT DIVERSITY (D):
+Across the full {{target_scene_count}} scenes you MUST include:
+  - At least 2 scenes with action `transform` (param format: `expression_1 -> expression_2`, e.g. `x^2 -> 2x`)
+  - At least 1 scene with action `draw_shape` (param: describe a shape — "circle", "triangle", "arrow", etc.)
+  - At least 2 scenes with action `write_tex` (single inline formula only)
+  - At least 2 scenes with action `plot` if the topic is STEM; at least 1 otherwise
+  - The rest may use `show_title`, `show_text`, or `callout_card` layouts as appropriate
+Failure to include these actions results in a rejected storyboard.

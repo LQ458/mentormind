@@ -9,7 +9,11 @@ import logging
 from typing import Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime
+from dotenv import load_dotenv
 from config.config import config
+
+# Load environment variables
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 

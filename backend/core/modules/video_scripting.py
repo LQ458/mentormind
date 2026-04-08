@@ -9,6 +9,7 @@ from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, field
 from services.api_client import APIClient
 from core.modules.robust_video_generation import RobustVideoGenerationPipeline
+from core.rendering.synchronized_manim_renderer import SynchronizedManimRenderer
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class VideoScriptGenerator:
     def __init__(self):
         self.api_client = APIClient()
         self.robust_pipeline = RobustVideoGenerationPipeline(self.api_client)
+        self.synchronized_renderer = SynchronizedManimRenderer()
     
     async def generate_script(
         self,
@@ -100,6 +102,55 @@ class VideoScriptGenerator:
                 generation_bundle.get("render_plan") or {},
                 debug_artifacts=generation_bundle,
             )
+    
+    async def generate_synchronized_video(
+        self,
+        topic: str,
+        content: str,
+        style: str = "general",
+        language: str = "en",
+        student_level: str = "beginner",
+        target_audience: str = "students",
+        duration_minutes: int = 10,
+        custom_requirements: Optional[str] = None,
+        existing_bundle: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """
+        Generate a complete synchronized video with perfect audio-video timing
+        Returns the path to the final video file
+        """
+        
+        import time
+        start_time = time.time()
+        logger.info(f"🎬🎵 [SyncVideo] Generating synchronized video for: '{topic}'")
+        
+        try:
+            # Generate script with content validation
+            script = await self.generate_script(
+                topic=topic,
+                content=content,
+                style=style,
+                language=language,
+                student_level=student_level,
+                target_audience=target_audience,
+                duration_minutes=duration_minutes,
+                custom_requirements=custom_requirements,
+                existing_bundle=existing_bundle
+            )
+            
+            # Render with synchronized audio-video
+            video_path = await self.synchronized_renderer.render_script_with_sync(script)
+            
+            duration = time.time() - start_time
+            logger.info(f"✅ [SyncVideo] Synchronized video generation complete in {duration:.2f}s")
+            logger.info(f"🎥 [SyncVideo] Final video: {video_path}")
+            
+            return video_path
+            
+        except Exception as e:
+            duration = time.time() - start_time
+            logger.error(f"❌ [SyncVideo] Synchronized video generation failed after {duration:.2f}s: {e}")
+            raise
 
     def _generate_mock_script(self, topic: str, style: str) -> VideoScript:
         """Generate a guaranteed valid mock script when API fails"""

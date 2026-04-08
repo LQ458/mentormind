@@ -118,6 +118,13 @@ export default function CreateLessonPage() {
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileSaving, setProfileSaving] = useState(false)
 
+  // E: Diagnostic onboarding state
+  const [diagnosticTurn, setDiagnosticTurn] = useState(0)  // 0 = not started, 1-3 = in progress
+  const [diagnosticTopic, setDiagnosticTopic] = useState('')
+  const [diagnosticHistory, setDiagnosticHistory] = useState<Array<{role: string; content: string}>>([])
+  const [diagnosticRunning, setDiagnosticRunning] = useState(false)
+  const [aiTestingMode, setAiTestingMode] = useState(false)  // AI testing toggle
+
   // Auto-scroll chat to bottom on new messages or streaming updates
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -346,6 +353,72 @@ export default function CreateLessonPage() {
     }
   }
 
+
+  // E: Run one diagnostic turn
+  const runDiagnosticTurn = async (topic: string, turn: number, studentResponse: string, history: Array<{role: string; content: string}>) => {
+    setDiagnosticRunning(true)
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers.Authorization = `Bearer ${token}`
+
+      const res = await fetch('/api/backend/users/me/diagnostic', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          topic,
+          turn,
+          student_response: studentResponse,
+          history,
+          language: uiLanguage === 'zh' ? 'zh' : 'en',
+          ai_testing: aiTestingMode,
+        }),
+      })
+      const data = await res.json()
+
+      const question = data.question || ''
+      const newHistory = [
+        ...history,
+        ...(studentResponse ? [{ role: 'user', content: studentResponse }] : []),
+        { role: 'assistant', content: question },
+      ]
+      setDiagnosticHistory(newHistory)
+
+      if (question) {
+        setChatMessages(prev => [...prev, {
+          id: `diag_${Date.now()}`,
+          role: 'assistant',
+          content: question,
+          timestamp: new Date(),
+        }])
+      }
+
+      if (data.stage === 'complete') {
+        const level = data.inferred_level
+        if (level === 'beginner' || level === 'intermediate' || level === 'advanced') {
+          setForm(prev => ({ ...prev, studentLevel: level }))
+          setChatMessages(prev => [...prev, {
+            id: `diag_done_${Date.now()}`,
+            role: 'assistant',
+            content: uiLanguage === 'zh'
+              ? `✅ 已根据你的回答推断出你的基础水平：**${level === 'beginner' ? '入门' : level === 'intermediate' ? '中级' : '进阶'}**。接下来我会基于这个级别为你定制课程路线。`
+              : `✅ Based on your answers, I've set your level to **${level}**. I'll tailor the lesson roadmap accordingly.`,
+            timestamp: new Date(),
+          }])
+        }
+        setMentorStage('roadmap')
+        setDiagnosticTurn(0)
+      } else {
+        setDiagnosticTurn(turn + 1)
+      }
+    } catch (err) {
+      console.error('Diagnostic turn failed:', err)
+      setMentorStage('roadmap')
+      setDiagnosticTurn(0)
+    } finally {
+      setDiagnosticRunning(false)
+    }
+  }
 
   // Polling helper for background tasks (transcription, OCR)
   const pollIngestStatus = async (jobId: string, type: 'audio' | 'image') => {
@@ -680,9 +753,27 @@ export default function CreateLessonPage() {
           setPipelineProgress(null)
           setWorkflowPhase('chatting')
           setGenerating(false)
+          
+          // More specific error messages based on error type
+          let errorMessage = result.error_message || result.error || ''
+          if (errorMessage.includes('Cannot connect to host api.deepseek.com') || 
+              errorMessage.includes('Network error') ||
+              errorMessage.includes('DEEPSEEK_API_KEY')) {
+            errorMessage = uiLanguage === 'zh' 
+              ? '网络连接失败或API密钥配置问题。请检查网络连接或联系管理员。'
+              : 'Network connection failed or API key configuration issue. Please check your network connection or contact administrator.'
+          } else if (errorMessage.includes('numpy.dtype size changed') ||
+                     errorMessage.includes('binary incompatibility')) {
+            errorMessage = uiLanguage === 'zh'
+              ? '视频渲染环境配置问题。请联系技术支持。'
+              : 'Video rendering environment configuration issue. Please contact technical support.'
+          } else if (!errorMessage) {
+            errorMessage = uiLanguage === 'zh' ? '未知错误，请重试。' : 'Unknown error. Please try again.'
+          }
+          
           alert(uiLanguage === 'zh'
-            ? `课程生成失败：${result.error_message || result.error || '未知错误，请重试。'}`
-            : `Lesson creation failed: ${result.error_message || result.error || 'Unknown error. Please try again.'}`
+            ? `课程生成失败：${errorMessage}`
+            : `Lesson creation failed: ${errorMessage}`
           )
           return
         }
@@ -760,8 +851,13 @@ export default function CreateLessonPage() {
                 return
               }
               settled = true
+              
+              // Only show success alert if generation actually succeeded
+              if (finalResult?.success !== false) {
+                alert(t('create.courseCreatedSuccess'))
+              }
+              
               void finalizeGeneration(finalResult)
-              alert(t('create.courseCreatedSuccess'))
               resolve(true)
             } catch (pollError) {
               if (!settled) {
@@ -844,6 +940,21 @@ export default function CreateLessonPage() {
     setChatMessages(prev => [...prev, userMessage])
     const currentInput = userInput
     setUserInput('')
+
+    // AI Testing Mode: Skip all diagnostic and go straight to generation
+    if (aiTestingMode && mentorStage === 'opening') {
+      setForm(prev => ({ ...prev, studentLevel: 'beginner', studentQuery: currentInput }))
+      setWorkflowPhase('generating')
+      handleGenerate(currentInput)
+      return
+    }
+
+    // E: If we are in the middle of a diagnostic, route to the diagnostic handler
+    if (mentorStage === 'diagnostic' && diagnosticTurn >= 1) {
+      await runDiagnosticTurn(diagnosticTopic, diagnosticTurn, currentInput, diagnosticHistory)
+      return
+    }
+
     setIsTyping(true)
 
     try {
@@ -881,7 +992,19 @@ export default function CreateLessonPage() {
         }
         setChatMessages(prev => [...prev, aiResponse])
 
-        if (data.stage === 'roadmap' || data.stage === 'co_creation') {
+        // E: After the user's first message in 'opening', start the diagnostic
+        // if they have not completed onboarding yet
+        const nextStage = data.stage
+        if (nextStage === 'diagnostic' || (mentorStage === 'opening' && !interestProfile?.onboarding_completed && currentInput.trim().length >= 5)) {
+          const topic = currentInput.trim()
+          setDiagnosticTopic(topic)
+          setMentorStage('diagnostic')
+          // Kick off turn 1 immediately (no student response yet)
+          await runDiagnosticTurn(topic, 1, '', [{ role: 'user', content: topic }])
+          return
+        }
+
+        if (nextStage === 'roadmap' || nextStage === 'co_creation') {
           setProposedSyllabus(data.proposed_syllabus)
           setThinkingProcess(data.thinking_process)
           setNextActionLabel(data.next_action_label)
@@ -890,9 +1013,9 @@ export default function CreateLessonPage() {
             setPreferredVoice(data.preferred_voice)
           }
           setWorkflowPhase('roadmap')
-        } else if (data.stage === 'diagnostic') {
+        } else if (nextStage === 'diagnostic') {
           setDiagnosticQuestion(data.diagnostic_question)
-        } else if (data.stage === 'locked') {
+        } else if (nextStage === 'locked') {
           setWorkflowPhase('generating')
           handleGenerate(proposedSyllabus?.title || currentInput)
         }
@@ -969,10 +1092,24 @@ export default function CreateLessonPage() {
                         <button
                           key={topic}
                           type="button"
-                          onClick={() => setUserInput(topic)}
-                          className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:border-blue-300 hover:text-blue-700"
+                          onClick={() => {
+                            if (aiTestingMode) {
+                              // Direct generation mode - skip diagnostic
+                              setForm(prev => ({ ...prev, studentLevel: 'beginner', studentQuery: topic }))
+                              setWorkflowPhase('generating')
+                              handleGenerate(topic)
+                            } else {
+                              // Normal mode - set input for chat
+                              setUserInput(topic)
+                            }
+                          }}
+                          className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                            aiTestingMode 
+                              ? 'border-yellow-300 bg-yellow-50 text-yellow-700 hover:border-yellow-400 hover:bg-yellow-100' 
+                              : 'border-slate-300 bg-white text-slate-700 hover:border-blue-300 hover:text-blue-700'
+                          }`}
                         >
-                          {topic}
+                          {aiTestingMode && '⚡ '}{topic}
                         </button>
                       ))}
                     </div>
@@ -1017,6 +1154,62 @@ export default function CreateLessonPage() {
                         </div>
                       </div>
                     )}
+
+                    {/* AI Testing Mode Toggle */}
+                    {(mentorStage === 'opening' || mentorStage === 'diagnostic') && (
+                      <div className="flex justify-center py-2">
+                        <div className="flex items-center gap-3 bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-2">
+                          <span className="text-xs font-medium text-yellow-700">
+                            {uiLanguage === 'zh' ? 'AI测试模式' : 'AI Testing Mode'}
+                          </span>
+                          <button
+                            onClick={() => setAiTestingMode(!aiTestingMode)}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                              aiTestingMode ? 'bg-yellow-500' : 'bg-gray-200'
+                            }`}
+                          >
+                            <span className="sr-only">
+                              {uiLanguage === 'zh' ? 'AI测试模式' : 'AI Testing Mode'}
+                            </span>
+                            <span
+                              className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${
+                                aiTestingMode ? 'translate-x-5' : 'translate-x-1'
+                              }`}
+                            />
+                          </button>
+                          <span className="text-xs text-yellow-600">
+                            {aiTestingMode 
+                              ? (uiLanguage === 'zh' ? '⚡ 点击直接生成课程' : '⚡ Click topics to generate instantly')
+                              : (uiLanguage === 'zh' ? '正常诊断流程' : 'Normal diagnostic flow')
+                            }
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* E: Diagnostic progress indicator */}
+                    {mentorStage === 'diagnostic' && diagnosticTurn >= 1 && (
+                      <div className="flex justify-center py-2">
+                        <div className="flex items-center gap-2 text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-full px-3 py-1.5">
+                          {diagnosticRunning
+                            ? <span className="animate-pulse">{uiLanguage === 'zh' ? '正在评估...' : 'Diagnosing...'}</span>
+                            : (
+                              <>
+                                <span>{uiLanguage === 'zh' ? '基础诊断' : 'Level check'}</span>
+                                {[1, 2, 3].map(n => (
+                                  <div
+                                    key={n}
+                                    className={`w-2 h-2 rounded-full ${diagnosticTurn > n ? 'bg-blue-500' : diagnosticTurn === n ? 'bg-blue-300 animate-pulse' : 'bg-gray-200'}`}
+                                  />
+                                ))}
+                                <span className="text-blue-600">{diagnosticTurn}/3</span>
+                              </>
+                            )
+                          }
+                        </div>
+                      </div>
+                    )}
+
                     <div ref={chatEndRef} />
                   </div>
 

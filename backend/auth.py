@@ -8,6 +8,8 @@ Provides:
 
 import os
 import jwt
+import uuid
+import hashlib
 from jwt import PyJWKClient
 from typing import Optional
 
@@ -57,6 +59,20 @@ JWKS_URL = f"{CLERK_ISSUER}/.well-known/jwks.json"
 # Initialize JWKS client to fetch and cache public keys
 jwks_client = PyJWKClient(JWKS_URL)
 
+# ── Clerk ID to UUID Conversion ─────────────────────────────────────────────────
+
+# Fixed namespace for Clerk ID to UUID conversion (consistent across restarts)
+CLERK_NAMESPACE = uuid.UUID('6ba7b810-9dad-11d1-80b4-00c04fd430c8')
+
+def clerk_id_to_uuid(clerk_id: str) -> uuid.UUID:
+    """
+    Convert a Clerk ID to a consistent UUID.
+    Uses deterministic UUID generation based on the Clerk ID.
+    """
+    # Create a deterministic UUID using UUID5 with a fixed namespace
+    # This ensures the same clerk_id always maps to the same UUID
+    return uuid.uuid5(CLERK_NAMESPACE, clerk_id)
+
 # ── JWT Verification ─────────────────────────────────────────────────────────
 
 def decode_token(token: str) -> dict:
@@ -100,23 +116,28 @@ def get_current_user(
     if not clerk_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
 
-    # Sync User to Database
-    user = db.query(User).filter(User.id == clerk_id).first()
+    # First try to find user by username (for existing migrated users)
+    user = db.query(User).filter(User.username == clerk_id).first()
     
     if not user:
-        # Create user record locally since Clerk authenticated them
-        # Note: Depending on Clerk token template, email/username might be embedded,
-        # otherwise we use placeholders.
-        user = User(
-            id=clerk_id,
-            email=f"{clerk_id}@clerk.local", # placeholder
-            username=clerk_id,
-            hashed_password="clerk_managed", # No password needed locally
-            is_active=True
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+        # If not found by username, try to find by converted UUID (for new consistent approach)
+        user_uuid = clerk_id_to_uuid(clerk_id)
+        user = db.query(User).filter(User.id == user_uuid).first()
+        
+        if not user:
+            # Create user record locally since Clerk authenticated them
+            # Note: Depending on Clerk token template, email/username might be embedded,
+            # otherwise we use placeholders.
+            user = User(
+                id=user_uuid,
+                email=f"{clerk_id}@clerk.local", # placeholder
+                username=clerk_id,
+                hashed_password="clerk_managed", # No password needed locally
+                is_active=True
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
         
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account is inactive")

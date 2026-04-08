@@ -1,7 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useLanguage } from '../components/LanguageContext'
+import { useAuth } from '@clerk/nextjs'
+import { useSearchParams } from 'next/navigation'
 
 interface SubscriptionPlan {
   id: string
@@ -39,6 +41,9 @@ interface UserSettings {
 
 export default function SettingsPage() {
   const { language: uiLanguage, t } = useLanguage()
+  const { getToken } = useAuth()
+  const searchParams = useSearchParams()
+  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null)
   const [settings, setSettings] = useState<UserSettings>({
     subscription: {
       plan: 'pro',
@@ -62,6 +67,23 @@ export default function SettingsPage() {
       billing_address: '123 Main St, Shanghai, China',
     },
   })
+
+  // Detect Stripe checkout result from query params
+  useEffect(() => {
+    const checkout = searchParams.get('checkout')
+    const plan = searchParams.get('plan')
+    if (checkout === 'success') {
+      setCheckoutMessage(
+        uiLanguage === 'zh'
+          ? `🎉 订阅升级成功！${plan ? `你已切换到 ${plan} 计划。` : ''} 刷新页面查看最新状态。`
+          : `🎉 Subscription upgraded successfully!${plan ? ` You are now on the ${plan} plan.` : ''} Refresh to see your updated status.`
+      )
+    } else if (checkout === 'cancelled') {
+      setCheckoutMessage(
+        uiLanguage === 'zh' ? '结账已取消，你的计划未变更。' : 'Checkout cancelled — your plan was not changed.'
+      )
+    }
+  }, [searchParams, uiLanguage])
 
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState('subscription')
@@ -110,21 +132,45 @@ export default function SettingsPage() {
     }
   }
 
-  const handleUpgrade = (planId: string) => {
-    if (confirm(t('settings.upgradeConfirm', { planId }))) {
-      setSettings({
-        ...settings,
-        subscription: {
-          ...settings.subscription,
+  const handleUpgrade = async (planId: string) => {
+    if (!confirm(t('settings.upgradeConfirm', { planId }))) return
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers.Authorization = `Bearer ${token}`
+
+      const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
+      const res = await fetch('/api/backend/billing/create-checkout-session', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
           plan: planId,
-        },
+          success_url: `${origin}/settings?checkout=success&plan=${planId}`,
+          cancel_url: `${origin}/settings?checkout=cancelled`,
+        }),
       })
-      alert(t('settings.upgradeRequested'))
+      const data = await res.json()
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url
+      } else {
+        alert(t('settings.upgradeRequested'))
+      }
+    } catch (err) {
+      console.error('Checkout error:', err)
+      alert(uiLanguage === 'zh' ? '结账跳转失败，请重试。' : 'Failed to open checkout. Please try again.')
     }
   }
 
   return (
     <div className="space-y-8">
+      {/* Checkout result banner */}
+      {checkoutMessage && (
+        <div className="px-4 py-3 rounded-lg bg-green-50 border border-green-200 text-green-800 text-sm flex items-start justify-between">
+          <span>{checkoutMessage}</span>
+          <button onClick={() => setCheckoutMessage(null)} className="ml-4 text-green-600 hover:text-green-800 font-bold">✕</button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>

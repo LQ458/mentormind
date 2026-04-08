@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useLanguage } from '../../components/LanguageContext'
@@ -100,6 +100,42 @@ export default function LessonDetailPage() {
   const [activeTab, setActiveTab] = useState<LessonTab>('seminar')
   const [savingProgress, setSavingProgress] = useState(false)
   const [recordingAssessment, setRecordingAssessment] = useState<string | null>(null)
+
+  // F: Video engagement tracking
+  const lastReportedCheckpointRef = useRef<number>(-1)
+
+  const reportVideoEngagement = useCallback(async (watchPct: number, quizDone = false) => {
+    if (!params?.id || !isSignedIn) return
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers.Authorization = `Bearer ${token}`
+      await fetch(`/api/backend/users/me/lessons/${params.id}/video-engagement`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ watch_percentage: watchPct, quiz_completed: quizDone }),
+      })
+    } catch (err) {
+      // non-critical — swallow silently
+    }
+  }, [params?.id, isSignedIn, getToken])
+
+  const handleVideoTimeUpdate = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = e.currentTarget
+    if (!video.duration) return
+    const pct = Math.floor((video.currentTime / video.duration) * 100)
+    const checkpoint = Math.floor(pct / 10) * 10  // snap to nearest 10%
+    if (checkpoint > lastReportedCheckpointRef.current && checkpoint >= 10) {
+      lastReportedCheckpointRef.current = checkpoint
+      void reportVideoEngagement(checkpoint)
+    }
+  }, [reportVideoEngagement])
+
+  const handleVideoEnded = useCallback(() => {
+    lastReportedCheckpointRef.current = 100
+    void reportVideoEngagement(100, false)
+  }, [reportVideoEngagement])
+
   const [seminarPrompt, setSeminarPrompt] = useState('')
   const [seminarLoading, setSeminarLoading] = useState(false)
   const [seminarTurn, setSeminarTurn] = useState<SeminarTurnResult | null>(null)
@@ -718,6 +754,8 @@ export default function LessonDetailPage() {
                   className="w-full h-full object-contain"
                   poster={lesson.ai_insights?.avatar_image || "/placeholder-video.jpg"}
                   preload="metadata"
+                  onTimeUpdate={handleVideoTimeUpdate}
+                  onEnded={handleVideoEnded}
                 >
                   <source src={videoUrl} type="video/mp4" />
                   {t('lessonDetail.browserNoVideo')}

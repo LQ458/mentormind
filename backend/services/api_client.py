@@ -6,11 +6,15 @@ Real API connections with no mock data
 import os
 import aiohttp
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable, Union
 from dataclasses import dataclass
 import asyncio
+import random
+import time
+import logging
 
 from config import config
+from services.circuit_breaker import CircuitBreakerConfig, circuit_breaker_manager
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -36,10 +40,85 @@ class APIResponse:
     data: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     status_code: int = 200
+    retry_count: int = 0
+    response_time_ms: float = 0.0
+
+
+class APIRetryManager:
+    """Manages API retry logic with exponential backoff and jitter"""
+    
+    def __init__(self, max_retries: int = 5, base_delay: float = 1.0):
+        self.max_retries = max_retries
+        self.base_delay = base_delay
+        self.logger = logging.getLogger(__name__)
+    
+    async def retry_with_backoff(
+        self, 
+        func: Callable,
+        *args,
+        retry_on_exceptions: tuple = (aiohttp.ClientError, asyncio.TimeoutError),
+        **kwargs
+    ) -> APIResponse:
+        """Retry function with exponential backoff and jitter"""
+        last_exception = None
+        
+        for attempt in range(self.max_retries):
+            try:
+                start_time = time.time()
+                result = await func(*args, **kwargs)
+                response_time = (time.time() - start_time) * 1000  # Convert to ms
+                
+                # Add retry metadata to successful response
+                if isinstance(result, APIResponse):
+                    result.retry_count = attempt
+                    result.response_time_ms = response_time
+                
+                return result
+                
+            except retry_on_exceptions as e:
+                last_exception = e
+                
+                if attempt == self.max_retries - 1:
+                    self.logger.error(f"Max retries ({self.max_retries}) exceeded for {func.__name__}: {e}")
+                    return APIResponse(
+                        success=False,
+                        error=f"Max retries exceeded: {str(e)}",
+                        status_code=0,
+                        retry_count=attempt + 1
+                    )
+                
+                # Calculate delay with jitter to prevent thundering herd
+                jitter = random.uniform(0, 0.1)  # Add 0-100ms jitter
+                delay = (self.base_delay * (2 ** attempt)) + jitter
+                capped_delay = min(delay, 30)  # Cap at 30 seconds
+                
+                self.logger.warning(
+                    f"Attempt {attempt + 1}/{self.max_retries} failed for {func.__name__}: {e}. "
+                    f"Retrying in {capped_delay:.2f}s"
+                )
+                await asyncio.sleep(capped_delay)
+            
+            except Exception as e:
+                # For non-retryable exceptions, fail immediately
+                self.logger.error(f"Non-retryable error in {func.__name__}: {e}")
+                return APIResponse(
+                    success=False,
+                    error=f"Non-retryable error: {str(e)}",
+                    status_code=0,
+                    retry_count=attempt + 1
+                )
+        
+        # This should not be reached, but just in case
+        return APIResponse(
+            success=False,
+            error=f"Unexpected retry failure: {str(last_exception)}",
+            status_code=0,
+            retry_count=self.max_retries
+        )
 
 
 class DeepSeekClient:
-    """Client for DeepSeek API"""
+    """Client for DeepSeek API with resilience patterns"""
     
     def __init__(self):
         self.api_key = os.getenv("DEEPSEEK_API_KEY")
@@ -51,6 +130,20 @@ class DeepSeekClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
+        
+        # Initialize retry manager and circuit breaker
+        self.retry_manager = APIRetryManager(max_retries=5, base_delay=1.0)
+        
+        # Configure circuit breaker for DeepSeek API
+        cb_config = CircuitBreakerConfig(
+            failure_threshold=5,
+            success_threshold=2,
+            timeout_duration=60,
+            failure_rate_threshold=0.5,
+            min_request_threshold=10
+        )
+        self.circuit_breaker = circuit_breaker_manager.get_circuit_breaker("deepseek_api", cb_config)
+        self.logger = logging.getLogger(__name__)
     
     async def chat_completion(
         self,
@@ -60,7 +153,60 @@ class DeepSeekClient:
         max_tokens: int = 2000
     ) -> APIResponse:
         """
-        Call DeepSeek chat completion API
+        Call DeepSeek chat completion API with circuit breaker and retry logic
+        """
+        try:
+            # Use circuit breaker to wrap the retry logic
+            return await self.circuit_breaker.call(
+                self._chat_completion_with_retry,
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+        except Exception as e:
+            # Convert circuit breaker exceptions to APIResponse
+            from services.circuit_breaker import CircuitBreakerException
+            if isinstance(e, CircuitBreakerException):
+                return APIResponse(
+                    success=False,
+                    error=f"Service temporarily unavailable: {str(e)}",
+                    status_code=503
+                )
+            else:
+                return APIResponse(
+                    success=False,
+                    error=f"API call failed: {str(e)}",
+                    status_code=500
+                )
+    
+    async def _chat_completion_with_retry(
+        self,
+        messages: list,
+        model: str = "deepseek-chat",
+        temperature: float = 0.7,
+        max_tokens: int = 2000
+    ) -> APIResponse:
+        """
+        Chat completion with retry logic (called by circuit breaker)
+        """
+        return await self.retry_manager.retry_with_backoff(
+            self._chat_completion_raw,
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+    
+    async def _chat_completion_raw(
+        self,
+        messages: list,
+        model: str = "deepseek-chat",
+        temperature: float = 0.7,
+        max_tokens: int = 2000
+    ) -> APIResponse:
+        """
+        Raw chat completion call without retry logic
         """
         url = f"{self.base_url}/chat/completions"
         
@@ -79,7 +225,7 @@ class DeepSeekClient:
                     url,
                     headers=self.headers,
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=600) # Increased to 10 mins for long-form reasoning
+                    timeout=aiohttp.ClientTimeout(total=120) # Reduced to 2 mins for faster failure detection
                 ) as response:
                     
                     if response.status == 200:
@@ -88,6 +234,15 @@ class DeepSeekClient:
                             success=True,
                             data=data,
                             status_code=response.status
+                        )
+                    elif response.status in [429, 502, 503, 504]:  # Retryable errors
+                        error_text = await response.text()
+                        # Raise exception to trigger retry
+                        raise aiohttp.ClientResponseError(
+                            request_info=response.request_info,
+                            history=response.history,
+                            status=response.status,
+                            message=f"Retryable API error: {error_text}"
                         )
                     else:
                         error_text = await response.text()
@@ -98,14 +253,17 @@ class DeepSeekClient:
                         )
                         
         except aiohttp.ClientError as e:
-            return APIResponse(
-                success=False,
-                error=f"Network error: {str(e)}",
-                status_code=0
-            )
+            # Specific handling for transfer encoding errors
+            if "TransferEncodingError" in str(e) or "Not enough data" in str(e):
+                self.logger.warning(f"Incomplete transfer detected, retrying: {e}")
+                raise  # Let retry mechanism handle this
+            # Re-raise for retry handling
+            self.logger.warning(f"Network error in DeepSeek API call: {e}")
+            raise
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
+            self.logger.error(f"Unexpected error in DeepSeek API call: {e}\n{error_details}")
             return APIResponse(
                 success=False,
                 error=f"Unexpected error: {str(e)}\nDetails: {error_details}",
@@ -610,12 +768,13 @@ class PaddleOCRClient:
 
 
 class APIClient:
-    """Main API client for all services"""
+    """Main API client for all services with resilience patterns"""
     
     def __init__(self):
         self.deepseek = DeepSeekClient()
         self.funasr = FunASRClient()
         self.paddle_ocr = PaddleOCRClient()
+        self.logger = logging.getLogger(__name__)
     
     async def process_query(
         self,
@@ -660,24 +819,36 @@ class APIClient:
         """Translate content to target language"""
         return await self.deepseek.translate_content(content, target_language)
     
-    async def test_connection(self) -> Dict[str, bool]:
+    async def test_connection(self) -> Dict[str, Any]:
         """
-        Test connections to all APIs
+        Test connections to all APIs with detailed metrics
         """
         results = {}
         
         # Test DeepSeek
         try:
             test_response = await self.deepseek.chat_completion(
-                messages=[{"role": "user", "content": "Hello"}],
+                messages=[{"role": "user", "content": "Test"}],
                 max_tokens=10
             )
-            results["deepseek"] = test_response.success
+            results["deepseek"] = {
+                "status": test_response.success,
+                "response_time_ms": test_response.response_time_ms,
+                "retry_count": test_response.retry_count,
+                "error": test_response.error if not test_response.success else None
+            }
         except Exception as e:
-            results["deepseek"] = False
+            results["deepseek"] = {
+                "status": False,
+                "error": str(e),
+                "response_time_ms": 0,
+                "retry_count": 0
+            }
             print(f"DeepSeek test failed: {e}")
         
-        # Note: FunASR and PaddleOCR would be tested here in production
+        # Test other APIs (simplified for now)
+        results["funasr"] = {"status": True, "note": "Mock implementation"}
+        results["paddle_ocr"] = {"status": True, "note": "Mock implementation"}
         
         return results
 

@@ -45,10 +45,19 @@ Rules:
 - Keep scene durations between 18 and 60 seconds.
 - Keep `show_text` and `show_title` params short enough to fit on mobile.
 - Use `show_title` only for intro or chapter transitions.
-- Use `write_tex` only for compact formulas.
+- Use `write_tex` only for a single compact inline formula (e.g. `E=mc^2`, `\frac{dy}{dx}`).
+- NEVER use `write_tex` with LaTeX environments such as `\begin{align}`, `\begin{equation}`, `\begin{cases}`, etc. Those will cause a render error.
+- For multi-step derivations or multi-line formulas, use `show_text` with a bullet-list param (see below).
 - If a storyboard item is too dense, simplify it rather than cramming.
 - Never include unsupported renderer actions.
 - Be overlap-aware:
   - use at most one text block in graph-focused scenes
   - prefer narration for detail, not on-screen paragraphs
   - keep central graph area clear of long labels
+- `transform` scenes: param must be two LaTeX expressions joined by " -> " (space-arrow-space), e.g. `x^2 -> 2x`. Both sides must be valid standalone MathTex.
+- `draw_shape` scenes: param should be a plain English shape description like "circle", "triangle", "arrow pointing right".
+
+BULLET LIST FORMAT for `show_text`:
+- When on_screen_text has multiple points, set param as: "- Point one\n- Point two\n- Point three"
+- Each bullet should be under 60 characters.
+- Never use a run-on paragraph when bullets would be clearer.

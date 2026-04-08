@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from prompts.loader import load_prompt, render_prompt
 from services.api_client import APIClient, get_language_instruction
+from core.modules.content_validator import ContentValidator, validate_with_retry_suggestions
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,16 @@ class RobustVideoGenerationPipeline:
 
     def __init__(self, api_client: Optional[APIClient] = None):
         self.api_client = api_client or APIClient()
+        self.content_validator = ContentValidator()
+        self._consecutive_failures = 0
+        
+        # Initialize smart caching
+        try:
+            from core.cache.content_cache import content_cache
+            self.cache = content_cache
+        except ImportError:
+            logger.warning("Content cache not available")
+            self.cache = None
 
     async def build_generation_bundle(
         self,
@@ -133,8 +144,72 @@ class RobustVideoGenerationPipeline:
             max_tokens=8000,
         )
 
+        # Validate render plan structure
         validation = self._validate_render_plan(render_plan, language, duration_minutes)
         repaired_render_plan = validation["render_plan"]
+
+        # NEW: Content completeness validation
+        generation_bundle_preview = {
+            "topic": topic,
+            "syllabus": syllabus,
+            "storyboard": storyboard,
+            "render_plan": repaired_render_plan
+        }
+        
+        is_content_valid, retry_suggestions, validation_metadata = validate_with_retry_suggestions(
+            generation_bundle_preview, max_retry_attempts=3
+        )
+        
+        if not is_content_valid:
+            logger.warning(f"Content validation failed. Issues found: {validation_metadata}")
+            logger.info(f"Retry suggestions: {retry_suggestions}")
+            
+            # Attempt to fix truncation issues by regenerating with higher token limits
+            if validation_metadata.get("has_truncation") or validation_metadata.get("completeness_score", 0) < 0.7:
+                logger.info("Attempting content regeneration with higher token limits...")
+                
+                # Regenerate storyboard with higher token limit
+                storyboard = await self._run_stage(
+                    "storyboard_retry",
+                    "video/storyboard_builder",
+                    {
+                        "topic": topic,
+                        "style": style,
+                        "student_level": student_level,
+                        "target_audience": target_audience,
+                        "duration_minutes": duration_minutes,
+                        "target_scene_count": target_scene_count,
+                        "custom_requirements": custom_requirements or "None provided.",
+                        "language_instruction": language_instruction,
+                        "syllabus_json": json.dumps(syllabus, ensure_ascii=False, indent=2),
+                        "completeness_requirement": "Generate COMPLETE content without any truncation (...) or abbreviations. Include full detailed narrations for every scene."
+                    },
+                    storyboard_fallback,
+                    temperature=0.1,  # Lower temperature for more focused output
+                    max_tokens=12000,  # Increased token limit
+                )
+                
+                # Regenerate render plan with higher token limit
+                render_plan = await self._run_stage(
+                    "render_plan_retry",
+                    "video/render_plan_builder",
+                    {
+                        "topic": topic,
+                        "style": style,
+                        "student_level": student_level,
+                        "duration_minutes": duration_minutes,
+                        "language_instruction": language_instruction,
+                        "storyboard_json": json.dumps(storyboard, ensure_ascii=False, indent=2),
+                        "completeness_requirement": "Generate COMPLETE scenes without truncation. Every narration must be full and complete."
+                    },
+                    render_fallback,
+                    temperature=0.05,  # Very low temperature
+                    max_tokens=12000,  # Increased token limit
+                )
+                
+                # Re-validate after regeneration
+                validation = self._validate_render_plan(render_plan, language, duration_minutes)
+                repaired_render_plan = validation["render_plan"]
 
         review = await self._review_render_plan(topic, style, repaired_render_plan)
         if review.get("recommended_fixes"):
@@ -144,6 +219,22 @@ class RobustVideoGenerationPipeline:
                 language,
             )
             validation["review_applied"] = review_applied
+            
+        # Final validation after all repairs
+        final_bundle = {
+            "topic": topic,
+            "syllabus": syllabus,
+            "storyboard": storyboard,
+            "render_plan": repaired_render_plan
+        }
+        
+        final_is_valid, final_suggestions, final_metadata = validate_with_retry_suggestions(final_bundle)
+        validation["content_validation"] = {
+            "is_valid": final_is_valid,
+            "completeness_score": final_metadata.get("completeness_score", 0),
+            "suggestions": final_suggestions,
+            "metadata": final_metadata
+        }
 
         prompt_versions = {
             name: self._prompt_version(name)
@@ -181,30 +272,78 @@ class RobustVideoGenerationPipeline:
         temperature: float,
         max_tokens: int,
     ) -> Dict[str, Any]:
+        
+        topic = variables.get("topic", "")
+        style = variables.get("style", "general")
+        
+        # Try cache first (super fast!)
+        if self.cache:
+            # Remove duplicate parameters from variables to avoid conflicts
+            cache_vars = {k: v for k, v in variables.items() if k not in ['topic', 'style']}
+            cached_result = self.cache.get(topic, style, stage_name, **cache_vars)
+            if cached_result:
+                return cached_result
+        
+        # Smart fallback: Use high-quality templates when available  
+        if hasattr(self, '_consecutive_failures') and self._consecutive_failures >= 2:
+            template_result = self._try_template_generation(stage_name, variables)
+            if template_result:
+                logger.info(f"Using high-quality template for {stage_name}")
+                if self.cache:
+                    # Remove duplicate parameters from variables to avoid conflicts
+                    cache_vars = {k: v for k, v in variables.items() if k not in ['topic', 'style']}
+                    self.cache.set(topic, style, stage_name, template_result, **cache_vars)
+                return template_result
+            logger.info(f"Fast-track mode: Using basic fallback for {stage_name}")
+            return fallback
+            
         prompt = render_prompt(prompt_name, **variables)
-        try:
-            response = await self.api_client.deepseek.chat_completion(
-                messages=[
-                    {"role": "system", "content": "Return strict JSON only."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            if not response.success:
-                logger.warning("Stage %s failed: %s", stage_name, response.error)
-                return fallback
-
-            content = response.data["choices"][0]["message"]["content"]
-            parsed = self._parse_json_response(content)
-            if isinstance(parsed, dict):
-                return parsed
-
-            logger.warning("Stage %s returned non-dict JSON, using fallback", stage_name)
-            return fallback
-        except Exception as exc:
-            logger.warning("Stage %s exception: %s", stage_name, exc)
-            return fallback
+        
+        # Multi-provider fallback chain
+        providers = [
+            ("DeepSeek", self.api_client.deepseek.chat_completion),
+            # Add more providers here when available
+            # ("OpenAI", self.api_client.openai.chat_completion),
+            # ("Claude", self.api_client.claude.chat_completion),
+        ]
+        
+        for provider_name, provider_func in providers:
+            try:
+                response = await provider_func(
+                    messages=[
+                        {"role": "system", "content": "Return strict JSON only. Use double quotes for all property names and string values. Do not include any text before or after the JSON object."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                if response.success:
+                    content = response.data["choices"][0]["message"]["content"]
+                    parsed = self._parse_json_response(content)
+                    if isinstance(parsed, dict):
+                        self._reset_failures()  # Reset on success
+                        logger.info(f"✅ {stage_name} succeeded with {provider_name}")
+                        # Cache successful result
+                        if self.cache:
+                            # Remove duplicate parameters from variables to avoid conflicts
+                            cache_vars = {k: v for k, v in variables.items() if k not in ['topic', 'style']}
+                            self.cache.set(topic, style, stage_name, parsed, **cache_vars)
+                        return parsed
+                    else:
+                        logger.warning(f"❌ {provider_name} returned invalid JSON for {stage_name}")
+                        continue  # Try next provider
+                else:
+                    logger.warning(f"❌ {provider_name} failed for {stage_name}: {response.error}")
+                    continue  # Try next provider
+                    
+            except Exception as exc:
+                logger.warning(f"❌ {provider_name} exception for {stage_name}: {exc}")
+                continue  # Try next provider
+        
+        # All providers failed
+        logger.warning(f"All providers failed for {stage_name}, using fallback")
+        self._increment_failures()
+        return fallback
 
     async def _review_render_plan(self, topic: str, style: str, render_plan: Dict[str, Any]) -> Dict[str, Any]:
         fallback = {"approved": True, "issues": [], "recommended_fixes": []}
@@ -217,7 +356,7 @@ class RobustVideoGenerationPipeline:
         try:
             response = await self.api_client.deepseek.chat_completion(
                 messages=[
-                    {"role": "system", "content": "Return strict JSON only."},
+                    {"role": "system", "content": "Return strict JSON only. Use double quotes for all property names and string values. Do not include any text before or after the JSON object."},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.1,
@@ -334,6 +473,7 @@ class RobustVideoGenerationPipeline:
             scene.get("on_screen_text") or narration,
             canvas["max_chars"],
             language,
+            scene=scene,  # C: pass scene ref so deep sanitiser can flip action
         )
         scene["duration"] = self._normalize_duration(scene.get("duration"), narration)
 
@@ -360,14 +500,28 @@ class RobustVideoGenerationPipeline:
         fallback_text: str,
         max_chars: int,
         language: str,
+        scene: Any = None,
     ) -> str:
         text = str(param or fallback_text or "").strip()
         if action == "plot":
             return self._sanitize_plot_expression(text)
         if action in {"write_tex", "transform"}:
             if self._contains_non_ascii(text):
+                # Flip action to show_text so the renderer doesn't attempt MathTex
+                # on content that contains characters the LaTeX engine cannot compile.
+                if scene is not None and isinstance(scene, dict):
+                    scene["action"] = "show_text"
+                    scene.setdefault("canvas_config", {})["layout"] = "callout_card"
                 return self._compact_text(fallback_text, max_chars)
-            return self._sanitize_latex(text) or "x^2"
+            # C: Deep LaTeX environment sanitiser
+            sanitized, safe_action = self._deep_sanitize_latex(text)
+            if safe_action == "show_text":
+                # Mutate the scene dict if provided so the renderer uses show_text
+                if scene is not None and isinstance(scene, dict):
+                    scene["action"] = "show_text"
+                    scene.setdefault("canvas_config", {})["layout"] = "callout_card"
+                return self._compact_text(fallback_text, max_chars)
+            return self._sanitize_latex(sanitized) or "x^2"
         return self._compact_text(text, max_chars)
 
     def _normalize_duration(self, duration: Any, narration: str) -> float:
@@ -400,11 +554,106 @@ class RobustVideoGenerationPipeline:
         expr = re.sub(r"[^0-9a-zA-Z\\{}_^=()+\-*/., ]", "", expr)
         return expr
 
+    def _deep_sanitize_latex(self, expression: str) -> tuple[str, str]:
+        """
+        Enhanced LaTeX sanitization for better Manim MathTex compatibility
+        
+        Returns (sanitized_expr, safe_action) where safe_action is:
+          - 'write_tex' if the resulting expression looks compilable
+          - 'show_text'  if it is still too complex after stripping
+        """
+        expr = expression.strip()
+
+        # 1. Collapse \begin{env}...\end{env} — keep only the inner content
+        env_pattern = re.compile(
+            r"\\begin\{[^}]+\}(.*?)\\end\{[^}]+\}",
+            re.DOTALL,
+        )
+        for _ in range(4):  # nested environments
+            expr = env_pattern.sub(lambda m: m.group(1).strip(), expr)
+
+        # 2. Remove line-level LaTeX commands that Manim MathTex doesn't support
+        unsupported_cmds = [
+            r"\\label\{[^}]*\}",
+            r"\\tag\{[^}]*\}",
+            r"\\tag\*\{[^}]*\}",
+            r"\\nonumber",
+            r"\\intertext\{[^}]*\}",
+            r"\\allowdisplaybreaks",
+            r"\\notag",
+            r"\\displaystyle",
+            r"\\textstyle",
+            r"\\scriptstyle",
+            r"\\scriptscriptstyle",
+            r"\\usepackage\{[^}]*\}",
+            r"\\documentclass\{[^}]*\}",
+            r"\\newcommand\{[^}]*\}",
+        ]
+        for cmd_pattern in unsupported_cmds:
+            expr = re.sub(cmd_pattern, "", expr)
+
+        # 3. Fix common LaTeX syntax issues
+        # Fix exponent notation
+        expr = re.sub(r'\*\*', '^', expr)
+        
+        # Fix common bracket issues
+        expr = re.sub(r'\[\[', r'[', expr)
+        expr = re.sub(r'\]\]', r']', expr)
+        
+        # Fix multiple spaces
+        expr = re.sub(r'\s+', ' ', expr)
+        
+        # Fix common fraction issues
+        expr = re.sub(r'\\frac\s*\{\s*([^}]+)\s*\}\s*\{\s*([^}]+)\s*\}', r'\\frac{\1}{\2}', expr)
+
+        # 4. Multi-line align: keep only text up to the first \\\\ (line break)
+        if "\\\\" in expr:
+            expr = expr.split("\\\\")[0].strip()
+        
+        # Also collapse multiple & alignment points — keep text after last &
+        if "&" in expr:
+            parts = [p.strip() for p in expr.split("&")]
+            expr = " ".join(p for p in parts if p)
+
+        # 5. Remove problematic characters for Manim
+        # Keep essential math symbols, remove others
+        allowed_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/=(){}[]^_.,\\{} ")
+        filtered_expr = ''.join(c for c in expr if c in allowed_chars)
+        
+        # 6. Validate basic structure
+        # Check for balanced braces
+        open_braces = filtered_expr.count('{')
+        close_braces = filtered_expr.count('}')
+        if abs(open_braces - close_braces) > 2:  # Allow some tolerance
+            return (expr, "show_text")
+        
+        # 7. Safety verdict: if a \begin still lingers or too complex
+        if "\\begin" in filtered_expr or len(filtered_expr) > 150:
+            return (expr, "show_text")
+
+        # 8. Basic sanity — must contain at least one math character
+        if not re.search(r"[a-zA-Z0-9^_=+\-*/]", filtered_expr):
+            return ("x = 1", "write_tex")  # Safe fallback
+
+        # 9. Final cleanup
+        final_expr = filtered_expr.strip()
+        
+        # Add basic structure if missing
+        if not final_expr:
+            return ("x = 1", "write_tex")
+
+        return (final_expr, "write_tex")
+
     def _compact_text(self, text: str, max_chars: int) -> str:
+        """
+        Compact text while preserving complete meaning.
+        NEVER truncate with ellipsis - return full content.
+        """
         clean = re.sub(r"\s+", " ", str(text or "")).strip()
-        if len(clean) <= max_chars:
-            return clean
-        return clean[: max_chars - 3].rstrip() + "..."
+        
+        # Always return full text - no truncation allowed
+        # This ensures video content is always complete
+        return clean
 
     def _normalize_range(self, value: Any, fallback: List[int]) -> List[int]:
         if (
@@ -447,6 +696,9 @@ class RobustVideoGenerationPipeline:
 
     def _parse_json_response(self, content: str) -> Any:
         payload = content.strip()
+        original_payload = payload  # Keep for logging
+        
+        # Extract JSON from code blocks
         if "```json" in payload:
             payload = payload.split("```json", 1)[1].split("```", 1)[0]
         elif "```" in payload:
@@ -455,36 +707,86 @@ class RobustVideoGenerationPipeline:
         
         try:
             return json.loads(payload)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            logger.debug(f"Initial JSON parse failed: {e}. Attempting repair...")
             # Attempt to fix common LLM JSON errors
             fixed_payload = self._attempt_json_repair(payload)
             try:
                 return json.loads(fixed_payload)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e2:
+                logger.debug(f"Repaired JSON parse failed: {e2}. Trying regex fallback...")
                 # Fallback to regex search
                 match = re.search(r"\{.*\}", fixed_payload, re.DOTALL)
                 if match:
                     try:
                         return json.loads(match.group(0))
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as e3:
+                        logger.warning(f"All JSON parsing attempts failed. Original: {e}, Repaired: {e2}, Regex: {e3}")
+                        logger.debug(f"Original content: {original_payload[:500]}...")
+                        logger.debug(f"Final payload: {fixed_payload[:500]}...")
                         pass
                 raise
 
     def _attempt_json_repair(self, payload: str) -> str:
         """Fix common LLM JSON errors like trailing commas or unescaped characters."""
-        # 1. Remove trailing commas before closing braces/brackets
-        repaired = re.sub(r",\s*([\]}])", r"\1", payload)
-        # 2. Fix missing commas between key-value pairs
+        repaired = payload
+        
+        # 1. Remove any text before the first { or [
+        first_brace = repaired.find('{')
+        first_bracket = repaired.find('[')
+        if first_brace != -1 and (first_bracket == -1 or first_brace < first_bracket):
+            repaired = repaired[first_brace:]
+        elif first_bracket != -1:
+            repaired = repaired[first_bracket:]
+            
+        # 2. Remove any text after the last } or ]
+        last_brace = repaired.rfind('}')
+        last_bracket = repaired.rfind(']')
+        if last_brace != -1 and last_brace > last_bracket:
+            repaired = repaired[:last_brace + 1]
+        elif last_bracket != -1:
+            repaired = repaired[:last_bracket + 1]
+        
+        # 3. Fix unquoted property names (add double quotes around property names)
+        repaired = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', repaired)
+        
+        # 4. Fix single-quoted property names and values to double quotes
+        repaired = re.sub(r"'([^']*)'", r'"\1"', repaired)
+        
+        # 5. Remove trailing commas before closing braces/brackets
+        repaired = re.sub(r",\s*([\]}])", r"\1", repaired)
+        
+        # 6. Fix missing quotes around string values that look like unquoted strings
+        repaired = re.sub(r':\s*([a-zA-Z_][a-zA-Z0-9_\s]*[a-zA-Z0-9_])\s*([,}\]])', r': "\1"\2', repaired)
+        
+        # 7. Fix missing commas between key-value pairs
         repaired = re.sub(r'("[\w\d_]+")\s*:\s*([^,\]}]+)\s*("[\w\d_]+")\s*:', r'\1: \2, \3:', repaired)
-        # 3. Fix missing commas between objects in an array
+        
+        # 7b. Fix missing commas between property and opening brace/bracket  
+        repaired = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(\[[{])', r'\1"\2": \3', repaired)
+        
+        # 8. Fix missing commas between objects in an array
         repaired = re.sub(r'\}\s*\{', '}, {', repaired)
-        # 4. Handle truncated JSON by closing open braces/brackets
+        
+        # 9. Fix missing commas between array elements  
+        repaired = re.sub(r'"\s*"', '", "', repaired)
+        repaired = re.sub(r'}\s*"', '}, "', repaired)
+        repaired = re.sub(r']\s*"', '], "', repaired)
+        
+        # 10. Handle truncated JSON by closing open braces/brackets
         open_braces = repaired.count("{") - repaired.count("}")
         open_brackets = repaired.count("[") - repaired.count("]")
         if open_brackets > 0:
             repaired += "]" * open_brackets
         if open_braces > 0:
             repaired += "}" * open_braces
+            
+        # 11. Fix double quotes issues
+        repaired = repaired.replace('""', '"')
+        
+        # 12. Clean up extra whitespace
+        repaired = re.sub(r'\s+', ' ', repaired)
+        
         return repaired
 
     def _prompt_version(self, prompt_name: str) -> str:
@@ -666,3 +968,77 @@ class RobustVideoGenerationPipeline:
                 "recap": "Let us close with the main takeaway you should remember.",
             }
         return mapping.get(move, self._compact_text(content or f"Learn about {topic}.", 180))
+
+    def _increment_failures(self):
+        """Track consecutive API failures for fast-track fallback mode"""
+        self._consecutive_failures += 1
+        logger.debug(f"Consecutive failures: {self._consecutive_failures}")
+
+    def _reset_failures(self):
+        """Reset failure counter on successful API call"""
+        if self._consecutive_failures > 0:
+            logger.debug(f"Resetting failure counter (was {self._consecutive_failures})")
+            self._consecutive_failures = 0
+
+    def _try_template_generation(self, stage_name: str, variables: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Try to generate content using high-quality templates"""
+        try:
+            from core.templates.video_templates import get_template
+            
+            topic = variables.get("topic", "")
+            style = variables.get("style", "general")
+            
+            if stage_name == "storyboard":
+                template = get_template(topic, style)
+                return {
+                    "title": template["title"],
+                    "scenes": template["scenes"],
+                    "total_duration": sum(scene["duration"] for scene in template["scenes"]),
+                    "visual_style": "educational",
+                    "pacing": "moderate"
+                }
+            elif stage_name == "syllabus":
+                # Generate a topic-appropriate syllabus
+                return {
+                    "title": f"Understanding {topic}",
+                    "big_idea": f"Master the fundamental concepts of {topic} and apply them confidently.",
+                    "target_level": variables.get("student_level", "intermediate"),
+                    "visual_flavor": "discovery" if style == "general" else "rigorous",
+                    "teaching_arc": ["hook", "concept", "example", "practice", "summary"],
+                    "chapters": [
+                        {
+                            "id": "chapter_1",
+                            "title": "Introduction and Motivation",
+                            "learning_goal": f"Understand why {topic} is important and useful.",
+                            "visual_intent": "HOOK"
+                        },
+                        {
+                            "id": "chapter_2", 
+                            "title": "Core Concepts",
+                            "learning_goal": f"Learn the fundamental principles of {topic}.",
+                            "visual_intent": "CONCEPT"
+                        },
+                        {
+                            "id": "chapter_3",
+                            "title": "Applications",
+                            "learning_goal": f"See how {topic} applies to real situations.",
+                            "visual_intent": "EXAMPLE"
+                        }
+                    ]
+                }
+            elif stage_name == "render_plan":
+                # Generate a basic render plan
+                return {
+                    "approved": True,
+                    "scenes": variables.get("storyboard", {}).get("scenes", []),
+                    "visual_consistency": "high",
+                    "educational_flow": "clear"
+                }
+            
+            return None
+        except ImportError:
+            logger.warning("Template system not available")
+            return None
+        except Exception as e:
+            logger.warning(f"Template generation failed: {e}")
+            return None

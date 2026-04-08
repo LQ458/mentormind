@@ -635,9 +635,9 @@ class ProgrammaticVideoGenerator:
             total_audio_duration = sum(audio_durations)
             video_script.total_duration = total_audio_duration
 
-            # Preferred length: > 6 minutes (360s). 
-            # We no longer fail hard, but we'll use this to trigger a better retry if attempt == 1.
-            preferred_duration_seconds = 360
+            # Preferred length: > 3 minutes (180s). 
+            # Reduced from 6 minutes to improve success rate and reduce unnecessary retries.
+            preferred_duration_seconds = 180
             
             if total_audio_duration < preferred_duration_seconds and attempt == 1:
                 logger.info(f"Lesson length {total_audio_duration:.1f}s is below preferred {preferred_duration_seconds}s. Triggering enhanced retry.")
