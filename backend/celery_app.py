@@ -99,7 +99,15 @@ def create_class_video_task(self, request_data: dict, job_id: str):
     # We must run the async ClassCreator inside a synchronous wrapper
     async def _run_pipeline():
         creator = ClassCreator()
-        
+
+        def _progress(stage: str, percent: int, label: str):
+            self.update_state(state='PROGRESS', meta={
+                'stage': stage,
+                'percent': percent,
+                'label': label,
+            })
+            print(f"[{job_id}] PROGRESS {percent}% — {stage}: {label}")
+
         language = request_data.get("language", "zh")
         class_request = ClassCreationRequest(
             topic=request_data.get("topic", ""),
@@ -119,9 +127,9 @@ def create_class_video_task(self, request_data: dict, job_id: str):
         
         # Execute the pipeline
         if language == "en":
-            result = await creator.create_class_english(class_request)
+            result = await creator.create_class_english(class_request, progress_callback=_progress)
         else:
-            result = await creator.create_class_chinese(class_request)
+            result = await creator.create_class_chinese(class_request, progress_callback=_progress)
             
         return result
 

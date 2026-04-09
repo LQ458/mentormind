@@ -584,6 +584,7 @@ class ProgrammaticVideoGenerator:
         duration_minutes: int = 10,
         custom_requirements: Optional[str] = None,
         existing_bundle: Optional[Dict[str, Any]] = None,
+        progress_callback=None,
     ) -> Dict:
         """
         Generate a programmatic video from content
@@ -607,7 +608,11 @@ class ProgrammaticVideoGenerator:
                 custom_requirements=expanded_requirements,
                 existing_bundle=last_bundle,
             )
-            
+
+            # Milestone: script/render plan is ready
+            if progress_callback:
+                progress_callback('script_complete', 45, 'Script ready')
+
             # Save the bundle for the next attempt if this one fails length validation
             last_bundle = video_script.debug_artifacts
 
@@ -632,6 +637,10 @@ class ProgrammaticVideoGenerator:
             tasks = [process_scene_audio(scene) for scene in video_script.scenes]
             audio_durations = await asyncio.gather(*tasks)
 
+            # Milestone: all TTS audio synthesized
+            if progress_callback:
+                progress_callback('audio_complete', 60, 'Audio ready')
+
             total_audio_duration = sum(audio_durations)
             video_script.total_duration = total_audio_duration
 
@@ -649,6 +658,11 @@ class ProgrammaticVideoGenerator:
 
             logger.info(f"Rendering with engine: Manim (style={style})")
             video_path = await self.manim_service.render_script(video_script)
+
+            # Milestone: Manim rendering complete
+            if progress_callback:
+                progress_callback('render_complete', 90, 'Rendering complete')
+
             video_probe = await asyncio.to_thread(self._probe_rendered_video, video_path)
             if video_probe.get("has_audio_stream") is False:
                 raise ValueError(f"Rendered video is missing an audio stream: {video_path}")
@@ -910,7 +924,8 @@ class OutputPipeline:
         target_audience: str = "students",
         duration_minutes: int = 10,
         custom_requirements: Optional[str] = None,
-        syllabus: Optional[Dict[str, Any]] = None, # Accept locked syllabus
+        syllabus: Optional[Dict[str, Any]] = None,  # Accept locked syllabus
+        progress_callback=None,
     ) -> Dict:
         """
         Generate quick explanation with audio and real video
@@ -968,7 +983,8 @@ class OutputPipeline:
             target_audience=target_audience,
             duration_minutes=duration_minutes,
             custom_requirements=custom_requirements or context,
-            existing_bundle={"syllabus": syllabus} if syllabus else None, # Pass syllabus
+            existing_bundle={"syllabus": syllabus} if syllabus else None,  # Pass syllabus
+            progress_callback=progress_callback,
         )
         video_local_path = video_result['video_path']
         audio_local_path = video_result['script'].scenes[0].audio_path if video_result['script'].scenes else ""

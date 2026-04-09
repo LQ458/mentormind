@@ -177,15 +177,15 @@ class ClassCreator:
             print(f"Error analyzing query: {e}")
             return self._generate_ai_fallback_topics(query)
     
-    async def create_class_chinese(self, request: ClassCreationRequest) -> ClassCreationResult:
+    async def create_class_chinese(self, request: ClassCreationRequest, progress_callback=None) -> ClassCreationResult:
         """Create class in Chinese"""
-        return await self._create_class(request, Language.CHINESE)
-    
-    async def create_class_english(self, request: ClassCreationRequest) -> ClassCreationResult:
+        return await self._create_class(request, Language.CHINESE, progress_callback=progress_callback)
+
+    async def create_class_english(self, request: ClassCreationRequest, progress_callback=None) -> ClassCreationResult:
         """Create class in English"""
-        return await self._create_class(request, Language.ENGLISH)
-    
-    async def _create_class(self, request: ClassCreationRequest, language: Language) -> ClassCreationResult:
+        return await self._create_class(request, Language.ENGLISH, progress_callback=progress_callback)
+
+    async def _create_class(self, request: ClassCreationRequest, language: Language, progress_callback=None) -> ClassCreationResult:
         """Internal method to create class in any language using real AI with translation support"""
         try:
             ai_data = None
@@ -227,10 +227,14 @@ class ClassCreator:
                     return self._create_ai_fallback_class(request, language)
             
             if ai_data:
+                # Milestone 1: syllabus is ready
+                if progress_callback:
+                    progress_callback('syllabus_complete', 20, 'Syllabus ready')
+
                 # Translate AI responses if language is Chinese
                 if language == Language.CHINESE:
                     ai_data = await self._translate_ai_response(ai_data)
-                
+
                 # Extract data from AI response
                 default_title = request.topic if language == Language.ENGLISH else f"{request.topic}课程"
                 default_description = (
@@ -279,7 +283,8 @@ class ClassCreator:
                             target_audience=request.target_audience,
                             duration_minutes=max(10, request.duration_minutes),
                             custom_requirements=request.custom_requirements,
-                            syllabus=request.syllabus, # Pass locked syllabus to output pipeline
+                            syllabus=request.syllabus,  # Pass locked syllabus to output pipeline
+                            progress_callback=progress_callback,
                         )
                         
                         if multimedia_result:
