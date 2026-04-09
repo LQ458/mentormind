@@ -55,6 +55,7 @@ celery_app.conf.update(
         "mentormind.render_manim_scene": {"queue": "rendering"},
         "mentormind.transcribe_audio": {"queue": "heavy_ml"},
         "mentormind.ocr_image": {"queue": "heavy_ml"},
+        "mentormind.generate_unit_content": {"queue": "orchestration"},
     },
 )
 
@@ -573,21 +574,21 @@ def ocr_image_task(self, file_path: str, language: str, job_id: str, target_lang
     Celery task: extract text from image using PaddleOCR and provide summary.
     """
     print(f"[{job_id}] Received OCR task for file: {file_path}")
-    
+
     async def _run():
         from core.asr import extract_text_with_paddleocr
         # 1. OCR directly (extract_text_with_paddleocr is synchronous inside executor)
         ocr = await asyncio.get_event_loop().run_in_executor(None, extract_text_with_paddleocr, file_path)
         full_text = ocr.get("text", "")
         print(f"[{job_id}] OCR complete: {len(full_text)} chars")
-        
+
         # 2. Summarize
         summary = await summarize_extracted_content(
             full_text,
             "image",
             target_language=target_language,
         )
-        
+
         return {
             "success": True,
             "text": full_text,
@@ -601,7 +602,7 @@ def ocr_image_task(self, file_path: str, language: str, job_id: str, target_lang
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        
+
     try:
         response = loop.run_until_complete(_run())
     except Exception as e:
@@ -621,5 +622,67 @@ def ocr_image_task(self, file_path: str, language: str, job_id: str, target_lang
         )
     except Exception as e:
         print(f"[{job_id}] ⚠️ Failed to store result in Redis: {e}")
-        
+
     return response
+
+
+# ── Study Plan: Unit Content Generation ─────────────────────────────────────
+
+@celery_app.task(bind=True, name="mentormind.generate_unit_content", time_limit=600)
+def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: dict,
+                                content_types: list, language: str = "zh"):
+    """
+    Celery task: generate study content (guides, quizzes, flashcards, etc.) for a study plan unit.
+    """
+    print(f"[unit:{unit_id}] Generating content types: {content_types}")
+
+    async def _run():
+        from core.content.unit_generator import UnitContentGenerator
+        generator = UnitContentGenerator()
+        return await generator.generate(
+            unit_data=unit_data,
+            plan_data=plan_data,
+            content_types=content_types,
+            language=language,
+        )
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    try:
+        result = loop.run_until_complete(_run())
+    except Exception as e:
+        print(f"[unit:{unit_id}] ❌ Content generation failed: {e}")
+        result = {"error": str(e)}
+
+    # Store result in Redis for polling
+    try:
+        _redis_client.setex(
+            f"unit_content:{unit_id}",
+            7200,  # 2 hour TTL
+            json.dumps(result, default=str)
+        )
+    except Exception as e:
+        print(f"[unit:{unit_id}] ⚠️ Failed to store result in Redis: {e}")
+
+    # Update the unit in the database
+    try:
+        init_database()
+        session = SessionLocal()
+        try:
+            from database.models.study_plan import StudyPlanUnit
+            unit = session.query(StudyPlanUnit).filter(StudyPlanUnit.id == unit_id).first()
+            if unit:
+                for ct in content_types:
+                    if ct in result and result[ct] is not None:
+                        setattr(unit, ct, result[ct])
+                unit.content_status = "ready" if not result.get("error") else "failed"
+                session.commit()
+                print(f"[unit:{unit_id}] ✅ Updated unit content in DB")
+        finally:
+            session.close()
+    except Exception as e:
+        print(f"[unit:{unit_id}] ⚠️ Failed to update unit in DB: {e}")

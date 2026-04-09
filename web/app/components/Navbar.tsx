@@ -13,6 +13,8 @@ export default function Navbar() {
         { href: '/dashboard', label: t('nav.dashboard') },
         { href: '/create', label: t('nav.create') },
         { href: '/lessons', label: t('nav.lessons') },
+        { href: '/study-plan', label: language === 'zh' ? '学习计划' : 'Study Plan' },
+        { href: '/gaokao', label: '高考' },
         { href: '/analytics', label: t('nav.analytics') },
         { href: '/settings', label: t('nav.settings') },
     ]

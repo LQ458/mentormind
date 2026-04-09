@@ -157,3 +157,50 @@ class AIProvider(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     LOCAL = "local"
+
+
+class Subject(str, Enum):
+    MATH = "math"
+    PHYSICS = "physics"
+    CHEMISTRY = "chemistry"
+    BIOLOGY = "biology"
+    CS = "cs"
+    HISTORY = "history"
+    ENGLISH = "english"
+    ECONOMICS = "economics"
+    PSYCHOLOGY = "psychology"
+    GOVERNMENT = "government"
+    WORLD_LANGUAGES = "world_languages"
+    ENVIRONMENTAL_SCIENCE = "environmental_science"
+    ART = "art"
+    GENERAL = "general"
+
+
+class ExamFramework(str, Enum):
+    AP = "ap"
+    A_LEVEL = "a_level"
+    GAOKAO = "gaokao"
+    IB = "ib"
+    GENERAL = "general"
+
+
+class ContentType(str, Enum):
+    STUDY_GUIDE = "study_guide"
+    QUIZ = "quiz"
+    FLASHCARDS = "flashcards"
+    FORMULA_SHEET = "formula_sheet"
+    MOCK_EXAM = "mock_exam"
+
+
+class UnitStatus(str, Enum):
+    PENDING = "pending"
+    GENERATING = "generating"
+    READY = "ready"
+    FAILED = "failed"
+
+
+class PlanStatus(str, Enum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    ARCHIVED = "archived"

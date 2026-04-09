@@ -2753,5 +2753,512 @@ async def stripe_webhook(request: Request):
     return {"received": True}
 
 
+# ── Study Plan Endpoints ─────────────────────────────────────────────────────
+
+from core.agents.study_plan_agent import StudyPlanAgent, PlanStage, PlanResponse
+from core.agents.subject_detector import SubjectDetector
+from core.content.gaokao_tutor import GaokaoTutor
+from database.models.study_plan import StudyPlan, StudyPlanUnit, GaokaoSession
+
+study_plan_agent = StudyPlanAgent()
+subject_detector = SubjectDetector()
+gaokao_tutor = GaokaoTutor()
+
+
+class StudyPlanChatRequest(BaseModel):
+    history: List[Dict[str, str]]
+    stage: str = "opening"
+    language: str = "en"
+
+
+class StudyPlanChatResponse(BaseModel):
+    success: bool
+    stage: str
+    content: str
+    thinking_process: Optional[str] = None
+    proposed_plan: Optional[Dict[str, Any]] = None
+    diagnostic_question: Optional[str] = None
+    next_action_label: Optional[str] = None
+    detected_subject: Optional[Dict[str, Any]] = None
+
+
+class StudyPlanCreateRequest(BaseModel):
+    plan_data: Dict[str, Any]
+    language: str = "zh"
+
+
+class UnitGenerateRequest(BaseModel):
+    content_types: List[str] = Field(default_factory=lambda: ["study_guide", "quiz", "flashcards"])
+
+
+class GaokaoChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    message: str = Field(min_length=1)
+    subject: str = "math"
+    topic_focus: Optional[str] = None
+    language: str = "zh"
+
+
+class DetectSubjectRequest(BaseModel):
+    text: str = Field(min_length=1)
+    language: str = "en"
+
+
+@app.post("/detect-subject")
+async def detect_subject(req: DetectSubjectRequest):
+    """Detect STEM subject, framework, and difficulty from user text."""
+    try:
+        detection = await subject_detector.detect(req.text, req.language)
+        return {
+            "success": True,
+            "subject": detection.subject,
+            "framework": detection.framework,
+            "difficulty": detection.difficulty,
+            "topics": detection.topics,
+            "confidence": detection.confidence,
+        }
+    except Exception as e:
+        logger.error(f"Subject detection failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/study-plan/chat", response_model=StudyPlanChatResponse)
+async def study_plan_chat(req: StudyPlanChatRequest):
+    """Conversational study plan creation (diagnostic → plan review → locked)."""
+    try:
+        current_stage = PlanStage(req.stage)
+        response = await study_plan_agent.get_next_response(
+            history=req.history,
+            current_stage=current_stage,
+            language=req.language,
+        )
+        return StudyPlanChatResponse(
+            success=True,
+            stage=response.stage.value,
+            content=response.content,
+            thinking_process=response.thinking_process,
+            proposed_plan=response.proposed_plan,
+            diagnostic_question=response.diagnostic_question,
+            next_action_label=response.next_action_label,
+            detected_subject=response.detected_subject,
+        )
+    except Exception as e:
+        logger.error(f"Study plan chat failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/study-plan/create")
+async def create_study_plan(
+    req: StudyPlanCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a study plan from the confirmed plan data."""
+    try:
+        plan_data = req.plan_data
+        units_data = plan_data.get("units", [])
+
+        plan = StudyPlan(
+            user_id=current_user.id,
+            subject=plan_data.get("subject", "general"),
+            framework=plan_data.get("framework"),
+            course_name=plan_data.get("course_name"),
+            title=plan_data.get("title", "Study Plan"),
+            description=plan_data.get("description", ""),
+            language=req.language,
+            total_units=len(units_data),
+            estimated_hours=plan_data.get("estimated_hours", 0),
+            difficulty_level=plan_data.get("difficulty", "intermediate"),
+            diagnostic_context=plan_data.get("diagnostic_context", {}),
+            status="active",
+        )
+        db.add(plan)
+        db.flush()  # Get plan.id
+
+        for i, unit_data in enumerate(units_data):
+            unit = StudyPlanUnit(
+                plan_id=plan.id,
+                order_index=i,
+                title=unit_data.get("title", f"Unit {i+1}"),
+                description=unit_data.get("description", ""),
+                topics=unit_data.get("topics", []),
+                learning_objectives=unit_data.get("learning_objectives", []),
+                estimated_minutes=unit_data.get("estimated_minutes", 60),
+                content_status="pending",
+            )
+            db.add(unit)
+
+        db.commit()
+        db.refresh(plan)
+
+        return {
+            "success": True,
+            "plan_id": str(plan.id),
+            "title": plan.title,
+            "total_units": plan.total_units,
+            "status": plan.status,
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Study plan creation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/study-plan/my-plans")
+async def get_my_study_plans(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get all study plans for the current user."""
+    try:
+        plans = (
+            db.query(StudyPlan)
+            .filter(StudyPlan.user_id == current_user.id)
+            .filter(StudyPlan.status != "archived")
+            .order_by(StudyPlan.created_at.desc())
+            .all()
+        )
+        return {
+            "success": True,
+            "plans": [p.to_dict(include_units=False) for p in plans],
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch study plans: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/study-plan/{plan_id}")
+async def get_study_plan(
+    plan_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get a study plan with all its units."""
+    try:
+        plan = (
+            db.query(StudyPlan)
+            .filter(StudyPlan.id == plan_id, StudyPlan.user_id == current_user.id)
+            .first()
+        )
+        if not plan:
+            raise HTTPException(status_code=404, detail="Study plan not found")
+        return {"success": True, "plan": plan.to_dict(include_units=True)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch study plan: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/study-plan/{plan_id}/unit/{unit_id}/generate")
+async def generate_unit_content(
+    plan_id: str,
+    unit_id: str,
+    req: UnitGenerateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Trigger content generation for a study plan unit via Celery."""
+    try:
+        plan = (
+            db.query(StudyPlan)
+            .filter(StudyPlan.id == plan_id, StudyPlan.user_id == current_user.id)
+            .first()
+        )
+        if not plan:
+            raise HTTPException(status_code=404, detail="Study plan not found")
+
+        unit = db.query(StudyPlanUnit).filter(
+            StudyPlanUnit.id == unit_id, StudyPlanUnit.plan_id == plan_id
+        ).first()
+        if not unit:
+            raise HTTPException(status_code=404, detail="Unit not found")
+
+        # Mark as generating
+        unit.content_status = "generating"
+        db.commit()
+
+        # Dispatch Celery task
+        from celery_app import generate_unit_content_task
+
+        task = generate_unit_content_task.delay(
+            unit_id=str(unit.id),
+            plan_data={
+                "subject": plan.subject,
+                "framework": plan.framework,
+                "course_name": plan.course_name,
+                "difficulty_level": plan.difficulty_level or "intermediate",
+            },
+            unit_data={
+                "title": unit.title,
+                "description": unit.description,
+                "topics": unit.topics or [],
+                "learning_objectives": unit.learning_objectives or [],
+            },
+            content_types=req.content_types,
+            language=plan.language,
+        )
+
+        return {
+            "success": True,
+            "task_id": task.id,
+            "unit_id": str(unit.id),
+            "content_types": req.content_types,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unit content generation dispatch failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/study-plan/{plan_id}/unit/{unit_id}/content")
+async def get_unit_content(
+    plan_id: str,
+    unit_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get generated content for a study plan unit."""
+    try:
+        unit = db.query(StudyPlanUnit).filter(
+            StudyPlanUnit.id == unit_id, StudyPlanUnit.plan_id == plan_id
+        ).first()
+        if not unit:
+            raise HTTPException(status_code=404, detail="Unit not found")
+
+        return {
+            "success": True,
+            "content_status": unit.content_status,
+            "study_guide": unit.study_guide,
+            "quiz": unit.quiz,
+            "flashcards": unit.flashcards,
+            "formula_sheet": unit.formula_sheet,
+            "mock_exam": unit.mock_exam,
+            "is_completed": unit.is_completed,
+            "score": unit.score,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch unit content: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/study-plan/{plan_id}/unit/{unit_id}/complete")
+async def mark_unit_complete(
+    plan_id: str,
+    unit_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mark a unit as completed and update plan progress."""
+    try:
+        plan = (
+            db.query(StudyPlan)
+            .filter(StudyPlan.id == plan_id, StudyPlan.user_id == current_user.id)
+            .first()
+        )
+        if not plan:
+            raise HTTPException(status_code=404, detail="Study plan not found")
+
+        unit = db.query(StudyPlanUnit).filter(
+            StudyPlanUnit.id == unit_id, StudyPlanUnit.plan_id == plan_id
+        ).first()
+        if not unit:
+            raise HTTPException(status_code=404, detail="Unit not found")
+
+        unit.is_completed = True
+        # Update plan progress
+        total = plan.total_units or 1
+        completed = db.query(StudyPlanUnit).filter(
+            StudyPlanUnit.plan_id == plan_id, StudyPlanUnit.is_completed.is_(True)
+        ).count()
+        plan.progress_percentage = round((completed / total) * 100, 1)
+
+        if plan.progress_percentage >= 100:
+            plan.status = "completed"
+
+        db.commit()
+        return {
+            "success": True,
+            "progress_percentage": plan.progress_percentage,
+            "plan_status": plan.status,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to mark unit complete: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Quiz Score Submission & Adaptive Difficulty ─────────────────────────────
+
+class SubmitQuizScoreRequest(BaseModel):
+    score: float = Field(..., ge=0.0, le=1.0, description="Quiz score as 0.0-1.0")
+    quiz_type: str = Field(default="formative", description="formative, unit_test, or mock_exam")
+
+
+def _adjust_difficulty(current: str, recent_scores: list[float]) -> str:
+    """Adjust difficulty based on recent quiz scores (sliding window of last 3)."""
+    if len(recent_scores) < 2:
+        return current
+    avg = sum(recent_scores[-3:]) / len(recent_scores[-3:])
+    if avg >= 0.85 and current != "advanced":
+        return "advanced" if current == "intermediate" else "intermediate"
+    if avg <= 0.45 and current != "beginner":
+        return "beginner" if current == "intermediate" else "intermediate"
+    return current
+
+
+@app.post("/study-plan/{plan_id}/unit/{unit_id}/submit-score")
+async def submit_unit_quiz_score(
+    plan_id: str,
+    unit_id: str,
+    req: SubmitQuizScoreRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Submit a quiz score for a unit. Adjusts plan difficulty adaptively."""
+    try:
+        plan = (
+            db.query(StudyPlan)
+            .filter(StudyPlan.id == plan_id, StudyPlan.user_id == current_user.id)
+            .first()
+        )
+        if not plan:
+            raise HTTPException(status_code=404, detail="Study plan not found")
+
+        unit = db.query(StudyPlanUnit).filter(
+            StudyPlanUnit.id == unit_id, StudyPlanUnit.plan_id == plan_id
+        ).first()
+        if not unit:
+            raise HTTPException(status_code=404, detail="Unit not found")
+
+        unit.score = req.score
+
+        # Collect recent scores for adaptive adjustment
+        scored_units = (
+            db.query(StudyPlanUnit)
+            .filter(
+                StudyPlanUnit.plan_id == plan_id,
+                StudyPlanUnit.score.isnot(None),
+            )
+            .order_by(StudyPlanUnit.order_index)
+            .all()
+        )
+        recent_scores = [u.score for u in scored_units]
+
+        old_level = plan.difficulty_level or "intermediate"
+        new_level = _adjust_difficulty(old_level, recent_scores)
+        level_changed = old_level != new_level
+        if level_changed:
+            plan.difficulty_level = new_level
+
+        db.commit()
+        return {
+            "success": True,
+            "score": req.score,
+            "difficulty_level": new_level,
+            "level_changed": level_changed,
+            "recent_scores": recent_scores[-3:],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to submit quiz score: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Gaokao Chat Endpoints ───────────────────────────────────────────────────
+
+@app.post("/gaokao/chat")
+async def gaokao_chat(
+    req: GaokaoChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Chat with the Gaokao tutor — conversational learning loop."""
+    try:
+        # Get or create session
+        session = None
+        if req.session_id:
+            session = db.query(GaokaoSession).filter(
+                GaokaoSession.id == req.session_id,
+                GaokaoSession.user_id == current_user.id,
+            ).first()
+
+        if not session:
+            session = GaokaoSession(
+                user_id=current_user.id,
+                subject=req.subject,
+                topic_focus=req.topic_focus,
+                chat_history=[],
+                resources_found=[],
+                status="active",
+            )
+            db.add(session)
+            db.flush()
+
+        # Get tutor response
+        chat_history = session.chat_history or []
+        result = await gaokao_tutor.chat(
+            subject=req.subject,
+            message=req.message,
+            chat_history=chat_history,
+            topic_focus=req.topic_focus or session.topic_focus,
+            resources=session.resources_found,
+            language=req.language,
+        )
+
+        # Update session history
+        chat_history.append({"role": "user", "content": req.message})
+        chat_history.append({"role": "assistant", "content": result["content"]})
+        session.chat_history = chat_history
+        if req.topic_focus:
+            session.topic_focus = req.topic_focus
+        db.commit()
+
+        return {
+            "success": True,
+            "session_id": str(session.id),
+            "content": result["content"],
+            "suggested_actions": result["suggested_actions"],
+            "needs_search": result["needs_search"],
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Gaokao chat failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/gaokao/practice")
+async def gaokao_practice(
+    subject: str = "math",
+    topic: str = "函数",
+    difficulty: str = "medium",
+    count: int = 3,
+    current_user: User = Depends(get_current_user),
+):
+    """Generate Gaokao-style practice problems."""
+    try:
+        result = await gaokao_tutor.generate_practice(
+            subject=subject,
+            topic=topic,
+            difficulty=difficulty,
+            count=count,
+        )
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to generate practice problems")
+        return {"success": True, "problems": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Gaokao practice generation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)
