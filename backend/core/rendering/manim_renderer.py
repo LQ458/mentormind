@@ -46,10 +46,138 @@ class ManimService:
         self.render_timeout_seconds = int(os.getenv("MANIM_RENDER_TIMEOUT_SECONDS", "420"))
         os.makedirs(self.output_dir, exist_ok=True)
         
+    def _generate_single_scene_code(self, scene: Any, index: int) -> str:
+        """Generate standalone Manim code for one scene with class LessonScene{index}."""
+        class _Proxy:
+            def __init__(self, s):
+                self.scenes = [s]
+                self.title = getattr(s, 'id', f'scene_{index}')
+        code = self._generate_manim_code(_Proxy(scene))
+        # Rename class so concurrent renders don't collide
+        return code.replace('class LessonScene(Scene):', f'class LessonScene{index}(Scene):')
+
+    async def _render_scene_parallel(
+        self,
+        scene_code: str,
+        index: int,
+        timestamp: str,
+        semaphore: Any,
+    ) -> Optional[str]:
+        """Render one scene file. Returns video path or None on permanent failure."""
+        import asyncio as _asyncio
+        uv_manim = "/Users/LeoQin/Documents/GitHub/mentormind/backend/.venv/bin/manim"
+        scene_name = f"LessonScene{index}"
+        stem = f"scene_{timestamp}_{index}"
+        script_path = os.path.join(self.output_dir, f"{stem}.py")
+
+        with open(script_path, 'w') as f:
+            f.write(scene_code)
+
+        for attempt in range(1, 4):
+            async with semaphore:
+                try:
+                    await _asyncio.to_thread(
+                        subprocess.run,
+                        [uv_manim, f"-q{self.render_quality}", "--media_dir", self.output_dir,
+                         script_path, scene_name],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        env={**os.environ, "PATH": os.environ["PATH"]},
+                        timeout=self.render_timeout_seconds,
+                    )
+                    video_root = Path(self.output_dir) / "videos" / stem
+                    matches = sorted(video_root.rglob(f"{scene_name}.mp4"))
+                    if matches:
+                        logger.info(f"✅ Scene {index} rendered: {matches[0]}")
+                        return str(matches[0])
+                    logger.warning(f"Scene {index}: render succeeded but no mp4 found")
+                    return None
+                except subprocess.CalledProcessError as e:
+                    logger.warning(f"⚠️ Scene {index} attempt {attempt} failed: {e.stderr[:300]}")
+                    if attempt == 3:
+                        logger.error(f"❌ Scene {index} failed after 3 attempts — skipping")
+                        return None
+                except Exception as e:
+                    logger.error(f"❌ Scene {index} unexpected error: {e}")
+                    return None
+        return None
+
+    async def _concat_videos(self, video_paths: List[str], timestamp: str) -> str:
+        """Concatenate scene videos with ffmpeg. Returns output path."""
+        import asyncio as _asyncio
+        import shutil
+        concat_list = os.path.join(self.output_dir, f"concat_{timestamp}.txt")
+        output_path = os.path.join(self.output_dir, f"lesson_{timestamp}.mp4")
+
+        with open(concat_list, 'w') as f:
+            for p in video_paths:
+                f.write(f"file '{p}'\n")
+
+        ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
+        await _asyncio.to_thread(
+            subprocess.run,
+            [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", concat_list, "-c", "copy", output_path],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        try:
+            os.remove(concat_list)
+        except Exception:
+            pass
+
+        logger.info(f"✅ [Manim] Concat complete → {output_path}")
+        return output_path
+
     async def render_script(self, script: Any) -> str:
         """
-        Render a full video script using Manim with Self-Correction.
+        Render a video script using Manim.
+        Multi-scene scripts use per-scene parallel rendering + ffmpeg concat.
+        Single-scene scripts fall back to the original single-file renderer.
         Returns the path to the final video file.
+        """
+        import asyncio as _asyncio
+        import time
+
+        scenes = getattr(script, 'scenes', [])
+        if len(scenes) <= 1:
+            return await self._render_script_single(script)
+
+        start_time = time.time()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        logger.info(f"📐 [Manim] Parallel render: '{script.title}' ({len(scenes)} scenes)")
+
+        semaphore = _asyncio.Semaphore(4)
+
+        scene_codes = [
+            self._sanitize_generated_code(self._generate_single_scene_code(scene, i))
+            for i, scene in enumerate(scenes)
+        ]
+
+        video_paths = await _asyncio.gather(*[
+            self._render_scene_parallel(code, i, timestamp, semaphore)
+            for i, code in enumerate(scene_codes)
+        ])
+
+        valid_paths = [p for p in video_paths if p]
+        logger.info(f"[Manim] {len(valid_paths)}/{len(scenes)} scenes rendered")
+
+        if not valid_paths:
+            logger.warning("[Manim] All parallel scene renders failed; falling back to single render")
+            return await self._render_script_single(script)
+
+        if len(valid_paths) == 1:
+            return valid_paths[0]
+
+        output = await self._concat_videos(valid_paths, timestamp)
+        duration = time.time() - start_time
+        logger.info(f"✅ [Manim] Parallel render complete in {duration:.2f}s → {output}")
+        return output
+
+    async def _render_script_single(self, script: Any) -> str:
+        """
+        Original single-file Manim renderer with LLM self-correction.
         """
 
         import time
