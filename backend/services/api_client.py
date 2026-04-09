@@ -225,7 +225,11 @@ class DeepSeekClient:
                     url,
                     headers=self.headers,
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=120) # Reduced to 2 mins for faster failure detection
+                    timeout=aiohttp.ClientTimeout(
+                        total=None,    # no global cap — sock_read controls it
+                        connect=10,    # fail fast if server unreachable
+                        sock_read=300  # 5 min to read large LLM completions (storyboard ~120s)
+                    )
                 ) as response:
                     
                     if response.status == 200:

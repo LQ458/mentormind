@@ -2071,11 +2071,29 @@ async def stream_job_status(job_id: str):
                 
             task_result = AsyncResult(job_id, app=celery_app)
             status = task_result.status.lower()
-            
+
+            # Relay PROGRESS milestones immediately (stage/percent/label from Celery meta)
+            if status == "progress":
+                meta = task_result.info or {}
+                data = {
+                    "status": "progress",
+                    "job_id": job_id,
+                    "stage": meta.get("stage", ""),
+                    "percent": meta.get("percent", 0),
+                    "label": meta.get("label", ""),
+                }
+                yield f"data: {json.dumps(data)}\n\n"
+                await asyncio.sleep(2)
+                continue
+
             if status != last_status:
                 data = {"status": status, "job_id": job_id}
                 if status == "failure":
                     data["error"] = str(task_result.result)
+                    # Include stage from meta if available for frontend error display
+                    meta = task_result.info or {}
+                    if isinstance(meta, dict) and meta.get("stage"):
+                        data["stage"] = meta["stage"]
                     yield f"data: {json.dumps(data)}\n\n"
                     break
                 if status == "success":
@@ -2091,10 +2109,10 @@ async def stream_job_status(job_id: str):
                     # Prevent proxies/browsers from treating a long render as a dead chunked response.
                     yield ": keepalive\n\n"
                     keepalive_tick = 0
-                
+
             if status in ["failure", "revoked"]:
                 break
-                
+
             await asyncio.sleep(2)
             
     return StreamingResponse(

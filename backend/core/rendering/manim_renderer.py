@@ -210,7 +210,8 @@ class ManimService:
             "",
             "class LessonScene(Scene):",
             "    def wrap_text(self, text, width=40):",
-            "        return '\\n'.join([text[i:i+width] for i in range(0, len(text), width)])",
+            "        import textwrap",
+            "        return textwrap.fill(str(text), width=width)",
             "",
             "    def compact_text(self, text, max_chars=120):",
             "        text = str(text).strip()",
@@ -339,8 +340,9 @@ class ManimService:
                     code.append(f"        self.play(FadeOut(eq2), run_time=0.4)")
                 else:
                     # Fallback: treat as show_text when non-ASCII or no separator
-                    display_text = scene.param or scene.narration
-                    code.append(f'        text = Text(self.compact_text(r"""{display_text}""", max_chars=72), font_size={font_size}, color={primary_col})')
+                    display_text = self._compact_for_code(scene.param or scene.narration, 150)
+                    code.append(f'        text = Text(self.wrap_text(r"""{display_text}""", width=42), font_size={font_size}, color={primary_col})')
+                    code.append(f"        text.move_to(ORIGIN)")
                     code.append(f"        text.scale({safe_scale})")
                     code.append(f"        self.animate_with_audio(text, {scene.duration})")
                     code.append(f"        self.play(FadeOut(text), run_time=0.4)")
@@ -376,7 +378,7 @@ class ManimService:
             elif scene.action == "show_text":
                 # B: Detect bullet list and animate progressively
                 raw_param = scene.param or scene.narration
-                bullets = self._extract_bullets(raw_param, layout.get('max_chars', 72))
+                bullets = self._extract_bullets(raw_param, layout.get('max_chars', 150))
                 if len(bullets) > 1:
                     # Progressive bullet animation
                     bullet_list_repr = repr(bullets)
@@ -384,8 +386,9 @@ class ManimService:
                     code.append(f"        self.wait(0.4)")
                     code.append(f"        self.clear()")
                 else:
-                    display_text = self._compact_for_code(raw_param, layout.get('max_chars', 72))
+                    display_text = self._compact_for_code(raw_param, layout.get('max_chars', 150))
                     code.append(f'        text = Text(self.wrap_text(r"""{display_text}""", width=42), font_size={font_size}, color={primary_col})')
+                    code.append(f"        text.move_to(ORIGIN)")
                     code.append(f"        text.scale({safe_scale})")
                     if position == "top":
                         code.append("        text.to_edge(UP)")
@@ -403,8 +406,9 @@ class ManimService:
 
             else:
                 # Default text fallback
-                fallback_text = self._compact_for_code(scene.param or scene.narration, layout.get('max_chars', 72))
+                fallback_text = self._compact_for_code(scene.param or scene.narration, layout.get('max_chars', 150))
                 code.append(f'        text = Text(self.wrap_text(r"""{fallback_text}""", width=42), font_size={font_size}, color={primary_col})')
+                code.append(f"        text.move_to(ORIGIN)")
                 code.append(f"        text.scale({safe_scale})")
                 code.append(f"        self.animate_with_audio(text, {scene.duration})")
                 code.append(f"        self.play(FadeOut(text), run_time=0.4)")
@@ -413,8 +417,9 @@ class ManimService:
 
     def _extract_bullets(self, text: str, max_chars: int) -> List[str]:
         """
-        B: Parse a bullet-list string into individual items.
+        Parse a bullet-list string into individual items.
         Recognises lines starting with -, •, *, or numbered (1.).
+        Also handles inline ' - ' separated bullets on a single line.
         Returns the list only if there are 2+ bullets; otherwise returns [text].
         """
         lines = [l.strip() for l in text.split("\n") if l.strip()]
@@ -423,19 +428,33 @@ class ManimService:
         for line in lines:
             if bullet_re.match(line):
                 cleaned = bullet_re.sub("", line).strip()
-                # Compact each bullet independently
                 if len(cleaned) > max_chars:
-                    cleaned = cleaned[:max_chars - 3] + "..."
+                    truncated = cleaned[:max_chars].rsplit(' ', 1)[0]
+                    cleaned = truncated + '...'
                 bullets.append(cleaned)
         if len(bullets) >= 2:
             return bullets
+        # Fallback: try inline ' - ' separator (e.g. "- item1 - item2 - item3")
+        inline = re.split(r'\s+-\s+', text.strip().lstrip('- '))
+        if len(inline) >= 2:
+            result = []
+            for b in inline:
+                b = b.strip()
+                if not b:
+                    continue
+                if len(b) > max_chars:
+                    b = b[:max_chars].rsplit(' ', 1)[0] + '...'
+                result.append(b)
+            if len(result) >= 2:
+                return result
         return [self._compact_for_code(text, max_chars)]
 
-    def _compact_for_code(self, text: str, max_chars: int) -> str:
+    def _compact_for_code(self, text: str, max_chars: int = 150) -> str:
         """Compact text and escape triple-quote issues for safe embedding in code."""
         clean = re.sub(r"\s+", " ", str(text or "")).strip()
         if len(clean) > max_chars:
-            clean = clean[:max_chars - 3] + "..."
+            truncated = clean[:max_chars].rsplit(' ', 1)[0]
+            clean = truncated + '...'
         # Escape triple quotes that would break the generated f-string
         clean = clean.replace('"""', "'\"\"")
         return clean
