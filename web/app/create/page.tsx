@@ -594,6 +594,16 @@ export default function CreateLessonPage() {
     stepDescription: string
     progress: number
   } | null>(null)
+  const [failedStage, setFailedStage] = useState<string | null>(null)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [pipelineStages, setPipelineStages] = useState<Array<{key: string, label: string, labelZh: string, status: 'pending' | 'active' | 'done' | 'failed'}>>([
+    { key: 'syllabus', label: 'Syllabus', labelZh: '大纲', status: 'pending' },
+    { key: 'script',   label: 'Script',   labelZh: '脚本', status: 'pending' },
+    { key: 'audio',    label: 'Audio',    labelZh: '音频', status: 'pending' },
+    { key: 'render',   label: 'Render',   labelZh: '渲染', status: 'pending' },
+    { key: 'done',     label: 'Done',     labelZh: '完成', status: 'pending' },
+  ])
+  const realProgressRef = useRef(0)
 
   const suggestedTopics = useMemo(() => {
     const interestSeeds = interestProfile?.subject_interests || []
@@ -628,47 +638,48 @@ export default function CreateLessonPage() {
     },
   ]), [uiLanguage, workflowPhase])
 
-  // Simulated progress effect
+  // Real SSE-driven progress with smooth animation between milestones
   useEffect(() => {
     if (!generating) return
 
-    const steps = [
-      { name: uiLanguage === 'zh' ? '分析需求' : 'Analyzing Request', desc: uiLanguage === 'zh' ? '理解您的学习目标...' : 'Understanding your learning goals...' },
-      { name: uiLanguage === 'zh' ? '构建知识图谱' : 'Building Knowledge Graph', desc: uiLanguage === 'zh' ? '连接相关概念...' : 'Connecting related concepts...' },
-      { name: uiLanguage === 'zh' ? '编写脚本' : 'Drafting Script', desc: uiLanguage === 'zh' ? '生成教学大纲和脚本...' : 'Generating syllabus and script...' },
-      { name: uiLanguage === 'zh' ? '合成语音' : 'Synthesizing Audio', desc: uiLanguage === 'zh' ? '生成AI教师语音...' : 'Generating AI teacher voice...' },
-      { name: uiLanguage === 'zh' ? '渲染视频' : 'Rendering Video', desc: uiLanguage === 'zh' ? '生成动态教学视频 (可能需要1-2分钟)...' : 'Generating dynamic teaching video (may take 1-2 mins)...' },
-    ]
+    const startTime = Date.now()
+    realProgressRef.current = 0
 
-    let stepIndex = 0
-    let progressValue = 10
-
-    // Initial state
+    // Reset stages and counters on new generation
+    setPipelineStages(prev => prev.map(s => ({ ...s, status: 'pending' as const })))
+    setFailedStage(null)
+    setElapsedSeconds(0)
     setPipelineProgress({
       currentStep: 1,
-      totalSteps: steps.length,
-      stepName: steps[0].name,
-      stepDescription: steps[0].desc,
-      progress: progressValue
+      totalSteps: 5,
+      stepName: uiLanguage === 'zh' ? '正在准备...' : 'Preparing...',
+      stepDescription: uiLanguage === 'zh' ? 'AI正在思考最佳教学方案...' : 'AI is thinking about the best teaching plan...',
+      progress: 0
     })
 
-    const interval = setInterval(() => {
-      progressValue += (99 - progressValue) * 0.02
-      const estimatedStep = Math.floor((progressValue / 100) * steps.length)
-      if (estimatedStep > stepIndex && estimatedStep < steps.length) {
-        stepIndex = estimatedStep
-      }
+    // Elapsed timer
+    const timerInterval = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000))
+    }, 1000)
 
-      setPipelineProgress({
-        currentStep: stepIndex + 1,
-        totalSteps: steps.length,
-        stepName: steps[stepIndex].name,
-        stepDescription: steps[stepIndex].desc,
-        progress: Math.floor(progressValue)
+    // Smooth animation: approach real SSE percent, never exceed it
+    const smoothInterval = setInterval(() => {
+      const real = realProgressRef.current
+      setPipelineProgress(prev => {
+        if (!prev) return prev
+        const current = prev.progress
+        if (current < real) {
+          const next = Math.min(real, current + Math.max(0.5, (real - current) * 0.1))
+          return { ...prev, progress: Math.floor(next) }
+        }
+        return prev
       })
-    }, 500)
+    }, 300)
 
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(timerInterval)
+      clearInterval(smoothInterval)
+    }
   }, [generating, uiLanguage])
 
   const handleGenerate = async (topicOverride?: string) => {
@@ -867,9 +878,52 @@ export default function CreateLessonPage() {
             }
           }
 
+          const SSE_STAGE_ORDER = ['syllabus', 'script', 'audio', 'render', 'done']
+          const SSE_STAGE_KEYS: Record<string, string> = {
+            syllabus_complete: 'syllabus',
+            script_complete:   'script',
+            audio_complete:    'audio',
+            render_complete:   'render',
+            done:              'done',
+          }
+          const SSE_STAGE_LABELS: Record<string, {en: string, zh: string}> = {
+            syllabus_complete: { en: 'Syllabus Ready', zh: '大纲已完成' },
+            script_complete:   { en: 'Script Ready', zh: '脚本已完成' },
+            audio_complete:    { en: 'Audio Ready', zh: '音频已完成' },
+            render_complete:   { en: 'Rendering Complete', zh: '渲染完成' },
+          }
+
           eventSource.onmessage = (event) => {
             try {
               const statusData = JSON.parse(event.data);
+
+              // Real progress milestone from Celery
+              if (statusData.status === 'progress') {
+                const percent = statusData.percent ?? 0
+                const stage = statusData.stage ?? ''
+                const completedKey = SSE_STAGE_KEYS[stage] ?? null
+                realProgressRef.current = percent
+                const labelInfo = SSE_STAGE_LABELS[stage]
+                setPipelineProgress(prev => prev ? {
+                  ...prev,
+                  progress: percent,
+                  stepName: labelInfo ? (uiLanguage === 'zh' ? labelInfo.zh : labelInfo.en) : prev.stepName,
+                  stepDescription: statusData.label ?? prev.stepDescription,
+                } : null)
+                if (completedKey) {
+                  setPipelineStages(prev => {
+                    const cIdx = SSE_STAGE_ORDER.indexOf(completedKey)
+                    return prev.map((s, i) => {
+                      if (i < cIdx) return { ...s, status: 'done' as const }
+                      if (s.key === completedKey) return { ...s, status: 'done' as const }
+                      if (i === cIdx + 1) return { ...s, status: 'active' as const }
+                      return s
+                    })
+                  })
+                }
+                return
+              }
+
               const completedResult =
                 statusData.status === 'completed'
                   ? statusData.result
@@ -877,12 +931,23 @@ export default function CreateLessonPage() {
 
               if (completedResult) {
                 settled = true
+                setPipelineStages(prev => prev.map(s => ({ ...s, status: 'done' as const })))
+                realProgressRef.current = 100
+                setPipelineProgress(prev => prev ? { ...prev, progress: 100 } : null)
                 void finalizeGeneration(completedResult);
                 alert(t('create.courseCreatedSuccess'));
                 eventSource.close();
                 resolve(true);
-              } else if (statusData.status === 'failed') {
+              } else if (statusData.status === 'failed' || statusData.status === 'failure') {
                 settled = true
+                const stage = statusData.stage ?? null
+                setFailedStage(stage)
+                if (stage) {
+                  const failKey = SSE_STAGE_KEYS[stage] ?? stage
+                  setPipelineStages(prev => prev.map(s =>
+                    s.key === failKey ? { ...s, status: 'failed' as const } : s
+                  ))
+                }
                 eventSource.close();
                 reject(new Error(statusData.error || 'Job failed on the server.'));
               }
@@ -1348,22 +1413,144 @@ export default function CreateLessonPage() {
             {(workflowPhase === 'generating' || workflowPhase === 'preview') && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 {generating ? (
-                  <div className="py-12 text-center space-y-8">
-                    <div className="relative w-32 h-32 mx-auto">
-                      <div className="absolute inset-0 rounded-full border-4 border-gray-100"></div>
-                      <div className="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin"></div>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-xl font-bold text-blue-600">{pipelineProgress?.progress || 0}%</span>
+                  <div className="py-8 max-w-md mx-auto">
+                    {failedStage ? (
+                      /* ── Error state ── */
+                      <div className="text-center">
+                        <div className="text-4xl mb-3">⚠️</div>
+                        <div className="text-lg font-semibold text-red-600 mb-2">
+                          {uiLanguage === 'zh' ? '生成失败' : 'Generation Failed'}
+                        </div>
+                        <div className="text-sm text-gray-500 mb-4 leading-relaxed">
+                          {uiLanguage === 'zh'
+                            ? <>在 <strong>{pipelineStages.find(s => s.key === (failedStage?.replace('_complete','') ?? failedStage))?.labelZh ?? failedStage}</strong> 阶段出错，请重试。</>
+                            : <>Something went wrong during <strong>{pipelineStages.find(s => s.key === (failedStage?.replace('_complete','') ?? failedStage))?.label ?? failedStage}</strong>. Please try again.</>
+                          }
+                        </div>
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-5 text-sm text-center text-red-900">
+                          {uiLanguage === 'zh' ? '该阶段失败，请重试。' : 'This stage failed. Please try again.'}
+                        </div>
+                        {/* Stage pipeline showing failure point */}
+                        <div className="flex justify-between items-start mb-5 text-xs">
+                          {pipelineStages.map((stage, i) => (
+                            <div key={stage.key} className="flex items-start" style={{flex: 1}}>
+                              <div className="flex flex-col items-center w-full">
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold mb-1
+                                  ${stage.status === 'done'   ? 'bg-green-500 text-white' : ''}
+                                  ${stage.status === 'failed' ? 'bg-red-600 text-white' : ''}
+                                  ${stage.status === 'pending'? 'bg-gray-200 text-gray-400' : ''}
+                                `}>
+                                  {stage.status === 'done'    ? '✓' : stage.status === 'failed' ? '✗' : String(i + 1)}
+                                </div>
+                                <div className={stage.status === 'failed' ? 'text-red-600 font-semibold' : 'text-gray-400'}>
+                                  {uiLanguage === 'zh' ? stage.labelZh : stage.label}
+                                </div>
+                              </div>
+                              {i < pipelineStages.length - 1 && (
+                                <div className="flex items-center pb-5 flex-1">
+                                  <div className={`h-0.5 w-full ${pipelineStages[i].status === 'done' ? 'bg-green-500' : 'bg-gray-200'}`} />
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex gap-3">
+                          <button
+                            className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors"
+                            onClick={() => {
+                              setFailedStage(null)
+                              setPipelineStages(prev => prev.map(s => ({ ...s, status: 'pending' as const })))
+                              setPipelineProgress(null)
+                              setElapsedSeconds(0)
+                              handleGenerate(form.studentQuery)
+                            }}
+                          >
+                            {uiLanguage === 'zh' ? '🔄 重试' : '🔄 Try Again'}
+                          </button>
+                          <button
+                            className="px-4 py-2.5 bg-white text-gray-500 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+                            onClick={() => {
+                              setFailedStage(null)
+                              setGenerating(false)
+                              setPipelineStages(prev => prev.map(s => ({ ...s, status: 'pending' as const })))
+                              setPipelineProgress(null)
+                            }}
+                          >
+                            {uiLanguage === 'zh' ? '取消' : 'Cancel'}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                    <div className="max-w-md mx-auto">
-                      <h3 className="text-xl font-bold text-gray-900 mb-2">
-                        {pipelineProgress?.stepName || (uiLanguage === 'zh' ? '正在准备...' : 'Preparing...')}
-                      </h3>
-                      <p className="text-gray-500 animate-pulse">
-                        {pipelineProgress?.stepDescription || (uiLanguage === 'zh' ? 'AI正在思考最佳教学方案...' : 'AI is thinking about the best teaching plan...')}
-                      </p>
-                    </div>
+                    ) : (
+                      /* ── In-progress state ── */
+                      <div>
+                        <div className="text-center mb-5">
+                          <div className="text-xs text-gray-400 uppercase tracking-widest mb-1">
+                            {uiLanguage === 'zh' ? '正在生成课程' : 'GENERATING YOUR LESSON'}
+                          </div>
+                          <div className="text-4xl font-bold text-blue-600">{pipelineProgress?.progress || 0}%</div>
+                          <div className="text-sm font-medium text-gray-700 mt-1">
+                            {pipelineProgress?.stepName || (uiLanguage === 'zh' ? '正在准备...' : 'Preparing...')}
+                          </div>
+                          <div className="text-xs text-gray-400 mt-1">
+                            {pipelineProgress?.stepDescription || (uiLanguage === 'zh' ? 'AI正在思考最佳教学方案...' : 'AI is thinking about the best teaching plan...')}
+                          </div>
+                        </div>
+                        {/* Progress bar */}
+                        <div className="bg-gray-200 rounded-lg h-2.5 my-4 overflow-hidden">
+                          <div
+                            className="bg-gradient-to-r from-blue-500 to-indigo-500 h-full rounded-lg transition-all duration-300"
+                            style={{ width: `${pipelineProgress?.progress || 0}%` }}
+                          />
+                        </div>
+                        {/* Stage pipeline */}
+                        <div className="flex justify-between items-start my-4 text-xs">
+                          {pipelineStages.map((stage, i) => (
+                            <div key={stage.key} className="flex items-start" style={{flex: 1}}>
+                              <div className="flex flex-col items-center w-full">
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold mb-1
+                                  ${stage.status === 'done'   ? 'bg-green-500 text-white' : ''}
+                                  ${stage.status === 'active' ? 'bg-blue-500 text-white animate-pulse' : ''}
+                                  ${stage.status === 'failed' ? 'bg-red-600 text-white' : ''}
+                                  ${stage.status === 'pending'? 'bg-gray-200 text-gray-400' : ''}
+                                `}>
+                                  {stage.status === 'done'    ? '✓' : ''}
+                                  {stage.status === 'active'  ? '⟳' : ''}
+                                  {stage.status === 'failed'  ? '✗' : ''}
+                                  {stage.status === 'pending' ? String(i + 1) : ''}
+                                </div>
+                                <div className={`text-center
+                                  ${stage.status === 'active'  ? 'text-blue-500 font-semibold' : ''}
+                                  ${stage.status === 'failed'  ? 'text-red-600 font-semibold' : ''}
+                                  ${stage.status !== 'active' && stage.status !== 'failed' ? 'text-gray-400' : ''}
+                                `}>
+                                  {uiLanguage === 'zh' ? stage.labelZh : stage.label}
+                                </div>
+                              </div>
+                              {i < pipelineStages.length - 1 && (
+                                <div className="flex items-center pb-5 flex-1">
+                                  <div className={`h-0.5 w-full
+                                    ${pipelineStages[i].status === 'done'   ? 'bg-green-500' : ''}
+                                    ${pipelineStages[i].status === 'active' ? 'bg-blue-400' : ''}
+                                    ${pipelineStages[i].status !== 'done' && pipelineStages[i].status !== 'active' ? 'bg-gray-200' : ''}
+                                  `} />
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {/* Elapsed timer */}
+                        <div className="flex justify-between text-xs text-gray-400 mt-4 pt-3 border-t border-gray-100">
+                          <span>
+                            ⏱ {uiLanguage === 'zh' ? '已运行' : 'Running for'}{' '}
+                            <strong>{Math.floor(elapsedSeconds / 60)}m {elapsedSeconds % 60}s</strong>
+                          </span>
+                          <span>
+                            {uiLanguage === 'zh' ? '预计还需' : 'Est. remaining:'}{' '}
+                            <strong>~{Math.max(0, Math.round((215 - elapsedSeconds) / 60))}m</strong>
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : preview ? (
                   <div className="space-y-8">

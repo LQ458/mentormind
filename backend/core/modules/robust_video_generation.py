@@ -211,6 +211,8 @@ class RobustVideoGenerationPipeline:
                 validation = self._validate_render_plan(render_plan, language, duration_minutes)
                 repaired_render_plan = validation["render_plan"]
 
+        # NOTE: _review_render_plan patches repaired_render_plan before script generation;
+        # TTS depends on the patched scene content so parallelization with TTS is not safe.
         review = await self._review_render_plan(topic, style, repaired_render_plan)
         if review.get("recommended_fixes"):
             repaired_render_plan, review_applied = self._apply_review_patches(
