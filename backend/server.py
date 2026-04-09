@@ -5,6 +5,7 @@ Production API with bilingual support and clean organization
 
 import asyncio
 import json
+import logging
 import os
 import sys
 import threading
@@ -25,6 +26,8 @@ import shutil
 
 # Load environment variables
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Add current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -2793,9 +2796,19 @@ class UnitGenerateRequest(BaseModel):
 
 class GaokaoChatRequest(BaseModel):
     session_id: Optional[str] = None
+    plan_id: Optional[str] = None
     message: str = Field(min_length=1)
     subject: str = "math"
     topic_focus: Optional[str] = None
+    language: str = "zh"
+
+
+class GaokaoSavePlanRequest(BaseModel):
+    title: str = Field(min_length=1)
+    subject: str = "math"
+    description: str = ""
+    session_id: Optional[str] = None
+    diagnostic_context: Dict[str, Any] = Field(default_factory=dict)
     language: str = "zh"
 
 
@@ -2868,7 +2881,6 @@ async def create_study_plan(
             language=req.language,
             total_units=len(units_data),
             estimated_hours=plan_data.get("estimated_hours", 0),
-            difficulty_level=plan_data.get("difficulty", "intermediate"),
             diagnostic_context=plan_data.get("diagnostic_context", {}),
             status="active",
         )
@@ -3193,6 +3205,7 @@ async def gaokao_chat(
         if not session:
             session = GaokaoSession(
                 user_id=current_user.id,
+                plan_id=req.plan_id,
                 subject=req.subject,
                 topic_focus=req.topic_focus,
                 chat_history=[],
@@ -3257,6 +3270,86 @@ async def gaokao_practice(
         raise
     except Exception as e:
         logger.error(f"Gaokao practice generation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/gaokao/save-plan")
+async def gaokao_save_plan(
+    req: GaokaoSavePlanRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a study plan for gaokao prep and optionally link an existing session."""
+    try:
+        plan = StudyPlan(
+            user_id=current_user.id,
+            subject=req.subject,
+            framework="gaokao",
+            title=req.title,
+            description=req.description,
+            language=req.language,
+            total_units=0,
+            estimated_hours=0,
+            diagnostic_context=req.diagnostic_context,
+            status="active",
+        )
+        db.add(plan)
+        db.flush()
+
+        # Link existing session to this plan if provided
+        if req.session_id:
+            session = db.query(GaokaoSession).filter(
+                GaokaoSession.id == req.session_id,
+                GaokaoSession.user_id == current_user.id,
+            ).first()
+            if session:
+                session.plan_id = plan.id
+
+        db.commit()
+        db.refresh(plan)
+
+        return {
+            "success": True,
+            "plan_id": str(plan.id),
+            "title": plan.title,
+            "status": plan.status,
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Gaokao save plan failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/gaokao/sessions/{plan_id}")
+async def get_gaokao_sessions(
+    plan_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get all gaokao sessions linked to a study plan."""
+    try:
+        plan = (
+            db.query(StudyPlan)
+            .filter(StudyPlan.id == plan_id, StudyPlan.user_id == current_user.id)
+            .first()
+        )
+        if not plan:
+            raise HTTPException(status_code=404, detail="Study plan not found")
+
+        sessions = (
+            db.query(GaokaoSession)
+            .filter(GaokaoSession.plan_id == plan_id)
+            .order_by(GaokaoSession.created_at.desc())
+            .all()
+        )
+        return {
+            "success": True,
+            "sessions": [s.to_dict() for s in sessions],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch gaokao sessions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -170,11 +170,18 @@ export default function InterestProfileQuiz({
 
   const subjectOptions = [
     { value: 'mathematics', zh: '数学', en: 'Mathematics' },
-    { value: 'computer-science', zh: '计算机科学', en: 'Computer Science' },
     { value: 'physics', zh: '物理', en: 'Physics' },
     { value: 'chemistry', zh: '化学', en: 'Chemistry' },
     { value: 'biology', zh: '生物', en: 'Biology' },
+    { value: 'computer-science', zh: '计算机科学', en: 'Computer Science' },
+    { value: 'environmental-science', zh: '环境科学', en: 'Environmental Science' },
+    { value: 'history', zh: '历史', en: 'History' },
     { value: 'english', zh: '英语', en: 'English' },
+    { value: 'economics', zh: '经济学', en: 'Economics' },
+    { value: 'psychology', zh: '心理学', en: 'Psychology' },
+    { value: 'government', zh: '政治学', en: 'Government & Politics' },
+    { value: 'world-languages', zh: '外国语', en: 'World Languages' },
+    { value: 'art', zh: '艺术', en: 'Art' },
   ]
 
   const styleOptions = [
