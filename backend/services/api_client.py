@@ -121,11 +121,11 @@ class DeepSeekClient:
     """Client for DeepSeek API with resilience patterns"""
     
     def __init__(self):
-        self.api_key = os.getenv("DEEPSEEK_API_KEY")
+        self.api_key = os.getenv("SILICONFLOW_API_KEY")
         if not self.api_key:
-            raise ValueError("DEEPSEEK_API_KEY not set in environment variables")
-        
-        self.base_url = "https://api.deepseek.com/v1"
+            raise ValueError("SILICONFLOW_API_KEY not set in environment variables")
+
+        self.base_url = "https://api.siliconflow.cn/v1"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -148,7 +148,7 @@ class DeepSeekClient:
     async def chat_completion(
         self,
         messages: list,
-        model: str = "deepseek-chat",
+        model: str = "Pro/zai-org/GLM-5.1",
         temperature: float = 0.7,
         max_tokens: int = 2000
     ) -> APIResponse:
@@ -183,7 +183,7 @@ class DeepSeekClient:
     async def _chat_completion_with_retry(
         self,
         messages: list,
-        model: str = "deepseek-chat",
+        model: str = "Pro/zai-org/GLM-5.1",
         temperature: float = 0.7,
         max_tokens: int = 2000
     ) -> APIResponse:
@@ -201,7 +201,7 @@ class DeepSeekClient:
     async def _chat_completion_raw(
         self,
         messages: list,
-        model: str = "deepseek-chat",
+        model: str = "Pro/zai-org/GLM-5.1",
         temperature: float = 0.7,
         max_tokens: int = 2000
     ) -> APIResponse:
@@ -308,7 +308,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-chat",
+            model="Pro/zai-org/GLM-5.1",
             temperature=0.3,
             max_tokens=4000
         )
@@ -357,7 +357,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-chat",
+            model="Pro/zai-org/GLM-5.1",
             temperature=0.3,
             max_tokens=2000
         )
@@ -404,7 +404,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-chat",
+            model="Pro/zai-org/GLM-5.1",
             temperature=0.7,
             max_tokens=4000
         )
@@ -502,7 +502,7 @@ class DeepSeekClient:
             
             response = await self.chat_completion(
                 messages=messages,
-                model="deepseek-chat",
+                model="Pro/zai-org/GLM-5.1",
                 temperature=0.7,
                 max_tokens=4000
             )
@@ -593,7 +593,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-chat",
+            model="Pro/zai-org/GLM-5.1",
             temperature=0.3,
             max_tokens=2000
         )
@@ -630,7 +630,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-chat",
+            model="Pro/zai-org/GLM-5.1",
             temperature=0.3,
             max_tokens=2000
         )
@@ -718,7 +718,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-chat",
+            model="Pro/zai-org/GLM-5.1",
             temperature=0.3,
             max_tokens=2000
         )

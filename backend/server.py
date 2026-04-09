@@ -1645,7 +1645,7 @@ async def get_status():
     # External service probes
     funasr_endpoint = os.getenv("FUNASR_ENDPOINT", "http://localhost:10095")
     paddle_endpoint = os.getenv("PADDLE_OCR_ENDPOINT", "http://localhost:8866")
-    deepseek_key = os.getenv("DEEPSEEK_API_KEY")
+    deepseek_key = os.getenv("SILICONFLOW_API_KEY")
 
     funasr_ext, paddle_ext = await asyncio.gather(
         probe(funasr_endpoint),
@@ -2858,6 +2858,91 @@ async def study_plan_chat(req: StudyPlanChatRequest):
     except Exception as e:
         logger.error(f"Study plan chat failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class AskAIRequest(BaseModel):
+    highlighted_text: Optional[str] = None
+    image_base64: Optional[str] = None
+    question: str
+    subject: Optional[str] = None
+    unit_title: Optional[str] = None
+    language: str = "en"
+
+class AskAIResponse(BaseModel):
+    success: bool
+    answer: str
+    error: Optional[str] = None
+
+
+@app.post("/study-plan/ask-ai", response_model=AskAIResponse)
+async def study_plan_ask_ai(req: AskAIRequest):
+    """Answer a question about highlighted text or a screenshot from study content."""
+    try:
+        language_instruction = get_language_instruction(req.language)
+        context_parts = []
+        if req.subject:
+            context_parts.append(f"Subject: {req.subject}")
+        if req.unit_title:
+            context_parts.append(f"Unit: {req.unit_title}")
+        context_str = ". ".join(context_parts)
+
+        if req.image_base64:
+            # Use SiliconFlow vision model for image analysis
+            import aiohttp
+            sf_key = os.getenv("SILICONFLOW_API_KEY")
+            if not sf_key:
+                return AskAIResponse(success=False, answer="", error="Vision service not configured")
+
+            image_data = req.image_base64
+            if not image_data.startswith("data:"):
+                image_data = f"data:image/png;base64,{image_data}"
+
+            messages = [
+                {"role": "system", "content": f"You are a helpful study assistant. {context_str}. {language_instruction} Give a concise, clear answer (2-4 sentences max)."},
+                {"role": "user", "content": [
+                    {"type": "image_url", "image_url": {"url": image_data}},
+                    {"type": "text", "text": req.question or "Explain what is shown in this image."}
+                ]}
+            ]
+
+            from config import config as app_config
+            verify_ssl = getattr(app_config, 'VERIFY_SSL', True)
+            connector = aiohttp.TCPConnector(verify_ssl=verify_ssl)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.post(
+                    "https://api.siliconflow.cn/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {sf_key}", "Content-Type": "application/json"},
+                    json={"model": "Pro/Qwen/Qwen2.5-VL-7B-Instruct", "messages": messages, "max_tokens": 512, "temperature": 0.3}
+                ) as resp:
+                    data = await resp.json()
+                    if resp.status != 200:
+                        logger.error(f"SiliconFlow vision error: {data}")
+                        return AskAIResponse(success=False, answer="", error="Vision AI service error")
+                    answer = data["choices"][0]["message"]["content"]
+                    return AskAIResponse(success=True, answer=answer)
+
+        elif req.highlighted_text:
+            # Use DeepSeek for text-based Q&A
+            messages = [
+                {"role": "system", "content": f"You are a helpful study assistant. {context_str}. {language_instruction} The student has highlighted a passage and has a question. Give a concise, clear answer (2-4 sentences max). Be precise and educational."},
+                {"role": "user", "content": f"Highlighted text: \"{req.highlighted_text}\"\n\nQuestion: {req.question}"}
+            ]
+            response = await api_client.deepseek.chat_completion(
+                messages=messages,
+                temperature=0.3,
+                max_tokens=512
+            )
+            if response.success and response.data:
+                answer = response.data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                return AskAIResponse(success=True, answer=answer)
+            else:
+                return AskAIResponse(success=False, answer="", error=response.error or "AI service unavailable")
+        else:
+            return AskAIResponse(success=False, answer="", error="Please provide highlighted text or an image")
+
+    except Exception as e:
+        logger.error(f"Ask AI failed: {e}")
+        return AskAIResponse(success=False, answer="", error=str(e))
 
 
 @app.post("/study-plan/create")

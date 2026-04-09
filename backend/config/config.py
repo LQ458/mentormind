@@ -96,8 +96,8 @@ class MentorMindConfig:
             "deepseek_v3": ModelConfig(
                 name="DeepSeek-V3",
                 provider=ModelProvider.DEEPSEEK,
-                api_key=os.getenv("DEEPSEEK_API_KEY"),
-                endpoint="https://api.deepseek.com/v1/chat/completions",
+                api_key=os.getenv("SILICONFLOW_API_KEY"),
+                endpoint="https://api.siliconflow.cn/v1/chat/completions",
                 max_tokens=8192,
                 temperature=0.3,
                 cost_per_1k_tokens=0.001  # $0.001 per 1K tokens
@@ -105,8 +105,8 @@ class MentorMindConfig:
             "deepseek_r1": ModelConfig(
                 name="DeepSeek-R1",
                 provider=ModelProvider.DEEPSEEK,
-                api_key=os.getenv("DEEPSEEK_API_KEY"),
-                endpoint="https://api.deepseek.com/v1/chat/completions",
+                api_key=os.getenv("SILICONFLOW_API_KEY"),
+                endpoint="https://api.siliconflow.cn/v1/chat/completions",
                 max_tokens=4096,
                 temperature=0.1,  # Lower temp for reasoning
                 cost_per_1k_tokens=0.002  # Slightly more expensive for reasoning
@@ -209,8 +209,8 @@ class MentorMindConfig:
         warnings = []
         
         # Check required environment variables
-        if not os.getenv("DEEPSEEK_API_KEY"):
-            warnings.append("DEEPSEEK_API_KEY not set - DeepSeek models will not work")
+        if not os.getenv("SILICONFLOW_API_KEY"):
+            warnings.append("SILICONFLOW_API_KEY not set - AI models will not work")
         
         # Check cost constraints
         total_estimated_cost = sum(
