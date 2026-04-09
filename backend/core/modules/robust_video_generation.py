@@ -79,6 +79,10 @@ class RobustVideoGenerationPipeline:
         
         # Reuse syllabus if available from previous attempt to save time and tokens
         syllabus = existing_bundle.get("syllabus") if existing_bundle else None
+        if syllabus:
+            logger.info(f"♻️ Reusing existing syllabus for '{topic}' — skipping LLM call")
+        else:
+            logger.info(f"📝 No existing syllabus for '{topic}' — will generate via LLM")
         
         # Normalize external syllabus to ensure chapters have IDs expected by the prompt
         if syllabus and isinstance(syllabus.get("chapters"), list):
@@ -124,7 +128,7 @@ class RobustVideoGenerationPipeline:
             },
             storyboard_fallback,
             temperature=0.2,
-            max_tokens=8000,
+            max_tokens=16000,  # 24-32 scenes × ~300 tokens each; 8000 caused truncation
         )
 
         render_fallback = self._fallback_render_plan(topic, storyboard, language)
@@ -141,7 +145,7 @@ class RobustVideoGenerationPipeline:
             },
             render_fallback,
             temperature=0.1,
-            max_tokens=8000,
+            max_tokens=12000,  # Increased from 8000 to prevent truncation on large render plans
         )
 
         # Validate render plan structure
@@ -281,7 +285,7 @@ class RobustVideoGenerationPipeline:
         # Try cache first (super fast!)
         if self.cache:
             # Remove duplicate parameters from variables to avoid conflicts
-            cache_vars = {k: v for k, v in variables.items() if k not in ['topic', 'style']}
+            cache_vars = {k: v for k, v in variables.items() if k not in ['topic', 'style', 'syllabus_json', 'storyboard_json']}
             cached_result = self.cache.get(topic, style, stage_name, **cache_vars)
             if cached_result:
                 return cached_result
@@ -293,7 +297,7 @@ class RobustVideoGenerationPipeline:
                 logger.info(f"Using high-quality template for {stage_name}")
                 if self.cache:
                     # Remove duplicate parameters from variables to avoid conflicts
-                    cache_vars = {k: v for k, v in variables.items() if k not in ['topic', 'style']}
+                    cache_vars = {k: v for k, v in variables.items() if k not in ['topic', 'style', 'syllabus_json', 'storyboard_json']}
                     self.cache.set(topic, style, stage_name, template_result, **cache_vars)
                 return template_result
             logger.info(f"Fast-track mode: Using basic fallback for {stage_name}")
@@ -328,7 +332,7 @@ class RobustVideoGenerationPipeline:
                         # Cache successful result
                         if self.cache:
                             # Remove duplicate parameters from variables to avoid conflicts
-                            cache_vars = {k: v for k, v in variables.items() if k not in ['topic', 'style']}
+                            cache_vars = {k: v for k, v in variables.items() if k not in ['topic', 'style', 'syllabus_json', 'storyboard_json']}
                             self.cache.set(topic, style, stage_name, parsed, **cache_vars)
                         return parsed
                     else:
