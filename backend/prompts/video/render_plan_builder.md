@@ -4,7 +4,7 @@ Return strict JSON only. Do not include markdown fences or commentary.
 
 {{language_instruction}}
 
-Transform the storyboard into a strict Manim render plan with safe actions and compact text.
+Transform the storyboard into a strict Manim render plan with rich animations and compact text.
 
 Topic: {{topic}}
 Style: {{style}}
@@ -20,8 +20,8 @@ The JSON schema must be:
   "scenes": [
     {
       "id": "scene_1",
-      "duration": 8.0,
-      "narration": "spoken narration",
+      "duration": 20.0,
+      "narration": "concise spoken narration",
       "action": "show_title|show_text|write_tex|plot|transform|draw_shape",
       "param": "renderer-safe content",
       "visual_type": "manim",
@@ -29,7 +29,7 @@ The JSON schema must be:
         "layout": "title_card|equation_focus|graph_focus|two_column|callout_card|recap_card",
         "position": "center|top|left|right",
         "font_size": 28,
-        "max_chars": 80,
+        "max_chars": 60,
         "safe_scale": 0.82,
         "graph": {
           "x_range": [-6, 6],
@@ -42,22 +42,20 @@ The JSON schema must be:
 
 Rules:
 - All scenes must use visual_type "manim".
-- Keep scene durations between 18 and 60 seconds.
-- Keep `show_text` and `show_title` params short enough to fit on mobile.
+- Keep scene durations between 10 and 45 seconds.
+- ANIMATION DENSITY IS CRITICAL: Most scenes should use `transform`, `plot`, or `draw_shape`.
+- Minimize `show_text` scenes — use only for key definitions or recap bullet points.
+- Keep narration concise (30-60 words per scene). The animation does the teaching.
+- Keep on-screen text short enough for mobile display (max 60 chars).
 - Use `show_title` only for intro or chapter transitions.
 - Use `write_tex` only for a single compact inline formula (e.g. `E=mc^2`, `\frac{dy}{dx}`).
-- NEVER use `write_tex` with LaTeX environments such as `\begin{align}`, `\begin{equation}`, `\begin{cases}`, etc. Those will cause a render error.
-- For multi-step derivations or multi-line formulas, use `show_text` with a bullet-list param (see below).
-- If a storyboard item is too dense, simplify it rather than cramming.
-- Never include unsupported renderer actions.
-- Be overlap-aware:
-  - use at most one text block in graph-focused scenes
-  - prefer narration for detail, not on-screen paragraphs
-  - keep central graph area clear of long labels
-- `transform` scenes: param must be two LaTeX expressions joined by " -> " (space-arrow-space), e.g. `x^2 -> 2x`. Both sides must be valid standalone MathTex.
-- `draw_shape` scenes: param should be a plain English shape description like "circle", "triangle", "arrow pointing right".
+- NEVER use `write_tex` with LaTeX environments like `\begin{align}`, `\begin{equation}`, `\begin{cases}`.
+- For multi-step derivations, use sequential `transform` scenes: show each step morphing into the next.
+- `transform` scenes: param must be two LaTeX expressions joined by " -> " (space-arrow-space).
+- `draw_shape` scenes: param is plain English shape description.
+- `plot` scenes: param is safe Python expression in x (no imports).
+- Be overlap-aware: at most one text element in graph-focused scenes.
 
 BULLET LIST FORMAT for `show_text`:
-- When on_screen_text has multiple points, set param as: "- Point one\n- Point two\n- Point three"
-- Each bullet should be under 60 characters.
-- Never use a run-on paragraph when bullets would be clearer.
+- Param format: "- Point one\n- Point two\n- Point three"
+- Each bullet under 50 characters. Max 3 bullets.

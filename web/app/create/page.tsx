@@ -774,9 +774,9 @@ export default function CreateLessonPage() {
           
           // More specific error messages based on error type
           let errorMessage = result.error_message || result.error || ''
-          if (errorMessage.includes('Cannot connect to host api.deepseek.com') || 
+          if (errorMessage.includes('Cannot connect to host api.siliconflow.cn') ||
               errorMessage.includes('Network error') ||
-              errorMessage.includes('DEEPSEEK_API_KEY')) {
+              errorMessage.includes('SILICONFLOW_API_KEY')) {
             errorMessage = uiLanguage === 'zh' 
               ? '网络连接失败或API密钥配置问题。请检查网络连接或联系管理员。'
               : 'Network connection failed or API key configuration issue. Please check your network connection or contact administrator.'

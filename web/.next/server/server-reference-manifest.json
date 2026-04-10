@@ -2,21 +2,15 @@
   "node": {
     "b74e34fbfd8552118d7ec6ffda905ceae9b42e34": {
       "workers": {
-        "app/create/page": "(action-browser)/./node_modules/.pnpm/next@14.2.29_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22%2FUsers%2FLeoQin%2FDocuments%2FGitHub%2Fmentormind%2Fweb%2Fnode_modules%2F.pnpm%2F%40clerk%2Bnextjs%405.7.5_next%4014.2.29_react-dom%4018.3.1_react%4018.3.1__react%4018.3.1__react-dom%4018.3._clln3hm5mqteeshxc35zf7inli%2Fnode_modules%2F%40clerk%2Fnextjs%2Fdist%2Fesm%2Fapp-router%2Fserver-actions.js%22%2C%5B%22invalidateCacheAction%22%5D%5D%5D&__client_imported__=true!",
-        "app/lessons/page": "(action-browser)/./node_modules/.pnpm/next@14.2.29_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22%2FUsers%2FLeoQin%2FDocuments%2FGitHub%2Fmentormind%2Fweb%2Fnode_modules%2F.pnpm%2F%40clerk%2Bnextjs%405.7.5_next%4014.2.29_react-dom%4018.3.1_react%4018.3.1__react%4018.3.1__react-dom%4018.3._clln3hm5mqteeshxc35zf7inli%2Fnode_modules%2F%40clerk%2Fnextjs%2Fdist%2Fesm%2Fapp-router%2Fserver-actions.js%22%2C%5B%22invalidateCacheAction%22%5D%5D%5D&__client_imported__=true!",
-        "app/lessons/[id]/page": "(action-browser)/./node_modules/.pnpm/next@14.2.29_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22%2FUsers%2FLeoQin%2FDocuments%2FGitHub%2Fmentormind%2Fweb%2Fnode_modules%2F.pnpm%2F%40clerk%2Bnextjs%405.7.5_next%4014.2.29_react-dom%4018.3.1_react%4018.3.1__react%4018.3.1__react-dom%4018.3._clln3hm5mqteeshxc35zf7inli%2Fnode_modules%2F%40clerk%2Fnextjs%2Fdist%2Fesm%2Fapp-router%2Fserver-actions.js%22%2C%5B%22invalidateCacheAction%22%5D%5D%5D&__client_imported__=true!",
-        "app/_not-found/page": "(action-browser)/./node_modules/.pnpm/next@14.2.29_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22%2FUsers%2FLeoQin%2FDocuments%2FGitHub%2Fmentormind%2Fweb%2Fnode_modules%2F.pnpm%2F%40clerk%2Bnextjs%405.7.5_next%4014.2.29_react-dom%4018.3.1_react%4018.3.1__react%4018.3.1__react-dom%4018.3._clln3hm5mqteeshxc35zf7inli%2Fnode_modules%2F%40clerk%2Fnextjs%2Fdist%2Fesm%2Fapp-router%2Fserver-actions.js%22%2C%5B%22invalidateCacheAction%22%5D%5D%5D&__client_imported__=true!",
-        "app/analytics/page": "(action-browser)/./node_modules/.pnpm/next@14.2.29_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22%2FUsers%2FLeoQin%2FDocuments%2FGitHub%2Fmentormind%2Fweb%2Fnode_modules%2F.pnpm%2F%40clerk%2Bnextjs%405.7.5_next%4014.2.29_react-dom%4018.3.1_react%4018.3.1__react%4018.3.1__react-dom%4018.3._clln3hm5mqteeshxc35zf7inli%2Fnode_modules%2F%40clerk%2Fnextjs%2Fdist%2Fesm%2Fapp-router%2Fserver-actions.js%22%2C%5B%22invalidateCacheAction%22%5D%5D%5D&__client_imported__=true!"
+        "app/study-plan/page": "(action-browser)/./node_modules/.pnpm/next@14.2.29_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22%2FUsers%2FLeoQin%2FDocuments%2FGitHub%2Fmentormind%2Fweb%2Fnode_modules%2F.pnpm%2F%40clerk%2Bnextjs%405.7.5_next%4014.2.29_react-dom%4018.3.1_react%4018.3.1__react%4018.3.1__react-dom%4018.3._clln3hm5mqteeshxc35zf7inli%2Fnode_modules%2F%40clerk%2Fnextjs%2Fdist%2Fesm%2Fapp-router%2Fserver-actions.js%22%2C%5B%22invalidateCacheAction%22%5D%5D%5D&__client_imported__=true!",
+        "app/study-plan/[id]/page": "(action-browser)/./node_modules/.pnpm/next@14.2.29_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22%2FUsers%2FLeoQin%2FDocuments%2FGitHub%2Fmentormind%2Fweb%2Fnode_modules%2F.pnpm%2F%40clerk%2Bnextjs%405.7.5_next%4014.2.29_react-dom%4018.3.1_react%4018.3.1__react%4018.3.1__react-dom%4018.3._clln3hm5mqteeshxc35zf7inli%2Fnode_modules%2F%40clerk%2Fnextjs%2Fdist%2Fesm%2Fapp-router%2Fserver-actions.js%22%2C%5B%22invalidateCacheAction%22%5D%5D%5D&__client_imported__=true!"
       },
       "layer": {
-        "app/create/page": "action-browser",
-        "app/lessons/page": "action-browser",
-        "app/lessons/[id]/page": "action-browser",
-        "app/_not-found/page": "action-browser",
-        "app/analytics/page": "action-browser"
+        "app/study-plan/page": "action-browser",
+        "app/study-plan/[id]/page": "action-browser"
       }
     }
   },
   "edge": {},
-  "encryptionKey": "KJKkWRUScIQSNDZ0xNQvj//1T3eOpoJpIPCadzu1tbQ="
+  "encryptionKey": "T1XYtqrDGgOjcuie8V4EOs/BfeIpWOBgjFT+E93V9OM="
 }

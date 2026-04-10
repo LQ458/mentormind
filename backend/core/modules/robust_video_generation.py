@@ -18,6 +18,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from prompts.loader import load_prompt, render_prompt
+from core.agents.video_quality_agent import VideoQualityAgent
 from services.api_client import APIClient, get_language_instruction
 from core.modules.content_validator import ContentValidator, validate_with_retry_suggestions
 
@@ -72,9 +73,9 @@ class RobustVideoGenerationPipeline:
         custom_requirements: Optional[str] = None,
         existing_bundle: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        duration_minutes = max(10, int(duration_minutes or 10))
-        # Increase scene count significantly for long-form lessons
-        target_scene_count = max(24, min(32, duration_minutes + 14))
+        duration_minutes = max(5, int(duration_minutes or 8))
+        # Target concise, animation-dense videos (3Blue1Brown style)
+        target_scene_count = max(8, min(14, duration_minutes + 2))
         language_instruction = get_language_instruction(language)
         
         # Reuse syllabus if available from previous attempt to save time and tokens
@@ -111,10 +112,16 @@ class RobustVideoGenerationPipeline:
                 max_tokens=3200,
             )
 
-        storyboard_fallback = self._fallback_storyboard(topic, content, syllabus, language)
-        storyboard = await self._run_stage(
-            "storyboard",
-            "video/storyboard_builder",
+        # ── Single-shot render plan: syllabus → render_plan directly ──────
+        # Merges the old storyboard + render_plan stages into one LLM call,
+        # cutting ~1.5 min off generation time.
+        storyboard = None  # kept for bundle compatibility
+        render_fallback = self._fallback_render_plan(
+            topic, self._fallback_storyboard(topic, content, syllabus, language), language
+        )
+        render_plan = await self._run_stage(
+            "direct_render_plan",
+            "video/direct_render_plan",
             {
                 "topic": topic,
                 "style": style,
@@ -126,114 +133,40 @@ class RobustVideoGenerationPipeline:
                 "language_instruction": language_instruction,
                 "syllabus_json": json.dumps(syllabus, ensure_ascii=False, indent=2),
             },
-            storyboard_fallback,
-            temperature=0.2,
-            max_tokens=16000,  # 24-32 scenes × ~300 tokens each; 8000 caused truncation
-        )
-
-        render_fallback = self._fallback_render_plan(topic, storyboard, language)
-        render_plan = await self._run_stage(
-            "render_plan",
-            "video/render_plan_builder",
-            {
-                "topic": topic,
-                "style": style,
-                "student_level": student_level,
-                "duration_minutes": duration_minutes,
-                "language_instruction": language_instruction,
-                "storyboard_json": json.dumps(storyboard, ensure_ascii=False, indent=2),
-            },
             render_fallback,
-            temperature=0.1,
-            max_tokens=12000,  # Increased from 8000 to prevent truncation on large render plans
+            temperature=0.15,
+            max_tokens=8000,
         )
 
         # Validate render plan structure
         validation = self._validate_render_plan(render_plan, language, duration_minutes)
         repaired_render_plan = validation["render_plan"]
 
-        # NEW: Content completeness validation
-        generation_bundle_preview = {
-            "topic": topic,
-            "syllabus": syllabus,
-            "storyboard": storyboard,
-            "render_plan": repaired_render_plan
-        }
-        
-        is_content_valid, retry_suggestions, validation_metadata = validate_with_retry_suggestions(
-            generation_bundle_preview, max_retry_attempts=3
-        )
-        
-        if not is_content_valid:
-            logger.warning(f"Content validation failed. Issues found: {validation_metadata}")
-            logger.info(f"Retry suggestions: {retry_suggestions}")
-            
-            # Attempt to fix truncation issues by regenerating with higher token limits
-            if validation_metadata.get("has_truncation") or validation_metadata.get("completeness_score", 0) < 0.7:
-                logger.info("Attempting content regeneration with higher token limits...")
-                
-                # Regenerate storyboard with higher token limit
-                storyboard = await self._run_stage(
-                    "storyboard_retry",
-                    "video/storyboard_builder",
-                    {
-                        "topic": topic,
-                        "style": style,
-                        "student_level": student_level,
-                        "target_audience": target_audience,
-                        "duration_minutes": duration_minutes,
-                        "target_scene_count": target_scene_count,
-                        "custom_requirements": custom_requirements or "None provided.",
-                        "language_instruction": language_instruction,
-                        "syllabus_json": json.dumps(syllabus, ensure_ascii=False, indent=2),
-                        "completeness_requirement": "Generate COMPLETE content without any truncation (...) or abbreviations. Include full detailed narrations for every scene."
-                    },
-                    storyboard_fallback,
-                    temperature=0.1,  # Lower temperature for more focused output
-                    max_tokens=12000,  # Increased token limit
-                )
-                
-                # Regenerate render plan with higher token limit
-                render_plan = await self._run_stage(
-                    "render_plan_retry",
-                    "video/render_plan_builder",
-                    {
-                        "topic": topic,
-                        "style": style,
-                        "student_level": student_level,
-                        "duration_minutes": duration_minutes,
-                        "language_instruction": language_instruction,
-                        "storyboard_json": json.dumps(storyboard, ensure_ascii=False, indent=2),
-                        "completeness_requirement": "Generate COMPLETE scenes without truncation. Every narration must be full and complete."
-                    },
-                    render_fallback,
-                    temperature=0.05,  # Very low temperature
-                    max_tokens=12000,  # Increased token limit
-                )
-                
-                # Re-validate after regeneration
-                validation = self._validate_render_plan(render_plan, language, duration_minutes)
-                repaired_render_plan = validation["render_plan"]
+        # ── Lightweight review: skip full LLM review, apply quality agent only ──
+        # The old pipeline ran a separate LLM review call (~30s) plus content
+        # validation with retry (potentially re-generating storyboard + render_plan
+        # for another ~5min).  Instead we rely on the local quality agent which is
+        # instant and apply its fixes directly.
+        review: Dict[str, Any] = {"approved": True, "issues": [], "recommended_fixes": []}
 
-        # NOTE: _review_render_plan patches repaired_render_plan before script generation;
-        # TTS depends on the patched scene content so parallelization with TTS is not safe.
-        review = await self._review_render_plan(topic, style, repaired_render_plan)
-        if review.get("recommended_fixes"):
-            repaired_render_plan, review_applied = self._apply_review_patches(
-                repaired_render_plan,
-                review["recommended_fixes"],
-                language,
-            )
-            validation["review_applied"] = review_applied
-            
-        # Final validation after all repairs
+        # Video quality evaluation and improvement (instant, no LLM call)
+        quality_agent = VideoQualityAgent()
+        quality_report = quality_agent.evaluate_render_plan(repaired_render_plan)
+        logger.info(f"📊 Video quality score: {quality_report.score:.0f}/100 (Grade: {quality_report.grade})")
+        if quality_report.issues:
+            for issue in quality_report.issues:
+                logger.warning(f"  ⚠️ {issue}")
+        if quality_report.score < 60:
+            logger.info("🔧 Applying automatic quality improvements...")
+            repaired_render_plan = quality_agent.improve_render_plan(repaired_render_plan, quality_report)
+
+        # Quick local content validation (no retry/regeneration)
         final_bundle = {
             "topic": topic,
             "syllabus": syllabus,
             "storyboard": storyboard,
             "render_plan": repaired_render_plan
         }
-        
         final_is_valid, final_suggestions, final_metadata = validate_with_retry_suggestions(final_bundle)
         validation["content_validation"] = {
             "is_valid": final_is_valid,
@@ -246,9 +179,7 @@ class RobustVideoGenerationPipeline:
             name: self._prompt_version(name)
             for name in [
                 "video/lesson_syllabus",
-                "video/storyboard_builder",
-                "video/render_plan_builder",
-                "video/render_plan_review",
+                "video/direct_render_plan",
             ]
         }
 
@@ -264,6 +195,7 @@ class RobustVideoGenerationPipeline:
             "storyboard": storyboard,
             "render_plan": repaired_render_plan,
             "validation": validation,
+            "quality_report": quality_report.to_dict(),
             "review": review,
             "prompt_versions": prompt_versions,
         }
@@ -307,7 +239,7 @@ class RobustVideoGenerationPipeline:
         
         # Multi-provider fallback chain
         providers = [
-            ("DeepSeek", self.api_client.deepseek.chat_completion),
+            ("GLM-5.1", self.api_client.deepseek.chat_completion),
             # Add more providers here when available
             # ("OpenAI", self.api_client.openai.chat_completion),
             # ("Claude", self.api_client.claude.chat_completion),
@@ -351,55 +283,12 @@ class RobustVideoGenerationPipeline:
         self._increment_failures()
         return fallback
 
-    async def _review_render_plan(self, topic: str, style: str, render_plan: Dict[str, Any]) -> Dict[str, Any]:
-        fallback = {"approved": True, "issues": [], "recommended_fixes": []}
-        prompt = render_prompt(
-            "video/render_plan_review",
-            topic=topic,
-            style=style,
-            render_plan_json=json.dumps(render_plan, ensure_ascii=False, indent=2),
-        )
-        try:
-            response = await self.api_client.deepseek.chat_completion(
-                messages=[
-                    {"role": "system", "content": "Return strict JSON only. Use double quotes for all property names and string values. Do not include any text before or after the JSON object."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.1,
-                max_tokens=1800,
-            )
-            if not response.success:
-                return fallback
-            parsed = self._parse_json_response(response.data["choices"][0]["message"]["content"])
-            return parsed if isinstance(parsed, dict) else fallback
-        except Exception:
-            return fallback
-
-    def _apply_review_patches(
-        self,
-        render_plan: Dict[str, Any],
-        patches: List[Dict[str, Any]],
-        language: str,
-    ) -> tuple[Dict[str, Any], List[str]]:
-        applied: List[str] = []
-        scene_map = {scene.get("id"): scene for scene in render_plan.get("scenes", [])}
-        for patch in patches:
-            scene_id = patch.get("scene_id")
-            scene = scene_map.get(scene_id)
-            patch_data = patch.get("patch")
-            if not scene or not isinstance(patch_data, dict):
-                continue
-            scene.update(patch_data)
-            self._normalize_scene(scene, scene_id or "scene", language)
-            applied.append(scene_id)
-        return render_plan, applied
-
     def _validate_render_plan(self, render_plan: Dict[str, Any], language: str, duration_minutes: int) -> Dict[str, Any]:
         scenes = render_plan.get("scenes") or []
         warnings: List[str] = []
         validated_scenes: List[Dict[str, Any]] = []
-        # Target higher scene count for stability
-        minimum_scene_count = max(24, min(32, duration_minutes + 14))
+        # Minimum scene count for concise videos
+        minimum_scene_count = max(6, min(14, duration_minutes + 2))
 
         if not scenes:
             warnings.append("Render plan returned no scenes; using deterministic fallback scenes.")
@@ -431,7 +320,7 @@ class RobustVideoGenerationPipeline:
             scale_factor = minimum_total_duration / max(total_duration, 1.0)
             warnings.append("Scaled scene durations upward to honor the requested lesson length.")
             for scene in validated_scenes:
-                scene["duration"] = max(18.0, min(60.0, round(float(scene["duration"]) * scale_factor, 1)))
+                scene["duration"] = max(10.0, min(45.0, round(float(scene["duration"]) * scale_factor, 1)))
 
         fixed_plan = {
             "title": render_plan.get("title") or "Untitled Lesson",
@@ -537,16 +426,16 @@ class RobustVideoGenerationPipeline:
             numeric = 0.0
         if numeric <= 0:
             numeric = self._estimate_duration_from_narration(narration)
-        return max(18.0, min(60.0, round(numeric, 1)))
+        return max(10.0, min(45.0, round(numeric, 1)))
 
     def _estimate_duration_from_narration(self, narration: str) -> float:
         words = len(narration.split())
         chars = len(narration)
         if words > 0:
-            estimate = words / 2.1
+            estimate = words / 2.5
         else:
-            estimate = chars / 5.5
-        return max(24.0, min(55.0, estimate))
+            estimate = chars / 6.0
+        return max(10.0, min(40.0, estimate))
 
     def _sanitize_plot_expression(self, expression: str) -> str:
         expr = expression.strip() or "x"

@@ -1,9 +1,9 @@
 {
   "pages": {
-    "/create/page": [
+    "/study-plan/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/create/page.js"
+      "static/chunks/app/study-plan/page.js"
     ],
     "/layout": [
       "static/chunks/webpack.js",
@@ -11,25 +11,11 @@
       "static/css/app/layout.css",
       "static/chunks/app/layout.js"
     ],
-    "/lessons/page": [
+    "/study-plan/[id]/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/lessons/page.js"
-    ],
-    "/lessons/[id]/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/lessons/[id]/page.js"
-    ],
-    "/analytics/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/analytics/page.js"
-    ],
-    "/_not-found/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/_not-found/page.js"
+      "static/css/app/study-plan/[id]/page.css",
+      "static/chunks/app/study-plan/[id]/page.js"
     ]
   }
 }

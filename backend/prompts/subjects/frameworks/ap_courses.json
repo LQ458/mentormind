@@ -1,0 +1,515 @@
+{
+  "courses": [
+    {
+      "id": "ap_calculus_ab",
+      "name": "AP Calculus AB",
+      "subject": "math",
+      "units": [
+        "Limits and Continuity",
+        "Differentiation: Definition and Fundamental Properties",
+        "Differentiation: Composite, Implicit, and Inverse Functions",
+        "Contextual Applications of Differentiation",
+        "Analytical Applications of Differentiation",
+        "Integration and Accumulation of Change",
+        "Differential Equations",
+        "Applications of Integration"
+      ],
+      "exam_format": {
+        "mc_count": 45,
+        "mc_minutes": 105,
+        "frq_count": 6,
+        "frq_minutes": 90,
+        "calculator_sections": true
+      }
+    },
+    {
+      "id": "ap_calculus_bc",
+      "name": "AP Calculus BC",
+      "subject": "math",
+      "units": [
+        "Limits and Continuity",
+        "Differentiation: Definition and Fundamental Properties",
+        "Differentiation: Composite, Implicit, and Inverse Functions",
+        "Contextual Applications of Differentiation",
+        "Analytical Applications of Differentiation",
+        "Integration and Accumulation of Change",
+        "Differential Equations",
+        "Applications of Integration",
+        "Parametric Equations, Polar Coordinates, and Vector-Valued Functions",
+        "Infinite Sequences and Series"
+      ],
+      "exam_format": {
+        "mc_count": 45,
+        "mc_minutes": 105,
+        "frq_count": 6,
+        "frq_minutes": 90,
+        "calculator_sections": true
+      }
+    },
+    {
+      "id": "ap_statistics",
+      "name": "AP Statistics",
+      "subject": "math",
+      "units": [
+        "Exploring One-Variable Data",
+        "Exploring Two-Variable Data",
+        "Collecting Data",
+        "Probability, Random Variables, and Probability Distributions",
+        "Sampling Distributions",
+        "Inference for Categorical Data: Proportions",
+        "Inference for Quantitative Data: Means",
+        "Inference for Categorical Data: Chi-Square",
+        "Inference for Quantitative Data: Slopes"
+      ],
+      "exam_format": {
+        "mc_count": 40,
+        "mc_minutes": 90,
+        "frq_count": 6,
+        "frq_minutes": 90,
+        "calculator_sections": true
+      }
+    },
+    {
+      "id": "ap_physics_1",
+      "name": "AP Physics 1: Algebra-Based",
+      "subject": "physics",
+      "units": [
+        "Kinematics",
+        "Dynamics",
+        "Circular Motion and Gravitation",
+        "Energy",
+        "Momentum",
+        "Simple Harmonic Motion",
+        "Torque and Rotational Motion"
+      ],
+      "exam_format": {
+        "mc_count": 50,
+        "mc_minutes": 90,
+        "frq_count": 5,
+        "frq_minutes": 90,
+        "calculator_sections": true
+      }
+    },
+    {
+      "id": "ap_physics_2",
+      "name": "AP Physics 2: Algebra-Based",
+      "subject": "physics",
+      "units": [
+        "Fluids",
+        "Thermodynamics",
+        "Electric Force, Field, and Potential",
+        "Electric Circuits",
+        "Magnetism and Electromagnetic Induction",
+        "Geometric and Physical Optics",
+        "Quantum, Atomic, and Nuclear Physics"
+      ],
+      "exam_format": {
+        "mc_count": 50,
+        "mc_minutes": 90,
+        "frq_count": 4,
+        "frq_minutes": 90,
+        "calculator_sections": true
+      }
+    },
+    {
+      "id": "ap_physics_c_mechanics",
+      "name": "AP Physics C: Mechanics",
+      "subject": "physics",
+      "units": [
+        "Kinematics",
+        "Newton's Laws of Motion",
+        "Work, Energy, and Power",
+        "Systems of Particles and Linear Momentum",
+        "Rotation",
+        "Oscillations",
+        "Gravitation"
+      ],
+      "exam_format": {
+        "mc_count": 35,
+        "mc_minutes": 45,
+        "frq_count": 3,
+        "frq_minutes": 45,
+        "calculator_sections": true
+      }
+    },
+    {
+      "id": "ap_physics_c_em",
+      "name": "AP Physics C: Electricity and Magnetism",
+      "subject": "physics",
+      "units": [
+        "Electrostatics",
+        "Conductors, Capacitors, Dielectrics",
+        "Electric Circuits",
+        "Magnetic Fields",
+        "Electromagnetism"
+      ],
+      "exam_format": {
+        "mc_count": 35,
+        "mc_minutes": 45,
+        "frq_count": 3,
+        "frq_minutes": 45,
+        "calculator_sections": true
+      }
+    },
+    {
+      "id": "ap_chemistry",
+      "name": "AP Chemistry",
+      "subject": "chemistry",
+      "units": [
+        "Atomic Structure and Properties",
+        "Molecular and Ionic Compound Structure and Properties",
+        "Intermolecular Forces and Properties",
+        "Chemical Reactions",
+        "Kinetics",
+        "Thermodynamics",
+        "Equilibrium",
+        "Acids and Bases",
+        "Applications of Thermodynamics"
+      ],
+      "exam_format": {
+        "mc_count": 60,
+        "mc_minutes": 90,
+        "frq_count": 7,
+        "frq_minutes": 105,
+        "calculator_sections": true
+      }
+    },
+    {
+      "id": "ap_biology",
+      "name": "AP Biology",
+      "subject": "biology",
+      "units": [
+        "Chemistry of Life",
+        "Cell Structure and Function",
+        "Cellular Energetics",
+        "Cell Communication and Cell Cycle",
+        "Heredity",
+        "Gene Expression and Regulation",
+        "Natural Selection",
+        "Ecology"
+      ],
+      "exam_format": {
+        "mc_count": 60,
+        "mc_minutes": 90,
+        "frq_count": 6,
+        "frq_minutes": 90,
+        "calculator_sections": false
+      }
+    },
+    {
+      "id": "ap_environmental_science",
+      "name": "AP Environmental Science",
+      "subject": "environmental_science",
+      "units": [
+        "The Living World: Ecosystems",
+        "The Living World: Biodiversity",
+        "Populations",
+        "Earth Systems and Resources",
+        "Land and Water Use",
+        "Energy Resources and Consumption",
+        "Atmospheric Pollution",
+        "Aquatic and Terrestrial Pollution",
+        "Global Change"
+      ],
+      "exam_format": {
+        "mc_count": 80,
+        "mc_minutes": 90,
+        "frq_count": 3,
+        "frq_minutes": 70,
+        "calculator_sections": false
+      }
+    },
+    {
+      "id": "ap_cs_a",
+      "name": "AP Computer Science A",
+      "subject": "cs",
+      "units": [
+        "Primitive Types",
+        "Using Objects",
+        "Boolean Expressions and if Statements",
+        "Iteration",
+        "Writing Classes",
+        "Array",
+        "ArrayList",
+        "2D Array",
+        "Inheritance",
+        "Recursion"
+      ],
+      "exam_format": {
+        "mc_count": 40,
+        "mc_minutes": 90,
+        "frq_count": 4,
+        "frq_minutes": 90,
+        "calculator_sections": false
+      }
+    },
+    {
+      "id": "ap_cs_principles",
+      "name": "AP Computer Science Principles",
+      "subject": "cs",
+      "units": [
+        "Creative Development",
+        "Data",
+        "Algorithms and Programming",
+        "Computing Systems and Networks",
+        "Impact of Computing"
+      ],
+      "exam_format": {
+        "mc_count": 70,
+        "mc_minutes": 120,
+        "frq_count": 0,
+        "frq_minutes": 0,
+        "calculator_sections": false,
+        "performance_task": true
+      }
+    },
+    {
+      "id": "ap_us_history",
+      "name": "AP United States History",
+      "subject": "history",
+      "units": [
+        "Period 1: 1491–1607",
+        "Period 2: 1607–1754",
+        "Period 3: 1754–1800",
+        "Period 4: 1800–1848",
+        "Period 5: 1844–1877",
+        "Period 6: 1865–1898",
+        "Period 7: 1890–1945",
+        "Period 8: 1945–1980",
+        "Period 9: 1980–Present"
+      ],
+      "exam_format": {
+        "mc_count": 55,
+        "mc_minutes": 55,
+        "frq_count": 4,
+        "frq_minutes": 100,
+        "saq_count": 4,
+        "saq_minutes": 40,
+        "dbq": true
+      }
+    },
+    {
+      "id": "ap_world_history",
+      "name": "AP World History: Modern",
+      "subject": "history",
+      "units": [
+        "The Global Tapestry (1200–1450)",
+        "Networks of Exchange (1200–1450)",
+        "Land-Based Empires (1450–1750)",
+        "Transoceanic Interconnections (1450–1750)",
+        "Revolutions (1750–1900)",
+        "Consequences of Industrialization (1750–1900)",
+        "Global Conflict (1900–Present)",
+        "Cold War and Decolonization (1900–Present)",
+        "Globalization (1900–Present)"
+      ],
+      "exam_format": {
+        "mc_count": 55,
+        "mc_minutes": 55,
+        "frq_count": 4,
+        "frq_minutes": 100,
+        "saq_count": 4,
+        "saq_minutes": 40,
+        "dbq": true
+      }
+    },
+    {
+      "id": "ap_european_history",
+      "name": "AP European History",
+      "subject": "history",
+      "units": [
+        "Renaissance and Exploration (1450–1648)",
+        "Age of Reformation (1450–1648)",
+        "Absolutism and Constitutionalism (1648–1815)",
+        "Scientific, Philosophical, and Political Developments (1648–1815)",
+        "Conflict, Crisis, and Reaction in the Late 18th Century (1648–1815)",
+        "Industrialization and Its Effects (1815–1914)",
+        "19th-Century Perspectives and Political Developments (1815–1914)",
+        "20th-Century Global Conflicts (1914–Present)",
+        "Cold War and Contemporary Europe (1914–Present)"
+      ],
+      "exam_format": {
+        "mc_count": 55,
+        "mc_minutes": 55,
+        "frq_count": 4,
+        "frq_minutes": 100,
+        "saq_count": 4,
+        "saq_minutes": 40,
+        "dbq": true
+      }
+    },
+    {
+      "id": "ap_english_language",
+      "name": "AP English Language and Composition",
+      "subject": "english",
+      "units": [
+        "Rhetorical Situation",
+        "Claims and Evidence",
+        "Reasoning and Organization",
+        "Style",
+        "Synthesis",
+        "Argument",
+        "Rhetorical Analysis"
+      ],
+      "exam_format": {
+        "mc_count": 45,
+        "mc_minutes": 60,
+        "frq_count": 3,
+        "frq_minutes": 120,
+        "essay_types": ["synthesis", "rhetorical_analysis", "argument"]
+      }
+    },
+    {
+      "id": "ap_english_literature",
+      "name": "AP English Literature and Composition",
+      "subject": "english",
+      "units": [
+        "Short Fiction I",
+        "Poetry I",
+        "Longer Fiction or Drama I",
+        "Short Fiction II",
+        "Poetry II",
+        "Longer Fiction or Drama II",
+        "Short Fiction III",
+        "Poetry III",
+        "Longer Fiction or Drama III"
+      ],
+      "exam_format": {
+        "mc_count": 55,
+        "mc_minutes": 60,
+        "frq_count": 3,
+        "frq_minutes": 120,
+        "essay_types": ["poetry_analysis", "prose_analysis", "literary_argument"]
+      }
+    },
+    {
+      "id": "ap_psychology",
+      "name": "AP Psychology",
+      "subject": "psychology",
+      "units": [
+        "Scientific Foundations of Psychology",
+        "Biological Bases of Behavior",
+        "Sensation and Perception",
+        "Learning",
+        "Cognitive Psychology",
+        "Developmental Psychology",
+        "Motivation, Emotion, and Personality",
+        "Clinical Psychology",
+        "Social Psychology"
+      ],
+      "exam_format": {
+        "mc_count": 100,
+        "mc_minutes": 70,
+        "frq_count": 2,
+        "frq_minutes": 50,
+        "calculator_sections": false
+      }
+    },
+    {
+      "id": "ap_macroeconomics",
+      "name": "AP Macroeconomics",
+      "subject": "economics",
+      "units": [
+        "Basic Economic Concepts",
+        "Economic Indicators and the Business Cycle",
+        "National Income and Price Determination",
+        "Financial Sector",
+        "Long-Run Consequences of Stabilization Policies",
+        "Open Economy — International Trade and Finance"
+      ],
+      "exam_format": {
+        "mc_count": 60,
+        "mc_minutes": 70,
+        "frq_count": 3,
+        "frq_minutes": 60,
+        "calculator_sections": false
+      }
+    },
+    {
+      "id": "ap_microeconomics",
+      "name": "AP Microeconomics",
+      "subject": "economics",
+      "units": [
+        "Basic Economic Concepts",
+        "Supply and Demand",
+        "Production, Cost, and the Perfect Competition Model",
+        "Imperfect Competition",
+        "Factor Markets",
+        "Market Failure and the Role of Government"
+      ],
+      "exam_format": {
+        "mc_count": 60,
+        "mc_minutes": 70,
+        "frq_count": 3,
+        "frq_minutes": 60,
+        "calculator_sections": false
+      }
+    },
+    {
+      "id": "ap_us_government",
+      "name": "AP United States Government and Politics",
+      "subject": "government",
+      "units": [
+        "Foundations of American Democracy",
+        "Interactions Among Branches of Government",
+        "Civil Liberties and Civil Rights",
+        "American Political Ideologies and Beliefs",
+        "Political Participation"
+      ],
+      "exam_format": {
+        "mc_count": 55,
+        "mc_minutes": 80,
+        "frq_count": 4,
+        "frq_minutes": 100,
+        "scotus_required": true
+      }
+    },
+    {
+      "id": "ap_human_geography",
+      "name": "AP Human Geography",
+      "subject": "history",
+      "units": [
+        "Thinking Geographically",
+        "Population and Migration Patterns and Processes",
+        "Cultural Patterns and Processes",
+        "Political Patterns and Processes",
+        "Agriculture and Rural Land-Use Patterns and Processes",
+        "Cities and Urban Land-Use Patterns and Processes",
+        "Industrial and Economic Development Patterns and Processes"
+      ],
+      "exam_format": {
+        "mc_count": 60,
+        "mc_minutes": 60,
+        "frq_count": 3,
+        "frq_minutes": 75,
+        "calculator_sections": false
+      }
+    },
+    {
+      "id": "ap_spanish_language",
+      "name": "AP Spanish Language and Culture",
+      "subject": "world_languages",
+      "units": [
+        "Families in Different Societies",
+        "The Influence of Language and Culture on Identity",
+        "Influences of Beauty and Art",
+        "How Science and Technology Affect Our Lives",
+        "Factors That Impact the Quality of Life",
+        "Environmental, Political, and Societal Challenges"
+      ],
+      "exam_format": {
+        "mc_count": 65,
+        "mc_minutes": 95,
+        "frq_count": 4,
+        "frq_minutes": 85,
+        "speaking_section": true,
+        "listening_section": true
+      }
+    }
+  ],
+  "_meta": {
+    "description": "AP course catalog for MentorMind. Maps official College Board AP courses to subjects, units, and exam formats.",
+    "version": "1.0",
+    "total_courses": 23
+  }
+}

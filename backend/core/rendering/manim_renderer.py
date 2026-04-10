@@ -39,12 +39,16 @@ MONOSPACE_FONT   = "Noto Sans Mono"
 
 class ManimService:
     """Service for rendering Manim animations"""
-    
+
     def __init__(self):
         self.output_dir = os.path.join(config.DATA_DIR, "videos", "manim")
         self.render_quality = os.getenv("MANIM_RENDER_QUALITY", "l")
         self.render_timeout_seconds = int(os.getenv("MANIM_RENDER_TIMEOUT_SECONDS", "420"))
         os.makedirs(self.output_dir, exist_ok=True)
+        # Cache LaTeX availability check (avoids 14+ subprocess calls per video)
+        self._has_latex: Optional[bool] = None
+        # Render statistics from the last render_script call
+        self.last_render_stats: Dict[str, Any] = {}
         
     def _generate_single_scene_code(self, scene: Any, index: int) -> str:
         """Generate standalone Manim code for one scene with class LessonScene{index}."""
@@ -103,28 +107,139 @@ class ManimService:
                     return None
         return None
 
-    async def _concat_videos(self, video_paths: List[str], timestamp: str) -> str:
-        """Concatenate scene videos with ffmpeg. Returns output path."""
+    def _generate_srt(self, scenes: List[Any], video_paths: List[Optional[str]], timestamp: str) -> Optional[str]:
+        """Generate an SRT subtitle file from scene narrations aligned to video durations.
+        Returns the path to the .srt file, or None on failure."""
+        import json as _json
+
+        srt_path = os.path.join(self.output_dir, f"subs_{timestamp}.srt")
+        entries: List[str] = []
+        cursor = 0.0  # running time offset in seconds
+        idx = 0
+
+        for scene, vpath in zip(scenes, video_paths):
+            if vpath is None:
+                continue  # scene failed to render — skip
+
+            duration = float(getattr(scene, "duration", 0) or 0)
+            narration = (getattr(scene, "narration", "") or "").strip()
+            if not narration or duration <= 0:
+                cursor += duration
+                continue
+
+            # Split long narrations into ≤80-char subtitle chunks
+            words = narration.split()
+            chunks: List[str] = []
+            current: List[str] = []
+            for w in words:
+                current.append(w)
+                if len(" ".join(current)) > 80:
+                    chunks.append(" ".join(current))
+                    current = []
+            if current:
+                chunks.append(" ".join(current))
+            if not chunks:
+                cursor += duration
+                continue
+
+            chunk_dur = duration / len(chunks)
+            for ci, chunk in enumerate(chunks):
+                idx += 1
+                start = cursor + ci * chunk_dur
+                end = start + chunk_dur
+                entries.append(
+                    f"{idx}\n"
+                    f"{self._srt_ts(start)} --> {self._srt_ts(end)}\n"
+                    f"{chunk}\n"
+                )
+            cursor += duration
+
+        if not entries:
+            return None
+
+        with open(srt_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(entries))
+        logger.info(f"📝 [Manim] Generated subtitles: {srt_path} ({idx} cues)")
+        return srt_path
+
+    @staticmethod
+    def _srt_ts(seconds: float) -> str:
+        """Convert seconds to SRT timestamp format HH:MM:SS,mmm."""
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = int(seconds % 60)
+        ms = int((seconds - int(seconds)) * 1000)
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+    async def _concat_videos(
+        self,
+        video_paths: List[str],
+        timestamp: str,
+        scenes: Optional[List[Any]] = None,
+        all_video_slots: Optional[List[Optional[str]]] = None,
+    ) -> str:
+        """Concatenate scene videos with ffmpeg and burn in subtitles.
+        Returns output path."""
         import asyncio as _asyncio
         import shutil
+
         concat_list = os.path.join(self.output_dir, f"concat_{timestamp}.txt")
+        raw_output = os.path.join(self.output_dir, f"lesson_{timestamp}_raw.mp4")
         output_path = os.path.join(self.output_dir, f"lesson_{timestamp}.mp4")
 
-        with open(concat_list, 'w') as f:
+        with open(concat_list, "w") as f:
             for p in video_paths:
                 f.write(f"file '{p}'\n")
 
         ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
+
+        # Step 1: concat into raw file
         await _asyncio.to_thread(
             subprocess.run,
-            [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", concat_list, "-c", "copy", output_path],
+            [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", concat_list, "-c", "copy", raw_output],
             check=True,
             capture_output=True,
             text=True,
         )
+
+        # Step 2: burn subtitles if scene data is available
+        srt_path = None
+        if scenes and all_video_slots:
+            srt_path = self._generate_srt(scenes, all_video_slots, timestamp)
+
+        if srt_path and os.path.isfile(srt_path):
+            try:
+                # Embed SRT as a soft-subtitle stream (works with any ffmpeg build,
+                # no libass required). Players show captions when the user enables them.
+                await _asyncio.to_thread(
+                    subprocess.run,
+                    [ffmpeg, "-y",
+                     "-i", raw_output,
+                     "-i", srt_path,
+                     "-c:v", "copy", "-c:a", "copy",
+                     "-c:s", "mov_text",        # MP4 subtitle codec
+                     "-metadata:s:s:0", "language=eng",
+                     output_path],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                logger.info(f"✅ [Manim] Subtitles embedded into {output_path}")
+                for fp in (raw_output, srt_path):
+                    try:
+                        os.remove(fp)
+                    except OSError:
+                        pass
+            except Exception as e:
+                logger.warning(f"⚠️ [Manim] Subtitle embed failed ({e}), using raw concat")
+                if os.path.isfile(raw_output):
+                    os.rename(raw_output, output_path)
+        else:
+            os.rename(raw_output, output_path)
+
         try:
             os.remove(concat_list)
-        except Exception:
+        except OSError:
             pass
 
         logger.info(f"✅ [Manim] Concat complete → {output_path}")
@@ -161,7 +276,18 @@ class ManimService:
         ])
 
         valid_paths = [p for p in video_paths if p]
-        logger.info(f"[Manim] {len(valid_paths)}/{len(scenes)} scenes rendered")
+        total_scenes = len(scenes)
+        rendered_count = len(valid_paths)
+        failed_indices = [i for i, p in enumerate(video_paths) if p is None]
+        logger.info(f"[Manim] {rendered_count}/{total_scenes} scenes rendered")
+
+        self.last_render_stats = {
+            "total_scenes": total_scenes,
+            "rendered_scenes": rendered_count,
+            "failed_scenes": len(failed_indices),
+            "failed_indices": failed_indices,
+            "render_success_rate": rendered_count / max(total_scenes, 1),
+        }
 
         if not valid_paths:
             logger.warning("[Manim] All parallel scene renders failed; falling back to single render")
@@ -170,8 +296,13 @@ class ManimService:
         if len(valid_paths) == 1:
             return valid_paths[0]
 
-        output = await self._concat_videos(valid_paths, timestamp)
+        output = await self._concat_videos(
+            valid_paths, timestamp,
+            scenes=scenes,
+            all_video_slots=list(video_paths),
+        )
         duration = time.time() - start_time
+        self.last_render_stats["render_time_seconds"] = round(duration, 2)
         logger.info(f"✅ [Manim] Parallel render complete in {duration:.2f}s → {output}")
         return output
 
@@ -289,18 +420,21 @@ class ManimService:
             return None
 
     def _check_latex_availability(self) -> bool:
-        """Check if LaTeX standalone class is available"""
+        """Check if LaTeX standalone class is available (cached per instance)."""
+        if self._has_latex is not None:
+            return self._has_latex
         try:
             subprocess.run(
-                ["kpsewhich", "standalone.cls"], 
-                check=True, 
-                stdout=subprocess.DEVNULL, 
-                stderr=subprocess.DEVNULL
+                ["kpsewhich", "standalone.cls"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
-            return True
+            self._has_latex = True
         except (subprocess.CalledProcessError, FileNotFoundError):
             logger.warning("LaTeX 'standalone.cls' not found. Falling back to Text renderer.")
-            return False
+            self._has_latex = False
+        return self._has_latex
 
     def _generate_manim_code(self, script: Any) -> str:
         """Generate the Python code string for the Manim scene"""
@@ -413,13 +547,27 @@ class ManimService:
 
             # ── Action Mapping ────────────────────────────────────────────
             if scene.action == "plot":
+                # Validate the expression is valid Python before embedding
+                plot_expr = scene.param
+                try:
+                    compile(f"lambda x: {plot_expr}", "<plot>", "eval")
+                except SyntaxError:
+                    # LLM sometimes produces invalid expressions; fall back to y=x
+                    logger.warning(f"Invalid plot expression '{plot_expr}', falling back to y=x")
+                    plot_expr = "x"
                 code.append(f"        ax = Axes(")
                 code.append(f"            x_range={x_range},")
                 code.append(f"            y_range={y_range},")
                 code.append(f"            axis_config={{\"color\": ACCENT_COLOR}},")
                 code.append(f"        )")
                 code.append(f"        ax.set_color(ACCENT_COLOR)")
-                code.append(f"        curve = ax.plot(lambda x: {scene.param}, color=YELLOW_COLOR)")
+                # Wrap lambda in try/except to handle math domain errors (e.g. sqrt of negative)
+                code.append(f"        def _safe_plot(x):")
+                code.append(f"            try:")
+                code.append(f"                return {plot_expr}")
+                code.append(f"            except (ValueError, ZeroDivisionError, OverflowError):")
+                code.append(f"                return 0.0")
+                code.append(f"        curve = ax.plot(_safe_plot, color=YELLOW_COLOR)")
                 code.append(f"        plot_intro = min(2.5, max(0.8, {scene.duration} * 0.2))")
                 code.append(f"        self.play(Create(ax), run_time=plot_intro * 0.4)")
                 code.append(f"        self.play(Create(curve), run_time=plot_intro * 0.6)")
@@ -434,7 +582,7 @@ class ManimService:
                 if has_latex and not has_non_ascii:
                     code.append(f"        eq = MathTex(r'{scene.param}', color={primary_col})")
                 else:
-                    clean_text = scene.param.replace('^2', '²').replace('^3', '³').replace('_', '').replace('\\', '').replace('text', '')
+                    clean_text = self._latex_to_plain_text(scene.param)
                     code.append(f'        eq = Text(r"""{clean_text}""", font_size={font_size}, color={primary_col})')
                 code.append(f"        eq.scale({safe_scale})")
                 if position == "top":
@@ -587,28 +735,127 @@ class ManimService:
         clean = clean.replace('"""', "'\"\"")
         return clean
 
+    # ── Unicode math lookup tables ──────────────────────────────────────
+    _LATEX_SUPERSCRIPTS = str.maketrans(
+        "0123456789+-=()ninx", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿⁱⁿˣ"
+    )
+    _LATEX_SUBSCRIPTS = str.maketrans(
+        "0123456789+-=()aeiourx", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎ₐₑᵢₒᵤᵣₓ"
+    )
+    _LATEX_SYMBOLS: dict[str, str] = {
+        # Greek lowercase
+        r"\alpha": "α", r"\beta": "β", r"\gamma": "γ", r"\delta": "δ",
+        r"\epsilon": "ε", r"\varepsilon": "ε", r"\zeta": "ζ", r"\eta": "η",
+        r"\theta": "θ", r"\vartheta": "ϑ", r"\iota": "ι", r"\kappa": "κ",
+        r"\lambda": "λ", r"\mu": "μ", r"\nu": "ν", r"\xi": "ξ",
+        r"\pi": "π", r"\rho": "ρ", r"\sigma": "σ", r"\tau": "τ",
+        r"\upsilon": "υ", r"\phi": "φ", r"\varphi": "φ", r"\chi": "χ",
+        r"\psi": "ψ", r"\omega": "ω",
+        # Greek uppercase
+        r"\Gamma": "Γ", r"\Delta": "Δ", r"\Theta": "Θ", r"\Lambda": "Λ",
+        r"\Xi": "Ξ", r"\Pi": "Π", r"\Sigma": "Σ", r"\Upsilon": "Υ",
+        r"\Phi": "Φ", r"\Psi": "Ψ", r"\Omega": "Ω",
+        # Operators
+        r"\sqrt": "√", r"\cbrt": "∛", r"\sum": "∑", r"\prod": "∏",
+        r"\int": "∫", r"\iint": "∬", r"\iiint": "∭", r"\oint": "∮",
+        r"\partial": "∂", r"\nabla": "∇", r"\infty": "∞",
+        r"\pm": "±", r"\mp": "∓", r"\cdot": "·", r"\times": "×",
+        r"\div": "÷", r"\circ": "∘", r"\bullet": "•", r"\star": "★",
+        r"\oplus": "⊕", r"\otimes": "⊗",
+        # Relations
+        r"\neq": "≠", r"\ne": "≠", r"\leq": "≤", r"\le": "≤",
+        r"\geq": "≥", r"\ge": "≥", r"\ll": "≪", r"\gg": "≫",
+        r"\approx": "≈", r"\sim": "∼", r"\simeq": "≃", r"\cong": "≅",
+        r"\equiv": "≡", r"\propto": "∝", r"\subset": "⊂", r"\supset": "⊃",
+        r"\subseteq": "⊆", r"\supseteq": "⊇", r"\in": "∈", r"\notin": "∉",
+        r"\ni": "∋", r"\forall": "∀", r"\exists": "∃", r"\nexists": "∄",
+        r"\perp": "⊥", r"\parallel": "∥",
+        # Arrows
+        r"\to": "→", r"\rightarrow": "→", r"\leftarrow": "←",
+        r"\leftrightarrow": "↔", r"\Rightarrow": "⇒", r"\Leftarrow": "⇐",
+        r"\Leftrightarrow": "⇔", r"\uparrow": "↑", r"\downarrow": "↓",
+        r"\mapsto": "↦", r"\implies": "⟹", r"\iff": "⟺",
+        # Misc
+        r"\ldots": "…", r"\cdots": "⋯", r"\vdots": "⋮", r"\ddots": "⋱",
+        r"\therefore": "∴", r"\because": "∵", r"\angle": "∠",
+        r"\triangle": "△", r"\square": "□", r"\diamond": "◇",
+        r"\langle": "⟨", r"\rangle": "⟩",
+        r"\lceil": "⌈", r"\rceil": "⌉", r"\lfloor": "⌊", r"\rfloor": "⌋",
+        r"\emptyset": "∅", r"\varnothing": "∅",
+        r"\hbar": "ℏ", r"\ell": "ℓ", r"\Re": "ℜ", r"\Im": "ℑ",
+        # Spacing / formatting
+        r"\quad": "  ", r"\qquad": "    ", r"\,": " ", r"\;": " ",
+        r"\!": "", r"\left": "", r"\right": "", r"\bigl": "", r"\bigr": "",
+        r"\Big": "", r"\big": "",
+        # Trig / log functions (keep as text)
+        r"\sin": "sin", r"\cos": "cos", r"\tan": "tan",
+        r"\sec": "sec", r"\csc": "csc", r"\cot": "cot",
+        r"\arcsin": "arcsin", r"\arccos": "arccos", r"\arctan": "arctan",
+        r"\sinh": "sinh", r"\cosh": "cosh", r"\tanh": "tanh",
+        r"\log": "log", r"\ln": "ln", r"\exp": "exp",
+        r"\lim": "lim", r"\max": "max", r"\min": "min",
+        r"\sup": "sup", r"\inf": "inf", r"\det": "det", r"\dim": "dim",
+    }
+
     def _latex_to_plain_text(self, expression: str) -> str:
-        """Best-effort conversion from simple LaTeX-ish math strings to plain text."""
+        """Convert LaTeX math to readable Unicode plain text."""
         text = expression
+
+        # ── Structural macros (order matters) ────────────────────────────
+        # \text{...} → contents
         text = re.sub(r"\\text\{([^}]*)\}", r"\1", text)
-        text = re.sub(r"\\frac\{([^}]*)\}\{([^}]*)\}", r"(\1)/(\2)", text)
-        replacements = {
-            r"\quad": " ",
-            r"\neq": "≠",
-            r"\leq": "≤",
-            r"\geq": "≥",
-            r"\cdot": "·",
-            r"\times": "×",
-            r"\to": "→",
-            r"\Rightarrow": "⇒",
-            r"\left": "",
-            r"\right": "",
-            "{": "",
-            "}": "",
-            "\\": "",
-        }
-        for source, target in replacements.items():
-            text = text.replace(source, target)
+        text = re.sub(r"\\textbf\{([^}]*)\}", r"\1", text)
+        text = re.sub(r"\\mathrm\{([^}]*)\}", r"\1", text)
+        text = re.sub(r"\\mathbf\{([^}]*)\}", r"\1", text)
+        text = re.sub(r"\\mathit\{([^}]*)\}", r"\1", text)
+        text = re.sub(r"\\mathcal\{([^}]*)\}", r"\1", text)
+        text = re.sub(r"\\operatorname\{([^}]*)\}", r"\1", text)
+        text = re.sub(r"\\overline\{([^}]*)\}", lambda m: m.group(1) + "\u0305", text)
+        text = re.sub(r"\\hat\{([^}]*)\}", lambda m: m.group(1) + "\u0302", text)
+        text = re.sub(r"\\vec\{([^}]*)\}", lambda m: m.group(1) + "\u20D7", text)
+        text = re.sub(r"\\dot\{([^}]*)\}", lambda m: m.group(1) + "\u0307", text)
+        text = re.sub(r"\\ddot\{([^}]*)\}", lambda m: m.group(1) + "\u0308", text)
+        text = re.sub(r"\\tilde\{([^}]*)\}", lambda m: m.group(1) + "\u0303", text)
+        text = re.sub(r"\\bar\{([^}]*)\}", lambda m: m.group(1) + "\u0304", text)
+
+        # \sqrt{...} → √(...)  and \sqrt[n]{...} → ⁿ√(...)
+        text = re.sub(r"\\sqrt\[(\d)\]\{([^}]*)\}", lambda m: m.group(1).translate(self._LATEX_SUPERSCRIPTS) + "√(" + m.group(2) + ")", text)
+        text = re.sub(r"\\sqrt\{([^}]*)\}", r"√(\1)", text)
+
+        # \frac{a}{b} → (a)/(b)  — use parens only when multi-char
+        def _fmt_frac(m: re.Match) -> str:
+            n, d = m.group(1), m.group(2)
+            top = f"({n})" if len(n) > 1 else n
+            bot = f"({d})" if len(d) > 1 else d
+            return f"{top}/{bot}"
+        text = re.sub(r"\\frac\{([^}]*)\}\{([^}]*)\}", _fmt_frac, text)
+
+        # \mathbb{X} → double-struck letters
+        _bb_map = {c: chr(0x1D538 + ord(c) - ord('A')) for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"}
+        _bb_map.update({"R": "ℝ", "N": "ℕ", "Z": "ℤ", "Q": "ℚ", "C": "ℂ"})
+        text = re.sub(r"\\mathbb\{([A-Z])\}", lambda m: _bb_map.get(m.group(1), m.group(1)), text)
+
+        # ── Symbol replacements BEFORE super/subscripts (longest match first)
+        for cmd, uni in sorted(self._LATEX_SYMBOLS.items(), key=lambda kv: -len(kv[0])):
+            text = text.replace(cmd, uni)
+
+        # Superscripts: ^{...} or ^c → Unicode superscript
+        def _sup(m: re.Match) -> str:
+            return m.group(1).translate(self._LATEX_SUPERSCRIPTS)
+        text = re.sub(r"\^{([^}]+)}", _sup, text)
+        text = re.sub(r"\^(\w)", _sup, text)
+
+        # Subscripts: _{...} or _c → Unicode subscript
+        def _sub(m: re.Match) -> str:
+            return m.group(1).translate(self._LATEX_SUBSCRIPTS)
+        text = re.sub(r"_\{([^}]+)}", _sub, text)
+        text = re.sub(r"_(\w)", _sub, text)
+
+        # ── Cleanup ──────────────────────────────────────────────────────
+        text = text.replace("{", "").replace("}", "")
+        # Remove stray backslashes (from unknown commands)
+        text = re.sub(r"\\([a-zA-Z]+)", r"\1", text)
+        text = re.sub(r"\\", "", text)
         text = re.sub(r"\s+", " ", text).strip()
         return text
 

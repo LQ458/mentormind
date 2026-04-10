@@ -1,12 +1,6 @@
 {
-  "/_not-found/page": "app/_not-found/page.js",
-  "/create/page": "app/create/page.js",
-  "/lessons/page": "app/lessons/page.js",
-  "/lessons/[id]/page": "app/lessons/[id]/page.js",
-  "/analytics/page": "app/analytics/page.js",
-  "/api/backend/job-status/[id]/route": "app/api/backend/job-status/[id]/route.js",
-  "/api/backend/users/me/lessons/route": "app/api/backend/users/me/lessons/route.js",
-  "/api/backend/lessons/[id]/route": "app/api/backend/lessons/[id]/route.js",
-  "/api/backend/users/me/lessons/[id]/state/route": "app/api/backend/users/me/lessons/[id]/state/route.js",
-  "/api/backend/media/[...path]/route": "app/api/backend/media/[...path]/route.js"
+  "/api/backend/study-plan/ask-ai/route": "app/api/backend/study-plan/ask-ai/route.js",
+  "/api/backend/study-plan/[id]/unit/[unitId]/complete/route": "app/api/backend/study-plan/[id]/unit/[unitId]/complete/route.js",
+  "/study-plan/page": "app/study-plan/page.js",
+  "/study-plan/[id]/page": "app/study-plan/[id]/page.js"
 }

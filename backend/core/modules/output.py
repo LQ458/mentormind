@@ -644,12 +644,12 @@ class ProgrammaticVideoGenerator:
             total_audio_duration = sum(audio_durations)
             video_script.total_duration = total_audio_duration
 
-            # Preferred length: > 3 minutes (180s). 
-            # Reduced from 6 minutes to improve success rate and reduce unnecessary retries.
-            preferred_duration_seconds = 180
-            
+            # Accept videos >= 60s.  Retrying the full pipeline for length
+            # doubles generation time for marginal improvement.
+            preferred_duration_seconds = 60
+
             if total_audio_duration < preferred_duration_seconds and attempt == 1:
-                logger.info(f"Lesson length {total_audio_duration:.1f}s is below preferred {preferred_duration_seconds}s. Triggering enhanced retry.")
+                logger.info(f"Lesson length {total_audio_duration:.1f}s is below minimum {preferred_duration_seconds}s. Triggering enhanced retry.")
                 raise ValueError("preferred_length_not_met")
             
             # On attempt 2+, we accept whatever length we got, as long as it's not empty.
@@ -675,6 +675,7 @@ class ProgrammaticVideoGenerator:
                 "debug": {
                     "generation_pipeline": video_script.debug_artifacts,
                     "video_probe": video_probe,
+                    "render_stats": self.manim_service.last_render_stats,
                     "duration_target_seconds": required_duration_seconds,
                     "generation_attempt": attempt,
                     "scene_audio": [
@@ -694,12 +695,10 @@ class ProgrammaticVideoGenerator:
             for part in [
                 custom_requirements or "",
                 (
-                    f"CRITICAL RETRY REQUIREMENT: The previous attempt was too short. "
-                    f"The final lesson MUST run for at least 10 full minutes. "
-                    "Each scene narration MUST be at least 150 words long. "
-                    "Use a slow, pedagogical pace. Add more detailed explanations, "
-                    "repeat key concepts for emphasis, and add 'Let's pause and think about this' transitions. "
-                    "Expand every mathematical step with verbal reasoning."
+                    "RETRY REQUIREMENT: The previous attempt was too short. "
+                    "Add more worked examples with step-by-step visual animations. "
+                    "Each scene should demonstrate a concept visually, not just describe it in words. "
+                    "Use more transform, plot, and draw_shape actions. Keep narration concise but add more scenes."
                 ),
             ]
             if part

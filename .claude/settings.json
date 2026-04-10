@@ -1,16 +1,5 @@
 {
   "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'if echo \"$CC_EDIT_FILE\" | grep -qE \"(routes|endpoints|views|urls)\"; then echo \"⚠️ Route file changed - remember to restart server\"; fi'"
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [

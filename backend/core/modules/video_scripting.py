@@ -218,7 +218,7 @@ class VideoScriptGenerator:
         scenes = []
         total_duration = 0.0
         
-        max_scenes = 18
+        max_scenes = 14
         for s in data.get("scenes", [])[:max_scenes]:
             scene = Scene(
                 id=s.get("id", f"s_{len(scenes)}"),

@@ -14,6 +14,7 @@ from database.models.user import User
 from core.asr import transcribe_with_local_model_result
 from core.summarize import summarize_extracted_content
 from core.rendering.layout_manager import ContentType
+from config import config
 import redis
 
 # Initialize Celery app
@@ -32,6 +33,17 @@ celery_app = Celery(
 # Configure Celery settings
 celery_app.conf.update(
     broker_connection_retry_on_startup=True,
+    broker_connection_retry=True,
+    broker_connection_max_retries=10,
+    broker_connection_timeout=30,
+    broker_pool_limit=10,
+    redis_max_connections=20,
+    redis_socket_connect_timeout=15,
+    redis_socket_timeout=120,
+    redis_retry_on_timeout=True,
+    result_backend_transport_options={
+        "retry_policy": {"max_retries": 5, "interval_start": 0.2, "interval_step": 0.5, "interval_max": 3},
+    },
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
@@ -40,6 +52,7 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=1800,  # 30 minutes hard limit for long-form rendering and retries
     task_soft_time_limit=1500, # 25 minutes soft limit
+    worker_lost_wait=30,  # Wait before marking lost worker tasks as failed
     
     # --- RESOURCE ISOLATION QUEUES ---
     task_queues={
@@ -134,14 +147,14 @@ def create_class_video_task(self, request_data: dict, job_id: str):
             
         return result
 
-    # Run the event loop
+    # Run the event loop — always create a fresh loop for Celery workers
+    # (asyncio.get_event_loop() is unreliable in forked worker processes)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-    result = loop.run_until_complete(_run_pipeline())
+        result = loop.run_until_complete(_run_pipeline())
+    finally:
+        loop.close()
     
     # Extract title and description from nested lesson plan if missing
     plan_dict = result.lesson_plan if isinstance(result.lesson_plan, dict) else {}
@@ -156,47 +169,35 @@ def create_class_video_task(self, request_data: dict, job_id: str):
     quality_evaluation = None
     try:
         print(f"[{job_id}] 🔍 Running AI quality evaluation...")
-        from services.api_client import api_client
-        
-        redis_client = redis.Redis.from_url(REDIS_URL.replace("/0", "/1"), decode_responses=True)
-        # evaluator, tracker = create_content_evaluator(api_client, redis_client)  # Temporarily disabled
-        
-        # Evaluate the complete lesson
-        lesson_content = f"""
-Title: {final_title}
-Description: {final_desc}
-Lesson Plan: {json.dumps(result.lesson_plan, indent=2) if result.lesson_plan else 'Not available'}
-Resources: {json.dumps(result.resources, indent=2) if result.resources else 'Not available'}
-AI Insights: {json.dumps(result.ai_insights, indent=2) if result.ai_insights else 'Not available'}
-        """.strip()
-        
-        # evaluation = asyncio.run(evaluator.evaluate_content(
-        #     content=lesson_content,
-        #     content_type=ContentType.COMPLETE_LESSON,
-        #     student_level=request_data.get("student_level", "intermediate"),
-        #     topic=request_data.get("topic", ""),
-        #     learning_objectives=[]  # Could extract from lesson_plan if structured
-        # ))
-        
-        # # Store evaluation for analytics
-        # asyncio.run(tracker.store_evaluation(job_id, evaluation))
-        
-        # Mock quality evaluation for now
-        quality_evaluation = {
-            "overall_score": 8.5,
-            "strengths": ["Well structured content", "Clear explanations", "Engaging format"],
-            "improvement_areas": ["Could add more examples", "More interactive elements", "Better pacing"],
-            "confidence": 0.85,
-            "assessment_quality": "high"
-        }
-        
-        print(f"[{job_id}] ✅ Quality evaluation complete (mock): {quality_evaluation['overall_score']}/10")
-        
+        from core.agents.video_quality_agent import VideoQualityAgent
+
+        # Resolve absolute paths for file-level checks
+        video_abs = None
+        audio_abs = None
+        if result.video_url:
+            candidate = os.path.join(config.DATA_DIR, result.video_url) if not os.path.isabs(result.video_url) else result.video_url
+            if os.path.isfile(candidate):
+                video_abs = candidate
+        if result.audio_url:
+            candidate = os.path.join(config.DATA_DIR, result.audio_url) if not os.path.isabs(result.audio_url) else result.audio_url
+            if os.path.isfile(candidate):
+                audio_abs = candidate
+
+        agent = VideoQualityAgent()
+        quality_evaluation = agent.evaluate_final_output(
+            result=result,
+            request_data=request_data,
+            video_absolute_path=video_abs,
+            audio_absolute_path=audio_abs,
+        )
+
+        print(f"[{job_id}] ✅ Quality evaluation complete: {quality_evaluation['overall_score']}/10 (Grade: {quality_evaluation['grade']})")
+
     except Exception as e:
         print(f"[{job_id}] ⚠️ Quality evaluation failed: {e}")
         quality_evaluation = {
             "overall_score": 0.0,
-            "error": "Quality evaluation unavailable",
+            "error": str(e),
             "assessment_quality": "unavailable"
         }
 
@@ -473,13 +474,12 @@ def transcript_to_lesson_task(self, transcript_or_file: str, request_data: dict,
             "timestamp": datetime.now().isoformat(),
         }
 
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    response = loop.run_until_complete(_run())
+        response = loop.run_until_complete(_run())
+    finally:
+        loop.close()
     
     # Save the lesson to PostgreSQL database directly in the worker
     try:
@@ -646,17 +646,15 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
             language=language,
         )
 
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
         result = loop.run_until_complete(_run())
     except Exception as e:
         print(f"[unit:{unit_id}] ❌ Content generation failed: {e}")
         result = {"error": str(e)}
+    finally:
+        loop.close()
 
     # Store result in Redis for polling
     try:

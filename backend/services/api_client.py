@@ -262,12 +262,12 @@ class DeepSeekClient:
                 self.logger.warning(f"Incomplete transfer detected, retrying: {e}")
                 raise  # Let retry mechanism handle this
             # Re-raise for retry handling
-            self.logger.warning(f"Network error in DeepSeek API call: {e}")
+            self.logger.warning(f"Network error in API call: {e}")
             raise
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
-            self.logger.error(f"Unexpected error in DeepSeek API call: {e}\n{error_details}")
+            self.logger.error(f"Unexpected error in API call: {e}\n{error_details}")
             return APIResponse(
                 success=False,
                 error=f"Unexpected error: {str(e)}\nDetails: {error_details}",

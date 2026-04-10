@@ -6,7 +6,7 @@ import { useLanguage } from './components/LanguageContext'
 
 interface ServiceStatus {
   backendOnline: boolean
-  deepseekConnected: boolean
+  aiConnected: boolean
   funasrStatus: 'online' | 'offline' | 'checking'
   paddleOcrStatus: 'online' | 'offline' | 'checking'
 }
@@ -15,7 +15,7 @@ export default function HomePage() {
   const { language, t } = useLanguage()
   const [services, setServices] = useState<ServiceStatus>({
     backendOnline: false,
-    deepseekConnected: false,
+    aiConnected: false,
     funasrStatus: 'checking',
     paddleOcrStatus: 'checking',
   })
@@ -28,14 +28,14 @@ export default function HomePage() {
         const data = await res.json()
         setServices({
           backendOnline: data.status === 'running' || data.status === 'online',
-          deepseekConnected: data.services?.deepseek === 'configured' || data.services?.ai_lessons === 'active',
+          aiConnected: data.services?.deepseek === 'configured' || data.services?.ai_lessons === 'active',
           funasrStatus: data.services?.funasr === 'online' ? 'online' : 'offline',
           paddleOcrStatus: data.services?.paddle_ocr === 'online' ? 'online' : 'offline',
         })
       } catch {
         setServices({
           backendOnline: false,
-          deepseekConnected: false,
+          aiConnected: false,
           funasrStatus: 'offline',
           paddleOcrStatus: 'offline',
         })
@@ -135,14 +135,14 @@ export default function HomePage() {
               {services.backendOnline ? t('home.online') : t('home.offline')}
             </span>
           </div>
-          {/* DeepSeek */}
+          {/* AI Service */}
           <div className="flex items-center justify-between">
             <div className="flex items-center">
-              <div className={`w-3 h-3 rounded-full mr-3 ${services.deepseekConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-              <span className="font-medium">DeepSeek API</span>
+              <div className={`w-3 h-3 rounded-full mr-3 ${services.aiConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+              <span className="font-medium">AI Service (GLM-5.1)</span>
             </div>
-            <span className={`font-medium ${services.deepseekConnected ? 'text-green-600' : 'text-red-500'}`}>
-              {services.deepseekConnected ? t('home.connected') : t('home.offline')}
+            <span className={`font-medium ${services.aiConnected ? 'text-green-600' : 'text-red-500'}`}>
+              {services.aiConnected ? t('home.connected') : t('home.offline')}
             </span>
           </div>
           {/* FunASR */}
