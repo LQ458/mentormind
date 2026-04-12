@@ -218,7 +218,9 @@ def create_class_video_task(self, request_data: dict, job_id: str):
         "timestamp": datetime.now().isoformat()
     }
     if render_failed:
-        response["error"] = "Video rendering failed before a final media file was produced."
+        ai_error = (result.ai_insights or {}).get("error") if hasattr(result, 'ai_insights') else None
+        response["error"] = ai_error or "Video rendering failed before a final media file was produced."
+        response["error_message"] = response["error"]
     
     # Save the lesson to PostgreSQL database directly in the worker
     if response["success"]:

@@ -21,6 +21,7 @@ from prompts.loader import load_prompt, render_prompt
 from core.agents.video_quality_agent import VideoQualityAgent
 from services.api_client import APIClient, get_language_instruction
 from core.modules.content_validator import ContentValidator, validate_with_retry_suggestions
+from services.image_sources import get_educational_images, ImageSource
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ ALLOWED_ACTIONS = {
     "plot",
     "transform",
     "draw_shape",
+    "show_image",
 }
 
 ALLOWED_LAYOUTS = {
@@ -175,6 +177,25 @@ class RobustVideoGenerationPipeline:
             "metadata": final_metadata
         }
 
+        # ── Best-effort educational image search ────────────────────────
+        educational_images: List[Dict[str, Any]] = []
+        try:
+            context = content[:500] if content else topic
+            images = await get_educational_images(topic, context, max_images=4)
+            for img in images:
+                educational_images.append({
+                    "url": img.url,
+                    "local_path": img.local_path,
+                    "title": img.title,
+                    "attribution": img.attribution,
+                    "source": img.source,
+                    "relevance_score": img.relevance_score,
+                })
+            if educational_images:
+                logger.info(f"🖼️ Found {len(educational_images)} educational images for '{topic}'")
+        except Exception as e:
+            logger.warning(f"⚠️ Image search failed (non-fatal): {e}")
+
         prompt_versions = {
             name: self._prompt_version(name)
             for name in [
@@ -198,6 +219,7 @@ class RobustVideoGenerationPipeline:
             "quality_report": quality_report.to_dict(),
             "review": review,
             "prompt_versions": prompt_versions,
+            "educational_images": educational_images,
         }
 
     async def _run_stage(

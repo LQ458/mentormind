@@ -801,6 +801,17 @@ export default function CreateLessonPage() {
           return
         }
 
+        // Warn user if video was requested but not produced
+        if (!result?.video_url && !result?.audio_url) {
+          const warning = result?.error_message || result?.error || result?.ai_insights?.error
+          if (warning) {
+            alert(uiLanguage === 'zh'
+              ? `课程已创建，但视频/音频生成失败：${warning}`
+              : `Course created, but video/audio generation failed: ${warning}`
+            )
+          }
+        }
+
         setPreview(result)
         setWorkflowPhase('preview')
         setPipelineProgress(null)

@@ -38,7 +38,7 @@ interface UnitData {
   estimated_minutes: number
 }
 
-type ContentTab = 'study_guide' | 'quiz' | 'flashcards' | 'formulas'
+type ContentTab = 'study_guide' | 'quiz' | 'flashcards' | 'formulas' | 'mock_exam'
 
 const SUBJECT_LABELS: Record<string, string> = {
   math: 'Mathematics', physics: 'Physics', chemistry: 'Chemistry',
@@ -89,11 +89,42 @@ interface Formula {
   category?: string
 }
 
+interface MockExamQuestion {
+  id: number
+  type: 'mcq' | 'short_answer' | 'free_response'
+  question: string
+  choices?: string[]
+  correct_answer: string
+  explanation?: string
+  points: number
+  topic?: string
+}
+
+interface MockExamSection {
+  name: string
+  time_minutes: number
+  weight_percentage: number
+  questions: MockExamQuestion[]
+}
+
+interface MockExam {
+  title: string
+  time_limit_minutes: number
+  sections: MockExamSection[]
+  total_points: number
+  score_conversion?: {
+    description: string
+    ranges: { min: number; max: number; grade: string }[]
+  }
+}
+
 interface UnitContent {
   study_guide?: StudyGuide
   quiz?: Quiz
   flashcards?: Flashcard[]
   formulas?: Formula[]
+  mock_exam?: MockExam
+  mock_exam_mapped?: MockExam
 }
 
 // ── Inline renderers ──────────────────────────────────────────────────────────
@@ -740,6 +771,165 @@ function FormulasTab({ formulas }: { formulas: Formula[] }) {
   )
 }
 
+// ── Mock Exam Tab ────────────────────────────────────────────────────────────
+
+function MockExamTab({ exam }: { exam: MockExam }) {
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [submitted, setSubmitted] = useState(false)
+  const [score, setScore] = useState<{ earned: number; total: number } | null>(null)
+
+  const handleAnswer = (qId: string, answer: string) => {
+    if (submitted) return
+    setAnswers(prev => ({ ...prev, [qId]: answer }))
+  }
+
+  const handleSubmit = () => {
+    let earned = 0
+    let total = 0
+    for (const section of exam.sections) {
+      for (const q of section.questions) {
+        total += q.points
+        const userAnswer = answers[`${q.id}`]
+        if (userAnswer && userAnswer.toLowerCase().trim() === q.correct_answer.toLowerCase().trim()) {
+          earned += q.points
+        }
+      }
+    }
+    setScore({ earned, total })
+    setSubmitted(true)
+  }
+
+  const handleReset = () => {
+    setAnswers({})
+    setSubmitted(false)
+    setScore(null)
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">{exam.title}</h2>
+          <p className="text-sm text-gray-500">
+            Time limit: {exam.time_limit_minutes} min · Total: {exam.total_points} points
+          </p>
+        </div>
+        {submitted && score && (
+          <div className="text-right">
+            <p className="text-2xl font-bold text-blue-600">{score.earned}/{score.total}</p>
+            <p className="text-sm text-gray-500">{Math.round((score.earned / score.total) * 100)}%</p>
+          </div>
+        )}
+      </div>
+
+      {exam.sections.map((section, si) => (
+        <div key={si} className="border border-gray-200 rounded-xl overflow-hidden">
+          <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+            <h3 className="font-medium text-gray-900">{section.name}</h3>
+            <p className="text-xs text-gray-500">
+              {section.time_minutes} min · {section.weight_percentage}% weight
+            </p>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {section.questions.map((q) => {
+              const qKey = `${q.id}`
+              const isCorrect = submitted && answers[qKey]?.toLowerCase().trim() === q.correct_answer.toLowerCase().trim()
+              const isWrong = submitted && answers[qKey] && !isCorrect
+
+              return (
+                <div key={q.id} className={`p-4 ${submitted ? (isCorrect ? 'bg-green-50' : isWrong ? 'bg-red-50' : 'bg-gray-50') : ''}`}>
+                  <div className="flex items-start gap-3">
+                    <span className="text-xs font-medium text-gray-400 mt-0.5">Q{q.id}</span>
+                    <div className="flex-1">
+                      <p className="text-sm text-gray-900 mb-2">
+                        <TextBlock text={q.question} />
+                      </p>
+                      {q.type === 'mcq' && q.choices ? (
+                        <div className="space-y-1.5">
+                          {q.choices.map((choice, ci) => {
+                            const choiceLetter = choice.charAt(0)
+                            const isSelected = answers[qKey] === choiceLetter
+                            return (
+                              <button
+                                key={ci}
+                                onClick={() => handleAnswer(qKey, choiceLetter)}
+                                disabled={submitted}
+                                className={`w-full text-left px-3 py-2 rounded-lg text-sm border transition-colors ${
+                                  isSelected
+                                    ? submitted
+                                      ? isCorrect ? 'border-green-400 bg-green-100' : 'border-red-400 bg-red-100'
+                                      : 'border-blue-400 bg-blue-50'
+                                    : submitted && choiceLetter === q.correct_answer
+                                      ? 'border-green-400 bg-green-50'
+                                      : 'border-gray-200 hover:border-gray-300'
+                                }`}
+                              >
+                                <TextBlock text={choice} />
+                              </button>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <input
+                          type="text"
+                          value={answers[qKey] || ''}
+                          onChange={(e) => handleAnswer(qKey, e.target.value)}
+                          disabled={submitted}
+                          placeholder="Type your answer..."
+                          className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm"
+                        />
+                      )}
+                      {submitted && q.explanation && (
+                        <div className="mt-2 p-2 bg-blue-50 rounded-lg text-xs text-blue-800">
+                          <span className="font-medium">Explanation:</span>{' '}
+                          <TextBlock text={q.explanation} />
+                        </div>
+                      )}
+                      <span className="text-xs text-gray-400 mt-1 inline-block">{q.points} pt{q.points !== 1 ? 's' : ''}</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+
+      <div className="flex gap-3">
+        {!submitted ? (
+          <button
+            onClick={handleSubmit}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+          >
+            Submit Exam
+          </button>
+        ) : (
+          <button
+            onClick={handleReset}
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300"
+          >
+            Retake Exam
+          </button>
+        )}
+      </div>
+
+      {submitted && exam.score_conversion && (
+        <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+          <p className="text-sm font-medium text-gray-700 mb-2">Score Conversion</p>
+          <p className="text-xs text-gray-500 mb-2">{exam.score_conversion.description}</p>
+          <div className="flex flex-wrap gap-2">
+            {exam.score_conversion.ranges.map((r, i) => (
+              <span key={i} className="text-xs px-2 py-1 bg-white rounded border border-gray-200">
+                {r.min}-{r.max}%: Grade {r.grade}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Status Badge ──────────────────────────────────────────────────────────────
 
 function StatusBadge({ status, isCompleted }: { status: string; isCompleted: boolean }) {
@@ -790,7 +980,8 @@ const CONTENT_TYPES = [
   { key: 'study_guide', label: 'Study Guide' },
   { key: 'quiz', label: 'Quiz' },
   { key: 'flashcards', label: 'Flashcards' },
-  { key: 'formulas', label: 'Formula Sheet' },
+  { key: 'formula_sheet', label: 'Formula Sheet' },
+  { key: 'mock_exam', label: 'Mock Exam' },
 ]
 
 export default function StudyPlanPage() {
@@ -810,7 +1001,7 @@ export default function StudyPlanPage() {
   const [activeTab, setActiveTab] = useState<ContentTab>('study_guide')
 
   const [generating, setGenerating] = useState(false)
-  const [selectedContentTypes, setSelectedContentTypes] = useState<string[]>(['study_guide', 'quiz', 'flashcards'])
+  const [selectedContentTypes, setSelectedContentTypes] = useState<string[]>(['study_guide', 'quiz', 'flashcards', 'formula_sheet', 'mock_exam'])
 
   const [completing, setCompleting] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -891,6 +1082,13 @@ export default function StudyPlanPage() {
       const res = await fetch(`/api/backend/study-plan/${planId}/unit/${unitId}/content`, { headers })
       if (!res.ok) throw new Error(`Status ${res.status}`)
       const data = await res.json()
+      // Map backend field names to frontend field names
+      if (data.formula_sheet && !data.formulas) {
+        data.formulas = data.formula_sheet
+      }
+      if (data.mock_exam && !data.mock_exam_mapped) {
+        data.mock_exam_mapped = data.mock_exam
+      }
       setContent(data)
     } catch {
       setContent(null)
@@ -1127,6 +1325,7 @@ export default function StudyPlanPage() {
     { key: 'quiz', label: 'Quiz' },
     { key: 'flashcards', label: 'Flashcards' },
     { key: 'formulas', label: 'Formulas' },
+    { key: 'mock_exam', label: 'Mock Exam' },
   ]
 
   return (
@@ -1413,6 +1612,7 @@ export default function StudyPlanPage() {
                     tab.key === 'study_guide' ? !!content?.study_guide
                     : tab.key === 'quiz' ? !!content?.quiz
                     : tab.key === 'flashcards' ? !!content?.flashcards?.length
+                    : tab.key === 'mock_exam' ? !!content?.mock_exam?.sections?.length
                     : !!content?.formulas?.length
                   return (
                     <button
@@ -1444,6 +1644,9 @@ export default function StudyPlanPage() {
                 )}
                 {activeTab === 'formulas' && content?.formulas && (
                   <FormulasTab formulas={content.formulas} />
+                )}
+                {activeTab === 'mock_exam' && content?.mock_exam && (
+                  <MockExamTab exam={content.mock_exam} />
                 )}
                 {!content && (
                   <p className="text-gray-500 italic text-sm">No content available for this tab.</p>

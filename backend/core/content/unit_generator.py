@@ -110,19 +110,33 @@ class UnitContentGenerator:
                     use_reasoning=True,
                 )
 
-        # Run all generation tasks in parallel
-        keys = list(tasks.keys())
-        results = await asyncio.gather(
-            *[tasks[k] for k in keys], return_exceptions=True
+        # Also fetch educational images (best-effort, non-blocking)
+        image_task = self._fetch_educational_images(
+            unit_data.get("title", ""),
+            ", ".join(unit_data.get("topics", [])),
         )
 
+        # Run all generation tasks + image fetch in parallel
+        keys = list(tasks.keys())
+        all_tasks = [tasks[k] for k in keys] + [image_task]
+        results = await asyncio.gather(*all_tasks, return_exceptions=True)
+
+        # Separate content results from image results
+        content_results = results[:-1]
+        image_result = results[-1]
+
         output = {}
-        for key, result in zip(keys, results):
+        for key, result in zip(keys, content_results):
             if isinstance(result, Exception):
                 logger.error(f"Failed to generate {key}: {result}")
                 output[key] = None
             else:
                 output[key] = result
+
+        # Enrich study guide with fetched images
+        if output.get("study_guide") and not isinstance(image_result, Exception) and image_result:
+            output["study_guide"]["educational_images"] = image_result
+            logger.info(f"🖼️ Enriched study guide with {len(image_result)} educational images")
 
         return output
 
@@ -182,6 +196,26 @@ class UnitContentGenerator:
         except Exception as e:
             logger.error(f"Content generation failed for {prompt_type}/{subject}: {e}")
             return None
+
+    async def _fetch_educational_images(
+        self, title: str, topics: str, max_images: int = 3
+    ) -> List[Dict[str, str]]:
+        """Best-effort fetch of educational images for content enrichment."""
+        try:
+            from services.image_sources import get_educational_images
+            images = await get_educational_images(title, topics, max_images=max_images)
+            return [
+                {
+                    "url": img.url,
+                    "title": img.title,
+                    "attribution": img.attribution,
+                    "source": img.source,
+                }
+                for img in images
+            ]
+        except Exception as e:
+            logger.warning(f"Image search failed (non-fatal): {e}")
+            return []
 
     @staticmethod
     def _get_framework_display(framework: Optional[str], course_name: Optional[str] = None) -> str:

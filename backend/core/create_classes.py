@@ -250,7 +250,8 @@ class ClassCreator:
                 audio_url = None
                 video_url = None
                 multimedia_result = None
-                
+                multimedia_error = None
+
                 if request.include_video:
                     try:
                         print(f"🎥 Generating video content for: {class_title}")
@@ -300,10 +301,14 @@ class ClassCreator:
                         import traceback
                         print(f"⚠️ Multimedia generation failed: {e}")
                         print(f"⚠️ Full traceback:\n{traceback.format_exc()}")
-                        # Don't fail the whole request, just log error
+                        # Store error for propagation to frontend
+                        multimedia_error = str(e)
                 
                 # Handle different response formats
                 pipeline_success = (not request.include_video) or bool(video_url)
+                error_message = None
+                if not pipeline_success:
+                    error_message = multimedia_error or "Video rendering failed. No video file was produced."
 
                 if "raw_response" in ai_data:
                     # AI returned raw text response
@@ -333,6 +338,7 @@ class ClassCreator:
                             "raw_ai_response": ai_data["raw_response"][:500] + "...",
                             "video_url": video_url,
                             "audio_url": audio_url,
+                            "error": error_message,
                             "generation_debug": multimedia_result.get("debug") if multimedia_result else None,
                             "lesson_blueprint": multimedia_result.get("lesson_blueprint") if multimedia_result else None,
                             "script": multimedia_result.get("script") if multimedia_result else None,
@@ -366,6 +372,7 @@ class ClassCreator:
                             "ai_provider": "DeepSeek",
                             "video_url": video_url,
                             "audio_url": audio_url,
+                            "error": error_message,
                             "generation_debug": multimedia_result.get("debug") if multimedia_result else None,
                             "lesson_blueprint": multimedia_result.get("lesson_blueprint") if multimedia_result else None,
                             "script": multimedia_result.get("script") if multimedia_result else None,
@@ -664,9 +671,9 @@ class ClassCreator:
         else:
             title = f"AI驱动{request.topic}课程"
             description = f"基于AI生成的{request.topic}全面教学方案"
-        
+
         return ClassCreationResult(
-            success=True,
+            success=False,
             class_title=title,
             class_description=description,
             learning_objectives=[
@@ -703,10 +710,13 @@ class ClassCreator:
             ai_insights={
                 "generated": True,
                 "method": "ai_assisted_fallback",
-                "confidence": 0.8,
-                "note": "AI服务暂时不可用，使用智能回退方案",
+                "confidence": 0.0,
+                "note": "AI service temporarily unavailable" if language == Language.ENGLISH else "AI服务暂时不可用",
                 "video_url": None,
-                "audio_url": None
+                "audio_url": None,
+                "error": "AI service failed to generate content. Please try again later."
+                    if language == Language.ENGLISH
+                    else "AI服务无法生成内容，请稍后重试。",
             },
             language_used=language
         )

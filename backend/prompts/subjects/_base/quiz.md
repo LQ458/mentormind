@@ -45,3 +45,9 @@ For unit tests: Generate 15-20 questions with grading rubric.
 For mock exams: Generate questions matching the official {{framework_display}} exam format exactly.
 
 Ensure questions span ALL listed topics. Vary difficulty (30% easy, 50% medium, 20% hard).
+
+Visual engagement:
+- Include questions that reference diagrams, graphs, or visual scenarios (describe the visual in the question text using "Consider the following diagram/graph: [description]")
+- Add real-world application questions that connect theory to everyday scenarios
+- Include at least one question that asks students to interpret or analyze a described chart/graph
+- Use engaging scenario-based questions (e.g., "A scientist observes...", "An engineer needs to...")
