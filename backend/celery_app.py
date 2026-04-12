@@ -669,20 +669,27 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
         print(f"[unit:{unit_id}] ⚠️ Failed to store result in Redis: {e}")
 
     # Update the unit in the database
-    try:
-        init_database()
-        session = SessionLocal()
+    status_to_set = "ready" if not result.get("error") else "failed"
+    for attempt in range(2):
         try:
-            from database.models.study_plan import StudyPlanUnit
-            unit = session.query(StudyPlanUnit).filter(StudyPlanUnit.id == unit_id).first()
-            if unit:
-                for ct in content_types:
-                    if ct in result and result[ct] is not None:
-                        setattr(unit, ct, result[ct])
-                unit.content_status = "ready" if not result.get("error") else "failed"
-                session.commit()
-                print(f"[unit:{unit_id}] ✅ Updated unit content in DB")
-        finally:
-            session.close()
-    except Exception as e:
-        print(f"[unit:{unit_id}] ⚠️ Failed to update unit in DB: {e}")
+            init_database()
+            session = SessionLocal()
+            try:
+                from database.models.study_plan import StudyPlanUnit
+                unit = session.query(StudyPlanUnit).filter(StudyPlanUnit.id == unit_id).first()
+                if unit:
+                    if status_to_set == "ready":
+                        for ct in content_types:
+                            if ct in result and result[ct] is not None:
+                                setattr(unit, ct, result[ct])
+                    unit.content_status = status_to_set
+                    unit.updated_at = datetime.utcnow()
+                    session.commit()
+                    print(f"[unit:{unit_id}] ✅ Updated unit content in DB (status={status_to_set})")
+                    break
+            finally:
+                session.close()
+        except Exception as e:
+            print(f"[unit:{unit_id}] ⚠️ DB update attempt {attempt+1} failed: {e}")
+            if attempt == 1:
+                print(f"[unit:{unit_id}] ❌ Could not update DB after 2 attempts")
