@@ -1221,11 +1221,15 @@ export default function StudyPlanPage() {
     setGenerating(true)
     try {
       const headers = await authHeaders()
-      await fetch(`/api/backend/study-plan/${planId}/unit/${selectedUnitId}/generate`, {
+      const res = await fetch(`/api/backend/study-plan/${planId}/unit/${selectedUnitId}/generate`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ content_types: selectedContentTypes }),
       })
+      if (!res.ok) {
+        setGenerating(false)
+        return
+      }
       // Update local state to show generating
       setPlan(prev => {
         if (!prev) return prev
@@ -1238,10 +1242,9 @@ export default function StudyPlanPage() {
       })
       startPolling(selectedUnitId)
     } catch {
-      // error handled by poll failing
-    } finally {
       setGenerating(false)
     }
+    // NOTE: Don't setGenerating(false) here — polling will do it when complete
   }, [selectedUnitId, planId, authHeaders, selectedContentTypes, startPolling])
 
   // ── Mark complete ──────────────────────────────────────────────────────────
