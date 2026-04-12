@@ -99,7 +99,7 @@ class ManimService:
                     logger.warning(f"Scene {index}: render succeeded but no mp4 found")
                     return None
                 except subprocess.CalledProcessError as e:
-                    logger.warning(f"⚠️ Scene {index} attempt {attempt} failed: {e.stderr[:300]}")
+                    logger.warning(f"⚠️ Scene {index} attempt {attempt} failed: {e.stderr}")
                     if attempt == 3:
                         logger.error(f"❌ Scene {index} failed after 3 attempts — skipping")
                         return None
