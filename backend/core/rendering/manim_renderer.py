@@ -7,6 +7,7 @@ Translates "Director JSON" scenes into executable Manim Python code.
 import os
 import logging
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import List, Dict, Optional, Any
@@ -69,7 +70,7 @@ class ManimService:
     ) -> Optional[str]:
         """Render one scene file. Returns video path or None on permanent failure."""
         import asyncio as _asyncio
-        uv_manim = "/Users/LeoQin/Documents/GitHub/mentormind/backend/.venv/bin/manim"
+        uv_manim = shutil.which("manim") or "manim"
         scene_name = f"LessonScene{index}"
         stem = f"scene_{timestamp}_{index}"
         script_path = os.path.join(self.output_dir, f"{stem}.py")
@@ -337,7 +338,7 @@ class ManimService:
                 # Lower-quality rendering keeps async lesson generation responsive enough for web use.
                 # Run in thread to avoid blocking asyncio loop
                 # Use uv environment manim to avoid conda conflicts
-                uv_manim = "/Users/LeoQin/Documents/GitHub/mentormind/backend/.venv/bin/manim"
+                uv_manim = shutil.which("manim") or "manim"
                 cmd = [
                     uv_manim, 
                     f"-q{self.render_quality}",
