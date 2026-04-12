@@ -724,6 +724,55 @@ class DeepSeekClient:
         )
 
 
+class DeepSeekDirectClient:
+    """Lightweight fallback client that calls the real DeepSeek API (api.deepseek.com)."""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = "https://api.deepseek.com/v1"
+        self.headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+    async def chat_completion(
+        self,
+        messages: list,
+        model: str = "deepseek-chat",
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+    ) -> APIResponse:
+        url = f"{self.base_url}/chat/completions"
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        try:
+            connector = aiohttp.TCPConnector(verify_ssl=config.VERIFY_SSL)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.post(
+                    url,
+                    headers=self.headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=None, connect=10, sock_read=300),
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return APIResponse(success=True, data=data, status_code=200)
+                    else:
+                        error_text = await response.text()
+                        return APIResponse(
+                            success=False,
+                            error=f"DeepSeek API error {response.status}: {error_text}",
+                            status_code=response.status,
+                        )
+        except Exception as e:
+            return APIResponse(success=False, error=str(e), status_code=500)
+
+
 class FunASRClient:
     """Client for FunASR speech recognition"""
     
@@ -779,6 +828,13 @@ class APIClient:
         self.funasr = FunASRClient()
         self.paddle_ocr = PaddleOCRClient()
         self.logger = logging.getLogger(__name__)
+        # Real DeepSeek API fallback (uses DEEPSEEK_API_KEY + api.deepseek.com)
+        deepseek_key = os.getenv("DEEPSEEK_API_KEY")
+        if deepseek_key:
+            try:
+                self.deepseek_direct = DeepSeekDirectClient(deepseek_key)
+            except Exception:
+                self.logger.warning("Failed to init DeepSeek direct client")
     
     async def process_query(
         self,
@@ -795,9 +851,9 @@ class APIClient:
         format_type: str = "analysis"
     ) -> APIResponse:
         """
-        Process student query using DeepSeek AI
+        Process student query using DeepSeek AI with fallback to direct DeepSeek API
         """
-        return await self.deepseek.process_query(
+        result = await self.deepseek.process_query(
             topic=topic,
             language=language,
             student_level=student_level,
@@ -810,6 +866,18 @@ class APIClient:
             difficulty_level=difficulty_level,
             format_type=format_type
         )
+        # Fallback to direct DeepSeek API if SiliconFlow fails
+        if not result.success and hasattr(self, 'deepseek_direct'):
+            self.logger.info("SiliconFlow failed, trying DeepSeek direct API...")
+            result = await self.deepseek_direct.chat_completion(
+                messages=[
+                    {"role": "system", "content": "You are an expert educational content creator. Return valid JSON."},
+                    {"role": "user", "content": f"Create a detailed lesson plan for '{topic}' at {student_level} level, {duration_minutes} minutes. Format: JSON with keys: title, description, lesson_plan (with chapters array), learning_objectives, prerequisites."},
+                ],
+                temperature=0.3,
+                max_tokens=4000,
+            )
+        return result
     
     async def translate_to_chinese(self, text: str, context: str = "") -> APIResponse:
         """Translate text to Chinese"""

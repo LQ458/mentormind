@@ -304,8 +304,49 @@ class TTSSynthesizer:
                 raise Exception("SiliconFlow TTS service unavailable")
             
         except Exception as e:
-            logger.error(f"Error synthesizing speech for script {script_id}: {e}")
-            raise
+            logger.warning(f"SiliconFlow TTS failed for {script_id}: {e}")
+            logger.info(f"Falling back to edge-tts for {script_id}")
+            return await self._edge_tts_fallback(text, script_id, voice)
+
+    async def _edge_tts_fallback(self, text: str, script_id: str, voice: str = "anna") -> Tuple[str, float]:
+        """Fallback TTS using free Microsoft edge-tts."""
+        import edge_tts
+
+        voice_map = {
+            "anna": "en-US-AriaNeural",
+            "female": "en-US-AriaNeural",
+            "caleb": "en-US-GuyNeural",
+            "male": "en-US-GuyNeural",
+            "sara": "en-US-JennyNeural",
+            "ben": "en-US-ChristopherNeural",
+        }
+        # Detect Chinese text
+        has_chinese = any('\u4e00' <= c <= '\u9fff' for c in text)
+        if has_chinese:
+            edge_voice = "zh-CN-XiaoxiaoNeural" if voice in ("anna", "female", "sara") else "zh-CN-YunxiNeural"
+        else:
+            edge_voice = voice_map.get(voice, "en-US-AriaNeural")
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        audio_path = os.path.join(self.output_dir, f"{script_id}_{timestamp}.mp3")
+
+        communicate = edge_tts.Communicate(text, edge_voice)
+        await communicate.save(audio_path)
+
+        # Get duration via ffprobe (available in Docker image)
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+                capture_output=True, text=True, timeout=10,
+            )
+            duration = float(result.stdout.strip())
+        except Exception:
+            duration = max(2.0, len(text) * 0.06)
+
+        logger.info(f"Generated TTS audio (edge-tts fallback): {audio_path}")
+        return audio_path, duration
     
     def get_available_voices(self) -> List[Dict[str, str]]:
         """Get available TTS voices"""

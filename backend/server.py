@@ -2017,10 +2017,12 @@ async def get_job_status(job_id: str):
     if result_json:
         try:
             payload = json.loads(result_json)
+            # Report "failed" if the pipeline returned success=False
+            job_status = "completed" if payload.get("success", True) else "failed"
             # Build response data
             response_data = {
-                "status": "completed", 
-                "job_id": job_id, 
+                "status": job_status,
+                "job_id": job_id,
                 "result": payload,
                 "_metadata": {
                     "response_size_bytes": len(result_json),

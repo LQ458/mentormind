@@ -237,13 +237,13 @@ class RobustVideoGenerationPipeline:
             
         prompt = render_prompt(prompt_name, **variables)
         
-        # Multi-provider fallback chain
+        # Multi-provider fallback chain (SiliconFlow → real DeepSeek API)
         providers = [
             ("GLM-5.1", self.api_client.deepseek.chat_completion),
-            # Add more providers here when available
-            # ("OpenAI", self.api_client.openai.chat_completion),
-            # ("Claude", self.api_client.claude.chat_completion),
         ]
+        # Add real DeepSeek API as fallback if key is available
+        if hasattr(self.api_client, 'deepseek_direct'):
+            providers.append(("DeepSeek-Direct", self.api_client.deepseek_direct.chat_completion))
         
         for provider_name, provider_func in providers:
             try:
