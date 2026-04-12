@@ -1122,23 +1122,64 @@ export default function StudyPlanPage() {
 
   const startPolling = useCallback((unitId: string) => {
     stopPoll()
+    let attempts = 0
+    const maxAttempts = 60 // 5 minutes at 5s intervals
+    let consecutiveErrors = 0
     pollRef.current = setInterval(async () => {
+      attempts++
+      if (attempts > maxAttempts) {
+        stopPoll()
+        setGenerating(false)
+        // Update local state to show failed
+        setPlan(prev => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            units: prev.units.map(u =>
+              u.id === unitId ? { ...u, content_status: 'failed' } : u
+            ),
+          }
+        })
+        return
+      }
       try {
         const headers = await authHeaders()
         const res = await fetch(`/api/backend/study-plan/${planId}`, { headers })
-        if (!res.ok) return
+        if (!res.ok) {
+          consecutiveErrors++
+          if (consecutiveErrors >= 3) {
+            stopPoll()
+            setGenerating(false)
+          }
+          return
+        }
+        consecutiveErrors = 0
         const raw = await res.json()
         const data: PlanData = raw.plan ?? raw
         setPlan(data)
         const unit = data.units?.find(u => u.id === unitId)
         if (unit && unit.content_status !== 'generating') {
           stopPoll()
+          setGenerating(false)
           if (unit.content_status === 'ready') {
             fetchContent(unitId)
           }
         }
       } catch {
-        // silently ignore poll errors
+        consecutiveErrors++
+        if (consecutiveErrors >= 3) {
+          stopPoll()
+          setGenerating(false)
+          setPlan(prev => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              units: prev.units.map(u =>
+                u.id === unitId ? { ...u, content_status: 'failed' } : u
+              ),
+            }
+          })
+        }
       }
     }, 5000)
   }, [planId, authHeaders, stopPoll, fetchContent])
@@ -1146,6 +1187,16 @@ export default function StudyPlanPage() {
   useEffect(() => {
     return () => stopPoll()
   }, [stopPoll])
+
+  // Auto-start polling if selected unit is already generating
+  useEffect(() => {
+    if (!plan || !selectedUnitId) return
+    const unit = plan.units?.find(u => u.id === selectedUnitId)
+    if (unit?.content_status === 'generating') {
+      setGenerating(true)
+      startPolling(selectedUnitId)
+    }
+  }, [selectedUnitId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Select unit ────────────────────────────────────────────────────────────
 
