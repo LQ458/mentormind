@@ -72,10 +72,10 @@ class ContentValidator:
         suggested_fixes = []
         metadata = {}
         
-        # Extract key components
-        syllabus = bundle.get("syllabus", {})
-        storyboard = bundle.get("storyboard", {})
-        render_plan = bundle.get("render_plan", {})
+        # Extract key components (use `or {}` because value may be explicitly None)
+        syllabus = bundle.get("syllabus") or {}
+        storyboard = bundle.get("storyboard") or {}
+        render_plan = bundle.get("render_plan") or {}
         
         # Validate each component
         syllabus_result = self._validate_syllabus(syllabus)
