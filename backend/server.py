@@ -3102,6 +3102,16 @@ async def generate_unit_content(
         if not unit:
             raise HTTPException(status_code=404, detail="Unit not found")
 
+        # Recovery: if stuck in 'generating' for over 10 minutes, reset
+        if unit.content_status == "generating":
+            from datetime import datetime, timezone, timedelta
+            if unit.updated_at and (datetime.now(timezone.utc) - unit.updated_at.replace(tzinfo=timezone.utc)) > timedelta(minutes=10):
+                logger.warning(f"Unit {unit_id} stuck in 'generating' for >10min, resetting")
+                unit.content_status = "failed"
+                db.commit()
+            else:
+                return {"success": True, "message": "Generation already in progress", "unit_id": str(unit.id)}
+
         # Mark as generating
         unit.content_status = "generating"
         db.commit()
