@@ -46,8 +46,8 @@ class StudyPlan(Base):
     # Primary key
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # Owner
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Owner — VARCHAR(255) to match users.id after UUID→VARCHAR migration
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # Subject and framework
     subject = Column(String(50), nullable=False)
@@ -271,8 +271,8 @@ class GaokaoSession(Base):
     # Primary key
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # Owner
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # Owner — VARCHAR(255) to match users.id after UUID→VARCHAR migration
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
     # Optional plan link
     plan_id = Column(UUID(as_uuid=True), ForeignKey("study_plans.id", ondelete="SET NULL"), nullable=True)

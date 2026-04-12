@@ -48,9 +48,9 @@ class User(Base):
         last_login_at (datetime): Last login timestamp
     """
     __tablename__ = "users"
-    
-    # Primary key
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Primary key — VARCHAR(255) in DB after UUID→VARCHAR migration (migrate_db.py)
+    id = Column(String(255), primary_key=True, default=lambda: str(uuid.uuid4()))
     
     # Authentication
     email = Column(String(255), unique=True, nullable=False, index=True)

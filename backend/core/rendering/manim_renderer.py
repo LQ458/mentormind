@@ -61,6 +61,76 @@ class ManimService:
         # Rename class so concurrent renders don't collide
         return code.replace('class LessonScene(Scene):', f'class LessonScene{index}(Scene):')
 
+    def _validate_manim_code(self, code: str) -> tuple:
+        """
+        Pre-render validation of generated Manim code.
+        Returns (is_valid, fixed_code, issues) where fixed_code has auto-fixes applied.
+        """
+        issues = []
+        fixed = code
+
+        # 1. Syntax check via compile()
+        try:
+            compile(fixed, "<manim_scene>", "exec")
+        except SyntaxError as e:
+            issues.append(f"syntax_error:{e.msg} at line {e.lineno}")
+            # Attempt common auto-fixes
+            # Fix unmatched triple-quotes
+            triple_dq = fixed.count('"""')
+            if triple_dq % 2 != 0:
+                fixed += '"""'
+            triple_sq = fixed.count("'''")
+            if triple_sq % 2 != 0:
+                fixed += "'''"
+            # Fix unmatched parentheses
+            open_p = fixed.count('(') - fixed.count(')')
+            if open_p > 0:
+                fixed += ')' * open_p
+            open_b = fixed.count('[') - fixed.count(']')
+            if open_b > 0:
+                fixed += ']' * open_b
+            # Re-check after auto-fix
+            try:
+                compile(fixed, "<manim_scene>", "exec")
+                issues.append("auto_fixed:syntax")
+            except SyntaxError:
+                pass  # Will need LLM fix
+
+        # 2. Check for problematic patterns that crash Manim
+        # Unescaped backslashes in Text() strings (not raw strings)
+        bad_text_pattern = re.compile(r'Text\((["\'])(?!r).*?\\[^\\nrt"\'].*?\1')
+        if bad_text_pattern.search(fixed):
+            issues.append("warning:unescaped_backslash_in_Text")
+
+        # Empty construct method
+        if re.search(r'def construct\(self\):\s*\n\s*(?:#[^\n]*)?\s*$', fixed):
+            issues.append("error:empty_construct_method")
+
+        # MathTex with known-bad patterns (unmatched braces in LaTeX)
+        for m in re.finditer(r'MathTex\(r["\'](.+?)["\']\)', fixed):
+            latex = m.group(1)
+            if latex.count('{') != latex.count('}'):
+                issues.append(f"warning:unbalanced_latex_braces:{latex[:40]}")
+                # Auto-fix: replace with Text fallback
+                safe = self._latex_to_plain_text(latex)
+                fixed = fixed.replace(m.group(0), f'Text(r"""{safe}""", font_size=40, color=MAUVE_COLOR)')
+                issues.append("auto_fixed:latex_to_text_fallback")
+
+        # 3. Check for invalid run_time values (negative or zero)
+        for m in re.finditer(r'run_time\s*=\s*(-[\d.]+|0\.0|0(?!\.))\b', fixed):
+            val = m.group(1)
+            issues.append(f"warning:invalid_run_time:{val}")
+            fixed = fixed.replace(m.group(0), 'run_time=0.5')
+            issues.append("auto_fixed:run_time")
+
+        is_valid = not any(i.startswith("error:") or i.startswith("syntax_error:") for i in issues
+                          if "auto_fixed" not in i)
+
+        if issues:
+            logger.info(f"🔍 [Validation] Issues: {issues}")
+
+        return is_valid, fixed, issues
+
     async def _render_scene_parallel(
         self,
         scene_code: str,
@@ -68,12 +138,26 @@ class ManimService:
         timestamp: str,
         semaphore: Any,
     ) -> Optional[str]:
-        """Render one scene file. Returns video path or None on permanent failure."""
+        """Render one scene file with pre-validation and LLM self-correction.
+        Returns video path or None on permanent failure."""
         import asyncio as _asyncio
         uv_manim = shutil.which("manim") or "manim"
         scene_name = f"LessonScene{index}"
         stem = f"scene_{timestamp}_{index}"
         script_path = os.path.join(self.output_dir, f"{stem}.py")
+
+        # Pre-render validation and auto-fix
+        is_valid, scene_code, issues = self._validate_manim_code(scene_code)
+        if not is_valid:
+            logger.warning(f"⚠️ Scene {index} pre-validation failed: {issues}")
+            # Try LLM fix before first render attempt
+            issue_summary = "; ".join(issues)
+            fixed = await self._fix_code_with_llm(
+                scene_code, f"Pre-render validation errors: {issue_summary}"
+            )
+            if fixed:
+                scene_code = self._sanitize_generated_code(fixed)
+                logger.info(f"🔧 Scene {index} pre-fixed by LLM")
 
         with open(script_path, 'w') as f:
             f.write(scene_code)
@@ -100,7 +184,18 @@ class ManimService:
                     return None
                 except subprocess.CalledProcessError as e:
                     logger.warning(f"⚠️ Scene {index} attempt {attempt} failed: {e.stderr}")
-                    if attempt == 3:
+                    if attempt < 3:
+                        logger.info(f"🔧 Scene {index} attempting LLM self-correction...")
+                        try:
+                            new_code = await self._fix_code_with_llm(scene_code, e.stderr)
+                            if new_code:
+                                scene_code = self._sanitize_generated_code(new_code)
+                                with open(script_path, 'w') as f:
+                                    f.write(scene_code)
+                                continue
+                        except Exception as llm_err:
+                            logger.warning(f"⚠️ Scene {index} LLM fix failed: {llm_err}")
+                    else:
                         logger.error(f"❌ Scene {index} failed after 3 attempts — skipping")
                         return None
                 except Exception as e:
@@ -319,7 +414,18 @@ class ManimService:
         
         # 1. Generate Python code for Manim
         manim_code = self._sanitize_generated_code(self._generate_manim_code(script))
-        
+
+        # 1b. Pre-render validation with auto-fix
+        is_valid, manim_code, issues = self._validate_manim_code(manim_code)
+        if not is_valid:
+            logger.warning(f"⚠️ [Manim] Pre-validation failed: {issues}")
+            fixed = await self._fix_code_with_llm(
+                manim_code, f"Pre-render validation errors: {'; '.join(issues)}"
+            )
+            if fixed:
+                manim_code = self._sanitize_generated_code(fixed)
+                logger.info("🔧 [Manim] Pre-fixed by LLM before first render attempt")
+
         # 2. Retry Loop (Self-Correction)
         max_retries = 3
         attempt = 0

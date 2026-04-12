@@ -38,6 +38,19 @@ class LessonStorageSQL:
             return self._session
         return self.SessionLocal()
 
+    def _ensure_user_exists(self, session: Session, user_id: uuid.UUID, raw_user_id: str) -> None:
+        """Create a minimal user record if one doesn't exist, preventing FK violations."""
+        existing = session.query(User).filter(User.id == str(user_id)).first()
+        if not existing:
+            user = User(
+                id=str(user_id),
+                email=f"{raw_user_id}@placeholder.mentormind",
+                username=raw_user_id[:100],
+                hashed_password="clerk_managed",
+            )
+            session.add(user)
+            session.flush()
+
     def save_lesson(self, lesson_data: Dict[str, Any], session: Optional[Session] = None) -> Dict[str, Any]:
         """
         Save a created lesson to PostgreSQL database.
@@ -79,6 +92,10 @@ class LessonStorageSQL:
             # Optional user ownership — convert Clerk ID strings to UUID
             raw_user_id = lesson_data.get("user_id")
             user_id = _to_user_uuid(raw_user_id) if raw_user_id else None
+
+            # Ensure user exists before FK insert
+            if user_id:
+                self._ensure_user_exists(local_session, user_id, raw_user_id)
 
             # Create lesson record
             lesson = Lesson(
