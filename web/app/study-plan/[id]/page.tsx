@@ -1083,8 +1083,22 @@ export default function StudyPlanPage() {
       if (!res.ok) throw new Error(`Status ${res.status}`)
       const data = await res.json()
       // Map backend field names to frontend field names
-      if (data.formula_sheet && !data.formulas) {
-        data.formulas = data.formula_sheet
+      // Flashcards: LLM returns { cards: [...] }, extract the array
+      if (data.flashcards && !Array.isArray(data.flashcards)) {
+        data.flashcards = data.flashcards.cards || []
+      }
+      // Formula sheet: LLM returns { sections: [{ category, formulas: [...] }] }, flatten to Formula[]
+      const formulaSource = data.formula_sheet || data.formulas
+      if (formulaSource && !Array.isArray(formulaSource)) {
+        const flat: Formula[] = []
+        for (const sec of (formulaSource.sections || [])) {
+          for (const f of (sec.formulas || [])) {
+            flat.push({ ...f, category: sec.category || 'General' })
+          }
+        }
+        data.formulas = flat
+      } else if (formulaSource && Array.isArray(formulaSource)) {
+        data.formulas = formulaSource
       }
       if (data.mock_exam && !data.mock_exam_mapped) {
         data.mock_exam_mapped = data.mock_exam

@@ -121,9 +121,9 @@ def get_current_user(
     
     if not user:
         # If not found by username, try to find by converted UUID (for new consistent approach)
-        user_uuid = clerk_id_to_uuid(clerk_id)
+        user_uuid = str(clerk_id_to_uuid(clerk_id))
         user = db.query(User).filter(User.id == user_uuid).first()
-        
+
         if not user:
             # Create user record locally since Clerk authenticated them
             # Note: Depending on Clerk token template, email/username might be embedded,

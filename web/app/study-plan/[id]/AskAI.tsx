@@ -231,25 +231,26 @@ export function ScreenshotAskAI({ containerRef, subject, unitTitle, getAuthHeade
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!capturing) return
-    const container = containerRef.current
-    if (!container) return
-    const rect = container.getBoundingClientRect()
+    const overlay = overlayRef.current
+    if (!overlay) return
+    const rect = overlay.getBoundingClientRect()
     setCropStart({ x: e.clientX - rect.left, y: e.clientY - rect.top })
     setCropEnd(null)
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!capturing || !cropStart) return
-    const container = containerRef.current
-    if (!container) return
-    const rect = container.getBoundingClientRect()
+    const overlay = overlayRef.current
+    if (!overlay) return
+    const rect = overlay.getBoundingClientRect()
     setCropEnd({ x: e.clientX - rect.left, y: e.clientY - rect.top })
   }
 
   const handleMouseUp = async () => {
     if (!capturing || !cropStart || !cropEnd) return
     const container = containerRef.current
-    if (!container) return
+    const overlay = overlayRef.current
+    if (!container || !overlay) return
 
     const x = Math.min(cropStart.x, cropEnd.x)
     const y = Math.min(cropStart.y, cropEnd.y)
@@ -263,10 +264,16 @@ export function ScreenshotAskAI({ containerRef, subject, unitTitle, getAuthHeade
       return
     }
 
+    // Convert overlay coords to container coords for html2canvas
+    const overlayRect = overlay.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    const captureX = x + (overlayRect.left - containerRect.left)
+    const captureY = y + (overlayRect.top - containerRect.top) + container.scrollTop
+
     try {
       const canvas = await html2canvas(container, {
-        x: x,
-        y: y + container.scrollTop,
+        x: captureX,
+        y: captureY,
         width: w,
         height: h,
         scale: 2,

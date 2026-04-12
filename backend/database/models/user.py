@@ -161,7 +161,7 @@ class UserLesson(Base):
     __tablename__ = "user_lessons"
     
     id = Column(Integer, primary_key=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False)
     
     # Progress tracking
@@ -284,7 +284,7 @@ class StudentPerformance(Base):
     __tablename__ = "student_performance"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False)
     assessment_type = Column(String(50), nullable=False, default="reflection")
     score = Column(Float, default=0.0)
@@ -328,7 +328,7 @@ class MemoryReview(Base):
     __tablename__ = "memory_reviews"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False)
     review_type = Column(String(50), nullable=False, default="memory_challenge")
     status = Column(String(20), nullable=False, default="scheduled")
@@ -379,7 +379,7 @@ class AgentInteractionTurn(Base):
     __tablename__ = "agent_interaction_turns"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False)
     interaction_type = Column(String(50), nullable=False)
     user_input = Column(Text, nullable=False)
@@ -417,7 +417,7 @@ class ProactiveNotification(Base):
     __tablename__ = "proactive_notifications"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id", ondelete="CASCADE"))
     notification_type = Column(String(50), nullable=False)
     title = Column(String(255), nullable=False)

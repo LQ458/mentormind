@@ -2889,39 +2889,68 @@ async def study_plan_ask_ai(req: AskAIRequest):
         context_str = ". ".join(context_parts)
 
         if req.image_base64:
-            # Use SiliconFlow vision model for image analysis
-            import aiohttp
-            sf_key = os.getenv("SILICONFLOW_API_KEY")
-            if not sf_key:
-                return AskAIResponse(success=False, answer="", error="Vision service not configured")
+            # Extract text from image using local PaddleOCR, then answer with DeepSeek
+            import base64, tempfile
+            image_base64 = req.image_base64
+            if image_base64.startswith("data:"):
+                # Strip data URI prefix (e.g. "data:image/png;base64,")
+                image_base64 = image_base64.split(",", 1)[1]
 
-            image_data = req.image_base64
-            if not image_data.startswith("data:"):
-                image_data = f"data:image/png;base64,{image_data}"
+            try:
+                image_bytes = base64.b64decode(image_base64)
+            except Exception:
+                return AskAIResponse(success=False, answer="", error="Invalid image data")
 
+            # Try PaddleOCR server first, fall back to local model
+            ocr_text = ""
+            paddle_endpoint = os.getenv("PADDLE_OCR_ENDPOINT", "http://localhost:8866")
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"{paddle_endpoint}/ocr",
+                        json={"image": image_base64},
+                        timeout=aiohttp.ClientTimeout(total=30)
+                    ) as resp:
+                        if resp.status == 200:
+                            ocr_data = await resp.json()
+                            ocr_text = ocr_data.get("text", "")
+            except Exception as e:
+                logger.warning(f"PaddleOCR server unavailable, trying local model: {e}")
+
+            # Fall back to local PaddleOCR model if server didn't work
+            if not ocr_text:
+                try:
+                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                        tmp.write(image_bytes)
+                        tmp_path = tmp.name
+                    ocr_result = await asyncio.get_event_loop().run_in_executor(
+                        None, extract_text_with_paddleocr, tmp_path
+                    )
+                    ocr_text = ocr_result.get("text", "")
+                    os.unlink(tmp_path)
+                except Exception as e:
+                    logger.error(f"Local PaddleOCR failed: {e}")
+
+            if not ocr_text.strip():
+                return AskAIResponse(success=False, answer="", error="Could not extract text from the image. Please try highlighting text instead.")
+
+            # Use DeepSeek to answer based on OCR-extracted text
+            question = req.question or "Explain what is shown in this image."
             messages = [
-                {"role": "system", "content": f"You are a helpful study assistant. {context_str}. {language_instruction} Give a concise, clear answer (2-4 sentences max)."},
-                {"role": "user", "content": [
-                    {"type": "image_url", "image_url": {"url": image_data}},
-                    {"type": "text", "text": req.question or "Explain what is shown in this image."}
-                ]}
+                {"role": "system", "content": f"You are a helpful study assistant. {context_str}. {language_instruction} The student has taken a screenshot of study material. The text extracted from the screenshot is provided below. Give a concise, clear answer (2-4 sentences max). Be precise and educational."},
+                {"role": "user", "content": f"Text from screenshot:\n\"{ocr_text}\"\n\nQuestion: {question}"}
             ]
-
-            from config import config as app_config
-            verify_ssl = getattr(app_config, 'VERIFY_SSL', True)
-            connector = aiohttp.TCPConnector(verify_ssl=verify_ssl)
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.post(
-                    "https://api.siliconflow.cn/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {sf_key}", "Content-Type": "application/json"},
-                    json={"model": "Pro/Qwen/Qwen2.5-VL-7B-Instruct", "messages": messages, "max_tokens": 512, "temperature": 0.3}
-                ) as resp:
-                    data = await resp.json()
-                    if resp.status != 200:
-                        logger.error(f"SiliconFlow vision error: {data}")
-                        return AskAIResponse(success=False, answer="", error="Vision AI service error")
-                    answer = data["choices"][0]["message"]["content"]
-                    return AskAIResponse(success=True, answer=answer)
+            response = await api_client.deepseek.chat_completion(
+                messages=messages,
+                temperature=0.3,
+                max_tokens=512
+            )
+            if response.success and response.data:
+                answer = response.data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                return AskAIResponse(success=True, answer=answer)
+            else:
+                return AskAIResponse(success=False, answer="", error=response.error or "AI service unavailable")
 
         elif req.highlighted_text:
             # Use DeepSeek for text-based Q&A
