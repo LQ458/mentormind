@@ -41,7 +41,7 @@ from celery.result import AsyncResult
 from celery_app import create_class_video_task, transcript_to_lesson_task, transcribe_audio_task, celery_app
 from database import LessonStorageSQL, init_database
 from database import get_db
-from database.models.user import User, UserProfile
+from database.models.user import User, UserProfile, UserMediaContext
 from auth import get_current_user, get_optional_user
 from config import config
 from core.asr import transcribe_with_local_model_result, get_asr_status, extract_text_with_paddleocr
@@ -2877,7 +2877,11 @@ class AskAIResponse(BaseModel):
 
 
 @app.post("/study-plan/ask-ai", response_model=AskAIResponse)
-async def study_plan_ask_ai(req: AskAIRequest):
+async def study_plan_ask_ai(
+    req: AskAIRequest,
+    current_user: Optional[User] = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+):
     """Answer a question about highlighted text or a screenshot from study content."""
     try:
         language_instruction = get_language_instruction(req.language)
@@ -2948,6 +2952,30 @@ async def study_plan_ask_ai(req: AskAIRequest):
             )
             if response.success and response.data:
                 answer = response.data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                # Save media context for logged-in users
+                if current_user and image_bytes:
+                    try:
+                        from core.user_storage import save_media_file, check_storage_quota
+                        within_quota, _, _ = check_storage_quota(
+                            current_user.id, current_user.subscription_tier, len(image_bytes)
+                        )
+                        if within_quota:
+                            rel_path, file_size = save_media_file(current_user.id, image_bytes, ".png")
+                            media = UserMediaContext(
+                                user_id=current_user.id,
+                                media_type="image",
+                                file_path=rel_path,
+                                file_size_bytes=file_size,
+                                extracted_text=ocr_text,
+                                ai_answer=answer,
+                                question=question,
+                                context_metadata={"subject": req.subject, "unit_title": req.unit_title},
+                            )
+                            db.add(media)
+                            db.commit()
+                    except Exception as e:
+                        logger.warning(f"Failed to save media context (non-fatal): {e}")
+                        db.rollback()
                 return AskAIResponse(success=True, answer=answer)
             else:
                 return AskAIResponse(success=False, answer="", error=response.error or "AI service unavailable")
@@ -2965,6 +2993,24 @@ async def study_plan_ask_ai(req: AskAIRequest):
             )
             if response.success and response.data:
                 answer = response.data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                # Save text context for logged-in users
+                if current_user:
+                    try:
+                        media = UserMediaContext(
+                            user_id=current_user.id,
+                            media_type="text",
+                            file_path="",
+                            file_size_bytes=len(req.highlighted_text.encode("utf-8")),
+                            extracted_text=req.highlighted_text,
+                            ai_answer=answer,
+                            question=req.question,
+                            context_metadata={"subject": req.subject, "unit_title": req.unit_title},
+                        )
+                        db.add(media)
+                        db.commit()
+                    except Exception as e:
+                        logger.warning(f"Failed to save text context (non-fatal): {e}")
+                        db.rollback()
                 return AskAIResponse(success=True, answer=answer)
             else:
                 return AskAIResponse(success=False, answer="", error=response.error or "AI service unavailable")
@@ -2974,6 +3020,135 @@ async def study_plan_ask_ai(req: AskAIRequest):
     except Exception as e:
         logger.error(f"Ask AI failed: {e}")
         return AskAIResponse(success=False, answer="", error=str(e))
+
+
+@app.get("/user/media-context")
+async def list_user_media_context(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    offset: int = 0,
+    limit: int = 50,
+):
+    """List the current user's saved media context items."""
+    items = (
+        db.query(UserMediaContext)
+        .filter(UserMediaContext.user_id == current_user.id)
+        .order_by(UserMediaContext.created_at.desc())
+        .offset(offset)
+        .limit(min(limit, 100))
+        .all()
+    )
+    total = db.query(UserMediaContext).filter(UserMediaContext.user_id == current_user.id).count()
+    return {
+        "success": True,
+        "items": [
+            {
+                "id": str(item.id),
+                "media_type": item.media_type,
+                "file_size_bytes": item.file_size_bytes,
+                "extracted_text": item.extracted_text,
+                "ai_answer": item.ai_answer,
+                "question": item.question,
+                "context_metadata": item.context_metadata or {},
+                "has_file": bool(item.file_path),
+                "created_at": item.created_at.isoformat() if item.created_at else None,
+            }
+            for item in items
+        ],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+@app.delete("/user/media-context/{item_id}")
+async def delete_user_media_context(
+    item_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a saved media context item."""
+    from uuid import UUID as PyUUID
+    try:
+        uid = PyUUID(item_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid item ID")
+
+    item = (
+        db.query(UserMediaContext)
+        .filter(UserMediaContext.id == uid, UserMediaContext.user_id == current_user.id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    # Delete file from disk
+    if item.file_path:
+        from core.user_storage import delete_media_file
+        delete_media_file(item.file_path)
+
+    db.delete(item)
+    db.commit()
+    return {"success": True, "message": "Deleted"}
+
+
+@app.get("/user/storage-usage")
+async def get_user_storage_usage(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get the current user's storage usage and quota."""
+    from core.user_storage import check_storage_quota, FREE_TIER_QUOTA_BYTES, TESTING_MODE
+    from sqlalchemy import func as sqlfunc
+
+    total_bytes = (
+        db.query(sqlfunc.coalesce(sqlfunc.sum(UserMediaContext.file_size_bytes), 0))
+        .filter(UserMediaContext.user_id == current_user.id)
+        .scalar()
+    )
+    item_count = db.query(UserMediaContext).filter(UserMediaContext.user_id == current_user.id).count()
+
+    quota_bytes = 0 if TESTING_MODE or current_user.subscription_tier != "free" else FREE_TIER_QUOTA_BYTES
+
+    return {
+        "success": True,
+        "usage_bytes": total_bytes,
+        "usage_mb": round(total_bytes / (1024 * 1024), 2),
+        "quota_bytes": quota_bytes,
+        "quota_mb": round(quota_bytes / (1024 * 1024), 2) if quota_bytes else None,
+        "item_count": item_count,
+        "is_unlimited": TESTING_MODE or current_user.subscription_tier != "free",
+    }
+
+
+@app.get("/user/media-context/{item_id}/image")
+async def get_user_media_image(
+    item_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Serve a saved media image file."""
+    from uuid import UUID as PyUUID
+    from fastapi.responses import FileResponse
+
+    try:
+        uid = PyUUID(item_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid item ID")
+
+    item = (
+        db.query(UserMediaContext)
+        .filter(UserMediaContext.id == uid, UserMediaContext.user_id == current_user.id)
+        .first()
+    )
+    if not item or not item.file_path:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    abs_path = os.path.join(config.DATA_DIR, item.file_path)
+    if not os.path.exists(abs_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    return FileResponse(abs_path, media_type="image/png")
 
 
 @app.post("/study-plan/create")

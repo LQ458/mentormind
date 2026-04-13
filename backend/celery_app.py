@@ -1,10 +1,16 @@
 import os
+
+# Fork-safety: prevent PyTorch/OpenMP SIGSEGV in forked Celery workers
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES")
+
 import json
 import asyncio
 import textwrap
 import redis
 from celery import Celery
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Import Mentormind dependencies
 from core.create_classes import ClassCreator, ClassCreationRequest, Language
@@ -53,6 +59,7 @@ celery_app.conf.update(
     task_time_limit=1800,  # 30 minutes hard limit for long-form rendering and retries
     task_soft_time_limit=1500, # 25 minutes soft limit
     worker_lost_wait=30,  # Wait before marking lost worker tasks as failed
+    worker_pool="solo",  # Avoid fork — PyTorch/Whisper SIGSEGV in forked processes
     
     # --- RESOURCE ISOLATION QUEUES ---
     task_queues={
@@ -542,18 +549,17 @@ def transcribe_audio_task(self, file_path: str, language: str, job_id: str, targ
             "timestamp": datetime.now().isoformat()
         }
 
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
+    # Always create a fresh loop for Celery workers
+    # (asyncio.get_event_loop() is unreliable in forked worker processes)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
         response = loop.run_until_complete(_run())
     except Exception as e:
         print(f"[{job_id}] ❌ Transcription task failed: {e}")
         response = {"success": False, "error": str(e)}
     finally:
+        loop.close()
         # Clean up temp file in worker
         if os.path.exists(file_path):
             os.unlink(file_path)
@@ -599,18 +605,15 @@ def ocr_image_task(self, file_path: str, language: str, job_id: str, target_lang
             "timestamp": datetime.now().isoformat()
         }
 
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
         response = loop.run_until_complete(_run())
     except Exception as e:
         print(f"[{job_id}] ❌ OCR task failed: {e}")
         response = {"success": False, "error": str(e)}
     finally:
+        loop.close()
         # Clean up temp file in worker
         if os.path.exists(file_path):
             os.unlink(file_path)
@@ -683,10 +686,13 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
                             if ct in result and result[ct] is not None:
                                 setattr(unit, ct, result[ct])
                     unit.content_status = status_to_set
-                    unit.updated_at = datetime.utcnow()
+                    unit.updated_at = datetime.now(timezone.utc)
                     session.commit()
                     print(f"[unit:{unit_id}] ✅ Updated unit content in DB (status={status_to_set})")
                     break
+            except Exception:
+                session.rollback()
+                raise
             finally:
                 session.close()
         except Exception as e:

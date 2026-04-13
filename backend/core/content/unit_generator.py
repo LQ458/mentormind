@@ -138,6 +138,17 @@ class UnitContentGenerator:
             output["study_guide"]["educational_images"] = image_result
             logger.info(f"🖼️ Enriched study guide with {len(image_result)} educational images")
 
+        # Post-process: render any ```chart``` blocks in study guide sections
+        if output.get("study_guide") and output["study_guide"].get("sections"):
+            try:
+                from core.content.diagram_generator import process_study_guide_sections
+                output["study_guide"]["sections"] = process_study_guide_sections(
+                    output["study_guide"]["sections"]
+                )
+                logger.info("📊 Rendered chart blocks in study guide sections")
+            except Exception as e:
+                logger.warning(f"Chart rendering failed (non-fatal): {e}")
+
         return output
 
     async def generate_unit_test(

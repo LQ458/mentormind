@@ -82,6 +82,7 @@ class User(Base):
     memory_reviews = relationship("MemoryReview", back_populates="user", cascade="all, delete-orphan")
     agent_interactions = relationship("AgentInteractionTurn", back_populates="user", cascade="all, delete-orphan")
     proactive_notifications = relationship("ProactiveNotification", back_populates="user", cascade="all, delete-orphan")
+    media_contexts = relationship("UserMediaContext", back_populates="user", cascade="all, delete-orphan")
     
     # Indexes
     __table_args__ = (
@@ -458,3 +459,30 @@ class ProactiveNotification(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class UserMediaContext(Base):
+    """
+    Per-user media and context storage.
+    Stores uploaded images, screenshots, and extracted text forming a personal knowledge base.
+    """
+    __tablename__ = "user_media_context"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    media_type = Column(String(20), nullable=False)  # image, audio, document
+    file_path = Column(String(500), nullable=False)   # relative path under data/user_media/
+    file_size_bytes = Column(Integer, nullable=False, default=0)
+    original_filename = Column(String(255))
+    extracted_text = Column(Text)                      # OCR/ASR extracted text
+    ai_answer = Column(Text)                           # AI response for this context
+    question = Column(Text)                            # User's original question
+    context_metadata = Column(JSON, default=dict)      # subject, unit_title, etc.
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="media_contexts")
+
+    __table_args__ = (
+        Index('idx_user_media_context_user_id', 'user_id'),
+        Index('idx_user_media_context_created_at', 'created_at'),
+    )

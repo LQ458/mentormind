@@ -40,9 +40,13 @@ Requirements:
 - Highlight common mistakes and misconceptions
 - Use LaTeX for any mathematical notation
 - Include visual engagement elements throughout:
-  - Describe relevant diagrams, graphs, or charts that illustrate key concepts (use "📊 Diagram:" prefix)
+  - For graphs, charts, or diagrams, embed a ```chart block with a JSON specification that will be rendered into an actual image. Example:
+    ```chart
+    {"type": "function", "title": "Velocity vs Time (Free Fall with Drag)", "x_label": "Time (s)", "y_label": "Velocity (m/s)", "data_series": [{"name": "v(t)", "expression": "v_t * (1 - exp(-t/tau))", "x_range": [0, 10], "parameters": {"v_t": 30, "tau": 3}}], "annotations": [{"type": "hline", "value": 30, "label": "Terminal velocity v_t", "linestyle": "--"}]}
+    ```
+    Supported chart types: "line" (x/y data), "function" (math expression with parameters), "bar", "scatter", "area"
+    For function type: use numpy-compatible expressions with variables t or x (e.g., "sin(t)", "v_t * (1 - exp(-t/tau))")
+    For line/scatter/bar: provide explicit x and y arrays in data_series
   - Add real-world analogies and engaging hooks to maintain learner interest (use "💡 Hook:" prefix)
-  - Suggest relevant images that would help visualize the concept (use "🖼️ Image:" prefix with a description)
-  - Include step-by-step visual walkthroughs for complex procedures
   - Add "🎯 Quick Check" questions between sections to keep learners engaged
   - Use tables and comparison charts where concepts can be contrasted

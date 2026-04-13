@@ -6,6 +6,7 @@ import { useAuth } from '@clerk/nextjs'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { HighlightAskAI, ScreenshotAskAI } from './AskAI'
+import MediaContextTab from './MediaContext'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -38,7 +39,7 @@ interface UnitData {
   estimated_minutes: number
 }
 
-type ContentTab = 'study_guide' | 'quiz' | 'flashcards' | 'formulas' | 'mock_exam'
+type ContentTab = 'study_guide' | 'quiz' | 'flashcards' | 'formulas' | 'mock_exam' | 'my_context'
 
 const SUBJECT_LABELS: Record<string, string> = {
   math: 'Mathematics', physics: 'Physics', chemistry: 'Chemistry',
@@ -52,6 +53,13 @@ const FRAMEWORK_LABELS: Record<string, string> = {
   ap: 'AP', a_level: 'A Level', ib: 'IB', gaokao: 'Gaokao', general: 'General',
 }
 
+interface EducationalImage {
+  url: string
+  title: string
+  attribution: string
+  source: string
+}
+
 interface StudyGuideSection {
   title: string
   content: string
@@ -61,6 +69,7 @@ interface StudyGuideSection {
 
 interface StudyGuide {
   sections: StudyGuideSection[]
+  educational_images?: EducationalImage[]
 }
 
 interface QuizQuestion {
@@ -360,21 +369,105 @@ function renderInlineText(text: string): React.ReactNode {
   return parts
 }
 
-function TextBlock({ text }: { text: string }) {
-  const str = typeof text === 'string' ? text : String(text ?? '')
+function ChartImage({ title, src }: { title: string; src: string }) {
+  if (!src.startsWith('data:image/')) return null
   return (
-    <span>
-      {str.split('\n').map((line, li) => (
-        <span key={li}>
-          {li > 0 && <br />}
-          {renderInlineText(line)}
-        </span>
-      ))}
-    </span>
+    <div className="my-4 rounded-lg border border-gray-200 overflow-hidden bg-white">
+      <img src={src} alt={title} className="w-full max-w-2xl mx-auto" loading="lazy" />
+      {title && (
+        <p className="text-xs text-gray-500 text-center py-2 bg-gray-50 border-t border-gray-100">
+          {title}
+        </p>
+      )}
+    </div>
   )
 }
 
+function TextBlock({ text }: { text: string }) {
+  const str = typeof text === 'string' ? text : String(text ?? '')
+
+  // Split on chart image markers: [CHART_IMAGE:title:data:image/png;base64,...]
+  const chartPattern = /\[CHART_IMAGE:([^:]*):([^\]]+)\]/g
+  const parts: React.ReactNode[] = []
+  let last = 0
+  let match: RegExpExecArray | null
+  let idx = 0
+
+  while ((match = chartPattern.exec(str)) !== null) {
+    if (match.index > last) {
+      const textBefore = str.slice(last, match.index)
+      parts.push(
+        <span key={idx++}>
+          {textBefore.split('\n').map((line, li) => (
+            <span key={li}>
+              {li > 0 && <br />}
+              {renderInlineText(line)}
+            </span>
+          ))}
+        </span>
+      )
+    }
+    parts.push(<ChartImage key={idx++} title={match[1]} src={match[2]} />)
+    last = match.index + match[0].length
+  }
+
+  if (last < str.length) {
+    const remaining = str.slice(last)
+    parts.push(
+      <span key={idx++}>
+        {remaining.split('\n').map((line, li) => (
+          <span key={li}>
+            {li > 0 && <br />}
+            {renderInlineText(line)}
+          </span>
+        ))}
+      </span>
+    )
+  }
+
+  if (parts.length === 0) {
+    return (
+      <span>
+        {str.split('\n').map((line, li) => (
+          <span key={li}>
+            {li > 0 && <br />}
+            {renderInlineText(line)}
+          </span>
+        ))}
+      </span>
+    )
+  }
+
+  return <>{parts}</>
+}
+
 // ── Study Guide Tab ───────────────────────────────────────────────────────────
+
+function EducationalImagesBlock({ images }: { images: EducationalImage[] }) {
+  if (!images?.length) return null
+  return (
+    <div className="mt-6 border-t border-gray-200 pt-4">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Related Images</h4>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {images.map((img, i) => (
+          <div key={i} className="rounded-lg border border-gray-200 overflow-hidden bg-white">
+            <img
+              src={img.url}
+              alt={img.title}
+              className="w-full h-40 object-cover"
+              loading="lazy"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+            />
+            <div className="p-2">
+              <p className="text-xs font-medium text-gray-700 truncate">{img.title}</p>
+              <p className="text-[10px] text-gray-400 truncate">{img.attribution} · {img.source}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function StudyGuideTab({ guide }: { guide: StudyGuide }) {
   if (!guide?.sections?.length) {
@@ -385,9 +478,9 @@ function StudyGuideTab({ guide }: { guide: StudyGuide }) {
       {guide.sections.map((section, si) => (
         <div key={si} className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="text-base font-semibold text-gray-900 mb-3">{section.title}</h3>
-          <p className="text-sm text-gray-700 leading-relaxed">
+          <div className="text-sm text-gray-700 leading-relaxed">
             <TextBlock text={section.content} />
-          </p>
+          </div>
           {section.examples && section.examples.length > 0 && (
             <div className="mt-4">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Examples</h4>
@@ -443,6 +536,7 @@ function StudyGuideTab({ guide }: { guide: StudyGuide }) {
           )}
         </div>
       ))}
+      <EducationalImagesBlock images={guide.educational_images ?? []} />
     </div>
   )
 }
@@ -1394,6 +1488,7 @@ export default function StudyPlanPage() {
     { key: 'flashcards', label: 'Flashcards' },
     { key: 'formulas', label: 'Formulas' },
     { key: 'mock_exam', label: 'Mock Exam' },
+    { key: 'my_context', label: 'My Context' },
   ]
 
   return (
@@ -1677,7 +1772,8 @@ export default function StudyPlanPage() {
               <div className="flex border-b border-gray-100 overflow-x-auto">
                 {tabs.map(tab => {
                   const available =
-                    tab.key === 'study_guide' ? !!content?.study_guide
+                    tab.key === 'my_context' ? true
+                    : tab.key === 'study_guide' ? !!content?.study_guide
                     : tab.key === 'quiz' ? !!content?.quiz
                     : tab.key === 'flashcards' ? !!content?.flashcards?.length
                     : tab.key === 'mock_exam' ? !!content?.mock_exam?.sections?.length
@@ -1716,7 +1812,10 @@ export default function StudyPlanPage() {
                 {activeTab === 'mock_exam' && content?.mock_exam && (
                   <MockExamTab exam={content.mock_exam} />
                 )}
-                {!content && (
+                {activeTab === 'my_context' && (
+                  <MediaContextTab getAuthHeaders={authHeaders} />
+                )}
+                {!content && activeTab !== 'my_context' && (
                   <p className="text-gray-500 italic text-sm">No content available for this tab.</p>
                 )}
                 <HighlightAskAI
