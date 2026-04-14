@@ -16,6 +16,21 @@
       "static/chunks/main-app.js",
       "static/css/app/study-plan/[id]/page.css",
       "static/chunks/app/study-plan/[id]/page.js"
+    ],
+    "/lessons/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/lessons/page.js"
+    ],
+    "/create/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/create/page.js"
+    ],
+    "/_not-found/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/_not-found/page.js"
     ]
   }
 }

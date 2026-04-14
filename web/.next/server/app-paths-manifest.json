@@ -1,6 +1,6 @@
 {
-  "/api/backend/study-plan/ask-ai/route": "app/api/backend/study-plan/ask-ai/route.js",
-  "/api/backend/study-plan/[id]/unit/[unitId]/complete/route": "app/api/backend/study-plan/[id]/unit/[unitId]/complete/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/create/page": "app/create/page.js",
   "/study-plan/page": "app/study-plan/page.js",
   "/study-plan/[id]/page": "app/study-plan/[id]/page.js"
 }
