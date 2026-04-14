@@ -236,7 +236,7 @@ class ClassCreator:
                     ai_data = await self._translate_ai_response(ai_data)
 
                 # Extract data from AI response
-                default_title = request.topic if language == Language.ENGLISH else f"{request.topic}课程"
+                default_title = request.topic if language == Language.ENGLISH else f"{request.topic} 课程"
                 default_description = (
                     f"Detailed teaching plan for {request.topic}"
                     if language == Language.ENGLISH
@@ -310,27 +310,51 @@ class ClassCreator:
                 if not pipeline_success:
                     error_message = multimedia_error or "Video rendering failed. No video file was produced."
 
+                # Language-aware defaults
+                if language == Language.ENGLISH:
+                    _default_objectives = [
+                        "Understand fundamental concepts",
+                        "Master core skills",
+                        "Apply knowledge in practice",
+                    ]
+                    _default_prerequisites = ["Basic background knowledge"]
+                    _default_methodology = "AI-personalized teaching"
+                    _default_exercises = ["Foundational exercises", "Advanced challenges"]
+                    _default_assessment = "Comprehensive assessment"
+                    _default_resources = ["Course materials", "Reference books"]
+                    _default_duration = f"{request.duration_minutes} minutes"
+                    _default_notes = "AI-generated teaching plan"
+                else:
+                    _default_objectives = [
+                        "理解基本概念",
+                        "掌握核心技能",
+                        "应用所学知识",
+                    ]
+                    _default_prerequisites = ["基本知识背景"]
+                    _default_methodology = "AI个性化教学"
+                    _default_exercises = ["基础练习", "进阶挑战"]
+                    _default_assessment = "综合评估"
+                    _default_resources = ["课程材料", "参考书籍"]
+                    _default_duration = f"{request.duration_minutes}分钟"
+                    _default_notes = "AI生成的教学方案"
+
                 if "raw_response" in ai_data:
                     # AI returned raw text response
                     return ClassCreationResult(
                         success=pipeline_success,
                         class_title=class_title,
                         class_description=class_description,
-                        learning_objectives=[
-                            "理解基本概念",
-                            "掌握核心技能", 
-                            "应用所学知识"
-                        ],
-                        prerequisites=["基本知识背景"],
-                        teaching_methodology="AI个性化教学",
+                        learning_objectives=_default_objectives,
+                        prerequisites=_default_prerequisites,
+                        teaching_methodology=_default_methodology,
                         lesson_plan=normalized_lesson_plan,
-                        exercises=["基础练习", "进阶挑战"],
-                        assessment="综合评估",
-                        resources=["课程材料", "参考书籍"],
-                        estimated_duration=f"{request.duration_minutes}分钟",
+                        exercises=_default_exercises,
+                        assessment=_default_assessment,
+                        resources=_default_resources,
+                        estimated_duration=_default_duration,
                         difficulty_level=request.difficulty_level,
                         target_audience=request.target_audience,
-                        customization_notes="AI生成的教学方案",
+                        customization_notes=_default_notes,
                         ai_insights={
                             "generated": True,
                             "method": "ai_generated",
@@ -356,19 +380,18 @@ class ClassCreator:
                         class_description=class_description,
                         learning_objectives=ai_data.get("objectives") or ai_data.get("learning_objectives") or [],
                         prerequisites=ai_data.get("prerequisites") or [],
-                        teaching_methodology=ai_data.get("methodology") or ai_data.get("teaching_methodology") or "个性化教学",
+                        teaching_methodology=ai_data.get("methodology") or ai_data.get("teaching_methodology") or _default_methodology,
                         lesson_plan=normalized_lesson_plan,
                         exercises=ai_data.get("exercises") or [],
                         assessment=ai_data.get("assessment") or "",
                         resources=ai_data.get("resources") or [],
-                        estimated_duration=ai_data.get("duration") or f"{request.duration_minutes}分钟",
+                        estimated_duration=ai_data.get("duration") or _default_duration,
                         difficulty_level=ai_data.get("difficulty") or request.difficulty_level,
                         target_audience=ai_data.get("audience") or request.target_audience,
-                        customization_notes=ai_data.get("notes") or "AI生成的教学方案",
+                        customization_notes=ai_data.get("notes") or _default_notes,
                         ai_insights={
                             "generated": True,
                             "method": "ai_structured",
-                            "confidence": 0.95,
                             "ai_provider": "DeepSeek",
                             "video_url": video_url,
                             "audio_url": audio_url,

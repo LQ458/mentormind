@@ -198,7 +198,13 @@ def create_class_video_task(self, request_data: dict, job_id: str):
             audio_absolute_path=audio_abs,
         )
 
-        print(f"[{job_id}] ✅ Quality evaluation complete: {quality_evaluation['overall_score']}/10 (Grade: {quality_evaluation['grade']})")
+        grade = quality_evaluation.get('grade', '?')
+        score = quality_evaluation.get('overall_score', 0)
+        print(f"[{job_id}] ✅ Quality evaluation complete: {score}/10 (Grade: {grade})")
+        if grade == "D":
+            print(f"[{job_id}] ⚠️ LOW QUALITY WARNING: Grade D ({score}/10). Issues: {quality_evaluation.get('improvement_areas', [])}")
+        elif grade == "C":
+            print(f"[{job_id}] ℹ️ Moderate quality: Grade C ({score}/10). Consider regeneration for better results.")
 
     except Exception as e:
         print(f"[{job_id}] ⚠️ Quality evaluation failed: {e}")
