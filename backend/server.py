@@ -12,7 +12,7 @@ import threading
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -1861,9 +1861,10 @@ async def get_voices():
     return {
         "success": True,
         "voices": [
-            {"id": "anna", "name": "Anna (Chinese/English)", "gender": "Female"},
-            {"id": "bella", "name": "Bella (Soft Chinese)", "gender": "Female"},
-            {"id": "chris", "name": "Chris (Casual English)", "gender": "Male"}
+            {"id": "anna", "name": "灿灿 2.0 (Chinese/English)", "gender": "Female", "voice_type": "BV700_V2_streaming"},
+            {"id": "bella", "name": "温柔淑女 (Soft Chinese)", "gender": "Female", "voice_type": "BV104_streaming"},
+            {"id": "chris", "name": "擎苍 (Chinese/English)", "gender": "Male", "voice_type": "BV701_streaming"},
+            {"id": "caleb", "name": "炀炀 (General Male)", "gender": "Male", "voice_type": "BV705_streaming"},
         ]
     }
 
@@ -3325,6 +3326,85 @@ async def generate_unit_content(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/study-plan/{plan_id}/unit/{unit_id}/board-lesson")
+async def create_unit_board_lesson(
+    plan_id: str,
+    unit_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a streaming board lesson session for a study plan unit.
+
+    Returns a session_id that the client can use to connect via
+    WebSocket at /ws/board/{session_id} for real-time board streaming.
+    """
+    try:
+        plan = (
+            db.query(StudyPlan)
+            .filter(StudyPlan.id == plan_id, StudyPlan.user_id == current_user.id)
+            .first()
+        )
+        if not plan:
+            raise HTTPException(status_code=404, detail="Study plan not found")
+
+        unit = db.query(StudyPlanUnit).filter(
+            StudyPlanUnit.id == unit_id, StudyPlanUnit.plan_id == plan_id
+        ).first()
+        if not unit:
+            raise HTTPException(status_code=404, detail="Unit not found")
+
+        # Rate limit: per-user and global session caps
+        user_sessions = [s for s in _board_sessions.values() if s.get("user_id") == current_user.id]
+        if len(user_sessions) >= MAX_SESSIONS_PER_USER:
+            raise HTTPException(status_code=429, detail="Too many active board sessions")
+        if len(_board_sessions) >= MAX_BOARD_SESSIONS:
+            raise HTTPException(status_code=503, detail="Server session limit reached")
+
+        # Build topic from unit context
+        topics_str = ", ".join(unit.topics) if unit.topics else unit.title
+        objectives_str = "; ".join(unit.learning_objectives) if unit.learning_objectives else ""
+        topic = f"{plan.course_name or plan.subject}: {unit.title}"
+        custom_requirements = f"Topics: {topics_str}"
+        if objectives_str:
+            custom_requirements += f"\nLearning objectives: {objectives_str}"
+        if plan.framework:
+            custom_requirements += f"\nExam framework: {plan.framework}"
+
+        session_id = str(_uuid.uuid4())
+        from core.board.state_manager import BoardStateManager
+        from mcp.board_server import BoardMCPServer
+        state_mgr = BoardStateManager()
+        board_server = BoardMCPServer(state_manager=state_mgr)
+
+        _board_sessions[session_id] = {
+            "state_manager": state_mgr,
+            "board_server": board_server,
+            "config": {
+                "topic": topic,
+                "language": plan.language or "zh",
+                "student_level": plan.difficulty_level or "intermediate",
+                "duration_minutes": max(5, (unit.estimated_minutes or 60) // 3),
+                "custom_requirements": custom_requirements,
+            },
+            "status": "created",
+            "user_id": current_user.id,
+            "plan_id": plan_id,
+            "unit_id": unit_id,
+        }
+
+        return {
+            "success": True,
+            "session_id": session_id,
+            "topic": topic,
+            "ws_url": f"/ws/board/{session_id}",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Board lesson creation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/study-plan/{plan_id}/unit/{unit_id}/content")
 async def get_unit_content(
     plan_id: str,
@@ -3652,6 +3732,208 @@ async def get_gaokao_sessions(
     except Exception as e:
         logger.error(f"Failed to fetch gaokao sessions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Board Streaming Endpoints (B4 + B6) ────────────────────────────────────
+
+import uuid as _uuid
+
+# In-memory board session store (Redis-backed in production)
+_board_sessions: dict = {}
+
+
+class BoardSessionRequest(BaseModel):
+    topic: str
+    language: str = "zh"
+    student_level: str = "beginner"
+    duration_minutes: int = 10
+    custom_requirements: Optional[str] = None
+
+
+MAX_BOARD_SESSIONS = 100
+MAX_SESSIONS_PER_USER = 5
+
+
+@app.post("/board/create-session")
+async def create_board_session(
+    req: BoardSessionRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Create a new board lesson session and return session_id."""
+    # Rate limit: per-user and global session caps
+    user_sessions = [s for s in _board_sessions.values() if s.get("user_id") == current_user.id]
+    if len(user_sessions) >= MAX_SESSIONS_PER_USER:
+        raise HTTPException(status_code=429, detail="Too many active board sessions")
+    if len(_board_sessions) >= MAX_BOARD_SESSIONS:
+        raise HTTPException(status_code=503, detail="Server session limit reached")
+
+    session_id = str(_uuid.uuid4())
+    from core.board.state_manager import BoardStateManager
+    from mcp.board_server import BoardMCPServer
+    state_mgr = BoardStateManager()
+    board_server = BoardMCPServer(state_manager=state_mgr)
+
+    _board_sessions[session_id] = {
+        "state_manager": state_mgr,
+        "board_server": board_server,
+        "config": req.dict(),
+        "status": "created",
+        "user_id": current_user.id,
+    }
+
+    return {"success": True, "session_id": session_id}
+
+
+@app.get("/board/session/{session_id}")
+async def get_board_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Get current board state and event log for a session (supports reconnection)."""
+    session = _board_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Board session not found")
+    if session.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized for this session")
+
+    from core.board.state_manager import BoardStateManager
+    state_mgr: BoardStateManager = session["state_manager"]
+    return {
+        "success": True,
+        "session_id": session_id,
+        "status": session["status"],
+        "state": state_mgr.get_state(),
+        "event_log": state_mgr.get_event_log(),
+    }
+
+
+@app.post("/board/session/{session_id}/save")
+async def save_board_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Persist the board session data to the database."""
+    session = _board_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Board session not found")
+    if session.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized for this session")
+
+    from core.board.state_manager import BoardStateManager
+    state_mgr: BoardStateManager = session["state_manager"]
+    board_data = {
+        "session_id": session_id,
+        "config": session["config"],
+        "state": state_mgr.get_state(),
+        "event_log": state_mgr.get_event_log(),
+    }
+
+    # Store in Redis for retrieval (1 hour TTL)
+    try:
+        from celery_app import _redis_client as _rc
+        if _rc:
+            import json as _json
+            _rc.setex(
+                f"board_session:{session_id}",
+                3600,
+                _json.dumps(board_data, default=str),
+            )
+    except Exception as e:
+        logger.warning(f"Failed to save board session to Redis: {e}")
+
+    session["status"] = "saved"
+    return {"success": True, "session_id": session_id}
+
+
+@app.websocket("/ws/board/{session_id}")
+async def board_websocket(websocket: WebSocket, session_id: str):
+    """WebSocket endpoint for streaming board lesson events in real-time."""
+    # Authenticate via token query parameter
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4001)
+        return
+    try:
+        from auth import decode_token
+        payload = decode_token(token)
+        user_id = payload.get("sub") or payload.get("user_id")
+    except Exception:
+        await websocket.close(code=4001)
+        return
+
+    session = _board_sessions.get(session_id)
+    if not session:
+        await websocket.accept()
+        await websocket.send_json({"event_type": "error", "data": {"error": "Session not found"}})
+        await websocket.close(code=4004)
+        return
+    if str(session.get("user_id")) != str(user_id):
+        await websocket.close(code=4003)
+        return
+
+    await websocket.accept()
+
+    session["status"] = "streaming"
+    config = session["config"]
+    from mcp.board_server import BoardMCPServer
+    from core.streaming.lesson_generator import StreamingLessonGenerator
+    from core.streaming.tts_sync import BoardTTSSync
+    board_server: BoardMCPServer = session["board_server"]
+
+    generator = StreamingLessonGenerator(board_server=board_server)
+    tts_sync = BoardTTSSync(language="zh-CN" if config["language"] == "zh" else "en-US")
+
+    paused = False
+
+    async def _send_events():
+        nonlocal paused
+        board_stream = generator.generate_lesson(
+            topic=config["topic"],
+            language=config["language"],
+            student_level=config["student_level"],
+            duration_minutes=config["duration_minutes"],
+            custom_requirements=config.get("custom_requirements"),
+        )
+        tts_stream = tts_sync.stream_with_tts(board_stream)
+
+        async for event in tts_stream:
+            while paused:
+                await asyncio.sleep(0.1)
+            try:
+                await websocket.send_json(event.to_dict())
+            except WebSocketDisconnect:
+                return
+            except Exception as e:
+                logger.error(f"Error sending board event: {e}")
+                return
+
+    send_task = asyncio.create_task(_send_events())
+
+    try:
+        while True:
+            try:
+                msg = await asyncio.wait_for(websocket.receive_json(), timeout=0.5)
+                action = msg.get("action")
+                if action == "pause":
+                    paused = True
+                elif action == "resume":
+                    paused = False
+            except asyncio.TimeoutError:
+                if send_task.done():
+                    break
+            except WebSocketDisconnect:
+                break
+    except WebSocketDisconnect:
+        pass
+    finally:
+        send_task.cancel()
+        try:
+            await send_task
+        except asyncio.CancelledError:
+            pass
+        session["status"] = "completed"
+        # Clean up session to prevent memory leak
+        _board_sessions.pop(session_id, None)
 
 
 if __name__ == "__main__":

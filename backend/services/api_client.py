@@ -6,8 +6,8 @@ Real API connections with no mock data
 import os
 import aiohttp
 import json
-from typing import Dict, Any, Optional, Callable, Union
-from dataclasses import dataclass
+from typing import Dict, Any, Optional, Callable, Union, List, AsyncGenerator
+from dataclasses import dataclass, field
 import asyncio
 import random
 import time
@@ -42,6 +42,17 @@ class APIResponse:
     status_code: int = 200
     retry_count: int = 0
     response_time_ms: float = 0.0
+
+
+@dataclass
+class StreamChunk:
+    """A chunk from a streaming LLM response"""
+    chunk_type: str  # "content_delta", "tool_call_delta", "tool_call_complete", "done", "error"
+    content: str = ""
+    tool_call_index: int = 0
+    tool_call_id: str = ""
+    tool_name: str = ""
+    tool_arguments: str = ""  # accumulated JSON string for tool_call_complete
 
 
 class APIRetryManager:
@@ -274,6 +285,139 @@ class DeepSeekClient:
                 status_code=0
             )
     
+    async def chat_completion_stream(
+        self,
+        messages: list,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        model: str = "Pro/zai-org/GLM-5.1",
+        temperature: float = 0.7,
+        max_tokens: int = 4000,
+    ) -> AsyncGenerator[StreamChunk, None]:
+        """
+        Streaming chat completion with tool call support.
+        Yields StreamChunk objects as they arrive from the API.
+        Accumulates fragmented tool call arguments and emits a
+        tool_call_complete chunk when the full tool call is assembled.
+        """
+        url = f"{self.base_url}/chat/completions"
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        # Accumulators for fragmented tool calls: {index: {id, name, arguments}}
+        pending_tool_calls: Dict[int, Dict[str, str]] = {}
+
+        try:
+            connector = aiohttp.TCPConnector(verify_ssl=config.VERIFY_SSL)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.post(
+                    url,
+                    headers=self.headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=None, connect=10, sock_read=300),
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        yield StreamChunk(
+                            chunk_type="error",
+                            content=f"API error {response.status}: {error_text}",
+                        )
+                        return
+
+                    async for raw_line in response.content:
+                        line = raw_line.decode("utf-8", errors="replace").strip()
+                        if not line or line.startswith(":"):
+                            continue
+                        if not line.startswith("data: "):
+                            continue
+
+                        data_str = line[6:]  # strip "data: "
+                        if data_str == "[DONE]":
+                            # Flush any remaining pending tool calls
+                            for idx in sorted(pending_tool_calls):
+                                tc = pending_tool_calls[idx]
+                                yield StreamChunk(
+                                    chunk_type="tool_call_complete",
+                                    tool_call_index=idx,
+                                    tool_call_id=tc.get("id", ""),
+                                    tool_name=tc.get("name", ""),
+                                    tool_arguments=tc.get("arguments", ""),
+                                )
+                            yield StreamChunk(chunk_type="done")
+                            return
+
+                        try:
+                            chunk_data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+
+                        choices = chunk_data.get("choices", [])
+                        if not choices:
+                            continue
+
+                        delta = choices[0].get("delta", {})
+                        finish_reason = choices[0].get("finish_reason")
+
+                        # Content delta
+                        if "content" in delta and delta["content"]:
+                            yield StreamChunk(
+                                chunk_type="content_delta",
+                                content=delta["content"],
+                            )
+
+                        # Tool call deltas
+                        if "tool_calls" in delta:
+                            for tc_delta in delta["tool_calls"]:
+                                idx = tc_delta.get("index", 0)
+
+                                if idx not in pending_tool_calls:
+                                    pending_tool_calls[idx] = {
+                                        "id": "",
+                                        "name": "",
+                                        "arguments": "",
+                                    }
+
+                                tc = pending_tool_calls[idx]
+                                if "id" in tc_delta and tc_delta["id"]:
+                                    tc["id"] = tc_delta["id"]
+
+                                func = tc_delta.get("function", {})
+                                if "name" in func and func["name"]:
+                                    tc["name"] = func["name"]
+                                if "arguments" in func and func["arguments"]:
+                                    tc["arguments"] += func["arguments"]
+
+                        # When finish_reason indicates tool calls are complete
+                        if finish_reason == "tool_calls":
+                            for idx in sorted(pending_tool_calls):
+                                tc = pending_tool_calls[idx]
+                                yield StreamChunk(
+                                    chunk_type="tool_call_complete",
+                                    tool_call_index=idx,
+                                    tool_call_id=tc.get("id", ""),
+                                    tool_name=tc.get("name", ""),
+                                    tool_arguments=tc.get("arguments", ""),
+                                )
+                            pending_tool_calls.clear()
+
+                        if finish_reason == "stop":
+                            yield StreamChunk(chunk_type="done")
+                            return
+
+        except aiohttp.ClientError as e:
+            self.logger.error(f"Stream connection error: {e}")
+            yield StreamChunk(chunk_type="error", content=f"Connection error: {e}")
+        except Exception as e:
+            self.logger.error(f"Unexpected stream error: {e}")
+            yield StreamChunk(chunk_type="error", content=f"Unexpected error: {e}")
+
     async def extract_knowledge(self, text: str, context: str = "") -> APIResponse:
         """
         Extract knowledge entities and relationships from text

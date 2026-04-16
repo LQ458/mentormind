@@ -58,6 +58,9 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=1800,  # 30 minutes hard limit for long-form rendering and retries
     task_soft_time_limit=1500, # 25 minutes soft limit
+    task_acks_late=True,  # Acknowledge after execution, not on receipt — prevents message loss on crash
+    task_reject_on_worker_lost=True,  # Requeue tasks when worker dies unexpectedly
+    worker_prefetch_multiplier=1,  # Only prefetch 1 task at a time — prevents losing buffered tasks
     worker_lost_wait=30,  # Wait before marking lost worker tasks as failed
     worker_pool="solo",  # Avoid fork — PyTorch/Whisper SIGSEGV in forked processes
     
@@ -639,7 +642,8 @@ def ocr_image_task(self, file_path: str, language: str, job_id: str, target_lang
 
 # ── Study Plan: Unit Content Generation ─────────────────────────────────────
 
-@celery_app.task(bind=True, name="mentormind.generate_unit_content", time_limit=600)
+@celery_app.task(bind=True, name="mentormind.generate_unit_content", time_limit=600,
+                 max_retries=2, default_retry_delay=10)
 def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: dict,
                                 content_types: list, language: str = "zh"):
     """
@@ -678,7 +682,13 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
         print(f"[unit:{unit_id}] ⚠️ Failed to store result in Redis: {e}")
 
     # Update the unit in the database
-    status_to_set = "ready" if not result.get("error") else "failed"
+    # Mark as failed if there's an explicit error OR if any requested content type is None
+    has_error = bool(result.get("error"))
+    has_missing = any(ct in result and result[ct] is None for ct in content_types)
+    if has_missing and not has_error:
+        missing = [ct for ct in content_types if ct in result and result[ct] is None]
+        print(f"[unit:{unit_id}] ⚠️ Content types returned None (parse failure): {missing}")
+    status_to_set = "ready" if (not has_error and not has_missing) else "failed"
     for attempt in range(2):
         try:
             init_database()

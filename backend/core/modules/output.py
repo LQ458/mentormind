@@ -245,7 +245,7 @@ class ScriptGenerator:
 
 
 class TTSSynthesizer:
-    """Text-to-speech synthesis using real TTS service"""
+    """Text-to-speech synthesis using Volcengine TTS service"""
     
     def __init__(self):
         self.voice = config.TTS_VOICE
@@ -255,7 +255,7 @@ class TTSSynthesizer:
     
     async def synthesize(self, text: str, script_id: str, voice: str = "female") -> Tuple[str, float]:
         """
-        Synthesize speech using SiliconFlow Cloud TTS
+        Synthesize speech using Volcengine Cloud TTS
         Returns: (audio_file_path, duration_seconds)
         """
         logger.info(f"Synthesizing speech for script: {script_id} (Voice: {voice})")
@@ -265,46 +265,31 @@ class TTSSynthesizer:
             audio_path = os.path.join(self.output_dir, f"{script_id}_{timestamp}.mp3")
             
             if self.sf_tts:
-                # Map generic voice names to specific models/presets if needed
-                # For SiliconFlow, we might pass the voice name directly if it matches their API
-                # Or map "male" -> "alex", "female" -> "anna" etc.
+                # Map generic/named voices to Volcengine voice_type IDs
                 voice_map = {
-                    "female": "FunAudioLLM/CosyVoice2-0.5B:anna",
-                    "male": "FunAudioLLM/CosyVoice2-0.5B:caleb", # Example mapping
-                    "young_female": "FunAudioLLM/CosyVoice2-0.5B:sara",
-                    "young_male": "FunAudioLLM/CosyVoice2-0.5B:ben"
+                    "female": "BV700_V2_streaming",      # 灿灿 2.0 (flagship female)
+                    "male": "BV701_streaming",            # 擎苍 (flagship male)
+                    "young_female": "BV700_V2_streaming",
+                    "young_male": "BV705_streaming",      # 炀炀
+                    "anna": "BV700_V2_streaming",
+                    "caleb": "BV701_streaming",
+                    "sara": "BV700_V2_streaming",
+                    "ben": "BV705_streaming",
+                    "chris": "BV701_streaming",
                 }
-                
-                # If voice is a key in map, use the mapped value, otherwise use as is
-                # But wait, SiliconFlowTTSService takes voice and voice_label separately or formatted.
-                # Let's check siliconflow_tts.py again. 
-                # It takes `voice` (model) and `voice_label` (speaker).
-                
-                # Simplified: Expect voice to be "anna", "caleb" etc. and let service handle it
-                # Or better: let's update SiliconFlowTTSService to handle the "voice:label" format
-                
-                # strictly passing the "label" (e.g. "anna") as the voice argument to the service wrapper
-                # referencing backend/services/siliconflow_tts.py: 
-                # payload["voice"] = f"{voice}:{voice_label}" where voice is model.
-                
-                # So we just need to pass the label "anna", "caleb" to the service's voice_label param?
-                # The service method signature is: text_to_speech(self, text, voice, voice_label, ...)
-                
-                target_label = voice if voice in ["anna", "ben", "caleb", "sara"] else "anna"
-                if voice == "male": target_label = "caleb"
-                if voice == "female": target_label = "anna"
-                
+                target_voice_type = voice_map.get(voice, "BV700_V2_streaming")
+
                 result = await self.sf_tts.text_to_speech(
                     text=text,
-                    voice_label=target_label, # We need to update the call to pass this
+                    voice_label=target_voice_type,
                     output_path=audio_path
                 )
                 return result.audio_path, result.duration
             else:
-                raise Exception("SiliconFlow TTS service unavailable")
+                raise Exception("Volcengine TTS service unavailable")
             
         except Exception as e:
-            logger.warning(f"SiliconFlow TTS failed for {script_id}: {e}")
+            logger.warning(f"Volcengine TTS failed for {script_id}: {e}")
             logger.info(f"Falling back to edge-tts for {script_id}")
             return await self._edge_tts_fallback(text, script_id, voice)
 
@@ -349,12 +334,12 @@ class TTSSynthesizer:
         return audio_path, duration
     
     def get_available_voices(self) -> List[Dict[str, str]]:
-        """Get available TTS voices"""
+        """Get available TTS voices (Volcengine 豆包语音)"""
         return [
-            {"id": "anna", "name": "Female (Standard)", "gender": "female"},
-            {"id": "caleb", "name": "Male (Standard)", "gender": "male"},
-            {"id": "sara", "name": "Young Female", "gender": "female"},
-            {"id": "ben", "name": "Young Male", "gender": "male"}
+            {"id": "anna", "name": "灿灿 2.0 (Female, Flagship)", "gender": "female", "voice_type": "BV700_V2_streaming"},
+            {"id": "bella", "name": "温柔淑女 (Female, Soft)", "gender": "female", "voice_type": "BV104_streaming"},
+            {"id": "chris", "name": "擎苍 (Male, Flagship)", "gender": "male", "voice_type": "BV701_streaming"},
+            {"id": "caleb", "name": "炀炀 (Male, General)", "gender": "male", "voice_type": "BV705_streaming"},
         ]
     
     async def synthesize_with_emotion(self, text: str, emotion: str = "neutral") -> str:

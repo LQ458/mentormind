@@ -1152,7 +1152,27 @@ export default function StudyPlanPage() {
       const res = await fetch(`/api/backend/study-plan/${planId}`, { headers })
       if (!res.ok) throw new Error(`Status ${res.status}`)
       const data = await res.json()
-      setPlan(data.plan ?? data)
+      const fetched: PlanData = data.plan ?? data
+      // Preserve local "generating" status if polling is active — prevents
+      // a re-fetch (e.g. from token refresh) from briefly clobbering the
+      // generating indicator before the backend commit is visible.
+      if (pollRef.current) {
+        setPlan(prev => {
+          if (!prev) return fetched
+          return {
+            ...fetched,
+            units: fetched.units.map(u => {
+              const prevUnit = prev.units.find(p => p.id === u.id)
+              if (prevUnit?.content_status === 'generating' && u.content_status !== 'generating') {
+                return { ...u, content_status: 'generating' as const }
+              }
+              return u
+            }),
+          }
+        })
+      } else {
+        setPlan(fetched)
+      }
     } catch (err) {
       setPlanError(err instanceof Error ? err.message : 'Failed to load study plan')
     } finally {
@@ -1288,9 +1308,11 @@ export default function StudyPlanPage() {
     const unit = plan.units?.find(u => u.id === selectedUnitId)
     if (unit?.content_status === 'generating') {
       setGenerating(true)
-      startPolling(selectedUnitId)
+      if (!pollRef.current) {
+        startPolling(selectedUnitId)
+      }
     }
-  }, [selectedUnitId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedUnitId, plan, startPolling])
 
   // ── Select unit ────────────────────────────────────────────────────────────
 
@@ -1302,9 +1324,13 @@ export default function StudyPlanPage() {
     setActiveTab('study_guide')
 
     if (unit.content_status === 'ready' || unit.is_completed) {
+      setGenerating(false)
       fetchContent(unit.id)
     } else if (unit.content_status === 'generating') {
+      setGenerating(true)
       startPolling(unit.id)
+    } else {
+      setGenerating(false)
     }
   }, [stopPoll, fetchContent, startPolling])
 

@@ -1,10 +1,13 @@
 """
-SiliconFlow TTS Service Implementation
-Using OpenAI-compatible /v1/audio/speech endpoint
+Volcengine TTS Service Implementation
+Uses Volcengine (豆包语音) HTTP TTS endpoint for high-quality speech synthesis.
+Legacy module name kept for backward compatibility with imports.
 """
 
 import aiohttp
+import base64
 import os
+import uuid
 import logging
 from typing import Optional, Tuple
 from dataclasses import dataclass
@@ -17,6 +20,9 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+VOLCENGINE_TTS_URL = "https://openspeech.bytedance.com/api/v1/tts"
+VOLCENGINE_CLUSTER = "volcano_tts"
+
 @dataclass
 class TTSResult:
     """TTS conversion result"""
@@ -25,16 +31,12 @@ class TTSResult:
     format: str
 
 class SiliconFlowTTSService:
-    """TTS service using SiliconFlow Cloud API"""
-    
-    def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.getenv("SILICONFLOW_API_KEY")
-        self.base_url = "https://api.siliconflow.cn/v1"
-        self.headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        
+    """TTS service using Volcengine Cloud API (legacy class name kept for compatibility)"""
+
+    def __init__(self, app_id: Optional[str] = None, token: Optional[str] = None):
+        self.app_id = app_id or os.getenv("VOLC_TTS_APPID", "")
+        self.token = token or os.getenv("VOLC_TTS_TOKEN", "")
+
     async def text_to_speech(
         self,
         text: str,
@@ -45,47 +47,76 @@ class SiliconFlowTTSService:
         verify_ssl: bool = config.VERIFY_SSL
     ) -> TTSResult:
         """
-        Convert text to speech using SiliconFlow
+        Convert text to speech using Volcengine TTS.
+        voice_label is used as the voice_type for Volcengine.
         """
-        if not self.api_key:
-            raise ValueError("SILICONFLOW_API_KEY is not set")
-            
-        url = f"{self.base_url}/audio/speech"
-        
+        if not self.token:
+            raise ValueError("VOLC_TTS_TOKEN is not set")
+
+        # Resolve voice_type: use voice_label directly as Volcengine voice_type
+        voice_type = voice_label
+
         payload = {
-            "model": voice,
-            "input": text,
-            "voice": f"{voice}:{voice_label}", # Consistent with documentation for pre-built voices
-            "response_format": output_format
+            "app": {
+                "appid": self.app_id,
+                "token": self.token,
+                "cluster": VOLCENGINE_CLUSTER,
+            },
+            "user": {
+                "uid": "mentormind_user",
+            },
+            "audio": {
+                "voice_type": voice_type,
+                "encoding": output_format,
+                "rate": 24000,
+                "speed_ratio": 1.0,
+                "volume_ratio": 1.0,
+                "pitch_ratio": 1.0,
+            },
+            "request": {
+                "reqid": str(uuid.uuid4()),
+                "text": text,
+                "text_type": "plain",
+                "operation": "query",
+            },
         }
-        
+
+        headers = {
+            "Authorization": f"Bearer;{self.token}",
+            "Content-Type": "application/json",
+        }
+
         try:
             connector = aiohttp.TCPConnector(ssl=config.VERIFY_SSL)
             async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.post(url, headers=self.headers, json=payload) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        raise Exception(f"SiliconFlow TTS error {response.status}: {error_text}")
-                    
+                async with session.post(VOLCENGINE_TTS_URL, headers=headers, json=payload) as response:
+                    resp_json = await response.json()
+
+                    if resp_json.get("code") != 3000:
+                        error_msg = resp_json.get("message", "Unknown error")
+                        raise Exception(f"Volcengine TTS error {resp_json.get('code')}: {error_msg}")
+
                     if output_path is None:
-                        # used global config
                         output_dir = os.path.join(config.DATA_DIR, "audio")
                         os.makedirs(output_dir, exist_ok=True)
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                         output_path = os.path.join(output_dir, f"tts_{timestamp}.{output_format}")
-                    
-                    audio_data = await response.read()
+
+                    audio_data = base64.b64decode(resp_json["data"])
                     with open(output_path, 'wb') as f:
                         f.write(audio_data)
-                    
-                    # Estimate duration (roughly 150 words per minute)
-                    # For a more accurate duration, we'd need to parse the audio file
-                    words = len(text) / 2 # Simple heuristic for Chinese/English mix
-                    duration = max(1.0, words / 2.5) 
-                    
+
+                    # Get duration from response (milliseconds)
+                    duration_ms = float(resp_json.get("addition", {}).get("duration", "0"))
+                    duration = duration_ms / 1000.0
+                    if duration <= 0:
+                        # Fallback: estimate from text length
+                        words = len(text) / 2
+                        duration = max(1.0, words / 2.5)
+
                     logger.info(f"Generated TTS audio: {output_path}")
                     return TTSResult(audio_path=output_path, duration=duration, format=output_format)
-                    
+
         except Exception as e:
-            logger.error(f"Failed to generate speech with SiliconFlow: {e}")
+            logger.error(f"Failed to generate speech with Volcengine: {e}")
             raise

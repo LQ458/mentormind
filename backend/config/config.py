@@ -190,9 +190,13 @@ class MentorMindConfig:
     
     # Output Generation
     AVATAR_IMAGE_PATH: str = "./assets/teacher_avatar.png"
-    TTS_VOICE: str = "FunAudioLLM/CosyVoice2-0.5B"
-    TTS_VOICE_LABEL: str = "anna"
+    TTS_VOICE: str = "BV700_V2_streaming"  # Volcengine voice_type (灿灿 2.0)
+    TTS_VOICE_LABEL: str = "BV700_V2_streaming"  # Volcengine voice_type
     VIDEO_FPS: int = 25
+
+    # Volcengine TTS Configuration
+    VOLC_TTS_APPID: str = os.getenv("VOLC_TTS_APPID", "")
+    VOLC_TTS_TOKEN: str = os.getenv("VOLC_TTS_TOKEN", "")
     
     # ===== PATHS AND DIRECTORIES =====
     BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -211,6 +215,8 @@ class MentorMindConfig:
         # Check required environment variables
         if not os.getenv("SILICONFLOW_API_KEY"):
             warnings.append("SILICONFLOW_API_KEY not set - AI models will not work")
+        if not os.getenv("VOLC_TTS_APPID") or not os.getenv("VOLC_TTS_TOKEN"):
+            warnings.append("VOLC_TTS_APPID or VOLC_TTS_TOKEN not set - Volcengine TTS will not work")
         
         # Check cost constraints
         total_estimated_cost = sum(

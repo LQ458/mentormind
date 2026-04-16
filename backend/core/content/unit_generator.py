@@ -19,7 +19,14 @@ _REASONING_CONTENT_TYPES = {"quiz", "mock_exam"}
 
 
 def _parse_json_from_response(text: str) -> Optional[Dict[str, Any]]:
-    """Extract JSON from LLM response, handling ```json blocks."""
+    """Extract JSON from LLM response, handling ```json blocks and edge cases."""
+    if not text or not text.strip():
+        logger.warning("Empty LLM response, cannot parse JSON")
+        return None
+
+    json_str = None
+
+    # Try ```json ... ``` blocks first
     if "```json" in text:
         parts = text.split("```json")
         json_str = parts[1].split("```")[0].strip()
@@ -27,17 +34,33 @@ def _parse_json_from_response(text: str) -> Optional[Dict[str, Any]]:
         parts = text.split("```")
         if len(parts) >= 2:
             json_str = parts[1].strip()
-        else:
-            json_str = text
-    else:
-        # Try parsing the whole thing
-        json_str = text.strip()
 
+    # Attempt 1: parse extracted or raw text
+    candidate = json_str if json_str else text.strip()
     try:
-        return json.loads(json_str)
+        return json.loads(candidate)
     except json.JSONDecodeError:
-        logger.warning("Failed to parse JSON from LLM response")
-        return None
+        pass
+
+    # Attempt 2: find first { ... } or [ ... ] in the raw text
+    for open_ch, close_ch in [("{", "}"), ("[", "]")]:
+        start = text.find(open_ch)
+        if start == -1:
+            continue
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == open_ch:
+                depth += 1
+            elif text[i] == close_ch:
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start : i + 1])
+                    except json.JSONDecodeError:
+                        break
+
+    logger.warning("Failed to parse JSON from LLM response: %s", text[:300])
+    return None
 
 
 class UnitContentGenerator:
