@@ -16,6 +16,8 @@
     "axios": "^1.6.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
+    "d3": "^7.8.5",
+    "framer-motion": "^11.0.0",
     "html2canvas": "^1.4.1",
     "katex": "^0.16.45",
     "lucide-react": "^0.309.0",
@@ -31,6 +33,7 @@
   },
   "devDependencies": {
     "@remotion/tailwind": "^4.0.417",
+    "@types/d3": "^7.4.3",
     "@types/katex": "^0.16.8",
     "@types/node": "^20",
     "@types/react": "^18",

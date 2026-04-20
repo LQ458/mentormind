@@ -1367,6 +1367,38 @@ export default function StudyPlanPage() {
     // NOTE: Don't setGenerating(false) here — polling will do it when complete
   }, [selectedUnitId, planId, authHeaders, selectedContentTypes, startPolling])
 
+  // ── Start AI board lesson ─────────────────────────────────────────────────
+  const [startingBoard, setStartingBoard] = useState(false)
+  const [boardError, setBoardError] = useState<string | null>(null)
+  const handleStartBoardLesson = useCallback(async (unitId: string) => {
+    if (!unitId || !planId) return
+    setStartingBoard(true)
+    setBoardError(null)
+    try {
+      const headers = await authHeaders()
+      const res = await fetch(
+        `/api/backend/study-plan/${planId}/unit/${unitId}/board-lesson`,
+        { method: 'POST', headers, body: JSON.stringify({}) },
+      )
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}))
+        setBoardError(errJson?.error || 'Failed to start board lesson')
+        setStartingBoard(false)
+        return
+      }
+      const data: { session_id?: string } = await res.json().catch(() => ({}))
+      if (data.session_id) {
+        router.push(`/board/${data.session_id}`)
+      } else {
+        setBoardError('Missing session_id from backend')
+      }
+    } catch (err) {
+      setBoardError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setStartingBoard(false)
+    }
+  }, [planId, authHeaders, router])
+
   // ── Mark complete ──────────────────────────────────────────────────────────
 
   const handleMarkComplete = useCallback(async () => {
