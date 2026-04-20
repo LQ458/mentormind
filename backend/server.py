@@ -3872,9 +3872,19 @@ async def board_websocket(websocket: WebSocket, session_id: str):
         await websocket.close(code=4001)
         return
     try:
-        from auth import decode_token
+        from auth import decode_token, clerk_id_to_uuid
         payload = decode_token(token)
-        user_id = payload.get("sub") or payload.get("user_id")
+        clerk_id = payload.get("sub") or payload.get("user_id")
+        if not clerk_id:
+            raise ValueError("missing sub")
+        # Resolve the same way get_current_user does: username match first,
+        # then clerk_id → deterministic UUID. Avoid DB write here; just resolve.
+        from database.base import SessionLocal
+        with SessionLocal() as db:
+            db_user = db.query(User).filter(User.username == clerk_id).first()
+            if not db_user:
+                db_user = db.query(User).filter(User.id == str(clerk_id_to_uuid(clerk_id))).first()
+        resolved_user_id = db_user.id if db_user else str(clerk_id_to_uuid(clerk_id))
     except Exception:
         await websocket.close(code=4001)
         return
@@ -3885,7 +3895,7 @@ async def board_websocket(websocket: WebSocket, session_id: str):
         await websocket.send_json({"event_type": "error", "data": {"error": "Session not found"}})
         await websocket.close(code=4004)
         return
-    if str(session.get("user_id")) != str(user_id):
+    if str(session.get("user_id")) != str(resolved_user_id):
         await websocket.close(code=4003)
         return
 

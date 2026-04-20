@@ -14,30 +14,29 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-# Volcengine voice mappings
+# Volcengine voice mappings (basic voices, no per-voice grant required)
 _VOICE_MAP = {
-    "female": "BV700_V2_streaming",      # 灿灿 2.0 (flagship female)
-    "male": "BV701_streaming",            # 擎苍 (flagship male)
-    "female_zh": "BV700_V2_streaming",
-    "male_zh": "BV701_streaming",
-    "female_en": "BV700_V2_streaming",    # handles mixed CN/EN
-    "male_en": "BV701_streaming",
+    "female": "BV001_streaming",
+    "male": "BV002_streaming",
+    "female_zh": "BV001_streaming",
+    "male_zh": "BV002_streaming",
+    "female_en": "BV001_streaming",
+    "male_en": "BV002_streaming",
 }
 
-# Named voice aliases for backward compatibility
 _NAMED_VOICE_MAP = {
-    "anna": "BV700_V2_streaming",         # 灿灿 2.0 (female, flagship)
-    "bella": "BV104_streaming",           # 温柔淑女 (female, soft)
-    "david": "BV701_streaming",           # 擎苍 (male, flagship)
-    "benjamin": "BV705_streaming",        # 炀炀 (male)
-    "charles": "BV701_streaming",         # 擎苍 (male)
-    "claire": "BV009_streaming",          # 知性女声 (female, assistant)
-    "alex": "BV123_streaming",            # 阳光青年 (male)
-    "diana": "BV700_V2_streaming",        # 灿灿 2.0 (female)
-    "caleb": "BV701_streaming",           # 擎苍 (male)
-    "sara": "BV700_V2_streaming",         # 灿灿 2.0 (female)
-    "ben": "BV705_streaming",             # 炀炀 (male)
-    "chris": "BV701_streaming",           # 擎苍 (male)
+    "anna": "BV001_streaming",
+    "bella": "BV001_streaming",
+    "david": "BV002_streaming",
+    "benjamin": "BV002_streaming",
+    "charles": "BV002_streaming",
+    "claire": "BV001_streaming",
+    "alex": "BV002_streaming",
+    "diana": "BV001_streaming",
+    "caleb": "BV002_streaming",
+    "sara": "BV001_streaming",
+    "ben": "BV002_streaming",
+    "chris": "BV002_streaming",
 }
 
 VOLCENGINE_TTS_URL = "https://openspeech.bytedance.com/api/v1/tts"
@@ -70,7 +69,7 @@ class TTSService:
         # Map generic voice + language to a specific voice
         lang_prefix = "zh" if language.startswith("zh") else "en"
         key = f"{voice}_{lang_prefix}"
-        return _VOICE_MAP.get(key, _VOICE_MAP.get(voice, "BV700_V2_streaming"))
+        return _VOICE_MAP.get(key, _VOICE_MAP.get(voice, "BV001_streaming"))
 
     async def text_to_speech(
         self,
