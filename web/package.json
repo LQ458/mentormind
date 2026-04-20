@@ -21,6 +21,7 @@
     "html2canvas": "^1.4.1",
     "katex": "^0.16.45",
     "lucide-react": "^0.309.0",
+    "mathjs": "^15.2.0",
     "next": "14.2.29",
     "postcss": "^8.4.0",
     "react": "^18",
