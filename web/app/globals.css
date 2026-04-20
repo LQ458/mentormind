@@ -522,3 +522,40 @@ body {
   .topbar { padding: 0 16px; }
   .search-pill { min-width: 0; }
 }
+
+/* ============================================================
+   Board renderer backgrounds (Phase C streaming whiteboard)
+   ============================================================ */
+.board-canvas { isolation: isolate; }
+
+.board-bg-dark {
+  background:
+    radial-gradient(circle at 30% 20%, rgba(56, 189, 248, 0.08), transparent 60%),
+    radial-gradient(circle at 70% 80%, rgba(168, 85, 247, 0.07), transparent 60%),
+    #0f172a;
+  color: #e2e8f0;
+}
+
+.board-bg-light {
+  background:
+    radial-gradient(circle at 30% 20%, rgba(59, 130, 246, 0.06), transparent 60%),
+    #f8fafc;
+  color: #0f172a;
+}
+
+.board-bg-plain {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+.board-bg-grid {
+  background-color: #0f172a;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.12) 1px, transparent 1px);
+  background-size: 32px 32px;
+  color: #e2e8f0;
+}
+
+.board-canvas .board-equation .katex { color: inherit; }
+

@@ -3845,6 +3845,24 @@ async def save_board_session(
     return {"success": True, "session_id": session_id}
 
 
+@app.post("/board/session/{session_id}/summary")
+async def get_board_summary(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Generate a structured post-lesson summary for a board session."""
+    session = _board_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Board session not found")
+    if session.get("user_id") != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    from core.board.summarizer import summarize_session
+    state_mgr = session["state_manager"]
+    language = session["config"].get("language", "zh")
+    summary = await summarize_session(state_mgr, language=language)
+    return {"success": True, "summary": summary}
+
+
 @app.websocket("/ws/board/{session_id}")
 async def board_websocket(websocket: WebSocket, session_id: str):
     """WebSocket endpoint for streaming board lesson events in real-time."""
@@ -3876,11 +3894,15 @@ async def board_websocket(websocket: WebSocket, session_id: str):
     session["status"] = "streaming"
     config = session["config"]
     from mcp.board_server import BoardMCPServer
+    from mcp.agent_tools import AgentToolsServer
     from core.streaming.lesson_generator import StreamingLessonGenerator
     from core.streaming.tts_sync import BoardTTSSync
     board_server: BoardMCPServer = session["board_server"]
+    agent_server = AgentToolsServer()
 
-    generator = StreamingLessonGenerator(board_server=board_server)
+    generator = StreamingLessonGenerator(
+        board_server=board_server, agent_tools_server=agent_server
+    )
     tts_sync = BoardTTSSync(language="zh-CN" if config["language"] == "zh" else "en-US")
 
     paused = False
