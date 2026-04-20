@@ -3928,6 +3928,14 @@ async def board_websocket(websocket: WebSocket, session_id: str):
             except Exception as e:
                 logger.error(f"Error sending board event: {e}")
                 return
+        try:
+            await websocket.send_json(
+                {"event_type": "done", "timestamp": time.time(), "data": {}}
+            )
+        except WebSocketDisconnect:
+            return
+        except Exception as e:
+            logger.debug(f"Could not send done event: {e}")
 
     send_task = asyncio.create_task(_send_events())
 
