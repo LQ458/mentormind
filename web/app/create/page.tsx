@@ -7,6 +7,7 @@ import { useAuth } from '@clerk/nextjs'
 import { translations } from '../lib/translations'
 import SessionContextCard from '../components/Chat/SessionContextCard'
 import InterestProfileQuiz, { UserInterestProfile } from '../components/InterestProfileQuiz'
+import { PageHead } from '../components/design/primitives'
 
 // ── Lightweight MD + LaTeX renderer ─────────────────────────────────────────
 function MentorMessage({ content }: { content: string }) {
@@ -1113,20 +1114,20 @@ export default function CreateLessonPage() {
   // Remove options-related functions as we no longer use them
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-4 space-y-8">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">
-            {t('nav.create')}
-          </h1>
-          <p className="text-gray-600 mt-1">
-            {uiLanguage === 'zh' ? '更少输入，更清晰的课程生成流程。' : 'Less friction, clearer lesson generation.'}
-          </p>
-        </div>
-        <div className="flex items-center space-x-4">
-          <div className="text-sm text-gray-500">
-            {t('common.remainingLessons', { count: 958 })}
-          </div>
+    <div className="space-y-8">
+      <PageHead
+        eyebrow={uiLanguage === 'zh' ? '创建' : 'Create'}
+        title={uiLanguage === 'zh' ? '今天想学什么？' : 'What should we learn today?'}
+        zh={uiLanguage === 'zh' ? 'Create' : '今日课题'}
+        kicker={
+          uiLanguage === 'zh'
+            ? '描述你不太懂的地方。一节课会出现 — 为你、为你的薄弱点、为你的节奏量身定做。'
+            : "Describe what's unclear. A lesson appears — tailored to you, your gaps, your pace."
+        }
+      />
+      <div className="flex justify-end items-center">
+        <div className="muted" style={{ fontSize: 12 }}>
+          {t('common.remainingLessons', { count: 958 })}
         </div>
       </div>
 

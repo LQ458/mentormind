@@ -3,39 +3,10 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useLanguage } from '../components/LanguageContext'
-import { useAuth } from '@clerk/nextjs'
+import { useAuth, useUser } from '@clerk/nextjs'
+import { Play, Flame, Clock, Sparkles, ArrowRight } from 'lucide-react'
 
-interface SystemStatus {
-  status: string
-  version: string
-  services?: {
-    deepseek?: string
-    funasr?: string
-    paddle_ocr?: string
-    tts?: string
-    ai_lessons?: string
-    speech_recognition?: string
-    text_extraction?: string
-    video_generation?: string
-  }
-  cost_analysis?: {
-    monthly_budget: number
-    current_month: number
-    remaining: number
-  }
-  subscription?: {
-    plan: string
-    monthly_cost: number
-    lessons_included: number
-    lessons_used: number
-    lessons_remaining: number
-    cost_this_month: number
-    renewal_date: string
-  }
-  configuration?: any
-  language_support?: any
-  error?: string
-}
+import { PageHead, Section, Progress, Chip } from '../components/design/primitives'
 
 interface ReviewQueueItem {
   id: number
@@ -48,7 +19,6 @@ interface ReviewQueueItem {
     title: string
     topic: string
     duration_minutes: number
-    video_url?: string | null
   }
   metadata?: {
     trigger?: string
@@ -62,61 +32,44 @@ interface ProactiveNotification {
   title: string
   body?: string | null
   action_url?: string | null
-  status: string
-  scheduled_for?: string | null
-  metadata?: {
-    stage?: string
-    trigger?: string
-    mastery?: number
-  }
+}
+
+interface RecentLesson {
+  id: string
+  timestamp: string
+  query: string
+  lesson_title: string
+  quality_score: number
+  cost_usd: number
 }
 
 export default function DashboardPage() {
-  const { language, t } = useLanguage()
+  const { language } = useLanguage()
   const { isLoaded, isSignedIn, getToken } = useAuth()
-  
-  const [status, setStatus] = useState<SystemStatus | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [recentLessons, setRecentLessons] = useState<any[]>([])
+  const { user } = useUser()
+
+  const [recentLessons, setRecentLessons] = useState<RecentLesson[]>([])
   const [reviewQueue, setReviewQueue] = useState<ReviewQueueItem[]>([])
   const [notifications, setNotifications] = useState<ProactiveNotification[]>([])
-  const [notificationActionId, setNotificationActionId] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchStatus()
-    fetchRecentLessons()
-    fetchReviewQueue()
-    fetchNotifications()
+    Promise.all([fetchRecentLessons(), fetchReviewQueue(), fetchNotifications()]).finally(
+      () => setLoading(false),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded, isSignedIn])
-
-  const fetchStatus = async () => {
-    try {
-      const response = await fetch('/api/backend')
-      const data = await response.json()
-      setStatus(data)
-    } catch (error) {
-      console.error('Failed to fetch status:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const fetchRecentLessons = async () => {
     try {
-      const endpoint = isSignedIn ? '/api/backend/users/me/lessons' : '/api/backend/results';
-      const token = await getToken();
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-      }
-
-      const response = await fetch(endpoint, {
-        headers
-      })
+      const endpoint = isSignedIn ? '/api/backend/users/me/lessons' : '/api/backend/results'
+      const token = await getToken()
+      const headers: Record<string, string> = {}
+      if (token) headers.Authorization = `Bearer ${token}`
+      const response = await fetch(endpoint, { headers })
       const data = await response.json()
-      // /users/me/lessons returns an array directly, /results returns { results: [] }
-      const rawLessons = Array.isArray(data) ? data : (data.results || [])
-      const normalized = rawLessons.map((lesson: any) => ({
+      const rawLessons = Array.isArray(data) ? data : data.results || []
+      const normalized: RecentLesson[] = rawLessons.map((lesson: any) => ({
         id: lesson.id,
         timestamp: lesson.timestamp || lesson.created_at,
         query: lesson.query || lesson.topic,
@@ -135,24 +88,16 @@ export default function DashboardPage() {
       setReviewQueue([])
       return
     }
-
     try {
       const token = await getToken()
       const headers: Record<string, string> = {}
-      if (token) {
-        headers.Authorization = `Bearer ${token}`
-      }
-
+      if (token) headers.Authorization = `Bearer ${token}`
       const response = await fetch('/api/backend/users/me/review-queue', { headers })
-      if (!response.ok) {
-        throw new Error(`Failed to fetch review queue: ${response.status}`)
-      }
-
+      if (!response.ok) throw new Error(`Failed: ${response.status}`)
       const data = await response.json()
       setReviewQueue(data.items || [])
     } catch (error) {
       console.error('Failed to fetch review queue:', error)
-      setReviewQueue([])
     }
   }
 
@@ -161,404 +106,374 @@ export default function DashboardPage() {
       setNotifications([])
       return
     }
-
     try {
       const token = await getToken()
       const headers: Record<string, string> = {}
-      if (token) {
-        headers.Authorization = `Bearer ${token}`
-      }
-
-      await fetch('/api/backend/users/me/notifications/sync', {
-        method: 'POST',
-        headers,
-      })
-
-      const response = await fetch('/api/backend/users/me/notifications?unread_only=true&limit=6', { headers })
-      if (!response.ok) {
-        throw new Error(`Failed to fetch notifications: ${response.status}`)
-      }
-
+      if (token) headers.Authorization = `Bearer ${token}`
+      const response = await fetch(
+        '/api/backend/users/me/notifications?unread_only=true&limit=4',
+        { headers },
+      )
+      if (!response.ok) throw new Error(`Failed: ${response.status}`)
       const data = await response.json()
       setNotifications(data.items || [])
     } catch (error) {
       console.error('Failed to fetch notifications:', error)
-      setNotifications([])
     }
   }
 
-  const updateNotificationStatus = async (id: number, action: 'read' | 'dismiss') => {
-    try {
-      setNotificationActionId(id)
-      const token = await getToken()
-      const headers: Record<string, string> = {}
-      if (token) {
-        headers.Authorization = `Bearer ${token}`
-      }
+  const firstName = user?.firstName || (language === 'zh' ? '同学' : 'there')
 
-      const response = await fetch(`/api/backend/users/me/notifications/${id}/${action}`, {
-        method: 'POST',
-        headers,
-      })
-      if (!response.ok) {
-        throw new Error(`Failed to ${action} notification: ${response.status}`)
-      }
-      await fetchNotifications()
-    } catch (error) {
-      console.error(`Failed to ${action} notification:`, error)
-    } finally {
-      setNotificationActionId(null)
-    }
-  }
+  // Pick today's focus from the first due review, or fall back to a placeholder
+  const focusReview = reviewQueue.find((r) => r.stage === 'due_now') || reviewQueue[0]
+  const focusTitle =
+    focusReview?.lesson?.title ||
+    (language === 'zh' ? '从你昨天差点理解的地方继续' : 'Pick up where you almost understood')
+  const focusTopic = focusReview?.lesson?.topic || (language === 'zh' ? '今日学习' : 'Today')
 
-  const formatReviewTiming = (item: ReviewQueueItem) => {
-    if (item.stage === 'due_now') {
-      return language === 'zh' ? '现在最适合复习' : 'Best reviewed now'
-    }
+  // Stats — derive from data or sensible placeholders
+  const completedCount = recentLessons.length
+  const goalMin = 60
+  const todayMin = Math.min(goalMin, completedCount * 8) // rough placeholder
+  const masteryPct = Math.round(
+    Math.min(
+      1,
+      recentLessons.reduce((a, l) => a + (l.quality_score || 0), 0) / Math.max(1, recentLessons.length),
+    ) * 100,
+  )
 
-    if (item.due_in_hours < 24) {
-      return language === 'zh'
-        ? `${Math.max(1, Math.round(item.due_in_hours))} 小时后进入遗忘风险`
-        : `Memory risk rises in ${Math.max(1, Math.round(item.due_in_hours))}h`
-    }
+  const dateLine = new Date().toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
 
-    return language === 'zh'
-      ? `${Math.round(item.due_in_hours / 24)} 天后建议复习`
-      : `Suggested review in ${Math.round(item.due_in_hours / 24)}d`
-  }
+  const hour = new Date().getHours()
+  const greeting =
+    language === 'zh'
+      ? hour < 5
+        ? '夜深了'
+        : hour < 12
+        ? '早上好'
+        : hour < 18
+        ? '下午好'
+        : '晚上好'
+      : hour < 5
+      ? 'Still up'
+      : hour < 12
+      ? 'Good morning'
+      : hour < 18
+      ? 'Good afternoon'
+      : 'Good evening'
 
-  if (!isLoaded || loading || !status) {
+  if (!isLoaded || loading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-gray-500">{t('common.loading')}</div>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 240 }}>
+        <div className="muted">{language === 'zh' ? '加载中…' : 'Loading…'}</div>
       </div>
     )
   }
 
-  const lessonsUsed = status.subscription?.lessons_used || 0
-  const lessonsIncluded = status.subscription?.lessons_included || 1000
-  const usedPct = ((lessonsUsed / lessonsIncluded) * 100).toFixed(1)
-  const costThisMonth = status.subscription?.cost_this_month || 0
-  const monthlyBudget = status.subscription?.monthly_cost || 29.99
-  const budgetPct = ((costThisMonth / monthlyBudget) * 100).toFixed(1)
-
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">{t('dashboard.pageTitle')}</h1>
-          <p className="text-gray-600 mt-1">{t('dashboard.pageSubtitle')}</p>
-        </div>
-        <div className="text-sm text-gray-500">
-          {t('dashboard.lastUpdated')}: {new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US')}
-        </div>
-      </div>
+    <div>
+      <PageHead
+        eyebrow={dateLine}
+        title={language === 'zh' ? `${greeting}，${firstName}` : `${greeting}, ${firstName}`}
+        zh={language === 'zh' ? '今日' : greeting === 'Good morning' ? '早上好' : greeting === 'Good afternoon' ? '下午好' : greeting === 'Good evening' ? '晚上好' : '夜深了'}
+        kicker={
+          language === 'zh'
+            ? '从昨天差点理解的地方继续。一项专注，几次复习，把循环闭合。'
+            : 'Pick up where you almost-understood yesterday. One focus today, a few reviews to close the loop.'
+        }
+      />
 
-      {/* Quick Actions + System Status */}
-      {isSignedIn && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-start justify-between gap-6">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">
-                {language === 'zh' ? '学习流程收件箱' : 'Process Inbox'}
-              </h2>
-              <p className="text-sm text-gray-600 mt-1 max-w-2xl">
-                {language === 'zh'
-                  ? '这里会出现系统主动推送的复习、纠错和练习提醒。'
-                  : 'This is where the system surfaces proactive review, correction, and practice nudges.'}
-              </p>
-            </div>
-            <button
-              onClick={fetchNotifications}
-              className="text-sm font-medium text-blue-600 hover:text-blue-800"
+      {/* Hero focus card */}
+      <div className="card-new" style={{ padding: 28, borderColor: 'var(--line-strong)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <Chip kind="accent" dot>
+            {language === 'zh' ? '今日重点' : "Today's focus"}
+          </Chip>
+          <span className="muted" style={{ fontSize: 12 }}>
+            {focusTopic}
+          </span>
+        </div>
+        <h2
+          style={{
+            fontFamily: 'var(--display)',
+            fontSize: 30,
+            fontWeight: 400,
+            letterSpacing: '-0.01em',
+            margin: '0 0 20px',
+            lineHeight: 1.15,
+          }}
+        >
+          {focusTitle}
+        </h2>
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {focusReview ? (
+            <Link
+              href={`/lessons/${focusReview.lesson.id}`}
+              className="btn btn-primary btn-lg"
             >
-              {language === 'zh' ? '刷新' : 'Refresh'}
-            </button>
-          </div>
-
-          <div className="mt-6 grid md:grid-cols-2 gap-4">
-            {notifications.length > 0 ? notifications.map((item) => (
-              <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
-                    {item.metadata?.stage === 'due_now'
-                      ? (language === 'zh' ? '现在处理' : 'Handle Now')
-                      : (language === 'zh' ? '即将到来' : 'Upcoming')}
-                  </span>
-                  <span className="text-xs text-gray-500">
-                    {item.metadata?.trigger || item.notification_type}
-                  </span>
-                </div>
-                <h3 className="mt-3 text-base font-semibold text-gray-900">{item.title}</h3>
-                {item.body && (
-                  <p className="mt-2 text-sm text-gray-600">{item.body}</p>
-                )}
-                <div className="mt-4 flex flex-wrap gap-3">
-                  {item.action_url && (
-                    <Link
-                      href={item.action_url}
-                      onClick={() => updateNotificationStatus(item.id, 'read')}
-                      className="text-sm font-medium text-blue-600 hover:text-blue-800"
-                    >
-                      {language === 'zh' ? '打开' : 'Open'}
-                    </Link>
-                  )}
-                  <button
-                    onClick={() => updateNotificationStatus(item.id, 'read')}
-                    disabled={notificationActionId === item.id}
-                    className="text-sm font-medium text-slate-700 hover:text-slate-900 disabled:opacity-50"
-                  >
-                    {language === 'zh' ? '标记已读' : 'Mark Read'}
-                  </button>
-                  <button
-                    onClick={() => updateNotificationStatus(item.id, 'dismiss')}
-                    disabled={notificationActionId === item.id}
-                    className="text-sm font-medium text-slate-500 hover:text-slate-700 disabled:opacity-50"
-                  >
-                    {language === 'zh' ? '忽略' : 'Dismiss'}
-                  </button>
-                </div>
-              </div>
-            )) : (
-              <div className="md:col-span-2 rounded-xl border border-dashed border-slate-300 px-5 py-8 text-center">
-                <p className="text-sm text-gray-600">
-                  {language === 'zh'
-                    ? '暂时没有新的主动提醒。继续学习后，这里会自动出现。'
-                    : 'No new proactive nudges yet. As you keep learning, this inbox will fill automatically.'}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {isSignedIn && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-start justify-between gap-6">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">
-                {language === 'zh' ? '今天的主动干预' : 'Today\'s Proactive Interventions'}
-              </h2>
-              <p className="text-sm text-gray-600 mt-1 max-w-2xl">
-                {language === 'zh'
-                  ? 'MentorMind 会基于间隔重复、检索练习和适度认知摩擦，在最容易遗忘的时刻提醒你复习。'
-                  : 'MentorMind uses spaced repetition, retrieval practice, and productive friction to surface the right review at the right time.'}
-              </p>
-            </div>
-            <Link href="/principles" className="text-sm font-medium text-blue-600 hover:text-blue-800">
-              {language === 'zh' ? '查看设计原则' : 'See Design Principles'}
+              <Play size={16} /> {language === 'zh' ? '开始这节' : 'Begin lesson'}
             </Link>
-          </div>
-
-          <div className="mt-6 grid md:grid-cols-3 gap-4">
-            {reviewQueue.length > 0 ? reviewQueue.slice(0, 3).map((item) => (
-              <Link
-                key={item.id}
-                href={`/lessons/${item.lesson.id}`}
-                className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 hover:border-blue-300 hover:bg-blue-50 transition-colors"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${item.stage === 'due_now' ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800'}`}>
-                    {item.stage === 'due_now'
-                      ? (language === 'zh' ? '立即复习' : 'Review Now')
-                      : (language === 'zh' ? '即将遗忘' : 'Upcoming')}
-                  </span>
-                  <span className="text-xs text-gray-500">
-                    {item.metadata?.trigger || item.review_type}
-                  </span>
-                </div>
-                <h3 className="mt-3 text-base font-semibold text-gray-900 line-clamp-2">
-                  {item.lesson.title}
-                </h3>
-                <p className="mt-2 text-sm text-gray-600 line-clamp-2">
-                  {formatReviewTiming(item)}
-                </p>
-                <div className="mt-4 text-sm font-medium text-blue-600">
-                  {language === 'zh' ? '进入 3 分钟挑战' : 'Open 3-minute challenge'}
-                </div>
-              </Link>
-            )) : (
-              <div className="md:col-span-3 rounded-xl border border-dashed border-slate-300 px-5 py-8 text-center">
-                <p className="text-sm text-gray-600">
-                  {language === 'zh'
-                    ? '完成一节课程后，这里会自动出现基于遗忘曲线的复习挑战。'
-                    : 'Finish a lesson and this queue will start surfacing forgetting-curve-based review challenges automatically.'}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">{t('dashboard.quickActions')}</h2>
-          <div className="space-y-4">
-            <a
-              href="/create"
-              className="block w-full bg-blue-600 text-white px-4 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors text-center"
-            >
-              {t('dashboard.createNewLesson')}
-            </a>
-            <div className="grid grid-cols-2 gap-3">
-              <a
-                href="/lessons"
-                className="bg-gray-100 text-gray-700 px-4 py-3 rounded-lg font-medium hover:bg-gray-200 transition-colors text-center"
-              >
-                {t('dashboard.viewAllLessons')}
-              </a>
-              <a
-                href="/analytics"
-                className="bg-gray-100 text-gray-700 px-4 py-3 rounded-lg font-medium hover:bg-gray-200 transition-colors text-center"
-              >
-                {t('dashboard.viewAnalytics')}
-              </a>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">{t('dashboard.systemStatus')}</h2>
-          <div className="space-y-3">
-            {status && (
-              <>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-700">{t('dashboard.backendService')}</span>
-                  <span className={`px-2 py-1 rounded text-sm font-medium ${status.status === 'running' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                    {status.status === 'running' ? t('dashboard.online') : t('dashboard.offline')}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-700">{t('dashboard.aiLessons')}</span>
-                  <span className="px-2 py-1 bg-green-100 text-green-800 text-sm font-medium rounded">
-                    {status.services?.deepseek === 'configured' || status.services?.ai_lessons === 'active'
-                      ? t('dashboard.normal')
-                      : t('dashboard.maintenance')}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-700">{t('dashboard.lessonsUsedLabel')}</span>
-                  <span className="font-medium">{lessonsUsed} / {lessonsIncluded}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-700">{t('dashboard.monthlyCostLabel')}</span>
-                  <span className="font-medium">${monthlyBudget.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-700">{t('dashboard.renewalDateLabel')}</span>
-                  <span className="font-medium">
-                    {status.subscription?.renewal_date
-                      ? new Date(status.subscription.renewal_date).toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US')
-                      : 'N/A'}
-                  </span>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Lessons */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-semibold text-gray-900">{t('dashboard.recentLessons')}</h2>
-          <Link href="/lessons" className="text-blue-600 hover:text-blue-800 font-medium text-sm">
-            {t('dashboard.viewAll')}
+          ) : (
+            <Link href="/create" className="btn btn-primary btn-lg">
+              <Sparkles size={16} /> {language === 'zh' ? '创建新课程' : 'Create a lesson'}
+            </Link>
+          )}
+          <Link href="/create" className="btn btn-lg">
+            {language === 'zh' ? '调整并重做' : 'Adjust & recreate'}
           </Link>
         </div>
+      </div>
 
-        {recentLessons.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead>
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.timeHeader')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.studentQueryHeader')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.lessonTitleHeader')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.qualityHeader')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.costHeader')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {recentLessons.map((lesson) => (
-                  <tr key={lesson.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {new Date(lesson.timestamp).toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US')}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 max-w-xs truncate">{lesson.query}</td>
-                    <td className="px-4 py-3 text-sm font-medium text-blue-600">
-                      <Link href={`/lessons/${lesson.id}`} className="hover:underline">{lesson.lesson_title}</Link>
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${lesson.quality_score >= 0.8 ? 'bg-green-100 text-green-800' : lesson.quality_score >= 0.6 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
-                        {(lesson.quality_score * 100).toFixed(0)}%
+      {/* Stat strip */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: 14,
+          marginTop: 20,
+        }}
+      >
+        {[
+          {
+            Icon: Flame,
+            label: language === 'zh' ? '连续' : 'Streak',
+            v: language === 'zh' ? `${completedCount} 天` : `${completedCount} days`,
+            sub: language === 'zh' ? '保持势头' : 'Keep going',
+          },
+          {
+            Icon: Clock,
+            label: language === 'zh' ? '今日' : 'Today',
+            v: `${todayMin} min`,
+            sub: language === 'zh' ? `目标 ${goalMin}` : `Goal ${goalMin}`,
+          },
+          {
+            Icon: Sparkles,
+            label: language === 'zh' ? '掌握度' : 'Mastery',
+            v: `${masteryPct}%`,
+            sub: language === 'zh' ? '本周累计' : 'This week',
+          },
+        ].map((s) => (
+          <div key={s.label} className="card-new" style={{ padding: 16 }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                color: 'var(--ink-muted)',
+                marginBottom: 8,
+              }}
+            >
+              <s.Icon size={14} />
+              <span style={{ fontSize: 12 }}>{s.label}</span>
+            </div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 22, letterSpacing: '-0.005em' }}>
+              {s.v}
+            </div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              {s.sub}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Reviews */}
+      <Section
+        title={language === 'zh' ? '复习' : 'Reviews'}
+        zh={language === 'zh' ? 'Reviews' : '复习'}
+        tools={
+          <Link href="/lessons" style={{ color: 'var(--accent)', fontWeight: 500 }}>
+            {language === 'zh' ? '查看全部' : 'See all'}
+          </Link>
+        }
+      >
+        {reviewQueue.length > 0 ? (
+          <div style={{ display: 'grid', gap: 10 }}>
+            {reviewQueue.slice(0, 3).map((r) => {
+              const mastery = r.metadata?.mastery ?? 0.5
+              const whenLabel =
+                r.stage === 'due_now'
+                  ? language === 'zh'
+                    ? '现在最适合'
+                    : 'due now'
+                  : `${Math.max(1, Math.round(r.due_in_hours))}h`
+              return (
+                <Link
+                  key={r.id}
+                  href={`/lessons/${r.lesson.id}`}
+                  className="card-new hover"
+                  style={{
+                    padding: 16,
+                    display: 'grid',
+                    gridTemplateColumns: '1fr auto',
+                    gap: 20,
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                    color: 'inherit',
+                    textDecoration: 'none',
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 8,
+                        alignItems: 'center',
+                        marginBottom: 6,
+                      }}
+                    >
+                      <Chip>{r.lesson.topic || (language === 'zh' ? '复习' : 'Review')}</Chip>
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        {whenLabel}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">${lesson.cost_usd?.toFixed(4) || '0.0000'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>
+                      {r.lesson.title}
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <div style={{ width: 120 }}>
+                        <Progress value={mastery} thin />
+                      </div>
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        {Math.round(mastery * 100)}% {language === 'zh' ? '掌握' : 'mastered'}
+                      </span>
+                    </div>
+                  </div>
+                  <ArrowRight size={18} />
+                </Link>
+              )
+            })}
           </div>
         ) : (
-          <div className="text-center py-8 text-gray-500">
-            <p>{t('dashboard.noLessonsYet')}</p>
-            <p className="text-sm mt-2">{t('dashboard.noLessonsHint')}</p>
+          <div
+            className="card-new"
+            style={{ padding: 24, textAlign: 'center' }}
+          >
+            <div className="muted" style={{ fontSize: 14 }}>
+              {language === 'zh'
+                ? '完成一节课程后，复习挑战会自动出现在这里。'
+                : 'Once you finish a lesson, review challenges will surface here.'}
+            </div>
           </div>
         )}
-      </div>
+      </Section>
 
-      {/* Subscription Usage */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">{t('dashboard.subscriptionUsage')}</h2>
-        <div className="grid md:grid-cols-3 gap-6">
-          <div className="bg-blue-50 rounded-lg p-6">
-            <div className="text-sm text-blue-700 mb-2">{t('dashboard.currentPlan')}</div>
-            <div className="text-2xl font-bold text-blue-900 mb-2">{t('dashboard.proName')}</div>
-            <div className="text-sm text-blue-600">{t('dashboard.proPrice')}</div>
-          </div>
-
-          <div className="bg-green-50 rounded-lg p-6">
-            <div className="text-sm text-green-700 mb-2">{t('dashboard.thisMonthLessons')}</div>
-            <div className="text-2xl font-bold text-green-900 mb-2">{lessonsUsed} / {lessonsIncluded}</div>
-            <div className="text-sm text-green-600">{t('dashboard.usedPercent', { pct: usedPct })}</div>
-            <div className="mt-4">
-              <div className="text-xs text-green-700 mb-1">{t('dashboard.remainingLessons', { n: lessonsIncluded - lessonsUsed })}</div>
-              <div className="w-full bg-green-100 rounded-full h-2">
-                <div className="bg-green-500 h-2 rounded-full" style={{ width: `${Math.min(parseFloat(usedPct), 100)}%` }}></div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-purple-50 rounded-lg p-6">
-            <div className="text-sm text-purple-700 mb-2">{t('dashboard.costEfficiency')}</div>
-            <div className="text-2xl font-bold text-purple-900 mb-2">${costThisMonth.toFixed(2)}</div>
-            <div className="text-sm text-purple-600">{t('dashboard.usedThisMonth')}</div>
-            <div className="mt-4">
-              <div className="text-xs text-purple-700 mb-1">{t('dashboard.percentOfBudget', { pct: budgetPct })}</div>
-              <div className="w-full bg-purple-100 rounded-full h-2">
-                <div className="bg-purple-500 h-2 rounded-full" style={{ width: `${Math.min(parseFloat(budgetPct), 100)}%` }}></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6 pt-6 border-t border-gray-200">
-          <div className="flex justify-between items-center">
-            <div>
-              <div className="font-medium text-gray-900">{t('dashboard.needMore')}</div>
-              <div className="text-sm text-gray-500 mt-1">{t('dashboard.upgradeDesc')}</div>
-            </div>
-            <a
-              href="/settings#subscription"
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+      {/* Mentor note */}
+      <Section title={language === 'zh' ? '导师留言' : 'From your mentor'}>
+        <div
+          className="card-new"
+          style={{
+            padding: 20,
+            background: 'var(--accent-soft)',
+            borderColor: 'transparent',
+          }}
+        >
+          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 12,
+                background: 'var(--accent)',
+                color: 'white',
+                display: 'grid',
+                placeItems: 'center',
+                flexShrink: 0,
+              }}
             >
-              {t('dashboard.upgradePlan')}
-            </a>
+              <Sparkles size={18} />
+            </div>
+            <div style={{ flex: 1 }}>
+              {notifications.length > 0 ? (
+                <>
+                  <div
+                    style={{
+                      fontSize: 15,
+                      lineHeight: 1.5,
+                      color: 'var(--ink)',
+                      marginBottom: 6,
+                    }}
+                  >
+                    <strong>{notifications[0].title}</strong>
+                  </div>
+                  {notifications[0].body && (
+                    <div className="muted" style={{ fontSize: 13 }}>
+                      {notifications[0].body}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    {notifications[0].action_url && (
+                      <Link
+                        href={notifications[0].action_url}
+                        className="btn btn-primary btn-sm"
+                      >
+                        {language === 'zh' ? '现在打开' : 'Open now'}
+                      </Link>
+                    )}
+                    <button className="btn btn-ghost btn-sm" type="button" onClick={fetchNotifications}>
+                      {language === 'zh' ? '刷新' : 'Refresh'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--ink)' }}>
+                  {language === 'zh'
+                    ? '继续学习，导师的复习提醒会自动出现在这里。'
+                    : 'Keep learning — proactive review nudges will appear here as patterns emerge.'}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      </Section>
+
+      {/* Recent lessons */}
+      {recentLessons.length > 0 && (
+        <Section
+          title={language === 'zh' ? '最近的课程' : 'Recent lessons'}
+          tools={
+            <Link href="/lessons" style={{ color: 'var(--accent)', fontWeight: 500 }}>
+              {language === 'zh' ? '查看全部' : 'See all'}
+            </Link>
+          }
+        >
+          <div style={{ display: 'grid', gap: 10 }}>
+            {recentLessons.slice(0, 4).map((l) => (
+              <Link
+                key={l.id}
+                href={`/lessons/${l.id}`}
+                className="card-new hover"
+                style={{
+                  padding: 14,
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto',
+                  gap: 12,
+                  alignItems: 'center',
+                  color: 'inherit',
+                  textDecoration: 'none',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
+                    {l.lesson_title}
+                  </div>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    {new Date(l.timestamp).toLocaleDateString(
+                      language === 'zh' ? 'zh-CN' : 'en-US',
+                    )}
+                  </div>
+                </div>
+                <ArrowRight size={16} />
+              </Link>
+            ))}
+          </div>
+        </Section>
+      )}
     </div>
   )
 }

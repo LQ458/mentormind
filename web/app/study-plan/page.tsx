@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '@clerk/nextjs'
+import { PageHead, Section } from '../components/design/primitives'
+import KnowledgeGraph from '../components/design/KnowledgeGraph'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -575,18 +577,25 @@ export default function StudyPlanPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">
-          {uiLanguage === 'zh' ? '学习计划' : 'Study Plans'}
-        </h1>
-        <p className="text-gray-600 mt-1">
-          {uiLanguage === 'zh'
-            ? '查看已有计划或创建新的学习计划。'
-            : 'View your existing plans or create a new one.'}
-        </p>
-      </div>
+    <div className="space-y-8">
+      <PageHead
+        eyebrow={uiLanguage === 'zh' ? '学习计划' : 'Study plan'}
+        title={uiLanguage === 'zh' ? '你的学习计划' : 'Your study plan'}
+        zh={uiLanguage === 'zh' ? 'Plan' : '学习计划'}
+        kicker={
+          uiLanguage === 'zh'
+            ? '查看已有计划，或与 AI 对话创建新的学习计划。'
+            : 'View your existing plans or chat with AI to build a new one.'
+        }
+      />
+
+      {myPlans.length > 0 && (
+        <Section title={uiLanguage === 'zh' ? '知识图' : 'Knowledge graph'}>
+          <div className="card-new" style={{ padding: 18 }}>
+            <KnowledgeGraph />
+          </div>
+        </Section>
+      )}
 
       {/* ── MY STUDY PLANS ────────────────────────────────────────────────── */}
       {myPlans.length > 0 && (

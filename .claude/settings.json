@@ -1,4 +1,7 @@
 {
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
   "hooks": {
     "Stop": [
       {
@@ -17,9 +20,7 @@
     "superpowers@claude-plugins-official": true,
     "ralph-loop@claude-plugins-official": true,
     "planning-with-files@planning-with-files": true,
-    "oh-my-claudecode@omc": true
-  },
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+    "oh-my-claudecode@omc": true,
+    "frontend-design@claude-plugins-official": true
   }
 }

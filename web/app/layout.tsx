@@ -1,9 +1,10 @@
 import type { Metadata } from 'next'
-import Link from 'next/link'
 import './globals.css'
 import { LanguageProvider } from './components/LanguageContext'
 import { ClerkProvider } from '@clerk/nextjs'
-import Navbar from './components/Navbar'
+import { TweaksProvider } from './components/design/TweaksProvider'
+import AppShell from './components/design/AppShell'
+import TweaksPanel from './components/design/TweaksPanel'
 
 export const metadata: Metadata = {
   title: 'MentorMind - AI Teaching Assistant',
@@ -22,29 +23,21 @@ export default function RootLayout({
   return (
     <ClerkProvider publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}>
       <html lang="zh-CN">
+        <head>
+          <link rel="preconnect" href="https://fonts.googleapis.com" />
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+          <link
+            href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500&display=swap"
+            rel="stylesheet"
+          />
+        </head>
         <body>
-            <LanguageProvider>
-              <div className="min-h-screen bg-slate-50">
-                <Navbar />
-                <main className="max-w-7xl mx-auto px-4 py-8">
-                  {children}
-                </main>
-                <footer className="bg-white border-t border-gray-200 mt-12">
-                  <div className="max-w-7xl mx-auto px-4 py-6">
-                    <div className="flex justify-between items-center">
-                      <div className="text-sm text-gray-500">
-                        © {new Date().getFullYear()} MentorMind. All rights reserved.
-                      </div>
-                      <div className="flex items-center gap-4 text-sm">
-                        <Link href="/principles" className="text-gray-500 hover:text-gray-900 transition-colors">
-                          Design Principles
-                        </Link>
-                      </div>
-                    </div>
-                  </div>
-                </footer>
-              </div>
-            </LanguageProvider>
+          <LanguageProvider>
+            <TweaksProvider>
+              <AppShell>{children}</AppShell>
+              <TweaksPanel />
+            </TweaksProvider>
+          </LanguageProvider>
         </body>
       </html>
     </ClerkProvider>

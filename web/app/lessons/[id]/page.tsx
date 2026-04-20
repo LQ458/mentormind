@@ -703,47 +703,50 @@ export default function LessonDetailPage() {
     : null
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-12">
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-                  <Link href="/lessons" className="text-gray-500 hover:text-gray-900 mr-4 transition-colors">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-              </Link>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900 truncate max-w-lg">
-                  {lesson.title || lesson.class_title}
-                </h1>
-                <p className="text-sm text-gray-500">
-                  {new Date(lesson.created_at || lesson.timestamp).toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US')} • {lesson.duration_minutes} {t('common.minutes')} • {lesson.student_level}
-                </p>
-              </div>
+    <div className="pb-12">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <Link href="/lessons" className="btn btn-ghost btn-sm">← {language === 'zh' ? '返回' : 'Back'}</Link>
+          <div style={{ minWidth: 0 }}>
+            <div className="eyebrow" style={{ color: 'var(--accent)', fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 500, marginBottom: 4 }}>
+              {language === 'zh' ? '课程' : 'Lesson'}
             </div>
-            <div className="flex space-x-3">
-              <button
-                onClick={() => setActiveTab('practice')}
-                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
-              >
-                {language === 'zh' ? '练习任务' : 'Practice Mission'}
-              </button>
-              <button
-                onClick={() => updateLessonProgress(100, true)}
-                disabled={!isSignedIn || savingProgress}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50"
-              >
-                {savingProgress
-                  ? (language === 'zh' ? '保存中...' : 'Saving...')
-                  : (language === 'zh' ? '完成并安排复习' : 'Complete & Schedule Review')}
-              </button>
-            </div>
+            <h1 style={{
+              fontFamily: 'var(--display)',
+              fontSize: 24,
+              fontWeight: 400,
+              margin: 0,
+              letterSpacing: '-0.01em',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: 520,
+            }}>
+              {lesson.title || lesson.class_title}
+            </h1>
+            <p className="muted" style={{ fontSize: 12, margin: '2px 0 0' }}>
+              {new Date(lesson.created_at || lesson.timestamp).toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US')} · {lesson.duration_minutes} {t('common.minutes')} · {lesson.student_level}
+            </p>
           </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setActiveTab('practice')} className="btn btn-sm" type="button">
+            {language === 'zh' ? '练习任务' : 'Practice Mission'}
+          </button>
+          <button
+            onClick={() => updateLessonProgress(100, true)}
+            disabled={!isSignedIn || savingProgress}
+            className="btn btn-sm btn-primary"
+            type="button"
+          >
+            {savingProgress
+              ? (language === 'zh' ? '保存中...' : 'Saving...')
+              : (language === 'zh' ? '完成并安排复习' : 'Complete & Review')}
+          </button>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-black rounded-2xl overflow-hidden shadow-lg aspect-video relative group">
