@@ -37,6 +37,11 @@
       "static/chunks/main-app.js",
       "static/css/app/board/[sessionId]/page.css",
       "static/chunks/app/board/[sessionId]/page.js"
+    ],
+    "/create/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/create/page.js"
     ]
   }
 }

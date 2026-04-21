@@ -622,8 +622,20 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
     const scheme = protocol === 'https:' ? 'wss' : 'ws'
     // Next.js dev server can't proxy WS upgrades, so in dev we target the FastAPI backend directly.
     const isDev = hostname === 'localhost' || hostname === '127.0.0.1'
-    const target = isDev ? `${hostname}:8000` : host
-    return `${scheme}://${target}/ws/board/${sessionId}?token=${encodeURIComponent(token)}`
+    if (!isDev) {
+      // In production the browser cannot reach the docker service name, and
+      // falling back to `host` would slam WS upgrades into the Next frontend,
+      // which crashes it (handleRequestImpl bind error). Surface the misconfig
+      // instead of looping reconnects into a 500.
+      dispatch({
+        type: 'SET_STATUS',
+        status: 'error',
+        error:
+          'NEXT_PUBLIC_BACKEND_WS_URL is not configured. Set it to the backend WebSocket URL the browser can reach (e.g. wss://api.example.com) and rebuild the frontend.',
+      })
+      return null
+    }
+    return `${scheme}://${hostname}:8000/ws/board/${sessionId}?token=${encodeURIComponent(token)}`
   }, [sessionId, token, backendWsUrl])
 
   const connect = useCallback(() => {

@@ -3,5 +3,9 @@
   "/board/[sessionId]/page": "app/board/[sessionId]/page.js",
   "/study-plan/[id]/page": "app/study-plan/[id]/page.js",
   "/dashboard/page": "app/dashboard/page.js",
-  "/lessons/page": "app/lessons/page.js"
+  "/lessons/page": "app/lessons/page.js",
+  "/create/page": "app/create/page.js",
+  "/api/backend/users/me/lessons/route": "app/api/backend/users/me/lessons/route.js",
+  "/api/backend/users/me/review-queue/route": "app/api/backend/users/me/review-queue/route.js",
+  "/api/backend/users/me/notifications/route": "app/api/backend/users/me/notifications/route.js"
 }

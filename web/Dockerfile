@@ -21,6 +21,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 
+# Backend WebSocket URL must be baked at build time for the browser bundle.
+# Without this the client falls back to same-origin (the Next server on :3000),
+# which crashes the Next server because it can't handle WS upgrade requests.
+ARG NEXT_PUBLIC_BACKEND_WS_URL
+ENV NEXT_PUBLIC_BACKEND_WS_URL=$NEXT_PUBLIC_BACKEND_WS_URL
+
 RUN pnpm build
 
 # Production stage
