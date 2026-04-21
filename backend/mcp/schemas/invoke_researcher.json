@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "task": { "type": "string", "maxLength": 500 },
+    "context_hint": { "type": "string", "maxLength": 500 }
+  },
+  "required": ["task"],
+  "additionalProperties": false
+}

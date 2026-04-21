@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "text": { "type": "string", "maxLength": 500 },
+    "pause_after_ms": { "type": "integer", "minimum": 0, "maximum": 5000 }
+  },
+  "required": ["text"],
+  "additionalProperties": false
+}

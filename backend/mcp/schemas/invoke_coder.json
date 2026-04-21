@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "task": { "type": "string", "maxLength": 500 },
+    "language_preference": {
+      "type": "string",
+      "enum": ["python", "javascript", "typescript", "java", "c++", "other"]
+    }
+  },
+  "required": ["task"],
+  "additionalProperties": false
+}

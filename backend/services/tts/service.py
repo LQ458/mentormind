@@ -42,6 +42,15 @@ _NAMED_VOICE_MAP = {
 VOLCENGINE_TTS_URL = "https://openspeech.bytedance.com/api/v1/tts"
 VOLCENGINE_CLUSTER = "volcano_tts"
 
+# edge-tts voice names for fallback when Volcengine is unavailable/ungranted.
+# Provides free, high-quality synthesis without an API key.
+_EDGE_VOICE_MAP = {
+    ("female", "zh"): "zh-CN-XiaoxiaoNeural",
+    ("male", "zh"): "zh-CN-YunxiNeural",
+    ("female", "en"): "en-US-AriaNeural",
+    ("male", "en"): "en-US-GuyNeural",
+}
+
 
 @dataclass
 class TTSResult:
@@ -71,6 +80,62 @@ class TTSService:
         key = f"{voice}_{lang_prefix}"
         return _VOICE_MAP.get(key, _VOICE_MAP.get(voice, "BV001_streaming"))
 
+    def _resolve_edge_voice(self, voice: str, language: str) -> str:
+        """Resolve a voice name to an edge-tts neural voice."""
+        lang_prefix = "zh" if language.startswith("zh") else "en"
+        # Normalize named voices to gender category
+        male_names = {"david", "benjamin", "charles", "alex", "caleb", "ben", "chris", "male"}
+        gender = "male" if voice in male_names else "female"
+        return _EDGE_VOICE_MAP.get((gender, lang_prefix), "zh-CN-XiaoxiaoNeural")
+
+    async def _edge_tts_fallback(
+        self,
+        text: str,
+        language: str,
+        voice: str,
+        speed: float,
+        pitch: float,
+        output_format: str,
+        output_path: Optional[str],
+    ) -> TTSResult:
+        """Synthesize speech via edge-tts (free, no credentials).
+
+        Used when Volcengine returns a grant/auth error so lessons still get
+        narration audio.
+        """
+        import edge_tts
+
+        edge_voice = self._resolve_edge_voice(voice, language)
+
+        # edge-tts expects rate/pitch as signed percentage strings (e.g. "+0%", "-10%")
+        rate_pct = int(round((speed - 1.0) * 100))
+        pitch_hz = int(round((pitch - 1.0) * 50))  # rough mapping to Hz
+        rate_str = f"{rate_pct:+d}%"
+        pitch_str = f"{pitch_hz:+d}Hz"
+
+        if output_path is None:
+            import tempfile
+            ext = output_format if "." not in output_format else output_format.split(".")[-1]
+            with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp_file:
+                output_path = tmp_file.name
+
+        communicate = edge_tts.Communicate(text, edge_voice, rate=rate_str, pitch=pitch_str)
+        await communicate.save(output_path)
+
+        # edge-tts doesn't return duration; estimate from file size at ~32kbps MP3
+        try:
+            file_size = os.path.getsize(output_path)
+        except OSError:
+            file_size = 0
+        duration = max(0.1, (file_size * 8) / 32000) if file_size else 1.0
+
+        return TTSResult(
+            audio_path=output_path,
+            duration=duration,
+            sample_rate=24000,
+            format=output_format,
+        )
+
     async def text_to_speech(
         self,
         text: str,
@@ -98,6 +163,12 @@ class TTSService:
         """
         if not text.strip():
             raise ValueError("Text cannot be empty")
+
+        # If Volcengine credentials are missing, skip straight to edge-tts.
+        if not self.app_id or not self.token:
+            return await self._edge_tts_fallback(
+                text, language, voice, speed, pitch, output_format, output_path
+            )
 
         voice_type = self._resolve_voice(voice, language)
 
@@ -184,14 +255,23 @@ class TTSService:
                     else:
                         error_msg = resp_json.get("message", "Unknown error")
                         error_code = resp_json.get("code", "unknown")
+                        # Grant/auth errors (3001 = ungranted voice, 4001 = invalid token)
+                        # mean Volcengine will never succeed for this appid; fall back to
+                        # edge-tts so the lesson still gets audio.
+                        if str(error_code) in ("3001", "4001", "4003"):
+                            logger.warning(
+                                f"Volcengine TTS {error_code} ({error_msg}); falling back to edge-tts"
+                            )
+                            return await self._edge_tts_fallback(
+                                text, language, voice, speed, pitch, output_format, output_path
+                            )
                         raise Exception(f"Volcengine TTS API error {error_code}: {error_msg}")
 
         except aiohttp.ClientError as e:
-            logger.error(f"Network error calling Volcengine TTS: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Error converting text to speech: {e}")
-            raise
+            logger.warning(f"Network error calling Volcengine TTS: {e}; falling back to edge-tts")
+            return await self._edge_tts_fallback(
+                text, language, voice, speed, pitch, output_format, output_path
+            )
 
     async def generate_speech_for_lesson(
         self,

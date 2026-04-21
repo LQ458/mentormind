@@ -1,0 +1,7 @@
+{
+  "tool_name": "Read",
+  "tool_input_preview": "{\"file_path\":\"/Users/LeoQin/Documents/GitHub/mentormind/web/app/lessons/[id]/page.tsx\"}",
+  "error": "File content (26269 tokens) exceeds maximum allowed tokens (25000). Use offset and limit parameters to read specific portions of the file, or search for specific content instead of reading the whole file.",
+  "timestamp": "2026-04-20T03:02:52.508Z",
+  "retry_count": 2
+}

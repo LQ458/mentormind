@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "properties": {
+    "element_type": {
+      "type": "string",
+      "enum": ["title", "text_block", "equation", "graph", "shape", "transform", "code_block", "image", "definition_box", "theorem_box", "step_list", "arrow", "highlight", "table"]
+    },
+    "content": { "type": "string", "maxLength": 2000 },
+    "position": {
+      "type": "object",
+      "properties": {
+        "region": { "type": "string", "enum": ["center", "top", "bottom", "left", "right", "top_left", "top_right", "bottom_left", "bottom_right"] },
+        "offset_x": { "type": "number", "minimum": -1, "maximum": 1 },
+        "offset_y": { "type": "number", "minimum": -1, "maximum": 1 }
+      },
+      "required": ["region"]
+    },
+    "style": {
+      "type": "object",
+      "properties": {
+        "color": { "type": "string", "enum": ["accent", "heading", "text", "green", "mauve", "yellow", "red"] },
+        "size": { "type": "string", "enum": ["small", "medium", "large", "xlarge"] },
+        "animation": { "type": "string", "enum": ["fade_in", "write", "grow", "slide_in", "none"] }
+      }
+    },
+    "narration": { "type": "string", "maxLength": 500 },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "graph_expression": { "type": "string" },
+        "graph_x_range": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+        "graph_y_range": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+        "shape_type": { "type": "string", "enum": ["circle", "triangle", "rectangle", "arrow", "line", "polygon"] },
+        "transform_from": { "type": "string" },
+        "transform_to": { "type": "string" },
+        "code_language": { "type": "string" },
+        "table_headers": { "type": "array", "items": { "type": "string" } },
+        "table_rows": { "type": "array", "items": { "type": "array", "items": { "type": "string" } } },
+        "steps": { "type": "array", "items": { "type": "string" } },
+        "arrow_from": { "type": "string" },
+        "arrow_to": { "type": "string" },
+        "highlight_target": { "type": "string" }
+      }
+    }
+  },
+  "required": ["element_type", "content"],
+  "additionalProperties": false
+}

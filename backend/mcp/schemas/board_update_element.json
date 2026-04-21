@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "element_id": { "type": "string" },
+    "action": { "type": "string", "enum": ["highlight", "dim", "update_content", "move", "animate_transform", "remove"] },
+    "new_content": { "type": "string", "maxLength": 2000 },
+    "narration": { "type": "string", "maxLength": 500 }
+  },
+  "required": ["element_id", "action"],
+  "additionalProperties": false
+}

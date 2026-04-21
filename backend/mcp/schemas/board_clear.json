@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "scope": { "type": "string", "enum": ["all", "region", "except_title"] },
+    "region": { "type": "string", "enum": ["center", "top", "bottom", "left", "right"] },
+    "animation": { "type": "string", "enum": ["fade_out", "slide_out", "instant"] },
+    "narration": { "type": "string", "maxLength": 500 }
+  },
+  "required": ["scope"],
+  "additionalProperties": false
+}

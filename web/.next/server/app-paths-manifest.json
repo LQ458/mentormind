@@ -1,6 +1,9 @@
 {
-  "/_not-found/page": "app/_not-found/page.js",
-  "/create/page": "app/create/page.js",
   "/study-plan/page": "app/study-plan/page.js",
-  "/study-plan/[id]/page": "app/study-plan/[id]/page.js"
+  "/settings/page": "app/settings/page.js",
+  "/board/[sessionId]/page": "app/board/[sessionId]/page.js",
+  "/study-plan/[id]/page": "app/study-plan/[id]/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/lessons/page": "app/lessons/page.js",
+  "/api/backend/users/me/lessons/route": "app/api/backend/users/me/lessons/route.js"
 }

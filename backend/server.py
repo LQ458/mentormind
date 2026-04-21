@@ -3850,17 +3850,34 @@ async def get_board_summary(
     session_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    """Generate a structured post-lesson summary for a board session."""
+    """Return the cached post-lesson summary, computing it on demand if absent."""
     session = _board_sessions.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Board session not found")
     if session.get("user_id") != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
+    cached = session.get("cached_summary")
+    if cached:
+        return {"success": True, "summary": cached}
     from core.board.summarizer import summarize_session
     state_mgr = session["state_manager"]
     language = session["config"].get("language", "zh")
     summary = await summarize_session(state_mgr, language=language)
+    session["cached_summary"] = summary
     return {"success": True, "summary": summary}
+
+
+async def _delayed_session_cleanup(session_id: str, delay_seconds: float) -> None:
+    """Drop a board session from memory after a grace period.
+
+    The delay lets the frontend fetch the cached summary or reconnect briefly
+    after the WebSocket closes without hitting a 404.
+    """
+    try:
+        await asyncio.sleep(delay_seconds)
+    except asyncio.CancelledError:
+        return
+    _board_sessions.pop(session_id, None)
 
 
 @app.websocket("/ws/board/{session_id}")
@@ -3938,6 +3955,33 @@ async def board_websocket(websocket: WebSocket, session_id: str):
             except Exception as e:
                 logger.error(f"Error sending board event: {e}")
                 return
+
+        # Auto-generate summary the moment the lesson stream finishes so the
+        # client receives it without a follow-up HTTP round-trip.
+        try:
+            from core.board.summarizer import summarize_session
+            state_mgr = session["state_manager"]
+            summary_dict = await summarize_session(
+                state_mgr, language=config.get("language", "zh")
+            )
+            session["cached_summary"] = summary_dict
+            markdown = (
+                summary_dict.get("summary_markdown")
+                or summary_dict.get("fallback_summary")
+                or ""
+            )
+            if markdown:
+                try:
+                    await websocket.send_json({
+                        "event_type": "summary_ready",
+                        "timestamp": time.time(),
+                        "data": {"summary": markdown},
+                    })
+                except WebSocketDisconnect:
+                    return
+        except Exception as exc:
+            logger.warning(f"Auto-summary generation failed: {exc}")
+
         try:
             await websocket.send_json(
                 {"event_type": "done", "timestamp": time.time(), "data": {}}
@@ -3958,6 +4002,19 @@ async def board_websocket(websocket: WebSocket, session_id: str):
                     paused = True
                 elif action == "resume":
                     paused = False
+                elif action == "user_message":
+                    text = (msg.get("text") or "").strip()
+                    if text:
+                        # Echo to the client so the chat log captures the question
+                        try:
+                            await websocket.send_json({
+                                "event_type": "user_message",
+                                "timestamp": time.time(),
+                                "data": {"text": text},
+                            })
+                        except Exception as exc:
+                            logger.debug(f"Could not echo user_message: {exc}")
+                        generator.enqueue_user_message(text)
             except asyncio.TimeoutError:
                 if send_task.done():
                     break
@@ -3972,8 +4029,9 @@ async def board_websocket(websocket: WebSocket, session_id: str):
         except asyncio.CancelledError:
             pass
         session["status"] = "completed"
-        # Clean up session to prevent memory leak
-        _board_sessions.pop(session_id, None)
+        # Keep the session alive for a grace period so the client can still
+        # fetch the cached summary or reconnect briefly without a 404.
+        asyncio.create_task(_delayed_session_cleanup(session_id, 600))
 
 
 if __name__ == "__main__":

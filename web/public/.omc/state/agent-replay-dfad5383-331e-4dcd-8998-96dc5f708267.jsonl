@@ -1,0 +1,11 @@
+{"t":0,"agent":"system","event":"keyword_detected","keyword":"autopilot"}
+{"t":0,"agent":"system","event":"mode_change","mode_from":"none","mode_to":"autopilot"}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"frontend-design:frontend-design"}
+{"t":0,"agent":"a00b828","agent_type":"executor","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"aa6ccee","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"a00b828","agent_type":"executor","event":"agent_stop","success":true,"duration_ms":564885}
+{"t":0,"agent":"ad4cba5","agent_type":"code-reviewer","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"ad4cba5","agent_type":"code-reviewer","event":"agent_stop","success":true,"duration_ms":131610}
+{"t":0,"agent":"a65c6f0","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"oh-my-claudecode:cancel"}
+{"t":0,"agent":"a20d686","agent_type":"unknown","event":"agent_stop","success":true}

@@ -1,0 +1,733 @@
+{
+  "topic": "Ohm's law",
+  "language": "en",
+  "elapsed_s": 149.7,
+  "event_count": 32,
+  "tool_counts": {
+    "agent_start": 1,
+    "agent_result": 1,
+    "board_created": 1,
+    "element_added": 28,
+    "element_updated": 1
+  },
+  "element_count": 28,
+  "destructive_clear": false,
+  "step_list_present": true,
+  "events": [
+    {
+      "event_type": "agent_start",
+      "timestamp": 1776689803.467245,
+      "element_id": null,
+      "data": {
+        "agent": "researcher",
+        "task": "Provide key facts, definitions, and context for teaching Ohm's Law (V = IR) to beginner students. Include: definitions o"
+      }
+    },
+    {
+      "event_type": "agent_result",
+      "timestamp": 1776689821.8479402,
+      "element_id": null,
+      "data": {
+        "agent": "researcher",
+        "result": {
+          "facts": [
+            "Ohm's Law states that the voltage (V) across a conductor is directly proportional to the current (I) flowing through it, provided the resistance (R) remains constant (V = IR).",
+            "Voltage (V) is the electrical potential difference between two points, measured in volts (V). Current (I) is the flow of electric charge, measured in amperes (A). Resistance (R) opposes the flow of current, measured in ohms (Ω).",
+            "Georg Ohm, a German physicist, formulated Ohm's Law in 1827 after experiments with electrical circuits.",
+            "Common misconceptions include assuming Ohm's Law applies to all materials (it only applies to ohmic conductors like metals) and confusing resistance with impedance (which includes reactance in AC circuits).",
+            "Real-world applications include designing circuits, calculating power consumption (P = VI), and troubleshooting electrical devices like resistors and heaters."
+          ],
+          "key_terms": [
+            "Voltage (V)",
+            "Current (I)",
+            "Resistance (R)",
+            "Ohm's Law (V = IR)",
+            "Ohmic conductor",
+            "Ampere (A)",
+            "Volt (V)",
+            "Ohm (Ω)"
+          ],
+          "source_hints": [
+            "Introductory physics textbooks (Electricity and Magnetism chapters)",
+            "Basic electrical engineering resources",
+            "Ohm's Law experiment guides",
+            "Georg Ohm's original papers (translated)"
+          ]
+        }
+      }
+    },
+    {
+      "event_type": "board_created",
+      "timestamp": 1776689825.8561778,
+      "element_id": null,
+      "data": {
+        "board_id": "60d5abfe-b61e-4439-aacd-cc21db06e0db",
+        "title": "Ohm's Law",
+        "layout": "full_canvas",
+        "background": "dark_board",
+        "topic": "Ohm's Law"
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689832.699061,
+      "element_id": "97781777-adc9-4051-9d3f-ec52bae47f80",
+      "data": {
+        "element_type": "title",
+        "content": "Ohm's Law",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "xlarge",
+          "animation": "write"
+        },
+        "narration": "Welcome! Today we're going to learn one of the most important rules in all of electricity — Ohm's Law. It's the key to understanding how circuits work.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689835.666158,
+      "element_id": "2ddab69b-e88b-403c-aea0-99364cfa29de",
+      "data": {
+        "element_type": "text_block",
+        "content": "Have you ever wondered why a phone charger gets warm? Or why a light bulb glows brighter when you turn up the voltage? The answer lies in the relationship between three things: voltage, current, and resistance. Let's explore each one!",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Have you ever wondered why a phone charger gets warm, or why a light bulb glows brighter when you turn up the voltage? The answer lies in the relationship between three key quantities: voltage, current, and resistance.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689839.5966861,
+      "element_id": "c2ff2942-0117-476f-b780-f24452cd43fd",
+      "data": {
+        "element_type": "step_list",
+        "content": "Today's Roadmap",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "accent",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "Here's our roadmap. We'll cover five steps today: first understanding the three key quantities, then learning the equation itself, seeing examples, practicing problems, and finally discovering real-world applications.",
+        "metadata": {
+          "steps": [
+            "Understand Voltage, Current & Resistance",
+            "Learn the Ohm's Law equation",
+            "See it in action with examples",
+            "Practice solving problems",
+            "Discover real-world applications"
+          ]
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689842.086085,
+      "element_id": "3427cb7f-2867-449a-8dcb-19f4bf1afa69",
+      "data": {
+        "element_type": "title",
+        "content": "The Three Building Blocks",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Let's start with the three building blocks of any circuit. Think of these as the three characters in our story.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689846.0770402,
+      "element_id": "f9cef9ab-9a0a-468c-bde0-c62fcc7ee293",
+      "data": {
+        "element_type": "definition_box",
+        "content": "Voltage (V) — The \"push\" that moves electric charge through a circuit. Think of it like water pressure in a pipe. The higher the pressure, the harder the push. Measured in Volts (V).",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "yellow",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "First, voltage. Voltage is the push that moves electric charge through a circuit. Imagine water pressure in a pipe — the higher the pressure, the harder the push. We measure voltage in Volts.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689849.248022,
+      "element_id": "92c7bb0f-c7b2-4d4b-8bd4-1b2e67dab133",
+      "data": {
+        "element_type": "definition_box",
+        "content": "Current (I) — The actual flow of electric charge through a circuit. Like the amount of water flowing through a pipe. More flow = more current. Measured in Amperes (A).",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "green",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Next, current. Current is the actual flow of electric charge. If voltage is the water pressure, current is the amount of water flowing through the pipe. We measure it in Amperes.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689852.62701,
+      "element_id": "4853ac68-faf7-42c9-b3e1-fa285999a454",
+      "data": {
+        "element_type": "definition_box",
+        "content": "Resistance (R) — Anything that slows down or opposes the flow of current. Like a narrow section of pipe that restricts water flow. Measured in Ohms (Ω).",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "mauve",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "And finally, resistance. Resistance is anything that slows down the flow of current — like a narrow section of pipe that restricts water. We measure resistance in Ohms, symbolized by the Greek letter Omega.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689855.376725,
+      "element_id": "d1496b22-6622-4f4d-b146-b88cf229df7d",
+      "data": {
+        "element_type": "title",
+        "content": "The Ohm's Law Equation",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Now for the main event — the Ohm's Law equation itself. This simple formula connects all three building blocks together.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689858.9971368,
+      "element_id": "a97e8b92-f987-462a-bb56-5ebdab91a3e1",
+      "data": {
+        "element_type": "equation",
+        "content": "V = I \\times R",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "accent",
+          "size": "xlarge",
+          "animation": "write"
+        },
+        "narration": "Here it is: V equals I times R. Voltage equals Current times Resistance. This elegant equation was discovered by German physicist Georg Ohm in 1827. It tells us that if you know any two of these values, you can always find the third.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689862.8582668,
+      "element_id": "329b9a29-0a10-4413-b7a4-00ee5c282a92",
+      "data": {
+        "element_type": "text_block",
+        "content": "What does this mean in plain language? If you increase the voltage (push harder), more current flows. If you increase the resistance (narrow the pipe), less current flows. It's that simple!",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "What does this mean in plain language? If you increase the voltage — push harder — more current flows. If you increase the resistance — narrow the pipe — less current flows. It's that simple!",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689865.436878,
+      "element_id": "3ccc3741-4633-4ec3-a0eb-c76c37a47d8c",
+      "data": {
+        "element_type": "title",
+        "content": "Rearranging the Formula",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Since we might need to find any one of the three values, let's rearrange the formula into its two other forms.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689868.777456,
+      "element_id": "2aca33ab-e331-4c53-b00a-aaa2dc1aee71",
+      "data": {
+        "element_type": "transform",
+        "content": "V = I × R  →  I = V ÷ R",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "green",
+          "size": "large",
+          "animation": "write"
+        },
+        "narration": "If we want to find current, we rearrange to get I equals V divided by R. Divide the voltage by the resistance, and you get the current.",
+        "metadata": {
+          "from": "V = I \\times R",
+          "to": "I = \\frac{V}{R}"
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689872.7982888,
+      "element_id": "cd4177c7-adf8-4655-b984-326938f23996",
+      "data": {
+        "element_type": "transform",
+        "content": "V = I × R  →  R = V ÷ I",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "mauve",
+          "size": "large",
+          "animation": "write"
+        },
+        "narration": "And if we want to find resistance, we rearrange to get R equals V divided by I. Divide the voltage by the current, and you get the resistance.",
+        "metadata": {
+          "from": "V = I \\times R",
+          "to": "R = \\frac{V}{I}"
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689876.456841,
+      "element_id": "9b0f5145-0704-4fff-b00b-9b60199cf3a9",
+      "data": {
+        "element_type": "text_block",
+        "content": "💡 Memory Trick — The Ohm's Law Triangle: Cover the one you want to find! Cover V → I × R. Cover I → V ÷ R. Cover R → V ÷ I.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "yellow",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "Here's a handy memory trick: the Ohm's Law Triangle. Write V on top, I and R on the bottom. Cover the letter you want to find, and the remaining two show you the formula!",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689878.986777,
+      "element_id": "6468036b-05d1-40a1-a56d-8c89d8a5b5ad",
+      "data": {
+        "element_type": "title",
+        "content": "Let's See It in Action!",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Alright, let's put Ohm's Law to work with some real examples!",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689883.217052,
+      "element_id": "473dab50-a3fc-4cdd-8156-8917cf09cb1d",
+      "data": {
+        "element_type": "definition_box",
+        "content": "Example 1: A 9V battery is connected to a 3Ω resistor. What current flows?\\n\\nI = V ÷ R = 9 ÷ 3 = 3 A\\n\\nThree amperes of current flow through the circuit!",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "green",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Example one: a 9-volt battery is connected to a 3-ohm resistor. What current flows? Using I equals V divided by R, that's 9 divided by 3, which equals 3 amperes.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689887.016727,
+      "element_id": "4f2dfef5-0c43-455a-a98e-20388f8cdb14",
+      "data": {
+        "element_type": "definition_box",
+        "content": "Example 2: A circuit carries 2A of current through a 5Ω resistor. What is the voltage?\\n\\nV = I × R = 2 × 5 = 10 V\\n\\nThe voltage across the resistor is 10 volts!",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "yellow",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Example two: a circuit carries 2 amperes of current through a 5-ohm resistor. What's the voltage? Using V equals I times R, that's 2 times 5, which equals 10 volts.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689890.797889,
+      "element_id": "33ba0208-3754-4204-955e-bae1ed7892d8",
+      "data": {
+        "element_type": "definition_box",
+        "content": "Example 3: A 12V battery causes 4A of current to flow. What is the resistance?\\n\\nR = V ÷ I = 12 ÷ 4 = 3 Ω\\n\\nThe resistance in the circuit is 3 ohms!",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "mauve",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Example three: a 12-volt battery causes 4 amperes of current to flow. What's the resistance? Using R equals V divided by I, that's 12 divided by 4, which equals 3 ohms.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689893.346921,
+      "element_id": "af2e2974-6e38-4b09-9761-a7c05b5774d9",
+      "data": {
+        "element_type": "title",
+        "content": "Visualizing the Relationship",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Let's make this visual. A graph really helps us see how voltage and current are related.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689897.788394,
+      "element_id": "673e920d-5fac-424c-923f-e09f76089f05",
+      "data": {
+        "element_type": "graph",
+        "content": "V vs I for R=2Ω (blue), R=4Ω (green), R=6Ω (red)",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "accent",
+          "size": "large",
+          "animation": "grow"
+        },
+        "narration": "Look at this graph. Each line shows Ohm's Law for a different resistance. The steeper the line, the higher the resistance. Notice they're all perfectly straight — that's because voltage and current are directly proportional.",
+        "metadata": {
+          "expressions": [
+            "2*x",
+            "4*x",
+            "6*x"
+          ],
+          "x_range": [
+            0,
+            10
+          ],
+          "y_range": [
+            0,
+            60
+          ],
+          "x_label": "Current I (A)",
+          "y_label": "Voltage V (V)"
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689900.4470851,
+      "element_id": "bf9f48e4-d102-4267-9948-bb0fbc2ac11c",
+      "data": {
+        "element_type": "title",
+        "content": "Your Turn — Practice Problems!",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Now it's your turn! Try these practice problems to test your understanding.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689906.6164749,
+      "element_id": "a2a952ac-3086-404b-8337-8b74e62b516c",
+      "data": {
+        "element_type": "step_list",
+        "content": "Practice Problems",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "accent",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Here are three practice problems. Pause and work through each one. For problem one, a 6-volt battery powers a 2-ohm resistor — find the current. For problem two, a heater draws 5 amps at 120 volts — find the resistance. And problem three, a 10-ohm resistor carries half an amp — find the voltage. The answers are shown for you to check.",
+        "metadata": {
+          "steps": [
+            "A 6V battery powers a 2Ω resistor. Find the current. (Answer: I = 3A)",
+            "A heater draws 5A at 120V. Find its resistance. (Answer: R = 24Ω)",
+            "A 10Ω resistor carries 0.5A. Find the voltage. (Answer: V = 5V)"
+          ]
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689909.256788,
+      "element_id": "d2f24c23-3076-403c-af93-dbd72029faea",
+      "data": {
+        "element_type": "title",
+        "content": "Real-World Applications",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "So where do we actually use Ohm's Law in the real world? It's everywhere!",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689914.932682,
+      "element_id": "eb65a0e4-3d29-4be4-a9f1-9b797ccae8c5",
+      "data": {
+        "element_type": "table",
+        "content": "Real-World Uses of Ohm's Law",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "This table shows five real-world applications. Engineers use Ohm's Law to design circuits, choose resistors for LEDs, calculate heater power, troubleshoot problems, and ensure phone chargers work safely. It's truly the backbone of electrical engineering.",
+        "metadata": {
+          "headers": [
+            "Application",
+            "How Ohm's Law Helps"
+          ],
+          "rows": [
+            [
+              "Designing circuits",
+              "Choose the right resistor to limit current to safe levels"
+            ],
+            [
+              "LED brightness",
+              "Calculate the resistor needed so the LED doesn't burn out"
+            ],
+            [
+              "Electric heaters",
+              "Determine power output using P = V × I = I²R"
+            ],
+            [
+              "Troubleshooting",
+              "If current is too low, check if resistance is too high"
+            ],
+            [
+              "Phone chargers",
+              "Ensure correct voltage and current for safe charging"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689917.6783738,
+      "element_id": "8a5a826d-62e3-470f-a068-ef54edade365",
+      "data": {
+        "element_type": "title",
+        "content": "Important Limitation",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Before we wrap up, there's one important thing to know — Ohm's Law doesn't apply to everything.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689923.169827,
+      "element_id": "49dd6728-2e4e-4688-bb35-2c19a40f89ff",
+      "data": {
+        "element_type": "theorem_box",
+        "content": "Ohm's Law only applies to ohmic conductors — materials where resistance stays constant regardless of voltage. Many common devices (like light bulb filaments, diodes, and semiconductors) are non-ohmic: their resistance changes with temperature or voltage. Always check before applying V = IR!",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "red",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Ohm's Law only works for ohmic conductors — materials where resistance stays constant. Light bulb filaments, diodes, and semiconductors are non-ohmic because their resistance changes with temperature or voltage. Always check before applying the law!",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_updated",
+      "timestamp": 1776689925.657123,
+      "element_id": "a97e8b92-f987-462a-bb56-5ebdab91a3e1",
+      "data": {
+        "action": "highlight",
+        "new_content": null,
+        "narration": "Let's highlight our core equation one more time — this is the one to remember!"
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689928.251016,
+      "element_id": "336928bf-f546-4551-8ea5-738f3347e408",
+      "data": {
+        "element_type": "title",
+        "content": "Lesson Recap",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Let's bring it all together with a quick recap of everything we've learned.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776689935.406688,
+      "element_id": "a4332e54-b69b-49f4-8ef1-504d5bc09aac",
+      "data": {
+        "element_type": "text_block",
+        "content": "📌 Key Takeaways:\n\n1. Voltage (V) is the push — measured in Volts\n2. Current (I) is the flow — measured in Amperes\n3. Resistance (R) opposes the flow — measured in Ohms (Ω)\n\n4. Ohm's Law: V = I × R\n   → Find current: I = V ÷ R\n   → Find resistance: R = V ÷ I\n\n5. The V-I graph is a straight line for ohmic conductors — steeper slope means higher resistance\n\n6. Ohm's Law only works for ohmic conductors (constant resistance). Diodes and semiconductors are non-ohmic!\n\nUse the triangle trick: cover the letter you want, and the remaining two show you the formula. Master this, and you've unlocked the foundation of circuit analysis!",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "accent",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Here are your key takeaways. Voltage is the push, current is the flow, resistance opposes the flow. Ohm's Law is V equals I times R, and you can rearrange it to find any unknown. The V-I graph is a straight line for ohmic materials, and remember — Ohm's Law only works when resistance is constant. Master this, and you've unlocked the foundation of circuit analysis!",
+        "metadata": {}
+      }
+    }
+  ]
+}
