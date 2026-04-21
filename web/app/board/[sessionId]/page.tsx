@@ -12,14 +12,24 @@ import SubtitleOverlay from '../../components/board/SubtitleOverlay'
 import VoiceInput from '../../components/board/VoiceInput'
 import AgentActivityBar from '../../components/board/AgentActivityBar'
 import SummaryPanel from '../../components/board/SummaryPanel'
+import ClerkAuthGate from '../../components/ClerkAuthGate'
 
 export default function BoardSessionPage() {
+  return (
+    <ClerkAuthGate>
+      <BoardSessionInner />
+    </ClerkAuthGate>
+  )
+}
+
+function BoardSessionInner() {
   const params = useParams<{ sessionId: string }>()
   const sessionId = params?.sessionId as string
   const { getToken, isLoaded, isSignedIn } = useAuth()
   const { language } = useLanguage()
 
   const [token, setToken] = useState<string | null>(null)
+  const [tokenError, setTokenError] = useState<string | null>(null)
   const [paused, setPaused] = useState(false)
   const [muted, setMuted] = useState(false)
   const [summaryOpen, setSummaryOpen] = useState(false)
@@ -32,16 +42,42 @@ export default function BoardSessionPage() {
 
   useEffect(() => {
     let cancelled = false
-    async function fetchToken() {
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    async function tryFetch(attempt: number) {
+      if (cancelled) return
       if (!isLoaded || !isSignedIn) return
-      const t = await getToken()
-      if (!cancelled) setToken(t)
+      try {
+        const t = await getToken()
+        if (cancelled) return
+        if (t) {
+          setToken(t)
+          setTokenError(null)
+          return
+        }
+        // Clerk can return null briefly right after sign-in; retry with backoff.
+        if (attempt < 5) {
+          const delay = Math.min(2000, 200 * Math.pow(2, attempt))
+          timer = setTimeout(() => { void tryFetch(attempt + 1) }, delay)
+        } else {
+          setTokenError(
+            language === 'zh'
+              ? '未能获取登录凭证，请刷新页面重试。'
+              : 'Could not obtain an auth token — please refresh the page.',
+          )
+        }
+      } catch (err) {
+        if (cancelled) return
+        setTokenError(err instanceof Error ? err.message : 'auth token failed')
+      }
     }
-    void fetchToken()
+
+    void tryFetch(0)
     return () => {
       cancelled = true
+      if (timer) clearTimeout(timer)
     }
-  }, [isLoaded, isSignedIn, getToken])
+  }, [isLoaded, isSignedIn, getToken, language])
 
   const { state, sendAction, sendUserMessage } = useBoardWebSocket({
     sessionId,
@@ -118,6 +154,40 @@ export default function BoardSessionPage() {
   }, [])
 
   const lessonDone = state.status === 'done'
+
+  if (!token) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-slate-200 gap-3 px-6">
+        {tokenError ? (
+          <>
+            <p className="text-sm text-rose-300">{tokenError}</p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
+            >
+              {language === 'zh' ? '刷新重试' : 'Refresh'}
+            </button>
+          </>
+        ) : (
+          <>
+            <div
+              className="h-8 w-8 rounded-full border-2 border-slate-700 border-t-sky-400 animate-spin"
+              aria-hidden
+            />
+            <p className="text-sm text-slate-300">
+              {language === 'zh' ? '正在连接课堂…' : 'Connecting to your lesson…'}
+            </p>
+            <p className="text-xs text-slate-500">
+              {language === 'zh'
+                ? '等待登录凭证完成初始化，稍候几秒即可。'
+                : 'Waiting for Clerk to finish issuing your session token — this only takes a moment.'}
+            </p>
+          </>
+        )}
+      </div>
+    )
+  }
 
   // Keep the chat log pinned to the newest message when it grows.
   useEffect(() => {
