@@ -155,6 +155,14 @@ function BoardSessionInner() {
 
   const lessonDone = state.status === 'done'
 
+  // Keep the chat log pinned to the newest message when it grows.
+  // Must run on every render (above any conditional return) to satisfy rules of hooks.
+  useEffect(() => {
+    const el = chatScrollRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [state.chatHistory.length])
+
   if (!token) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-slate-200 gap-3 px-6">
@@ -188,13 +196,6 @@ function BoardSessionInner() {
       </div>
     )
   }
-
-  // Keep the chat log pinned to the newest message when it grows.
-  useEffect(() => {
-    const el = chatScrollRef.current
-    if (!el) return
-    el.scrollTop = el.scrollHeight
-  }, [state.chatHistory.length])
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
