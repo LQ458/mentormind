@@ -97,6 +97,8 @@ interface LessonDesignSettings {
   enableOralDefense: boolean
   addDeliberateError: boolean
   personalAnchor: string
+  // F3 narration verbosity — "compact" | "standard" | "thorough"
+  verbosity: 'compact' | 'standard' | 'thorough'
 }
 
 interface LessonDesignOption {
@@ -175,6 +177,7 @@ export default function CreateLessonPage() {
     enableOralDefense: false,
     addDeliberateError: false,
     personalAnchor: '',
+    verbosity: 'standard',
   })
 
   // Audio/Image upload state
@@ -832,6 +835,7 @@ export default function CreateLessonPage() {
           voice_id: preferredVoice,
           custom_requirements: thinkingProcess || buildGenerationRequirements(rawTopic),
           syllabus: proposedSyllabus, // Pass the locked syllabus
+          verbosity: lessonDesign.verbosity, // F3 narration verbosity
         }),
       })
 
