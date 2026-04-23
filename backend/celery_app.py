@@ -736,20 +736,79 @@ def regenerate_board_segment_task(self, session_id: str, segment_index: int, sty
     F2/F4 — regenerate a board segment with a different style hint.
 
     style_hint ∈ {"visual", "analogy", "rigorous", "simpler"}.
-    Debounce + body wiring land in T13/T10.
+
+    Debounce (T13):
+      Redis SETNX with a 15s TTL and an owner-token. TTL is the crash-safety
+      fallback; the `finally` block is the primary release. Owner-token prevents
+      a requeued task from deleting a lock held by a fresh concurrent call.
+
+    NOTE: the actual segment-regeneration body requires integration with
+    StreamingLessonGenerator and is intentionally deferred — this task wires
+    the queue + lock so the endpoint and UI can ship; follow-up PR plugs the
+    streaming body into the `# TODO(F4-regen)` marker below.
     """
-    return {
-        "status": "stub",
-        "session_id": session_id,
-        "segment_index": segment_index,
-        "style_hint": style_hint,
-    }
+    from core.board.regen_lock import acquire_regen_lock, release_regen_lock
+    handle = acquire_regen_lock(session_id, _redis_client)
+    if not handle.acquired:
+        return {
+            "status": "debounced",
+            "session_id": session_id,
+            "segment_index": segment_index,
+            "style_hint": style_hint,
+        }
+    try:
+        # TODO(F4-regen): integrate StreamingLessonGenerator to regenerate
+        # the segment at segment_index with the chosen style_hint and emit
+        # replacement events via BoardStateManager. For now we acknowledge
+        # so the endpoint, lock semantics, and queue routing can be verified.
+        return {
+            "status": "accepted",
+            "session_id": session_id,
+            "segment_index": segment_index,
+            "style_hint": style_hint,
+        }
+    finally:
+        release_regen_lock(handle, _redis_client)
 
 
 @celery_app.task(bind=True, name="mentormind.rollup_proficiency")
-def rollup_proficiency_task(self):
+def rollup_proficiency_task(self, user_id: str = None, subject: str = None):
     """
-    F5 — nightly rollup of StudentPerformance + checkpoint responses
-    into the SubjectProficiency table. Body lands in T11.
+    F5 — Roll StudentPerformance samples into SubjectProficiency.
+
+    Two modes:
+    - Beat-triggered (no args): scans all distinct (user_id, subject) pairs
+      in StudentPerformance and rolls each up.
+    - Incremental (user_id + subject given): rolls up a single pair. Kept
+      available so the /users/me/diagnostic and checkpoint endpoints can
+      enqueue incremental refreshes in a follow-up PR.
     """
-    return {"status": "stub"}
+    from core.proficiency_rollup import rollup_user_subject
+    from database.models.user import StudentPerformance
+
+    init_database()
+    session = SessionLocal()
+    processed = 0
+    try:
+        if user_id and subject:
+            pairs = [(user_id, subject)]
+        else:
+            rows = (
+                session.query(StudentPerformance.user_id, StudentPerformance.subject)
+                .filter(StudentPerformance.subject.isnot(None))
+                .distinct()
+                .all()
+            )
+            pairs = [(r.user_id, r.subject) for r in rows]
+
+        for uid, subj in pairs:
+            try:
+                rollup_user_subject(uid, subj, session)
+                processed += 1
+            except Exception as exc:
+                print(f"[rollup] ⚠️ failed for user={uid} subject={subj}: {exc}")
+                session.rollback()
+    finally:
+        session.close()
+
+    return {"status": "ok", "processed": processed}

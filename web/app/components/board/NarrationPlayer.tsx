@@ -22,6 +22,7 @@ export default function NarrationPlayer({
   const [muted, setMuted] = useState(false)
   const [paused, setPaused] = useState(false)
   const [cursor, setCursor] = useState(0)
+  const [speed, setSpeed] = useState<number>(1)
 
   const currentTrack = cursor < audioQueue.length ? audioQueue[cursor] : null
 
@@ -50,6 +51,13 @@ export default function NarrationPlayer({
     el.muted = muted
   }, [muted])
 
+  // Keep audio playback rate in sync with the user-selected speed.
+  useEffect(() => {
+    const el = audioRef.current
+    if (!el) return
+    el.playbackRate = speed
+  }, [speed])
+
   useEffect(() => {
     const el = audioRef.current
     if (!el) return
@@ -67,6 +75,7 @@ export default function NarrationPlayer({
     if (!el) return
     el.src = resolveAudioSrc(currentTrack.audio_path)
     el.muted = muted
+    el.playbackRate = speed
     onPlaybackStart(currentTrack.element_id, currentTrack.narration_text)
     const playPromise = el.play()
     if (playPromise && typeof playPromise.catch === 'function') {
@@ -113,6 +122,24 @@ export default function NarrationPlayer({
           ? muted ? '取消静音 Unmute' : '静音 Mute'
           : muted ? 'Unmute' : 'Mute'}
       </button>
+      <label className="inline-flex items-center gap-1">
+        <span className="sr-only">
+          {language === 'zh' ? '朗读速度 Playback speed' : 'Playback speed'}
+        </span>
+        <select
+          value={speed}
+          onChange={e => setSpeed(Number(e.target.value))}
+          aria-label={language === 'zh' ? '朗读速度 Playback speed' : 'Playback speed'}
+          title={language === 'zh' ? '朗读速度 Playback speed' : 'Playback speed'}
+          className="text-xs px-2 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-500"
+        >
+          <option value={0.8}>0.8×</option>
+          <option value={1}>1×</option>
+          <option value={1.25}>1.25×</option>
+          <option value={1.5}>1.5×</option>
+          <option value={2}>2×</option>
+        </select>
+      </label>
     </div>
   )
 }

@@ -38,10 +38,10 @@ from core.modules.output import TTSSynthesizer
 from core.modules.robust_video_generation import RobustVideoGenerationPipeline
 from core.modules.video_scripting import VideoScriptGenerator
 from celery.result import AsyncResult
-from celery_app import create_class_video_task, transcript_to_lesson_task, transcribe_audio_task, celery_app
+from celery_app import create_class_video_task, transcript_to_lesson_task, transcribe_audio_task, celery_app, regenerate_board_segment_task
 from database import LessonStorageSQL, init_database
 from database import get_db
-from database.models.user import User, UserProfile, UserMediaContext
+from database.models.user import User, UserProfile, UserMediaContext, SubjectProficiency
 from auth import get_current_user, get_optional_user
 from config import config
 from core.asr import transcribe_with_local_model_result, get_asr_status, extract_text_with_paddleocr
@@ -1197,6 +1197,114 @@ def get_my_interest_profile(
             "updated_at": None,
         }
     return profile.to_dict()
+
+
+@app.get("/users/me/proficiency")
+def get_my_proficiency(
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """Return per-subject proficiency rollups for the current user (F5).
+
+    Empty list for a new user with no rolled-up data — never 500.
+    """
+    rows = (
+        db.query(SubjectProficiency)
+        .filter(SubjectProficiency.user_id == current_user.id)
+        .order_by(SubjectProficiency.subject)
+        .all()
+    )
+    return {"items": [r.to_dict() for r in rows]}
+
+
+# ── Board adaptive controls (F2 / F4) ────────────────────────────────────────
+
+class ExplainDifferentlyRequest(BaseModel):
+    session_id: str
+    segment_index: int = Field(default=0, ge=0)
+    style_hint: str = Field(default="simpler")  # visual | analogy | rigorous | simpler
+
+
+class CheckpointResponseRequest(BaseModel):
+    session_id: str
+    element_id: str
+    lesson_id: Optional[str] = None
+    response: str = Field(default="green")  # green | yellow | red
+    mcq_choice: Optional[int] = None
+    subject: Optional[str] = None
+
+
+_ALLOWED_STYLE_HINTS = {"visual", "analogy", "rigorous", "simpler"}
+_ALLOWED_CHECKPOINT_RESPONSES = {"green", "yellow", "red"}
+
+
+@app.post("/board/explain-differently")
+def explain_differently(
+    req: ExplainDifferentlyRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """F4 — re-request the current board segment with a different style hint.
+
+    Dispatches the regeneration to Celery (orchestration queue). Debounce lock
+    in the task prevents queueing multiple regens for the same session.
+    """
+    if req.style_hint not in _ALLOWED_STYLE_HINTS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"style_hint must be one of {sorted(_ALLOWED_STYLE_HINTS)}",
+        )
+    async_result = regenerate_board_segment_task.delay(
+        session_id=req.session_id,
+        segment_index=req.segment_index,
+        style_hint=req.style_hint,
+    )
+    return {
+        "success": True,
+        "task_id": async_result.id,
+        "session_id": req.session_id,
+        "style_hint": req.style_hint,
+    }
+
+
+@app.post("/board/checkpoint-response")
+def submit_checkpoint_response(
+    req: CheckpointResponseRequest,
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """F2 — persist a learner's response to a mid-lesson comprehension checkpoint.
+
+    Writes a StudentPerformance row with assessment_type='comprehension_check'.
+    subject (optional, from the lesson metadata) enables per-subject rollup.
+    """
+    if req.response not in _ALLOWED_CHECKPOINT_RESPONSES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"response must be one of {sorted(_ALLOWED_CHECKPOINT_RESPONSES)}",
+        )
+    if not req.element_id:
+        raise HTTPException(status_code=422, detail="element_id is required")
+
+    from database.models.user import StudentPerformance
+
+    score_map = {"green": 1.0, "yellow": 0.5, "red": 0.0}
+    row = StudentPerformance(
+        user_id=current_user.id,
+        lesson_id=req.lesson_id,
+        assessment_type="comprehension_check",
+        score=score_map[req.response],
+        confidence=score_map[req.response],
+        subject=req.subject,
+        performance_metadata={
+            "session_id": req.session_id,
+            "element_id": req.element_id,
+            "mcq_choice": req.mcq_choice,
+            "response": req.response,
+        },
+    )
+    db.add(row)
+    db.commit()
+    return {"success": True, "response": req.response}
 
 
 @app.put("/users/me/profile")
@@ -2367,12 +2475,31 @@ async def run_diagnostic_turn(
                 level = "advanced"
                 challenges = f"Shows strong conceptual understanding of {req.topic}"
             elif bayesian_conf >= 0.5 and consistency >= 0.5:
-                level = "intermediate" 
+                level = "intermediate"
                 challenges = f"Demonstrates partial mastery of {req.topic}"
             else:
                 level = "beginner"
                 challenges = f"Needs foundational development in {req.topic}"
-                
+
+            # F1/T8 — persist proficiency level + mark diagnostic complete
+            try:
+                profile = _get_or_create_user_profile(db, str(current_user.id))
+                profile.proficiency_level = level
+                profile.diagnostic_completed = True
+                profile.diagnostic_results = {
+                    "inferred_level": level,
+                    "challenges": challenges,
+                    "turns_used": req.turn,
+                    "bayesian_confidence": bayesian_conf,
+                    "source": "rigorous",
+                }
+                profile.onboarding_completed = True
+                db.add(profile)
+                db.commit()
+            except Exception as exc:
+                logger.warning("Failed to persist diagnostic completion (rigorous): %s", exc)
+                db.rollback()
+
             return {
                 "success": True,
                 "question": f"Great! I can see you're at a {level} level. Let me generate your personalized lesson now!",
@@ -2431,6 +2558,16 @@ async def run_diagnostic_turn(
                 profile.current_challenges = update["current_challenges"]
             if update.get("grade_level"):
                 profile.grade_level = update["grade_level"]
+            # F1/T8 — persist proficiency level + diagnostic results
+            if parsed.get("inferred_level"):
+                profile.proficiency_level = parsed["inferred_level"]
+            profile.diagnostic_completed = True
+            profile.diagnostic_results = {
+                "inferred_level": parsed.get("inferred_level"),
+                "inferred_profile_update": update,
+                "turns_used": req.turn,
+                "source": "llm",
+            }
             # Mark onboarding completed
             profile.onboarding_completed = True
             db.add(profile)
