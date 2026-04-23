@@ -14,7 +14,8 @@ interface SummaryPanelProps {
 
 // Very small markdown: headings, bold/italic, bullets.
 function renderMarkdown(md: string): React.ReactNode {
-  const lines = md.split('\n')
+  // Normalize escaped newlines from LLM JSON payloads.
+  const lines = md.replace(/\\r\\n|\\n/g, '\n').replace(/\r\n/g, '\n').split('\n')
   const out: React.ReactNode[] = []
   let listBuffer: string[] = []
   const flushList = (key: string) => {
@@ -52,8 +53,9 @@ function renderMarkdown(md: string): React.ReactNode {
 }
 
 function renderInline(text: string): React.ReactNode[] {
+  // Require non-word boundaries around *italic* so math like `3*2` isn't eaten.
   const tokens: React.ReactNode[] = []
-  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*)/g
+  const regex = /(\*\*[^*]+\*\*|(?:^|(?<=\s|[^\w]))\*[^*\s][^*]*?[^*\s]?\*(?=\s|$|[^\w]))/g
   let last = 0
   let match: RegExpExecArray | null
   let i = 0

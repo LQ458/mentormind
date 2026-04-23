@@ -275,7 +275,7 @@ export interface ChatMessage {
 
 // ── Reducer state ────────────────────────────────────────────────────────────
 
-export type BoardStatus = 'idle' | 'connecting' | 'streaming' | 'done' | 'error'
+export type BoardStatus = 'idle' | 'connecting' | 'open' | 'streaming' | 'done' | 'error'
 
 export interface BoardWSState {
   board: BoardState | null
@@ -657,6 +657,10 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
 
     ws.onopen = () => {
       attemptsRef.current = 0
+      // Reset status from `connecting` so the UI isn't stuck there while
+      // we wait for the first `board_created` event. The reducer will
+      // promote this to `streaming` when real events start arriving.
+      dispatch({ type: 'SET_STATUS', status: 'open' })
     }
 
     ws.onmessage = (msg) => {

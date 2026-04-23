@@ -23,14 +23,27 @@ export default function HomePage() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch('/api/backend')
+        const res = await fetch('/api/backend/status')
         if (!res.ok) throw new Error('backend down')
         const data = await res.json()
+        // Services can be either a string (e.g. "online", "configured") or an
+        // object ({ status: "online", latency_ms: 42 }). Normalize both shapes.
+        const svcStatus = (v: unknown): string => {
+          if (typeof v === 'string') return v
+          if (v && typeof v === 'object' && 'status' in v) {
+            return String((v as { status?: unknown }).status ?? '')
+          }
+          return ''
+        }
+        const funasr = svcStatus(data.services?.funasr)
+        const paddle = svcStatus(data.services?.paddle_ocr)
+        const deepseek = svcStatus(data.services?.deepseek)
+        const aiLessons = svcStatus(data.services?.ai_lessons)
         setServices({
           backendOnline: data.status === 'running' || data.status === 'online',
-          aiConnected: data.services?.deepseek === 'configured' || data.services?.ai_lessons === 'active',
-          funasrStatus: data.services?.funasr === 'online' ? 'online' : 'offline',
-          paddleOcrStatus: data.services?.paddle_ocr === 'online' ? 'online' : 'offline',
+          aiConnected: deepseek === 'configured' || aiLessons === 'active',
+          funasrStatus: funasr === 'online' ? 'online' : 'offline',
+          paddleOcrStatus: paddle === 'online' ? 'online' : 'offline',
         })
       } catch {
         setServices({

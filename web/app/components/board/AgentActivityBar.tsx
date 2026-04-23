@@ -32,17 +32,35 @@ export default function AgentActivityBar({ activity }: AgentActivityBarProps) {
           const key = `${ev.agent}-${ev.timestamp}-${idx}`
           const label = AGENT_LABEL[ev.agent] || ev.agent
           const icon = AGENT_ICON[ev.agent] || '•'
-          const toStr = (v: unknown): string => {
-            if (typeof v === 'string') return v
+          const humanize = (v: unknown): string => {
             if (v == null) return ''
-            try { return JSON.stringify(v) } catch { return String(v) }
+            if (typeof v === 'string') return v
+            if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+            if (typeof v === 'object') {
+              const obj = v as Record<string, unknown>
+              if (Array.isArray(obj.facts) && obj.facts.length > 0) {
+                return `${String(obj.facts[0])}${obj.facts.length > 1 ? ` (+${obj.facts.length - 1} more)` : ''}`
+              }
+              if (typeof obj.summary === 'string') return obj.summary
+              if (typeof obj.text === 'string') return obj.text
+              if (typeof obj.message === 'string') return obj.message
+              if (typeof obj.language === 'string' && typeof obj.code === 'string') {
+                const lines = obj.code.split('\n').length
+                return `generated ${String(obj.language)} code · ${lines} line${lines === 1 ? '' : 's'}`
+              }
+              if (typeof obj.code === 'string') return `code: ${obj.code.split('\n')[0] || ''}`
+              if (typeof obj.critique === 'string') return obj.critique
+              try { return JSON.stringify(obj) } catch { return String(obj) }
+            }
+            return String(v)
           }
-          const text =
+          const raw =
             ev.kind === 'start'
-              ? toStr(ev.task) || '…'
+              ? humanize(ev.task) || '…'
               : ev.kind === 'error'
-                ? (toStr(ev.error) || 'failed').slice(0, 80)
-                : toStr(ev.result).slice(0, 80)
+                ? (humanize(ev.error) || 'failed')
+                : humanize(ev.result)
+          const text = raw.length > 80 ? `${raw.slice(0, 77)}…` : raw
           const palette =
             ev.kind === 'start'
               ? 'border-sky-400/60 bg-sky-500/20 text-sky-100'

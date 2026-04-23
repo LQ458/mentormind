@@ -209,25 +209,37 @@ function BoardSessionInner() {
         </div>
         <div className="flex items-center gap-2">
           <span className={`text-xs px-2 py-0.5 rounded-full border ${
+            paused ? 'border-amber-400/60 text-amber-200 bg-amber-500/10' :
             state.status === 'streaming' ? 'border-emerald-400/60 text-emerald-200 bg-emerald-500/10' :
             state.status === 'done' ? 'border-sky-400/60 text-sky-200 bg-sky-500/10' :
             state.status === 'error' ? 'border-rose-400/60 text-rose-200 bg-rose-500/10' :
+            state.status === 'open' ? 'border-sky-400/60 text-sky-200 bg-sky-500/10' :
             'border-slate-500/60 text-slate-300 bg-slate-700/30'
           }`}>
-            {state.status}
+            {paused
+              ? (language === 'zh' ? '已暂停' : 'paused')
+              : state.status === 'connecting' ? (language === 'zh' ? '连接中…' : 'connecting…')
+              : state.status === 'open' ? (language === 'zh' ? '等待开讲…' : 'waiting for lesson…')
+              : state.status === 'streaming' ? (language === 'zh' ? '讲课中' : 'streaming')
+              : state.status === 'done' ? (language === 'zh' ? '已结束' : 'done')
+              : state.status === 'error' ? (language === 'zh' ? '出错了' : 'error')
+              : state.status}
           </span>
           <button
             type="button"
             onClick={handlePauseToggle}
             className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
           >
-            {paused ? (language === 'zh' ? '继续 Resume' : 'Resume') : (language === 'zh' ? '暂停 Pause' : 'Pause')}
+            {paused
+              ? (language === 'zh' ? '继续讲课 Resume lesson' : 'Resume lesson')
+              : (language === 'zh' ? '暂停讲课 Pause lesson' : 'Pause lesson')}
           </button>
           <NarrationPlayer
             audioQueue={state.audioQueue}
             onPlaybackStart={onPlaybackStart}
             onPlaybackEnd={onPlaybackEnd}
             enabled={!paused}
+            language={language}
           />
           <button
             type="button"

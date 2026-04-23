@@ -5,9 +5,11 @@ import type { ElementProps } from './types'
 import { colorClass, sizeClass } from './types'
 
 function renderInline(text: string): React.ReactNode[] {
-  // Very small markdown: **bold** and *italic*
+  // Very small markdown: **bold** and *italic*.
+  // Italic pattern requires non-word chars (or string edge) around the *...* pair
+  // so math like `3*2` is not mis-rendered as italic.
   const tokens: React.ReactNode[] = []
-  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*)/g
+  const regex = /(\*\*[^*]+\*\*|(?:^|(?<=\s|[^\w]))\*[^*\s][^*]*?[^*\s]?\*(?=\s|$|[^\w]))/g
   let last = 0
   let match: RegExpExecArray | null
   let i = 0
@@ -25,10 +27,17 @@ function renderInline(text: string): React.ReactNode[] {
   return tokens
 }
 
+// Some LLM responses arrive with literal `\n` escape sequences (2 chars:
+// backslash + n) instead of real newlines. Normalize both, plus `\r\n`, so
+// split('\n') reliably produces one paragraph per intended line.
+function normalizeNewlines(s: string): string {
+  return s.replace(/\\r\\n|\\n/g, '\n').replace(/\r\n/g, '\n')
+}
+
 export default function TextBlock({ element }: ElementProps) {
   const cc = colorClass(element.style.color || 'text')
   const sc = sizeClass(element.style.size || 'medium')
-  const lines = element.content.split('\n')
+  const lines = normalizeNewlines(element.content).split('\n')
   return (
     <div className={`leading-relaxed ${cc} ${sc}`}>
       {lines.map((line, idx) => (

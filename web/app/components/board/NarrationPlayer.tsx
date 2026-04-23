@@ -8,6 +8,7 @@ interface NarrationPlayerProps {
   onPlaybackStart: (elementId: string | null, text: string) => void
   onPlaybackEnd: (elementId: string | null) => void
   enabled: boolean
+  language?: 'en' | 'zh'
 }
 
 export default function NarrationPlayer({
@@ -15,6 +16,7 @@ export default function NarrationPlayer({
   onPlaybackStart,
   onPlaybackEnd,
   enabled,
+  language = 'en',
 }: NarrationPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [muted, setMuted] = useState(false)
@@ -94,8 +96,12 @@ export default function NarrationPlayer({
         onClick={() => setPaused(p => !p)}
         className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700"
         aria-pressed={paused}
+        aria-label={paused ? 'Resume audio narration' : 'Pause audio narration'}
+        title={paused ? 'Resume audio narration' : 'Pause audio narration'}
       >
-        {paused ? 'Resume' : 'Pause'}
+        {language === 'zh'
+          ? paused ? '继续朗读 Resume audio' : '暂停朗读 Pause audio'
+          : paused ? 'Resume audio' : 'Pause audio'}
       </button>
       <button
         type="button"
@@ -103,7 +109,9 @@ export default function NarrationPlayer({
         className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700"
         aria-pressed={muted}
       >
-        {muted ? 'Unmute' : 'Mute'}
+        {language === 'zh'
+          ? muted ? '取消静音 Unmute' : '静音 Mute'
+          : muted ? 'Unmute' : 'Mute'}
       </button>
     </div>
   )
