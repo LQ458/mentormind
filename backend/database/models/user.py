@@ -232,6 +232,11 @@ class UserProfile(Base):
     weekly_study_hours = Column(String(50))
     onboarding_completed = Column(Boolean, default=False, nullable=False)
 
+    # Skill-adaptive learning (set by post-onboarding diagnostic)
+    proficiency_level = Column(String(20), nullable=True)  # beginner | intermediate | advanced
+    diagnostic_completed = Column(Boolean, default=False, nullable=False)
+    diagnostic_results = Column(JSON, default=dict)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -253,6 +258,9 @@ class UserProfile(Base):
             "preferred_learning_style": self.preferred_learning_style,
             "weekly_study_hours": self.weekly_study_hours,
             "onboarding_completed": self.onboarding_completed,
+            "proficiency_level": self.proficiency_level,
+            "diagnostic_completed": self.diagnostic_completed,
+            "diagnostic_results": self.diagnostic_results or {},
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -294,6 +302,8 @@ class StudentPerformance(Base):
     struggles = Column(JSON, default=list)
     reflection = Column(Text)
     performance_metadata = Column(JSON, default=dict)
+    # Subject grouping for per-subject proficiency rollup (F5)
+    subject = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="performance_records")
@@ -304,6 +314,7 @@ class StudentPerformance(Base):
         Index('idx_student_performance_lesson_id', 'lesson_id'),
         Index('idx_student_performance_assessment_type', 'assessment_type'),
         Index('idx_student_performance_created_at', 'created_at'),
+        Index('idx_student_performance_subject', 'subject'),
     )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -318,8 +329,46 @@ class StudentPerformance(Base):
             "struggles": self.struggles or [],
             "reflection": self.reflection,
             "metadata": self.performance_metadata or {},
+            "subject": self.subject,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class SubjectProficiency(Base):
+    """
+    Rolled-up per-subject proficiency for a user.
+
+    Populated by the `mentormind.rollup_proficiency` Celery task from
+    StudentPerformance + checkpoint responses (F5).
+    """
+    __tablename__ = "subject_proficiency"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    subject = Column(String(100), nullable=False)
+    proficiency_0_to_1 = Column(Float, nullable=False, default=0.5)
+    sample_size = Column(Integer, nullable=False, default=0)
+    last_updated = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    trend = Column(String(20), nullable=False, default="stable")  # improving | stable | declining
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'subject', name='uq_subject_proficiency_user_subject'),
+        Index('idx_subject_proficiency_user_subject', 'user_id', 'subject'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": str(self.user_id),
+            "subject": self.subject,
+            "proficiency_0_to_1": self.proficiency_0_to_1,
+            "sample_size": self.sample_size,
+            "trend": self.trend,
+            "last_updated": self.last_updated.isoformat() if self.last_updated else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"<SubjectProficiency(user_id={self.user_id}, subject={self.subject}, proficiency={self.proficiency_0_to_1:.2f}, trend={self.trend})>"
 
 
 class MemoryReview(Base):

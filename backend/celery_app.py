@@ -79,8 +79,19 @@ celery_app.conf.update(
         "mentormind.transcribe_audio": {"queue": "heavy_ml"},
         "mentormind.ocr_image": {"queue": "heavy_ml"},
         "mentormind.generate_unit_content": {"queue": "orchestration"},
+        "mentormind.regenerate_board_segment": {"queue": "orchestration"},
+        "mentormind.rollup_proficiency": {"queue": "orchestration"},
     },
 )
+
+# --- Celery beat schedule (skill-adaptive F5 nightly proficiency rollup) ---
+from datetime import timedelta as _timedelta
+celery_app.conf.beat_schedule = {
+    "rollup_proficiency_daily": {
+        "task": "mentormind.rollup_proficiency",
+        "schedule": _timedelta(hours=24),
+    },
+}
 
 
 @celery_app.task(bind=True, name="mentormind.sync_proactive_notifications")
@@ -715,3 +726,30 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
             print(f"[unit:{unit_id}] ⚠️ DB update attempt {attempt+1} failed: {e}")
             if attempt == 1:
                 print(f"[unit:{unit_id}] ❌ Could not update DB after 2 attempts")
+
+
+# --- Skill-adaptive learning task stubs (bodies filled in T10/T11) ---
+
+@celery_app.task(bind=True, name="mentormind.regenerate_board_segment", soft_time_limit=60)
+def regenerate_board_segment_task(self, session_id: str, segment_index: int, style_hint: str):
+    """
+    F2/F4 — regenerate a board segment with a different style hint.
+
+    style_hint ∈ {"visual", "analogy", "rigorous", "simpler"}.
+    Debounce + body wiring land in T13/T10.
+    """
+    return {
+        "status": "stub",
+        "session_id": session_id,
+        "segment_index": segment_index,
+        "style_hint": style_hint,
+    }
+
+
+@celery_app.task(bind=True, name="mentormind.rollup_proficiency")
+def rollup_proficiency_task(self):
+    """
+    F5 — nightly rollup of StudentPerformance + checkpoint responses
+    into the SubjectProficiency table. Body lands in T11.
+    """
+    return {"status": "stub"}

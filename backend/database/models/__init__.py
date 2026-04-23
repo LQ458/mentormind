@@ -18,7 +18,7 @@ from .enums import (
     PlanStatus,
 )
 
-from .user import User
+from .user import User, SubjectProficiency
 from .lesson import Lesson, LessonObjective, LessonResource, LessonExercise
 from .analytics import AnalyticsEventType
 from .study_plan import StudyPlan, StudyPlanUnit, GaokaoSession
@@ -39,6 +39,7 @@ __all__ = [
     "PlanStatus",
     # User models
     "User",
+    "SubjectProficiency",
     # Lesson models
     "Lesson",
     "LessonObjective",

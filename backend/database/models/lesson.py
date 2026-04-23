@@ -63,6 +63,8 @@ class Lesson(Base):
     student_level = Column(String(20), nullable=False, default=StudentLevel.BEGINNER.value)
     difficulty_level = Column(String(20), default=DifficultyLevel.MEDIUM.value)
     duration_minutes = Column(Integer, nullable=False, default=30)
+    # Narration verbosity: compact | standard | thorough (set by F3 lesson mode presets)
+    verbosity = Column(String(20), default="standard", nullable=True)
     
     # Quality and cost metrics
     quality_score = Column(Float, default=0.0)  # 0.0 to 1.0

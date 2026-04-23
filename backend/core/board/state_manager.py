@@ -61,6 +61,22 @@ class BoardStateManager:
         if len(self._state.narration_queue) > MAX_NARRATION_QUEUE:
             self._state.narration_queue = self._state.narration_queue[-MAX_NARRATION_QUEUE:]
 
+    def emit_comprehension_check(
+        self,
+        element_id: Optional[str] = None,
+        question: Optional[str] = None,
+        options: Optional[List[str]] = None,
+        segment_summary: Optional[str] = None,
+    ) -> BoardEvent:
+        return self._emit(
+            "comprehension_check",
+            element_id=element_id,
+            question=question,
+            options=options or [],
+            segment_summary=segment_summary,
+            allow_emoji=True,
+        )
+
     def create_board(
         self,
         title: str,

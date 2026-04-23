@@ -108,6 +108,40 @@ def migrate():
                 print(f"⚠️ Could not restore constraint {constraint}: {e}")
                 conn.rollback()
 
+        # --- Skill-adaptive learning schema additions (idempotent) ---
+        print("📝 Applying skill-adaptive learning schema additions...")
+        skill_adaptive_ddl = [
+            # F1 — UserProfile diagnostic fields
+            "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS proficiency_level VARCHAR(20)",
+            "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS diagnostic_completed BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS diagnostic_results JSONB DEFAULT '{}'::jsonb",
+            # F5 — subject column for per-subject rollup grouping
+            "ALTER TABLE student_performance ADD COLUMN IF NOT EXISTS subject VARCHAR(100)",
+            "CREATE INDEX IF NOT EXISTS idx_student_performance_subject ON student_performance(subject)",
+            # F3 — narration verbosity on lessons
+            "ALTER TABLE lessons ADD COLUMN IF NOT EXISTS verbosity VARCHAR(20) DEFAULT 'standard'",
+            # F5 — SubjectProficiency table
+            """CREATE TABLE IF NOT EXISTS subject_proficiency (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                subject VARCHAR(100) NOT NULL,
+                proficiency_0_to_1 FLOAT NOT NULL DEFAULT 0.5,
+                sample_size INTEGER NOT NULL DEFAULT 0,
+                last_updated TIMESTAMPTZ DEFAULT NOW(),
+                trend VARCHAR(20) NOT NULL DEFAULT 'stable',
+                CONSTRAINT uq_subject_proficiency_user_subject UNIQUE (user_id, subject)
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_subject_proficiency_user_subject ON subject_proficiency(user_id, subject)",
+        ]
+        for stmt in skill_adaptive_ddl:
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+            except Exception as e:
+                print(f"⚠️ Skill-adaptive DDL failed ({stmt[:60]}…): {e}")
+                conn.rollback()
+        print("✅ Skill-adaptive schema additions applied.")
+
     print("🏁 Migration completed.")
 
 if __name__ == "__main__":
