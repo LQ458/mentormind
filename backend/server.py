@@ -3330,6 +3330,7 @@ async def generate_unit_content(
 async def create_unit_board_lesson(
     plan_id: str,
     unit_id: str,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -3370,6 +3371,17 @@ async def create_unit_board_lesson(
         if plan.framework:
             custom_requirements += f"\nExam framework: {plan.framework}"
 
+        # Optional body: { "language": "en" | "zh" }
+        body = {}
+        try:
+            body = await request.json()
+            if not isinstance(body, dict):
+                body = {}
+        except Exception:
+            body = {}
+        req_lang = body.get("language")
+        lang = req_lang if req_lang in ("en", "zh") else (plan.language or "zh")
+
         session_id = str(_uuid.uuid4())
         from core.board.state_manager import BoardStateManager
         from mcp.board_server import BoardMCPServer
@@ -3381,7 +3393,7 @@ async def create_unit_board_lesson(
             "board_server": board_server,
             "config": {
                 "topic": topic,
-                "language": plan.language or "zh",
+                "language": lang,
                 "student_level": plan.difficulty_level or "intermediate",
                 "duration_minutes": max(5, (unit.estimated_minutes or 60) // 3),
                 "custom_requirements": custom_requirements,

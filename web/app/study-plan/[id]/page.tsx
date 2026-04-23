@@ -7,6 +7,7 @@ import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { HighlightAskAI, ScreenshotAskAI } from './AskAI'
 import MediaContextTab from './MediaContext'
+import { useLanguage } from '../../components/LanguageContext'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1368,6 +1369,7 @@ export default function StudyPlanPage() {
   }, [selectedUnitId, planId, authHeaders, selectedContentTypes, startPolling])
 
   // ── Start AI board lesson ─────────────────────────────────────────────────
+  const { language: uiLanguage } = useLanguage()
   const [startingBoard, setStartingBoard] = useState(false)
   const [boardError, setBoardError] = useState<string | null>(null)
   const handleStartBoardLesson = useCallback(async (unitId: string) => {
@@ -1378,7 +1380,7 @@ export default function StudyPlanPage() {
       const headers = await authHeaders()
       const res = await fetch(
         `/api/backend/study-plan/${planId}/unit/${unitId}/board-lesson`,
-        { method: 'POST', headers, body: JSON.stringify({}) },
+        { method: 'POST', headers, body: JSON.stringify({ language: uiLanguage }) },
       )
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}))
@@ -1397,7 +1399,7 @@ export default function StudyPlanPage() {
     } finally {
       setStartingBoard(false)
     }
-  }, [planId, authHeaders, router])
+  }, [planId, authHeaders, router, uiLanguage])
 
   // ── Mark complete ──────────────────────────────────────────────────────────
 
