@@ -34,7 +34,16 @@ export default function AgentActivityBar({ activity }: AgentActivityBarProps) {
           const icon = AGENT_ICON[ev.agent] || '•'
           const humanize = (v: unknown): string => {
             if (v == null) return ''
-            if (typeof v === 'string') return v
+            if (typeof v === 'string') {
+              // Backend sometimes emits the agent result as a JSON-encoded
+              // string ("{\"facts\":[...]}"). Parse on-the-fly so we can
+              // surface a readable summary instead of the raw blob.
+              const trimmed = v.trim()
+              if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                try { return humanize(JSON.parse(trimmed)) } catch { /* fallthrough */ }
+              }
+              return v
+            }
             if (typeof v === 'number' || typeof v === 'boolean') return String(v)
             if (typeof v === 'object') {
               const obj = v as Record<string, unknown>
