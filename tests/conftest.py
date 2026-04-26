@@ -29,6 +29,22 @@ os.environ.setdefault("MANIM_RENDER_QUALITY", "l")
 os.environ.setdefault("MANIM_RENDER_TIMEOUT_SECONDS", "60")
 
 
+# ── Pre-load the real database modules ───────────────────────────────────────
+# tests/unit/test_auth.py installs MagicMock entries into sys.modules at
+# import time so that `import auth` succeeds without a live database. Because
+# pytest collects every test module up front, those mocks would clobber the
+# real `database.models.*` for any test file collected later (notably
+# test_models_schema.py, which inspects real SQLAlchemy columns). Pre-importing
+# here makes the `setdefault` calls in test_auth.py no-ops, so each suite gets
+# the form of the module it actually needs.
+try:  # pragma: no cover — defensive; missing optional deps shouldn't hide tests
+    import database  # noqa: F401
+    import database.models  # noqa: F401
+    import database.models.user  # noqa: F401
+except Exception:
+    pass
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Lightweight dataclasses & constants re-exported for test use
 # ─────────────────────────────────────────────────────────────────────────────

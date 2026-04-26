@@ -83,9 +83,13 @@ class RobustVideoGenerationPipeline:
         custom_requirements: Optional[str] = None,
         existing_bundle: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        duration_minutes = max(5, int(duration_minutes or 8))
+        # Educational quality contract floors lessons at 10 minutes — anything
+        # shorter cannot honor the 24-scene teaching arc.
+        duration_minutes = max(10, int(duration_minutes or 10))
         # Target concise, animation-dense videos (3Blue1Brown style)
-        target_scene_count = max(8, min(14, duration_minutes + 2))
+        # Aim for the documented quality band: a 10-min lesson lands at 24
+        # scenes, scaling up to a hard cap of 32 for longer formats.
+        target_scene_count = max(MIN_SCENE_COUNT, min(32, duration_minutes + 14))
         language_instruction = get_language_instruction(language)
         
         # Reuse syllabus if available from previous attempt to save time and tokens
@@ -605,16 +609,18 @@ class RobustVideoGenerationPipeline:
         if "\\begin" in filtered_expr or len(filtered_expr) > 150:
             return (expr, "show_text")
 
-        # 8. Basic sanity — must contain at least one math character
+        # 8. Basic sanity — must contain at least one math character.
+        # Use the simplest possible safe placeholder so downstream MathTex
+        # always has something to render (and so the empty-input contract
+        # documented in tests/unit/test_video_quality.py holds).
         if not re.search(r"[a-zA-Z0-9^_=+\-*/]", filtered_expr):
-            return ("x = 1", "write_tex")  # Safe fallback
+            return ("x", "write_tex")
 
         # 9. Final cleanup
         final_expr = filtered_expr.strip()
-        
-        # Add basic structure if missing
+
         if not final_expr:
-            return ("x = 1", "write_tex")
+            return ("x", "write_tex")
 
         return (final_expr, "write_tex")
 

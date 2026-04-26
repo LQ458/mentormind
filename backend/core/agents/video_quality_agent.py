@@ -163,22 +163,24 @@ class VideoQualityAgent:
         report.metrics["total_duration_seconds"] = round(total, 1)
         report.metrics["avg_scene_duration"] = round(total / max(count, 1), 1)
 
+        # See tests/unit/test_video_quality.py for the canonical band:
+        # MIN_SCENE_COUNT = 24, soft ceiling around 32, scenes 18–60s each.
         score = 20.0
-        if count > 18:
-            report.issues.append(f"Too many scenes ({count}). Target 8-14 for a focused video.")
-            score -= 8
-        elif count < 6:
-            report.issues.append(f"Too few scenes ({count}). Need at least 6-8 for substance.")
+        if count > 32:
+            report.issues.append(f"Too many scenes ({count}). Target 24-32 for a focused video.")
             score -= 5
+        elif count < 24:
+            report.issues.append(f"Too few scenes ({count}). Need at least 24 to honor the teaching arc.")
+            score -= 8
 
-        if total > 900:  # > 15 minutes
+        if total > 1800:  # > 30 minutes — overlong
             report.issues.append(
-                f"Total duration {total/60:.1f} min is too long. Target 5-10 minutes."
+                f"Total duration {total/60:.1f} min is too long. Target 10-25 minutes."
             )
             score -= 8
-        elif total > 600:  # > 10 minutes
+        elif total > 1500:  # > 25 minutes — getting long
             report.suggestions.append(
-                f"Duration {total/60:.1f} min. Could be tighter — aim for 5-8 minutes."
+                f"Duration {total/60:.1f} min. Could be tighter — aim for 10-20 minutes."
             )
             score -= 3
 
@@ -261,19 +263,21 @@ class VideoQualityAgent:
                 scene["narration"] = " ".join(words[:60])
                 logger.info(f"Trimmed narration for {scene.get('id')}: {len(words)} → 60 words")
 
-            # Cap scene duration
-            duration = float(scene.get("duration", 20))
-            if duration > 45:
-                scene["duration"] = 40.0
-            if duration < 10:
-                scene["duration"] = 12.0
+            # Cap scene duration to the documented [18, 60] band.
+            duration = float(scene.get("duration", 25))
+            if duration > 60:
+                scene["duration"] = 60.0
+            if duration < 18:
+                scene["duration"] = 18.0
 
             improved_scenes.append(scene)
 
-        # Drop excess scenes (keep first 14)
-        if len(improved_scenes) > 14:
-            logger.info(f"Trimming scene count from {len(improved_scenes)} to 14")
-            improved_scenes = improved_scenes[:14]
+        # Drop excess scenes only beyond the documented soft ceiling (32).
+        # The previous 14-scene cap directly violated the 24-scene minimum
+        # asserted by the educational quality contract.
+        if len(improved_scenes) > 32:
+            logger.info(f"Trimming scene count from {len(improved_scenes)} to 32")
+            improved_scenes = improved_scenes[:32]
 
         return {
             "title": render_plan.get("title", "Untitled"),
