@@ -1,7 +1,17 @@
 {
+  "/page": "app/page.js",
+  "/study-plan/[id]/page": "app/study-plan/[id]/page.js",
   "/board/[sessionId]/page": "app/board/[sessionId]/page.js",
-  "/settings/page": "app/settings/page.js",
-  "/lessons/page": "app/lessons/page.js",
   "/dashboard/page": "app/dashboard/page.js",
-  "/study-plan/[id]/page": "app/study-plan/[id]/page.js"
+  "/api/backend/users/me/review-queue/route": "app/api/backend/users/me/review-queue/route.js",
+  "/api/backend/users/me/notifications/route": "app/api/backend/users/me/notifications/route.js",
+  "/api/backend/users/me/lessons/route": "app/api/backend/users/me/lessons/route.js",
+  "/api/backend/voices/route": "app/api/backend/voices/route.js",
+  "/create/page": "app/create/page.js",
+  "/api/backend/users/me/profile/route": "app/api/backend/users/me/profile/route.js",
+  "/lessons/page": "app/lessons/page.js",
+  "/api/backend/study-plan/my-plans/route": "app/api/backend/study-plan/my-plans/route.js",
+  "/study-plan/page": "app/study-plan/page.js",
+  "/api/backend/study-plan/[id]/route": "app/api/backend/study-plan/[id]/route.js",
+  "/settings/page": "app/settings/page.js"
 }
