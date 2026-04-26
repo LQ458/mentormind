@@ -189,25 +189,27 @@ class TestEvaluateRenderPlan:
         assert report.metrics["avg_narration_words"] > 80
 
     def test_scene_count_in_target_range_full_structure_score(self, agent):
-        # 10 scenes in [8,14], duration 30s each → no structure issues
+        # Quality contract band is 24-32 scenes (see test_video_quality.py).
+        # 28 scenes × 30s sits comfortably inside the band → no structure issues.
         scenes = [
             _make_scene(f"s{i}", action="transform", narration=_words(40), duration=30)
-            for i in range(10)
+            for i in range(28)
         ]
         report = agent.evaluate_render_plan(_make_plan(scenes))
-        assert report.metrics["scene_count"] == 10
-        # No scene-count issues
+        assert report.metrics["scene_count"] == 28
         assert not any("Too many" in i or "Too few" in i for i in report.issues)
 
     def test_too_many_scenes_issue_and_reduced_score(self, agent):
+        # > 32 scenes is over the soft ceiling.
         scenes = [
             _make_scene(f"s{i}", action="transform", narration=_words(40), duration=30)
-            for i in range(20)
+            for i in range(36)
         ]
         report = agent.evaluate_render_plan(_make_plan(scenes))
         assert any("Too many" in issue for issue in report.issues)
 
     def test_too_few_scenes_issue(self, agent):
+        # < 24 scenes can't honor the documented teaching arc.
         scenes = [
             _make_scene(f"s{i}", action="transform", narration=_words(40), duration=30)
             for i in range(4)
@@ -216,10 +218,10 @@ class TestEvaluateRenderPlan:
         assert any("Too few" in issue for issue in report.issues)
 
     def test_duration_too_long_issue(self, agent):
-        # total > 900s → issue
+        # > 1800 s (30 min) flips to an issue. 30 scenes × 70 s = 2100 s.
         scenes = [
-            _make_scene(f"s{i}", action="transform", narration=_words(40), duration=100)
-            for i in range(10)
+            _make_scene(f"s{i}", action="transform", narration=_words(40), duration=70)
+            for i in range(30)
         ]
         report = agent.evaluate_render_plan(_make_plan(scenes))
         assert any("too long" in issue.lower() or "duration" in issue.lower() for issue in report.issues)
@@ -299,23 +301,25 @@ class TestImproveRenderPlan:
         improved_narration = result["scenes"][0]["narration"]
         assert len(improved_narration.split()) == 60
 
-    def test_duration_above_45_capped_to_40(self, agent, dummy_report):
-        scenes = [_make_scene("s1", narration=_words(40), duration=60)]
+    def test_duration_above_60_capped_to_60(self, agent, dummy_report):
+        # Quality contract: scenes must stay within [18, 60] s.
+        scenes = [_make_scene("s1", narration=_words(40), duration=80)]
         result = agent.improve_render_plan(_make_plan(scenes), dummy_report)
-        assert result["scenes"][0]["duration"] == 40.0
+        assert result["scenes"][0]["duration"] == 60.0
 
-    def test_duration_below_10_increased_to_12(self, agent, dummy_report):
-        scenes = [_make_scene("s1", narration=_words(40), duration=5)]
+    def test_duration_below_18_increased_to_18(self, agent, dummy_report):
+        scenes = [_make_scene("s1", narration=_words(40), duration=10)]
         result = agent.improve_render_plan(_make_plan(scenes), dummy_report)
-        assert result["scenes"][0]["duration"] == 12.0
+        assert result["scenes"][0]["duration"] == 18.0
 
-    def test_more_than_14_scenes_trimmed_to_14(self, agent, dummy_report):
+    def test_more_than_32_scenes_trimmed_to_32(self, agent, dummy_report):
+        # Soft ceiling is 32 scenes; anything above is excess.
         scenes = [
             _make_scene(f"s{i}", narration=_words(40), duration=30)
-            for i in range(20)
+            for i in range(40)
         ]
         result = agent.improve_render_plan(_make_plan(scenes), dummy_report)
-        assert len(result["scenes"]) == 14
+        assert len(result["scenes"]) == 32
 
     def test_normal_plan_unchanged(self, agent, dummy_report):
         narration = _words(50)
