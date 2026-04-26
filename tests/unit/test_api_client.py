@@ -77,6 +77,11 @@ class TestGetLanguageInstruction:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DeepSeekClient construction
+#
+# Despite the legacy class name, this client now wraps the SiliconFlow
+# inference platform (the project switched providers; the class name stayed
+# for backwards compatibility with downstream callers). The construction
+# tests below assert the *current* behavior, not the historical one.
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestDeepSeekClientConstruction:
@@ -84,30 +89,31 @@ class TestDeepSeekClientConstruction:
     def test_raises_without_api_key(self):
         from services.api_client import DeepSeekClient
         # Temporarily remove the env var
-        old = os.environ.pop("DEEPSEEK_API_KEY", None)
+        old = os.environ.pop("SILICONFLOW_API_KEY", None)
         try:
-            with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
+            with pytest.raises(ValueError, match="SILICONFLOW_API_KEY"):
                 DeepSeekClient()
         finally:
             if old is not None:
-                os.environ["DEEPSEEK_API_KEY"] = old
+                os.environ["SILICONFLOW_API_KEY"] = old
             else:
-                os.environ["DEEPSEEK_API_KEY"] = "test-key-placeholder"
+                os.environ["SILICONFLOW_API_KEY"] = "test-key-placeholder"
 
     def test_constructs_with_api_key(self):
-        os.environ["DEEPSEEK_API_KEY"] = "sk-test"
+        os.environ["SILICONFLOW_API_KEY"] = "sk-test"
         from services.api_client import DeepSeekClient
         client = DeepSeekClient()
         assert client.api_key == "sk-test"
 
     def test_base_url_contains_deepseek(self):
-        os.environ["DEEPSEEK_API_KEY"] = "sk-test"
+        # Naming kept for backwards compatibility; current backend is SiliconFlow.
+        os.environ["SILICONFLOW_API_KEY"] = "sk-test"
         from services.api_client import DeepSeekClient
         client = DeepSeekClient()
-        assert "deepseek" in client.base_url.lower()
+        assert "siliconflow" in client.base_url.lower()
 
     def test_auth_header_set(self):
-        os.environ["DEEPSEEK_API_KEY"] = "sk-test-header"
+        os.environ["SILICONFLOW_API_KEY"] = "sk-test-header"
         from services.api_client import DeepSeekClient
         client = DeepSeekClient()
         assert "Authorization" in client.headers
@@ -121,7 +127,7 @@ class TestDeepSeekClientConstruction:
 class TestDeepSeekChatCompletion:
 
     def _make_client(self):
-        os.environ["DEEPSEEK_API_KEY"] = "sk-test"
+        os.environ["SILICONFLOW_API_KEY"] = "sk-test"
         from services.api_client import DeepSeekClient
         return DeepSeekClient()
 
@@ -173,11 +179,15 @@ class TestDeepSeekChatCompletion:
 
     @pytest.mark.asyncio
     async def test_http_error_returns_failure_response(self):
+        # Use a non-retryable status (400). 429/502/503/504 are deliberately
+        # retried by the client so a single mocked 429 would burn through five
+        # retries before settling on a `status_code=0` "max retries exceeded"
+        # response — which is correct production behavior, not a bug.
         client = self._make_client()
 
         mock_response = AsyncMock()
-        mock_response.status = 429
-        mock_response.text = AsyncMock(return_value="Rate limit exceeded")
+        mock_response.status = 400
+        mock_response.text = AsyncMock(return_value="Bad request")
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=False)
 
@@ -193,7 +203,7 @@ class TestDeepSeekChatCompletion:
             )
 
         assert result.success is False
-        assert result.status_code == 429
+        assert result.status_code == 400
 
     @pytest.mark.asyncio
     async def test_network_exception_returns_failure_response(self):
@@ -254,6 +264,8 @@ class TestDeepSeekChatCompletion:
 
     @pytest.mark.asyncio
     async def test_default_model_is_deepseek_chat(self):
+        # Default model is the SiliconFlow-hosted GLM-5.1; the test name is
+        # historical (when the project actually used DeepSeek directly).
         client = self._make_client()
         captured = {}
         mock_session = self._capturing_session(captured)
@@ -262,7 +274,7 @@ class TestDeepSeekChatCompletion:
              patch("aiohttp.ClientSession", return_value=mock_session):
             await client.chat_completion(messages=[{"role": "user", "content": "hi"}])
 
-        assert captured.get("model") == "deepseek-chat"
+        assert captured.get("model") == "Pro/zai-org/GLM-5.1"
 
     @pytest.mark.asyncio
     async def test_temperature_and_max_tokens_forwarded(self):

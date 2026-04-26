@@ -21,10 +21,17 @@ class _FakeTTSService:
     def __init__(self) -> None:
         self.calls: List[str] = []
 
-    async def text_to_speech(self, text: str, language: str, voice: str) -> _FakeTTSResult:
+    async def text_to_speech(
+        self,
+        text: str,
+        language: str,
+        voice: str,
+        output_path: str | None = None,
+    ) -> _FakeTTSResult:
         self.calls.append(text)
         await asyncio.sleep(0)  # yield
-        return _FakeTTSResult(audio_path=f"/tmp/{hash(text) & 0xffff}.mp3", duration=1.0)
+        path = output_path or f"/tmp/{hash(text) & 0xffff}.mp3"
+        return _FakeTTSResult(audio_path=path, duration=1.0)
 
 
 async def _events(*events: BoardEvent) -> AsyncGenerator[BoardEvent, None]:
@@ -87,7 +94,13 @@ async def test_standalone_narration_event_also_generates_tts() -> None:
 @pytest.mark.asyncio
 async def test_tts_failure_emits_audio_error_not_crash() -> None:
     class _FailingTTS:
-        async def text_to_speech(self, text: str, language: str, voice: str):
+        async def text_to_speech(
+            self,
+            text: str,
+            language: str,
+            voice: str,
+            output_path: str | None = None,
+        ):
             raise RuntimeError("TTS provider down")
 
     sync = BoardTTSSync(tts_service=_FailingTTS())

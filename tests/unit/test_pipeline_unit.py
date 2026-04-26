@@ -28,7 +28,13 @@ def pipeline():
 
     with patch("prompts.loader.load_prompt", return_value="mock"), \
          patch("prompts.loader.render_prompt", return_value="rendered_prompt"):
-        return RobustVideoGenerationPipeline(api_client=client)
+        instance = RobustVideoGenerationPipeline(api_client=client)
+        # ContentCache is a process-wide singleton with disk persistence; its
+        # results would leak across tests (a successful syllabus generation in
+        # one test would short-circuit a fallback assertion in the next). Tests
+        # exercise pipeline logic in isolation, so the cache must be off.
+        instance.cache = None
+        return instance
 
 
 def _ok_response(payload: dict):

@@ -811,9 +811,7 @@ class ManimService:
         for line in lines:
             if bullet_re.match(line):
                 cleaned = bullet_re.sub("", line).strip()
-                if len(cleaned) > max_chars:
-                    truncated = cleaned[:max_chars].rsplit(' ', 1)[0]
-                    cleaned = truncated + '...'
+                cleaned = self._truncate_with_ellipsis(cleaned, max_chars)
                 bullets.append(cleaned)
         if len(bullets) >= 2:
             return bullets
@@ -825,19 +823,39 @@ class ManimService:
                 b = b.strip()
                 if not b:
                     continue
-                if len(b) > max_chars:
-                    b = b[:max_chars].rsplit(' ', 1)[0] + '...'
+                b = self._truncate_with_ellipsis(b, max_chars)
                 result.append(b)
             if len(result) >= 2:
                 return result
         return [self._compact_for_code(text, max_chars)]
 
+    @staticmethod
+    def _truncate_with_ellipsis(text: str, max_chars: int) -> str:
+        """Truncate to fit within ``max_chars`` *including* the ellipsis suffix.
+
+        The previous implementation took ``text[:max_chars]`` and then appended
+        ``"..."`` (3 extra chars), so the result was always 3 chars over the
+        cap. Fixed by reserving room for the ellipsis up front.
+        """
+        if len(text) <= max_chars:
+            return text
+        if max_chars <= 3:
+            return text[:max_chars]
+        room = max_chars - 3
+        head = text[:room]
+        # Prefer to break on a word boundary, but only if doing so still
+        # leaves meaningful content (otherwise a long word would collapse
+        # to "...").
+        if " " in head:
+            trimmed = head.rsplit(" ", 1)[0]
+            if trimmed:
+                head = trimmed
+        return head + "..."
+
     def _compact_for_code(self, text: str, max_chars: int = 150) -> str:
         """Compact text and escape triple-quote issues for safe embedding in code."""
         clean = re.sub(r"\s+", " ", str(text or "")).strip()
-        if len(clean) > max_chars:
-            truncated = clean[:max_chars].rsplit(' ', 1)[0]
-            clean = truncated + '...'
+        clean = self._truncate_with_ellipsis(clean, max_chars)
         # Escape triple quotes that would break the generated f-string
         clean = clean.replace('"""', "'\"\"")
         return clean
@@ -929,12 +947,12 @@ class ManimService:
         text = re.sub(r"\\sqrt\[(\d)\]\{([^}]*)\}", lambda m: m.group(1).translate(self._LATEX_SUPERSCRIPTS) + "√(" + m.group(2) + ")", text)
         text = re.sub(r"\\sqrt\{([^}]*)\}", r"√(\1)", text)
 
-        # \frac{a}{b} → (a)/(b)  — use parens only when multi-char
+        # \frac{a}{b} → (a)/(b) — always parenthesize so the slash binds
+        # tightly even when the operand is a single character. Without parens
+        # `\frac{a}{b+c}` would render as `a/b+c`, which reads as `(a/b)+c`.
         def _fmt_frac(m: re.Match) -> str:
             n, d = m.group(1), m.group(2)
-            top = f"({n})" if len(n) > 1 else n
-            bot = f"({d})" if len(d) > 1 else d
-            return f"{top}/{bot}"
+            return f"({n})/({d})"
         text = re.sub(r"\\frac\{([^}]*)\}\{([^}]*)\}", _fmt_frac, text)
 
         # \mathbb{X} → double-struck letters

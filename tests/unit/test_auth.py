@@ -20,13 +20,32 @@ import pytest
 
 # ── Mock database modules before importing auth ───────────────────────────────
 # auth.py imports `from database import get_db` and
-# `from database.models.user import User` at module level.
-sys.modules.setdefault("database", MagicMock())
-sys.modules.setdefault("database.models", MagicMock())
-sys.modules.setdefault("database.models.user", MagicMock())
+# `from database.models.user import User` at module level. The `setdefault`
+# calls below would normally LEAK the mocks into sys.modules for the rest of
+# the test session, masking the real models from later test files (notably
+# tests/unit/test_models_schema.py, which inspects real SQLAlchemy columns).
+# We restore the prior state via an autouse session-scoped fixture below.
+
+_DB_MODULES = ("database", "database.models", "database.models.user")
+_DB_PRIOR = {name: sys.modules.get(name) for name in _DB_MODULES}
+for _name in _DB_MODULES:
+    sys.modules.setdefault(_name, MagicMock())
 
 import auth  # noqa: E402  (must come after sys.modules patching)
 from auth import CLERK_NAMESPACE, clerk_id_to_uuid, get_clerk_issuer, decode_token
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_database_modules():
+    """Roll back the sys.modules mocks installed at module import time so they
+    do not bleed into other test files that need the real database models."""
+    yield
+    for _name in _DB_MODULES:
+        prior = _DB_PRIOR[_name]
+        if prior is None:
+            sys.modules.pop(_name, None)
+        else:
+            sys.modules[_name] = prior
 
 
 # ─────────────────────────────────────────────────────────────────────────────

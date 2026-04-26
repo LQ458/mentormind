@@ -141,7 +141,10 @@ def pipeline_instance():
     client = MagicMock()
     with patch("prompts.loader.load_prompt", return_value="mock"), \
          patch("prompts.loader.render_prompt", return_value="mock"):
-        return RobustVideoGenerationPipeline(api_client=client)
+        instance = RobustVideoGenerationPipeline(api_client=client)
+        # See note in test_pipeline_unit.py — disk-backed cache leaks across tests.
+        instance.cache = None
+        return instance
 
 
 # ─────────────────────────────────────────────────────────────────────────────

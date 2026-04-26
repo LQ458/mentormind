@@ -46,6 +46,14 @@ ALLOWED_LAYOUTS = {
 
 DEFAULT_GRAPH = {"x_range": [-6, 6], "y_range": [-6, 6]}
 
+# Educational quality contract — see tests/unit/test_video_quality.py for the
+# canonical definition. These constants are the source of truth for scene
+# pacing and lesson structure.
+SCENE_MIN_DURATION = 18.0
+SCENE_MAX_DURATION = 60.0
+MIN_SCENE_COUNT = 24
+MAX_NARRATION_CHARS = 1200
+
 
 class RobustVideoGenerationPipeline:
     """Generate a teaching-oriented render plan with explicit validation artifacts."""
@@ -309,8 +317,9 @@ class RobustVideoGenerationPipeline:
         scenes = render_plan.get("scenes") or []
         warnings: List[str] = []
         validated_scenes: List[Dict[str, Any]] = []
-        # Minimum scene count for concise videos
-        minimum_scene_count = max(6, min(14, duration_minutes + 2))
+        # Educational quality contract: never ship fewer than MIN_SCENE_COUNT
+        # scenes — short lessons collapse the teaching arc.
+        minimum_scene_count = max(MIN_SCENE_COUNT, duration_minutes + 2)
 
         if not scenes:
             warnings.append("Render plan returned no scenes; using deterministic fallback scenes.")
@@ -342,7 +351,7 @@ class RobustVideoGenerationPipeline:
             scale_factor = minimum_total_duration / max(total_duration, 1.0)
             warnings.append("Scaled scene durations upward to honor the requested lesson length.")
             for scene in validated_scenes:
-                scene["duration"] = max(10.0, min(45.0, round(float(scene["duration"]) * scale_factor, 1)))
+                scene["duration"] = max(SCENE_MIN_DURATION, min(SCENE_MAX_DURATION, round(float(scene["duration"]) * scale_factor, 1)))
 
         fixed_plan = {
             "title": render_plan.get("title") or "Untitled Lesson",
@@ -354,6 +363,51 @@ class RobustVideoGenerationPipeline:
             "estimated_total_seconds": sum(float(scene.get("duration") or 0.0) for scene in fixed_plan["scenes"]),
             "render_plan": fixed_plan,
         }
+
+    def _apply_review_patches(
+        self,
+        render_plan: Dict[str, Any],
+        patches: List[Dict[str, Any]],
+        language: str,
+    ) -> tuple[Dict[str, Any], List[str]]:
+        """Apply scene-level review patches to ``render_plan``.
+
+        ``patches`` is a list of ``{"scene_id": str, "patch": dict}`` entries.
+        Each patch is shallow-merged into the matching scene and the scene is
+        re-normalized so the result still satisfies the quality contract.
+
+        Returns ``(updated_plan, applied_scene_ids)``. Patches whose scene_id
+        is unknown, whose ``patch`` is not a dict, or that are otherwise
+        malformed are silently skipped — review feedback should never break
+        an otherwise-valid plan.
+        """
+        plan = dict(render_plan or {})
+        scenes = list(plan.get("scenes") or [])
+        scenes_by_id = {
+            scene.get("id"): index
+            for index, scene in enumerate(scenes)
+            if isinstance(scene, dict) and scene.get("id")
+        }
+        applied: List[str] = []
+
+        for entry in patches or []:
+            if not isinstance(entry, dict):
+                continue
+            scene_id = entry.get("scene_id")
+            patch = entry.get("patch")
+            if not scene_id or scene_id not in scenes_by_id:
+                continue
+            if not isinstance(patch, dict):
+                continue
+            index = scenes_by_id[scene_id]
+            merged = dict(scenes[index])
+            merged.update(patch)
+            self._normalize_scene(merged, scene_id, language)
+            scenes[index] = merged
+            applied.append(scene_id)
+
+        plan["scenes"] = scenes
+        return plan, applied
 
     def _normalize_scene(self, scene: Dict[str, Any], scene_id: str, language: str) -> None:
         scene["id"] = scene_id
@@ -448,7 +502,7 @@ class RobustVideoGenerationPipeline:
             numeric = 0.0
         if numeric <= 0:
             numeric = self._estimate_duration_from_narration(narration)
-        return max(10.0, min(45.0, round(numeric, 1)))
+        return max(SCENE_MIN_DURATION, min(SCENE_MAX_DURATION, round(numeric, 1)))
 
     def _estimate_duration_from_narration(self, narration: str) -> float:
         words = len(narration.split())
@@ -457,7 +511,10 @@ class RobustVideoGenerationPipeline:
             estimate = words / 2.5
         else:
             estimate = chars / 6.0
-        return max(10.0, min(40.0, estimate))
+        # Per the educational quality contract, scenes must run long enough to
+        # actually teach. Floor estimates at 24s so a single short hook line
+        # still gets enough screen time, and cap at 55s so we never linger.
+        return max(24.0, min(55.0, estimate))
 
     def _sanitize_plot_expression(self, expression: str) -> str:
         expr = expression.strip() or "x"
@@ -562,15 +619,20 @@ class RobustVideoGenerationPipeline:
         return (final_expr, "write_tex")
 
     def _compact_text(self, text: str, max_chars: int) -> str:
-        """
-        Compact text while preserving complete meaning.
-        NEVER truncate with ellipsis - return full content.
+        """Collapse whitespace and cap length at ``max_chars`` (with an ellipsis
+        marker when truncation occurs).
+
+        We must enforce a length cap here because downstream consumers (Manim
+        f-strings, narration audio, render plan validation) all depend on a
+        bounded output — see the educational quality contract in
+        tests/unit/test_video_quality.py.
         """
         clean = re.sub(r"\s+", " ", str(text or "")).strip()
-        
-        # Always return full text - no truncation allowed
-        # This ensures video content is always complete
-        return clean
+        if len(clean) <= max_chars:
+            return clean
+        if max_chars <= 3:
+            return clean[:max_chars]
+        return clean[: max_chars - 3] + "..."
 
     def _normalize_range(self, value: Any, fallback: List[int]) -> List[int]:
         if (
