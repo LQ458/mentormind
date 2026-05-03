@@ -2944,6 +2944,7 @@ from core.content.gaokao_tutor import GaokaoTutor
 from database.models.study_plan import StudyPlan, StudyPlanUnit, GaokaoSession
 from database.models.board_session import BoardSession
 from database.models.telemetry import TelemetryEvent, ALLOWED_EVENT_TYPES
+from database.models.survey_response import SurveyResponse
 from core.board.storage import (
     save_board_state as _board_save_state,
     load_board_state as _board_load_state,
@@ -4524,6 +4525,399 @@ async def get_admin_telemetry_aggregate(
             "end_date": end_date,
             "event_type": event_type,
         },
+    }
+
+
+# ── Feedback Survey Endpoints ────────────────────────────────────────────────
+
+# Allowed enum-ish values for the survey. Anything outside these = 400.
+_SURVEY_PMF_ALLOWED = {"very_disappointed", "somewhat", "not"}
+_SURVEY_LIKERT_KEYS = {
+    "plan_useful",
+    "lesson_clarity",
+    "latency_ok",
+    "smooth",
+    "return_next_week",
+}
+_SURVEY_LANG_ALLOWED = {"en", "zh"}
+
+
+@app.post("/feedback/submit")
+@limiter.limit("30/minute")
+async def post_feedback_submit(
+    request: Request,
+    current_user: Optional[User] = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+):
+    """Record a single in-app feedback survey response. Optional auth.
+
+    Auto-derives ``derived_*`` context from telemetry_events keyed on the
+    client-provided ``session_id`` (last 24h) so each response is correlated
+    to behaviour.
+    """
+    raw = await request.body()
+    if len(raw) > 16 * 1024:
+        raise HTTPException(status_code=413, detail="Payload too large")
+    try:
+        body = json.loads(raw.decode("utf-8") or "{}") if raw else {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Body must be a JSON object")
+
+    def _trunc_str(v, max_len: int) -> Optional[str]:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            v = str(v)
+        return v[:max_len]
+
+    # ---- Validation ---------------------------------------------------------
+    pmf_score = body.get("pmf_score")
+    if pmf_score is not None and pmf_score not in _SURVEY_PMF_ALLOWED:
+        raise HTTPException(status_code=400, detail="Invalid pmf_score")
+
+    nps_raw = body.get("nps")
+    nps_val: Optional[int] = None
+    if nps_raw is not None:
+        try:
+            nps_val = int(nps_raw)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid nps")
+        if nps_val < 0 or nps_val > 10:
+            raise HTTPException(status_code=400, detail="Invalid nps")
+
+    likert_raw = body.get("likert")
+    likert_clean: Dict[str, int] = {}
+    if likert_raw is not None:
+        if not isinstance(likert_raw, dict):
+            raise HTTPException(status_code=400, detail="Invalid likert")
+        for k, v in likert_raw.items():
+            if k not in _SURVEY_LIKERT_KEYS:
+                raise HTTPException(status_code=400, detail=f"Invalid likert key: {k}")
+            try:
+                iv = int(v)
+            except Exception:
+                raise HTTPException(status_code=400, detail=f"Invalid likert value for {k}")
+            if iv < 1 or iv > 5:
+                raise HTTPException(status_code=400, detail=f"Invalid likert value for {k}")
+            likert_clean[k] = iv
+
+    prior_tools_raw = body.get("prior_tools")
+    prior_tools_clean: List[str] = []
+    if prior_tools_raw is not None:
+        if not isinstance(prior_tools_raw, list):
+            raise HTTPException(status_code=400, detail="Invalid prior_tools")
+        for item in prior_tools_raw[:12]:
+            if not isinstance(item, str):
+                continue
+            prior_tools_clean.append(item[:64])
+
+    language_raw = body.get("language")
+    if language_raw not in _SURVEY_LANG_ALLOWED:
+        language_clean = "en"
+    else:
+        language_clean = language_raw
+
+    session_id = _trunc_str(body.get("session_id"), 255)
+
+    # ---- Auto-derive context from telemetry --------------------------------
+    derived_board_lessons: Optional[int] = None
+    derived_plans_created: Optional[int] = None
+    derived_session_minutes: Optional[int] = None
+    if session_id:
+        try:
+            from datetime import datetime as _dt, timedelta as _td
+            from sqlalchemy import func as _fn
+            since = _dt.utcnow() - _td(hours=24)
+
+            sess_filter = (
+                (TelemetryEvent.session_id == session_id)
+                & (TelemetryEvent.created_at >= since)
+            )
+
+            derived_board_lessons = int(
+                db.query(_fn.count(_fn.distinct(TelemetryEvent.id)))
+                .filter(sess_filter)
+                .filter(TelemetryEvent.event_type == "board_lesson_open")
+                .scalar()
+                or 0
+            )
+
+            # study_plan_chat_rtt where payload->>'phase' = 'plan_review'.
+            # Use raw JSON access on the payload column. Postgres stores it as
+            # JSONB, so payload->>'phase' is the safest extractor.
+            from sqlalchemy import text as _text
+            plan_q = (
+                db.query(_fn.count())
+                .filter(sess_filter)
+                .filter(TelemetryEvent.event_type == "study_plan_chat_rtt")
+                .filter(_text("(payload->>'phase') = 'plan_review'"))
+            )
+            derived_plans_created = int(plan_q.scalar() or 0)
+
+            # Session minutes: max(created_at) - min(created_at) within session.
+            ts_row = (
+                db.query(
+                    _fn.min(TelemetryEvent.created_at).label("first"),
+                    _fn.max(TelemetryEvent.created_at).label("last"),
+                )
+                .filter(sess_filter)
+                .one()
+            )
+            if ts_row and ts_row.first and ts_row.last:
+                delta = (ts_row.last - ts_row.first).total_seconds() / 60.0
+                derived_session_minutes = int(min(max(delta, 0), 720))
+        except Exception as exc:
+            logger.warning(f"feedback derive failed: {exc}")
+
+    user_agent = request.headers.get("user-agent")
+    client_host = request.client.host if request.client else None
+
+    response_row = SurveyResponse(
+        user_id=str(current_user.id) if current_user else None,
+        session_id=session_id,
+        exam=_trunc_str(body.get("exam"), 64),
+        school_year=_trunc_str(body.get("school_year"), 64),
+        prior_tools=prior_tools_clean,
+        likert=likert_clean,
+        pmf_score=pmf_score,
+        nps=nps_val,
+        pain_point=_trunc_str(body.get("pain_point"), 4000),
+        feature_request=_trunc_str(body.get("feature_request"), 4000),
+        other_feedback=_trunc_str(body.get("other_feedback"), 4000),
+        contact_email=_trunc_str(body.get("contact_email"), 255),
+        language=language_clean,
+        derived_session_minutes=derived_session_minutes,
+        derived_board_lessons=derived_board_lessons,
+        derived_plans_created=derived_plans_created,
+        user_agent=_trunc_str(user_agent, 512),
+        ip_address=_trunc_str(client_host, 45),
+    )
+    try:
+        db.add(response_row)
+        db.commit()
+        db.refresh(response_row)
+    except Exception as exc:
+        db.rollback()
+        logger.error(f"feedback insert failed: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to save feedback")
+    return {"ok": True, "id": response_row.id}
+
+
+@app.get("/admin/feedback")
+async def get_admin_feedback(
+    limit: int = 50,
+    offset: int = 0,
+    exam: Optional[str] = None,
+    pmf: Optional[str] = None,
+    language: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Paginated admin view of feedback responses with optional filters."""
+    if (current_user.role or "").lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    from datetime import datetime as _dt
+    from sqlalchemy import func as _fn
+
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+
+    q = db.query(SurveyResponse)
+    try:
+        if start_date:
+            q = q.filter(SurveyResponse.created_at >= _dt.fromisoformat(start_date))
+        if end_date:
+            q = q.filter(SurveyResponse.created_at <= _dt.fromisoformat(end_date))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid start_date/end_date")
+    if exam:
+        q = q.filter(SurveyResponse.exam == exam)
+    if pmf:
+        if pmf not in _SURVEY_PMF_ALLOWED:
+            raise HTTPException(status_code=400, detail="Invalid pmf")
+        q = q.filter(SurveyResponse.pmf_score == pmf)
+    if language:
+        q = q.filter(SurveyResponse.language == language)
+
+    total = int(q.with_entities(_fn.count(SurveyResponse.id)).scalar() or 0)
+    rows = (
+        q.order_by(SurveyResponse.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return {
+        "total": total,
+        "rows": [r.to_dict() for r in rows],
+        "limit": limit,
+        "offset": offset,
+        "filters": {
+            "exam": exam,
+            "pmf": pmf,
+            "language": language,
+            "start_date": start_date,
+            "end_date": end_date,
+        },
+    }
+
+
+@app.get("/admin/feedback/aggregate")
+async def get_admin_feedback_aggregate(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Aggregate counters for the feedback survey: PMF, NPS, likert means &
+    distributions, exam/language breakdowns. Admin-gated."""
+    if (current_user.role or "").lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    from datetime import datetime as _dt
+    from sqlalchemy import func as _fn
+
+    filters = []
+    try:
+        if start_date:
+            filters.append(SurveyResponse.created_at >= _dt.fromisoformat(start_date))
+        if end_date:
+            filters.append(SurveyResponse.created_at <= _dt.fromisoformat(end_date))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid start_date/end_date")
+
+    base_q = db.query(SurveyResponse)
+    for f in filters:
+        base_q = base_q.filter(f)
+
+    total = int(
+        db.query(_fn.count(SurveyResponse.id)).filter(*filters).scalar() or 0
+    )
+
+    # Exam distribution
+    exam_q = (
+        db.query(SurveyResponse.exam, _fn.count(SurveyResponse.id))
+        .filter(*filters)
+        .group_by(SurveyResponse.exam)
+    )
+    exam_distribution: Dict[str, int] = {}
+    for k, c in exam_q.all():
+        if k:
+            exam_distribution[k] = int(c or 0)
+
+    # Language distribution
+    lang_q = (
+        db.query(SurveyResponse.language, _fn.count(SurveyResponse.id))
+        .filter(*filters)
+        .group_by(SurveyResponse.language)
+    )
+    language_distribution: Dict[str, int] = {}
+    for k, c in lang_q.all():
+        if k:
+            language_distribution[k] = int(c or 0)
+
+    # PMF distribution
+    pmf_q = (
+        db.query(SurveyResponse.pmf_score, _fn.count(SurveyResponse.id))
+        .filter(*filters)
+        .group_by(SurveyResponse.pmf_score)
+    )
+    pmf_counts: Dict[str, int] = {"very_disappointed": 0, "somewhat": 0, "not": 0}
+    pmf_total = 0
+    for k, c in pmf_q.all():
+        if k in pmf_counts:
+            pmf_counts[k] = int(c or 0)
+            pmf_total += pmf_counts[k]
+    very_disappointed_pct = (
+        (pmf_counts["very_disappointed"] / pmf_total) if pmf_total else 0.0
+    )
+    pmf_block: Dict[str, Any] = dict(pmf_counts)
+    pmf_block["very_disappointed_pct"] = very_disappointed_pct
+
+    # NPS — bucket on the fly
+    nps_rows = (
+        db.query(SurveyResponse.nps).filter(*filters).filter(SurveyResponse.nps.isnot(None))
+    )
+    promoters = passives = detractors = 0
+    nps_total = 0
+    for (n,) in nps_rows.all():
+        if n is None:
+            continue
+        nps_total += 1
+        if n >= 9:
+            promoters += 1
+        elif n >= 7:
+            passives += 1
+        else:
+            detractors += 1
+    promoters_pct = (promoters / nps_total) if nps_total else 0.0
+    passives_pct = (passives / nps_total) if nps_total else 0.0
+    detractors_pct = (detractors / nps_total) if nps_total else 0.0
+    nps_score = (promoters_pct - detractors_pct) * 100.0
+
+    # Likert means + distributions — pull rows in Python because likert is JSON.
+    likert_rows_q = (
+        db.query(SurveyResponse.likert).filter(*filters).filter(SurveyResponse.likert.isnot(None))
+    )
+    likert_sum: Dict[str, float] = {k: 0.0 for k in _SURVEY_LIKERT_KEYS}
+    likert_count: Dict[str, int] = {k: 0 for k in _SURVEY_LIKERT_KEYS}
+    likert_dist: Dict[str, Dict[str, int]] = {
+        k: {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0} for k in _SURVEY_LIKERT_KEYS
+    }
+    for (lk,) in likert_rows_q.all():
+        if not isinstance(lk, dict):
+            continue
+        for key in _SURVEY_LIKERT_KEYS:
+            v = lk.get(key)
+            try:
+                iv = int(v) if v is not None else None
+            except Exception:
+                iv = None
+            if iv is None or iv < 1 or iv > 5:
+                continue
+            likert_sum[key] += iv
+            likert_count[key] += 1
+            likert_dist[key][str(iv)] += 1
+    likert_means: Dict[str, Optional[float]] = {}
+    for key in _SURVEY_LIKERT_KEYS:
+        if likert_count[key]:
+            likert_means[key] = round(likert_sum[key] / likert_count[key], 2)
+        else:
+            likert_means[key] = None
+
+    # Date range — actual min/max created_at among matching rows.
+    date_row = (
+        db.query(
+            _fn.min(SurveyResponse.created_at).label("start"),
+            _fn.max(SurveyResponse.created_at).label("end"),
+        )
+        .filter(*filters)
+        .one()
+    )
+    date_range = {
+        "start": date_row.start.isoformat() if date_row.start else None,
+        "end": date_row.end.isoformat() if date_row.end else None,
+    }
+
+    return {
+        "total": total,
+        "exam_distribution": exam_distribution,
+        "language_distribution": language_distribution,
+        "pmf": pmf_block,
+        "nps": {
+            "promoters_pct": promoters_pct,
+            "passives_pct": passives_pct,
+            "detractors_pct": detractors_pct,
+            "score": nps_score,
+            "total": nps_total,
+        },
+        "likert_means": likert_means,
+        "likert_distribution": likert_dist,
+        "date_range": date_range,
     }
 
 

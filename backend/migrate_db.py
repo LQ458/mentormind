@@ -234,6 +234,45 @@ def migrate():
                 conn.rollback()
         print("✅ Production-readiness schema additions applied.")
 
+        # --- In-app survey: first-party storage for feedback responses ---
+        print("📝 Applying survey_responses schema additions...")
+        survey_ddl = [
+            """CREATE TABLE IF NOT EXISTS survey_responses (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(255),
+                session_id VARCHAR(255),
+                exam VARCHAR(64),
+                school_year VARCHAR(64),
+                prior_tools JSONB DEFAULT '[]'::jsonb,
+                likert JSONB DEFAULT '{}'::jsonb,
+                pmf_score VARCHAR(32),
+                nps INTEGER,
+                pain_point TEXT,
+                feature_request TEXT,
+                other_feedback TEXT,
+                contact_email VARCHAR(255),
+                language VARCHAR(8),
+                derived_session_minutes INTEGER,
+                derived_board_lessons INTEGER,
+                derived_plans_created INTEGER,
+                user_agent VARCHAR(512),
+                ip_address VARCHAR(45),
+                created_at TIMESTAMP DEFAULT NOW()
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_survey_responses_user_id ON survey_responses(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_survey_responses_session_id ON survey_responses(session_id)",
+            "CREATE INDEX IF NOT EXISTS idx_survey_responses_created_at ON survey_responses(created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_survey_responses_exam ON survey_responses(exam)",
+        ]
+        for stmt in survey_ddl:
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+            except Exception as e:
+                print(f"⚠️ Survey DDL failed ({stmt[:60]}…): {e}")
+                conn.rollback()
+        print("✅ Survey schema additions applied.")
+
     print("🏁 Migration completed.")
 
 if __name__ == "__main__":

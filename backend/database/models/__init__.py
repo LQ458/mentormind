@@ -25,6 +25,7 @@ from .study_plan import StudyPlan, StudyPlanUnit, GaokaoSession
 from .knowledge_graph import KGConcept, KGRelationship
 from .board_session import BoardSession
 from .telemetry import TelemetryEvent, ALLOWED_EVENT_TYPES
+from .survey_response import SurveyResponse
 
 __all__ = [
     # Enums
@@ -62,4 +63,6 @@ __all__ = [
     # Telemetry
     "TelemetryEvent",
     "ALLOWED_EVENT_TYPES",
+    # Survey responses
+    "SurveyResponse",
 ]
