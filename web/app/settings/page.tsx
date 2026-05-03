@@ -5,6 +5,7 @@ import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '@clerk/nextjs'
 import { useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
+import { toastConfirm } from '../lib/toastConfirm'
 
 interface SubscriptionPlan {
   id: string
@@ -133,33 +134,38 @@ export default function SettingsPage() {
     }
   }
 
-  const handleUpgrade = async (planId: string) => {
-    if (!confirm(t('settings.upgradeConfirm', { planId }))) return
-    try {
-      const token = await getToken()
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (token) headers.Authorization = `Bearer ${token}`
+  const handleUpgrade = (planId: string) => {
+    toastConfirm(t('settings.upgradeConfirm', { planId }), {
+      confirmLabel: uiLanguage === 'zh' ? '继续' : 'Continue',
+      cancelLabel: uiLanguage === 'zh' ? '取消' : 'Cancel',
+      onConfirm: async () => {
+        try {
+          const token = await getToken()
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+          if (token) headers.Authorization = `Bearer ${token}`
 
-      const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
-      const res = await fetch('/api/backend/billing/create-checkout-session', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          plan: planId,
-          success_url: `${origin}/settings?checkout=success&plan=${planId}`,
-          cancel_url: `${origin}/settings?checkout=cancelled`,
-        }),
-      })
-      const data = await res.json()
-      if (data.checkout_url) {
-        window.location.href = data.checkout_url
-      } else {
-        toast.info(t('settings.upgradeRequested'))
-      }
-    } catch (err) {
-      console.error('Checkout error:', err)
-      toast.error(uiLanguage === 'zh' ? '结账跳转失败，请重试。' : 'Failed to open checkout. Please try again.')
-    }
+          const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
+          const res = await fetch('/api/backend/billing/create-checkout-session', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              plan: planId,
+              success_url: `${origin}/settings?checkout=success&plan=${planId}`,
+              cancel_url: `${origin}/settings?checkout=cancelled`,
+            }),
+          })
+          const data = await res.json()
+          if (data.checkout_url) {
+            window.location.href = data.checkout_url
+          } else {
+            toast.info(t('settings.upgradeRequested'))
+          }
+        } catch (err) {
+          console.error('Checkout error:', err)
+          toast.error(uiLanguage === 'zh' ? '结账跳转失败，请重试。' : 'Failed to open checkout. Please try again.')
+        }
+      },
+    })
   }
 
   return (
@@ -357,16 +363,21 @@ export default function SettingsPage() {
             </p>
             <button
               onClick={() => {
-                if (confirm(t('settings.cancelConfirm'))) {
-                  setSettings({
-                    ...settings,
-                    subscription: {
-                      ...settings.subscription,
-                      status: 'cancelled',
-                    },
-                  })
-                  toast.info(t('settings.cancellationRequested'))
-                }
+                toastConfirm(t('settings.cancelConfirm'), {
+                  destructive: true,
+                  confirmLabel: uiLanguage === 'zh' ? '确认取消' : 'Cancel plan',
+                  cancelLabel: uiLanguage === 'zh' ? '保留' : 'Keep',
+                  onConfirm: () => {
+                    setSettings({
+                      ...settings,
+                      subscription: {
+                        ...settings.subscription,
+                        status: 'cancelled',
+                      },
+                    })
+                    toast.info(t('settings.cancellationRequested'))
+                  },
+                })
               }}
               className="px-6 py-2 bg-white text-red-600 border border-red-300 rounded-lg font-medium hover:bg-red-50 transition-colors"
             >

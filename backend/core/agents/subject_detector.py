@@ -23,10 +23,10 @@ class SubjectDetection:
     course_name: Optional[str] = None    # e.g. "AP Calculus BC"
 
 
-def _load_ap_catalog() -> Dict:
-    """Load AP course catalog from JSON file."""
+def _load_catalog(framework: str) -> Dict:
+    """Load any framework's course catalog from JSON file. Returns empty courses list if missing."""
     catalog_path = os.path.join(
-        os.path.dirname(__file__), "..", "..", "prompts", "subjects", "frameworks", "ap_courses.json"
+        os.path.dirname(__file__), "..", "..", "prompts", "subjects", "frameworks", f"{framework}_courses.json"
     )
     try:
         with open(catalog_path, "r", encoding="utf-8") as f:
@@ -35,15 +35,20 @@ def _load_ap_catalog() -> Dict:
         return {"courses": []}
 
 
-# Lazy-loaded AP catalog
-_AP_CATALOG: Optional[Dict] = None
+# Lazy-loaded catalogs, keyed by framework
+_CATALOGS: Dict[str, Dict] = {}
 
 
+def _get_catalog(framework: str) -> Dict:
+    """Return the cached catalog for any framework (ap, gaokao, ib, a_level)."""
+    if framework not in _CATALOGS:
+        _CATALOGS[framework] = _load_catalog(framework)
+    return _CATALOGS[framework]
+
+
+# Backwards-compatibility shim — older imports may still call _get_ap_catalog
 def _get_ap_catalog() -> Dict:
-    global _AP_CATALOG
-    if _AP_CATALOG is None:
-        _AP_CATALOG = _load_ap_catalog()
-    return _AP_CATALOG
+    return _get_catalog("ap")
 
 
 # AP course name patterns for fast matching (lowercase)
@@ -107,18 +112,76 @@ AP_COURSE_PATTERNS: Dict[str, str] = {
 }
 
 
-def _detect_ap_course(text_lower: str) -> Optional[Dict]:
-    """Try to match input to a specific AP course. Returns course dict or None."""
-    # Try exact pattern matches (longest first for greedy matching)
-    sorted_patterns = sorted(AP_COURSE_PATTERNS.keys(), key=len, reverse=True)
-    for pattern in sorted_patterns:
-        if pattern in text_lower:
-            course_id = AP_COURSE_PATTERNS[pattern]
-            catalog = _get_ap_catalog()
-            for course in catalog.get("courses", []):
-                if course["id"] == course_id:
-                    return course
+# Gaokao course patterns (zh + pinyin/en)
+GAOKAO_COURSE_PATTERNS: Dict[str, str] = {
+    "高考数学": "gaokao_math", "gaokao math": "gaokao_math",
+    "高考物理": "gaokao_physics", "gaokao physics": "gaokao_physics",
+    "高考化学": "gaokao_chemistry", "gaokao chemistry": "gaokao_chemistry",
+    "高考生物": "gaokao_biology", "gaokao biology": "gaokao_biology",
+    "高考语文": "gaokao_chinese", "gaokao chinese": "gaokao_chinese", "gaokao yuwen": "gaokao_chinese",
+    "高考英语": "gaokao_english", "gaokao english": "gaokao_english",
+    "高考历史": "gaokao_history", "gaokao history": "gaokao_history",
+}
+
+# IB course patterns
+IB_COURSE_PATTERNS: Dict[str, str] = {
+    "ib math aa hl": "ib_math_aa_hl", "ib mathematics aa hl": "ib_math_aa_hl",
+    "ib math aa sl": "ib_math_aa_sl", "ib mathematics aa sl": "ib_math_aa_sl",
+    "ib math aa": "ib_math_aa_hl",
+    "ib physics hl": "ib_physics_hl", "ib physics": "ib_physics_hl",
+    "ib chemistry hl": "ib_chemistry_hl", "ib chemistry": "ib_chemistry_hl", "ib chem": "ib_chemistry_hl",
+    "ib biology hl": "ib_biology_hl", "ib biology": "ib_biology_hl", "ib bio": "ib_biology_hl",
+    "ib english a": "ib_english_a_lang_lit_hl",
+    "ib english language and literature": "ib_english_a_lang_lit_hl",
+    "ib history hl": "ib_history_hl", "ib history": "ib_history_hl",
+    "ib economics hl": "ib_economics_hl", "ib economics": "ib_economics_hl", "ib econ": "ib_economics_hl",
+}
+
+# A-Level course patterns
+A_LEVEL_COURSE_PATTERNS: Dict[str, str] = {
+    "a level math": "a_level_math", "a-level math": "a_level_math",
+    "a level mathematics": "a_level_math", "cambridge math": "a_level_math",
+    "a level physics": "a_level_physics", "a-level physics": "a_level_physics",
+    "cambridge physics": "a_level_physics", "9702": "a_level_physics",
+    "a level chemistry": "a_level_chemistry", "a-level chemistry": "a_level_chemistry",
+    "cambridge chemistry": "a_level_chemistry", "9701": "a_level_chemistry",
+    "a level biology": "a_level_biology", "a-level biology": "a_level_biology",
+    "cambridge biology": "a_level_biology", "9700": "a_level_biology",
+    "a level economics": "a_level_economics", "a-level economics": "a_level_economics",
+    "a level econ": "a_level_economics", "9708": "a_level_economics",
+    "a level english literature": "a_level_english_lit",
+    "a level english lit": "a_level_english_lit",
+    "a level history": "a_level_history", "a-level history": "a_level_history",
+}
+
+_FRAMEWORK_COURSE_PATTERNS = {
+    "ap": AP_COURSE_PATTERNS,
+    "gaokao": GAOKAO_COURSE_PATTERNS,
+    "ib": IB_COURSE_PATTERNS,
+    "a_level": A_LEVEL_COURSE_PATTERNS,
+}
+
+
+def _detect_course(text_lower: str, framework: Optional[str] = None) -> Optional[Dict]:
+    """Try to match input to a specific course in any framework's catalog.
+    If framework is given, only check that framework. Otherwise try all in priority: ap, ib, a_level, gaokao."""
+    frameworks_to_try = [framework] if framework else ["ap", "ib", "a_level", "gaokao"]
+    for fw in frameworks_to_try:
+        patterns = _FRAMEWORK_COURSE_PATTERNS.get(fw, {})
+        sorted_patterns = sorted(patterns.keys(), key=len, reverse=True)
+        for pattern in sorted_patterns:
+            if pattern in text_lower:
+                course_id = patterns[pattern]
+                catalog = _get_catalog(fw)
+                for course in catalog.get("courses", []):
+                    if course["id"] == course_id:
+                        return {**course, "_framework": fw}
     return None
+
+
+# Backwards-compat alias
+def _detect_ap_course(text_lower: str) -> Optional[Dict]:
+    return _detect_course(text_lower, framework="ap")
 
 
 # Keywords per subject — EN and ZH mixed, all lowercase for matching
@@ -248,17 +311,17 @@ class SubjectDetector:
         """
         text_lower = text.lower()
 
-        # Priority: try AP course-level detection first
-        ap_course = _detect_ap_course(text_lower)
-        if ap_course:
+        # Priority: try framework course-level detection first (AP, IB, A-Level, Gaokao)
+        course = _detect_course(text_lower)
+        if course:
             return SubjectDetection(
-                subject=ap_course["subject"],
-                framework="ap",
+                subject=course["subject"],
+                framework=course.get("_framework", "ap"),
                 difficulty="intermediate",
-                topics=ap_course["units"][:5],
+                topics=course["units"][:5],
                 confidence=0.95,
-                course_id=ap_course["id"],
-                course_name=ap_course["name"],
+                course_id=course["id"],
+                course_name=course.get("name"),
             )
 
         scores = _detect_subject_scores(text_lower)

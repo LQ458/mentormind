@@ -147,7 +147,7 @@ body {
   color: var(--ink);
   flex: 1;
 }
-.topbar .page-title .zh { color: var(--ink-muted); font-size: 14px; margin-left: 8px; }
+/* .topbar .page-title .zh — removed: single-language UI */
 
 .search-pill {
   display: inline-flex; align-items: center; gap: 10px;
@@ -238,7 +238,7 @@ body {
   font-size: 17px;
 }
 .sb-brand .wordmark { font-weight: 600; font-size: 15px; letter-spacing: -0.005em; }
-.sb-brand .wordmark .zh { color: var(--ink-muted); font-weight: 400; margin-left: 5px; font-size: 12px; }
+/* .sb-brand .wordmark .zh — removed: single-language UI */
 
 .sb-section { margin-bottom: 22px; }
 .sb-section .sb-head {
@@ -334,7 +334,7 @@ body {
   margin: 0 0 8px;
   color: var(--ink);
 }
-.page-head-new h1 .zh { color: var(--ink-muted); font-size: 22px; margin-left: 10px; letter-spacing: 0; }
+/* .page-head-new h1 .zh — removed: single-language UI */
 .page-head-new .kicker {
   font-size: 15px;
   color: var(--ink-muted);
@@ -354,7 +354,7 @@ body {
   margin: 0;
   color: var(--ink);
 }
-.section-title h2 .zh { color: var(--ink-muted); font-size: 14px; margin-left: 8px; }
+/* .section-title h2 .zh — removed: single-language UI */
 .section-title .tools {
   display: flex; gap: 12px;
   font-size: 13px; color: var(--ink-muted);
@@ -509,8 +509,8 @@ body {
 .main::-webkit-scrollbar-thumb, .sidebar::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 999px; }
 .main::-webkit-scrollbar-track, .sidebar::-webkit-scrollbar-track { background: transparent; }
 
-/* Mobile responsive — collapse sidebar */
-@media (max-width: 900px) {
+/* Responsive — collapse sidebar at 1024px (iPad landscape and below) */
+@media (max-width: 1024px) {
   .app {
     grid-template-columns: 1fr;
     grid-template-areas:
@@ -521,6 +521,32 @@ body {
   .main { padding: 8px 16px 80px; }
   .topbar { padding: 0 16px; }
   .search-pill { min-width: 0; }
+}
+
+/* Mobile drawer — sidebar slides in when .sidebar--mobile-open is set */
+@media (max-width: 1024px) {
+  .sidebar--mobile-open {
+    display: flex;
+    position: fixed;
+    top: 0; left: 0;
+    height: 100dvh;
+    z-index: 50;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.15);
+  }
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 49;
+    background: rgba(0,0,0,0.35);
+  }
+}
+.sidebar-overlay { display: none; }
+
+/* Extra-small screens (375px) */
+@media (max-width: 480px) {
+  .main { padding: 8px 12px 80px; }
+  .topbar { gap: 8px; }
 }
 
 /* ============================================================

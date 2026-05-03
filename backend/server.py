@@ -23,6 +23,12 @@ import uvicorn
 from dotenv import load_dotenv
 import tempfile
 import shutil
+import re
+
+# Per-IP rate limiting for no-auth POSTs (slowapi)
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Load environment variables
 load_dotenv()
@@ -93,6 +99,22 @@ app = FastAPI(
     response_model_exclude_unset=False,
     response_model_by_alias=False,
 )
+
+# Rate limiter — per-IP cap on the no-auth POST endpoints. Decorated routes
+# below opt in via @limiter.limit("...").
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# Path-param validator: session_id must look like a UUID-ish lowercase hex
+# string (allow dashes; permissive on length to accommodate existing keys).
+_SESSION_ID_RE = re.compile(r"[0-9a-f-]{8,64}", re.I)
+
+
+def _validate_session_id_or_400(session_id: str) -> None:
+    if not isinstance(session_id, str) or not _SESSION_ID_RE.fullmatch(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session_id format")
 
 # Configure CORS for frontend
 _cors_origins = ["http://localhost:3000", "http://localhost:3001"]
@@ -2920,6 +2942,13 @@ from core.agents.study_plan_agent import StudyPlanAgent, PlanStage, PlanResponse
 from core.agents.subject_detector import SubjectDetector
 from core.content.gaokao_tutor import GaokaoTutor
 from database.models.study_plan import StudyPlan, StudyPlanUnit, GaokaoSession
+from database.models.board_session import BoardSession
+from database.models.telemetry import TelemetryEvent, ALLOWED_EVENT_TYPES
+from core.board.storage import (
+    save_board_state as _board_save_state,
+    load_board_state as _board_load_state,
+    list_user_board_sessions as _board_list_user_sessions,
+)
 
 study_plan_agent = StudyPlanAgent()
 subject_detector = SubjectDetector()
@@ -2930,6 +2959,11 @@ class StudyPlanChatRequest(BaseModel):
     history: List[Dict[str, str]]
     stage: str = "opening"
     language: str = "en"
+    # Frontend sends the user-selected subject/framework from the framework
+    # picker; honour these as authoritative and only fall back to detection
+    # when they are missing.
+    subject: Optional[str] = None
+    framework: Optional[str] = None
 
 
 class StudyPlanChatResponse(BaseModel):
@@ -2941,6 +2975,8 @@ class StudyPlanChatResponse(BaseModel):
     diagnostic_question: Optional[str] = None
     next_action_label: Optional[str] = None
     detected_subject: Optional[Dict[str, Any]] = None
+    options: Optional[List[str]] = None
+    allow_free_text: bool = True
 
 
 class StudyPlanCreateRequest(BaseModel):
@@ -3002,6 +3038,8 @@ async def study_plan_chat(req: StudyPlanChatRequest):
             history=req.history,
             current_stage=current_stage,
             language=req.language,
+            preselected_subject=req.subject,
+            preselected_framework=req.framework,
         )
         return StudyPlanChatResponse(
             success=True,
@@ -3012,6 +3050,8 @@ async def study_plan_chat(req: StudyPlanChatRequest):
             diagnostic_question=response.diagnostic_question,
             next_action_label=response.next_action_label,
             detected_subject=response.detected_subject,
+            options=response.options,
+            allow_free_text=response.allow_free_text,
         )
     except Exception as e:
         logger.error(f"Study plan chat failed: {e}")
@@ -4047,13 +4087,554 @@ async def _delayed_session_cleanup(session_id: str, delay_seconds: float) -> Non
     _board_sessions.pop(session_id, None)
 
 
+def _board_session_to_state_dict(session: dict, status: Optional[str] = None) -> Dict[str, Any]:
+    """Convert an in-memory _board_sessions entry into the persisted state shape."""
+    state_mgr = session.get("state_manager")
+    board_dict = None
+    elements: Dict[str, Any] = {}
+    element_order: List[str] = []
+    narration_log: List[Dict[str, Any]] = []
+    last_event_seq = 0
+    try:
+        if state_mgr is not None:
+            board_dict = state_mgr.get_state()
+            if isinstance(board_dict, dict):
+                elements = board_dict.get("elements", {}) or {}
+                element_order = list(elements.keys())
+                narration_log = board_dict.get("narration_queue", []) or []
+                last_event_seq = len(board_dict.get("event_log", []) or [])
+    except Exception:
+        pass
+    return {
+        "board": board_dict,
+        "elements": elements,
+        "element_order": element_order,
+        "narration_log": narration_log,
+        "audio_queue": session.get("audio_queue", []) or [],
+        "chat_history": session.get("chat_history", []) or [],
+        "last_event_seq": last_event_seq,
+        "status": status or session.get("status") or "generating",
+    }
+
+
+def _persist_board_session_sync(
+    session_id: str,
+    session: dict,
+    status: Optional[str] = None,
+    last_event_seq: Optional[int] = None,
+) -> None:
+    """Synchronous helper — never call directly from an async coroutine; use _persist_board_session_safe."""
+    try:
+        from database.base import SessionLocal as _SL
+        with _SL() as _db:
+            cfg = session.get("config") or {}
+            state_dict = _board_session_to_state_dict(session, status=status)
+            # Caller passed an explicit running counter — override the value
+            # derived from in-memory event_log so a server restart can't reset
+            # the persisted seq to 0.
+            if isinstance(last_event_seq, int):
+                state_dict["last_event_seq"] = last_event_seq
+            _board_save_state(
+                _db,
+                session_id,
+                user_id=str(session.get("user_id")) if session.get("user_id") is not None else None,
+                plan_id=session.get("plan_id"),
+                unit_id=session.get("unit_id"),
+                topic=cfg.get("topic"),
+                title=cfg.get("topic"),
+                status=status,
+                state=state_dict,
+                config=cfg,
+            )
+    except Exception as exc:
+        logger.warning(f"_persist_board_session_safe failed for {session_id}: {exc}")
+
+
+async def _persist_board_session_safe(
+    session_id: str,
+    session: dict,
+    status: Optional[str] = None,
+    last_event_seq: Optional[int] = None,
+) -> None:
+    """Best-effort durable save offloaded to a thread so we don't block the asyncio loop."""
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, _persist_board_session_sync, session_id, session, status, last_event_seq
+        )
+    except Exception as exc:
+        logger.warning(f"_persist_board_session_safe scheduling failed for {session_id}: {exc}")
+
+
+# ── Board Persistence Endpoints ─────────────────────────────────────────────
+
+@app.get("/board/{session_id}/state")
+async def get_board_persisted_state(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the persisted state for a saved board session.
+
+    404 if not found. 403 if owned by another user. Used by the client to
+    hydrate the reducer before opening the WebSocket on revisit.
+    """
+    _validate_session_id_or_400(session_id)
+    loaded = _board_load_state(db, session_id, user_id=str(current_user.id))
+    if loaded is None:
+        raise HTTPException(status_code=404, detail="Board session not found")
+    if isinstance(loaded, dict) and loaded.get("__forbidden__"):
+        raise HTTPException(status_code=403, detail="Not authorized for this session")
+    return {"success": True, "session": loaded}
+
+
+class BoardStateSavePayload(BaseModel):
+    state: Optional[Dict[str, Any]] = None
+    status: Optional[str] = None
+    last_event_seq: Optional[int] = None
+
+
+@app.post("/board/{session_id}/save")
+@limiter.limit("60/minute")
+async def save_board_persisted_state(
+    session_id: str,
+    request: Request,
+    current_user: Optional[User] = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+):
+    """Accept a durable snapshot of board state from the client.
+
+    Auth optional — used by sendBeacon on unmount/beforeunload, which cannot
+    always attach the auth header. If a user is authenticated we record their
+    id for ownership checks.
+    """
+    _validate_session_id_or_400(session_id)
+    # Cap payload size at 256KB to keep these writes cheap.
+    raw = await request.body()
+    if len(raw) > 256 * 1024:
+        raise HTTPException(status_code=413, detail="Payload too large")
+    try:
+        body = json.loads(raw.decode("utf-8") or "{}") if raw else {}
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        body = {}
+
+    state = body.get("state") if isinstance(body.get("state"), dict) else None
+    status = body.get("status") if isinstance(body.get("status"), str) else None
+    seq = body.get("last_event_seq")
+    if state is not None and isinstance(seq, int) and "last_event_seq" not in state:
+        state["last_event_seq"] = seq
+
+    user_id = str(current_user.id) if current_user else None
+    mem = _board_sessions.get(session_id) or {}
+    existing = db.query(BoardSession).filter(BoardSession.id == session_id).first()
+
+    # Anti-squat: only accept saves when (a) the row already exists with a
+    # matching owner, OR (b) an in-memory session exists for this id (which is
+    # only created via the authenticated /study-plan/.../board-lesson endpoint),
+    # OR (c) the row exists and is unclaimed AND the requesting user owns the
+    # in-memory session of the same id. An unauthenticated POST with no prior
+    # row and no in-memory session is rejected as a squatter.
+    mem_user_id = str(mem.get("user_id")) if mem.get("user_id") is not None else None
+    if existing is None and not mem:
+        raise HTTPException(status_code=404, detail="Unknown board session")
+    if existing is not None and existing.user_id and user_id and str(existing.user_id) != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized for this session")
+    if existing is not None and existing.user_id and mem_user_id and str(existing.user_id) != mem_user_id:
+        # In-memory session belongs to a different user than the persisted row.
+        raise HTTPException(status_code=403, detail="Not authorized for this session")
+    # If we have neither auth nor an in-memory session, but a row already exists
+    # with no owner, treat as squat: refuse silently.
+    if existing is not None and existing.user_id is None and not user_id and not mem_user_id:
+        raise HTTPException(status_code=403, detail="Anonymous saves are not allowed for this session")
+    cfg = mem.get("config") or {}
+    # Bind to whichever owner we can identify: prefer authenticated user, else
+    # fall back to the in-memory owner so sendBeacon (no auth) still binds.
+    bound_user_id = user_id or mem_user_id
+    _board_save_state(
+        db,
+        session_id,
+        user_id=bound_user_id,
+        plan_id=mem.get("plan_id"),
+        unit_id=mem.get("unit_id"),
+        topic=cfg.get("topic"),
+        title=cfg.get("topic"),
+        status=status,
+        state=state,
+        config=cfg or None,
+    )
+    return {"success": True}
+
+
+@app.get("/board/my-sessions")
+async def list_my_board_sessions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return saved sessions for the current user, newest first."""
+    sessions = _board_list_user_sessions(db, str(current_user.id), limit=50)
+    return {"success": True, "sessions": sessions}
+
+
+# ── Telemetry Endpoints ──────────────────────────────────────────────────────
+
+class TelemetryEventPayload(BaseModel):
+    session_id: str
+    event_type: str
+    page: Optional[str] = None
+    url: Optional[str] = None
+    latency_ms: Optional[int] = None
+    payload: Optional[Dict[str, Any]] = None
+    viewport_w: Optional[int] = None
+    viewport_h: Optional[int] = None
+
+
+@app.post("/telemetry/event")
+@limiter.limit("60/minute")
+async def post_telemetry_event(
+    request: Request,
+    current_user: Optional[User] = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+):
+    """Record a single client-side telemetry event. No auth required."""
+    raw = await request.body()
+    if len(raw) > 8 * 1024:
+        raise HTTPException(status_code=413, detail="Payload too large")
+    try:
+        body = json.loads(raw.decode("utf-8") or "{}") if raw else {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Body must be a JSON object")
+
+    event_type = body.get("event_type")
+    session_id = body.get("session_id")
+    if not isinstance(event_type, str) or event_type not in ALLOWED_EVENT_TYPES:
+        raise HTTPException(status_code=400, detail="Unknown event_type")
+    if not isinstance(session_id, str) or not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+
+    def _str_or_none(v, max_len: int) -> Optional[str]:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            v = str(v)
+        return v[:max_len]
+
+    def _int_or_none(v) -> Optional[int]:
+        if v is None:
+            return None
+        try:
+            return int(v)
+        except Exception:
+            return None
+
+    # Defense-in-depth: clamp every string field inside `payload` to 8000 chars
+    # so a future event_type with large strings can't blow up the row. Special
+    # case `survey_response.freeText` to 4000 (matches the client cap).
+    raw_payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
+    safe_payload: Dict[str, Any] = {}
+    for k, v in raw_payload.items():
+        if isinstance(v, str):
+            cap = 8000
+            if event_type == "survey_response" and k == "freeText":
+                cap = 4000
+            safe_payload[k] = v[:cap]
+        else:
+            safe_payload[k] = v
+
+    user_agent = request.headers.get("user-agent")
+    client_host = request.client.host if request.client else None
+
+    event = TelemetryEvent(
+        user_id=str(current_user.id) if current_user else None,
+        session_id=session_id[:255],
+        event_type=event_type[:64],
+        page=_str_or_none(body.get("page"), 64),
+        url=_str_or_none(body.get("url"), 512),
+        latency_ms=_int_or_none(body.get("latency_ms")),
+        payload=safe_payload,
+        viewport_w=_int_or_none(body.get("viewport_w")),
+        viewport_h=_int_or_none(body.get("viewport_h")),
+        user_agent=_str_or_none(user_agent, 512),
+        ip_address=_str_or_none(client_host, 45),
+    )
+    try:
+        db.add(event)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning(f"telemetry insert failed: {exc}")
+        # Telemetry failure must never block the user-facing flow.
+        return {"ok": True, "recorded": False}
+    return {"ok": True}
+
+
+def _percentile(values: List[float], pct: float) -> Optional[float]:
+    if not values:
+        return None
+    s = sorted(values)
+    if pct <= 0:
+        return float(s[0])
+    if pct >= 100:
+        return float(s[-1])
+    k = (pct / 100.0) * (len(s) - 1)
+    f = int(k)
+    c = min(f + 1, len(s) - 1)
+    if f == c:
+        return float(s[f])
+    return float(s[f] + (s[c] - s[f]) * (k - f))
+
+
+@app.get("/admin/telemetry/aggregate")
+async def get_admin_telemetry_aggregate(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    event_type: Optional[str] = None,
+    group_by: Optional[str] = "page",
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Aggregate telemetry counters and latency percentiles for admin dashboards.
+
+    Admin-gated via the `User.role` field. Falls back to summary-only if a
+    bad date is passed.
+    """
+    if (current_user.role or "").lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    from datetime import datetime as _dt
+    from sqlalchemy import func as _fn, case as _case
+
+    q = db.query(TelemetryEvent)
+    try:
+        if start_date:
+            q = q.filter(TelemetryEvent.created_at >= _dt.fromisoformat(start_date))
+        if end_date:
+            q = q.filter(TelemetryEvent.created_at <= _dt.fromisoformat(end_date))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid start_date/end_date")
+
+    if event_type:
+        if event_type not in ALLOWED_EVENT_TYPES:
+            raise HTTPException(status_code=400, detail="Unknown event_type")
+        q = q.filter(TelemetryEvent.event_type == event_type)
+
+    # Build a reusable filter list once, so the percentile + group-by queries
+    # stay in sync with the top-error query. Avoid q.all() — Postgres does
+    # the percentile work via percentile_cont.
+    filters = []
+    try:
+        if start_date:
+            filters.append(TelemetryEvent.created_at >= _dt.fromisoformat(start_date))
+        if end_date:
+            filters.append(TelemetryEvent.created_at <= _dt.fromisoformat(end_date))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid start_date/end_date")
+    if event_type:
+        filters.append(TelemetryEvent.event_type == event_type)
+
+    # Top-level summary — compute percentiles in SQL.
+    summary_q = db.query(
+        _fn.percentile_cont(0.5).within_group(TelemetryEvent.latency_ms.asc()).label("p50"),
+        _fn.percentile_cont(0.95).within_group(TelemetryEvent.latency_ms.asc()).label("p95"),
+        _fn.percentile_cont(0.99).within_group(TelemetryEvent.latency_ms.asc()).label("p99"),
+        _fn.count().label("total"),
+        _fn.count(_fn.distinct(TelemetryEvent.session_id)).label("unique_sessions"),
+    )
+    for f in filters:
+        summary_q = summary_q.filter(f)
+    summary_row = summary_q.one()
+    summary = {
+        "total": int(summary_row.total or 0),
+        "unique_sessions": int(summary_row.unique_sessions or 0),
+        "p50": float(summary_row.p50) if summary_row.p50 is not None else None,
+        "p95": float(summary_row.p95) if summary_row.p95 is not None else None,
+        "p99": float(summary_row.p99) if summary_row.p99 is not None else None,
+    }
+
+    # Group breakdown — single SQL query with percentile_cont per group.
+    if group_by not in ("page", "event_type"):
+        group_by = "page"
+    group_col = TelemetryEvent.page if group_by == "page" else TelemetryEvent.event_type
+
+    group_q = db.query(
+        group_col.label("key"),
+        _fn.count().label("count"),
+        _fn.avg(TelemetryEvent.latency_ms).label("avg_latency"),
+        _fn.sum(
+            _case(
+                (TelemetryEvent.event_type.in_(["error_console", "error_network"]), 1),
+                else_=0,
+            )
+        ).label("err_count"),
+    )
+    for f in filters:
+        group_q = group_q.filter(f)
+    group_q = group_q.group_by(group_col).order_by(_fn.count().desc())
+
+    by_group = []
+    for row in group_q.all():
+        cnt = int(row.count or 0)
+        err_count = int(row.err_count or 0)
+        by_group.append({
+            "key": row.key or "",
+            "count": cnt,
+            "avg_latency": float(row.avg_latency) if row.avg_latency is not None else None,
+            "error_rate": (err_count / cnt) if cnt else 0.0,
+        })
+
+    # Top errors — single focused query that only loads error rows (still
+    # bounded; payload signatures are inspected in Python because they vary).
+    err_q = db.query(TelemetryEvent.payload).filter(
+        TelemetryEvent.event_type.in_(["error_console", "error_network"])
+    )
+    for f in filters:
+        err_q = err_q.filter(f)
+    err_q = err_q.limit(5000)
+
+    err_counter: Dict[str, int] = {}
+    for (payload,) in err_q.all():
+        try:
+            p = payload or {}
+            sig = (
+                p.get("message")
+                or p.get("status_code")
+                or p.get("url")
+                or "unknown"
+            )
+            sig = str(sig)[:200]
+        except Exception:
+            sig = "unknown"
+        err_counter[sig] = err_counter.get(sig, 0) + 1
+    top_errors = [
+        {"signature": k, "count": v}
+        for k, v in sorted(err_counter.items(), key=lambda kv: -kv[1])[:20]
+    ]
+
+    return {
+        "success": True,
+        "summary": summary,
+        "by_group": by_group,
+        "top_errors": top_errors,
+        "group_by": group_by,
+        "filters": {
+            "start_date": start_date,
+            "end_date": end_date,
+            "event_type": event_type,
+        },
+    }
+
+
+# ── Study-plan library endpoint ────────────────────────────────────────────
+
+@app.get("/study-plan/library")
+async def get_study_plan_library(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the user's study plans grouped with their units and most-recent
+    saved board session id (if any) per unit. Skips archived plans."""
+    try:
+        plans = (
+            db.query(StudyPlan)
+            .filter(StudyPlan.user_id == current_user.id)
+            .filter(StudyPlan.status != "archived")
+            .order_by(StudyPlan.created_at.desc())
+            .all()
+        )
+
+        # Pre-fetch most-recent board session per unit owned by this user
+        # (joined via plan_id+unit_id). Use a single query for efficiency.
+        sessions = (
+            db.query(BoardSession)
+            .filter(BoardSession.user_id == str(current_user.id))
+            .order_by(BoardSession.updated_at.desc().nullslast(), BoardSession.created_at.desc())
+            .all()
+        )
+        latest_by_unit: Dict[str, str] = {}
+        for s in sessions:
+            if s.plan_id and s.unit_id and s.unit_id not in latest_by_unit:
+                key = f"{s.plan_id}:{s.unit_id}"
+                latest_by_unit.setdefault(key, s.id)
+
+        result = []
+        for plan in plans:
+            units_payload = []
+            for unit in plan.units:
+                key = f"{plan.id}:{unit.id}"
+                units_payload.append({
+                    "id": str(unit.id),
+                    "order_index": unit.order_index,
+                    "title": unit.title,
+                    "topics": unit.topics or [],
+                    "estimated_minutes": unit.estimated_minutes,
+                    "content_status": unit.content_status,
+                    "is_completed": bool(unit.is_completed),
+                    "score": unit.score,
+                    "board_session_id": latest_by_unit.get(key),
+                })
+            result.append({
+                "id": str(plan.id),
+                "title": plan.title,
+                "subject": plan.subject,
+                "framework": plan.framework,
+                "status": plan.status,
+                "progress_percentage": plan.progress_percentage,
+                "language": plan.language,
+                "units": units_payload,
+            })
+
+        return {"success": True, "plans": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch study plan library: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.websocket("/ws/board/{session_id}")
 async def board_websocket(websocket: WebSocket, session_id: str):
-    """WebSocket endpoint for streaming board lesson events in real-time."""
+    """WebSocket endpoint for streaming board lesson events in real-time.
+
+    Important: every reject path MUST call `accept()` first and then send a
+    structured `error` event before closing with an application close code.
+    Closing before `accept()` makes browsers report a generic 'WebSocket
+    connection failed' with no code, which prevents the client from
+    distinguishing fatal errors from transient drops.
+    """
+    # Always accept first so close codes / error events reach the browser.
+    await websocket.accept()
+
+    # Reject malformed session_id paths early.
+    if not _SESSION_ID_RE.fullmatch(session_id or ""):
+        try:
+            await websocket.send_json(
+                {"event_type": "error", "data": {"error": "Invalid session_id format", "code": 4400}}
+            )
+        except Exception:
+            pass
+        try:
+            await websocket.close(code=4400)
+        except Exception:
+            pass
+        return
+
+    async def _reject(code: int, reason: str):
+        try:
+            await websocket.send_json({"event_type": "error", "data": {"error": reason, "code": code}})
+        except Exception:
+            pass
+        try:
+            await websocket.close(code=code)
+        except Exception:
+            pass
+
     # Authenticate via token query parameter
     token = websocket.query_params.get("token")
     if not token:
-        await websocket.close(code=4001)
+        await _reject(4001, "Missing auth token")
         return
     try:
         from auth import decode_token, clerk_id_to_uuid
@@ -4069,21 +4650,18 @@ async def board_websocket(websocket: WebSocket, session_id: str):
             if not db_user:
                 db_user = db.query(User).filter(User.id == str(clerk_id_to_uuid(clerk_id))).first()
         resolved_user_id = db_user.id if db_user else str(clerk_id_to_uuid(clerk_id))
-    except Exception:
-        await websocket.close(code=4001)
+    except Exception as exc:
+        logger.warning(f"[ws/board] token decode failed: {exc}")
+        await _reject(4001, "Token rejected — sign in again and reload")
         return
 
     session = _board_sessions.get(session_id)
     if not session:
-        await websocket.accept()
-        await websocket.send_json({"event_type": "error", "data": {"error": "Session not found"}})
-        await websocket.close(code=4004)
+        await _reject(4004, "Lesson session expired or was cleared. Start a new lesson.")
         return
     if str(session.get("user_id")) != str(resolved_user_id):
-        await websocket.close(code=4003)
+        await _reject(4003, "You are not allowed to view this lesson session.")
         return
-
-    await websocket.accept()
 
     session["status"] = "streaming"
     config = session["config"]
@@ -4100,6 +4678,14 @@ async def board_websocket(websocket: WebSocket, session_id: str):
     tts_sync = BoardTTSSync(language="zh-CN" if config["language"] == "zh" else "en-US")
 
     paused = False
+
+    # Initial durable save so that even an early disconnect leaves a row.
+    await _persist_board_session_safe(session_id, session, status="generating")
+
+    # Running counter shared with the disconnect/cleanup paths below so the
+    # persisted last_event_seq reflects monotonic progress, not in-memory
+    # event_log length (which resets on server restart).
+    emitted_counter = {"n": 0}
 
     async def _send_events():
         nonlocal paused
@@ -4118,10 +4704,23 @@ async def board_websocket(websocket: WebSocket, session_id: str):
             try:
                 await websocket.send_json(event.to_dict())
             except WebSocketDisconnect:
+                # Persist whatever state we have so a revisit can resume.
+                await _persist_board_session_safe(
+                    session_id, session, status="paused", last_event_seq=emitted_counter["n"]
+                )
                 return
             except Exception as e:
                 logger.error(f"Error sending board event: {e}")
+                await _persist_board_session_safe(
+                    session_id, session, status="error", last_event_seq=emitted_counter["n"]
+                )
                 return
+            emitted_counter["n"] += 1
+            # Persist every 5 events so revisits are close to current state.
+            if emitted_counter["n"] % 5 == 0:
+                await _persist_board_session_safe(
+                    session_id, session, status="generating", last_event_seq=emitted_counter["n"]
+                )
 
         # Auto-generate summary the moment the lesson stream finishes so the
         # client receives it without a follow-up HTTP round-trip.
@@ -4145,6 +4744,9 @@ async def board_websocket(websocket: WebSocket, session_id: str):
                         "data": {"summary": markdown},
                     })
                 except WebSocketDisconnect:
+                    await _persist_board_session_safe(
+                        session_id, session, status="done", last_event_seq=emitted_counter["n"]
+                    )
                     return
         except Exception as exc:
             logger.warning(f"Auto-summary generation failed: {exc}")
@@ -4154,9 +4756,17 @@ async def board_websocket(websocket: WebSocket, session_id: str):
                 {"event_type": "done", "timestamp": time.time(), "data": {}}
             )
         except WebSocketDisconnect:
+            await _persist_board_session_safe(
+                session_id, session, status="done", last_event_seq=emitted_counter["n"]
+            )
             return
         except Exception as e:
             logger.debug(f"Could not send done event: {e}")
+
+        # Final durable save with status=done so library shows it as resumable.
+        await _persist_board_session_safe(
+            session_id, session, status="done", last_event_seq=emitted_counter["n"]
+        )
 
     send_task = asyncio.create_task(_send_events())
 
@@ -4196,6 +4806,14 @@ async def board_websocket(websocket: WebSocket, session_id: str):
         except asyncio.CancelledError:
             pass
         session["status"] = "completed"
+        # Persist final state on disconnect so revisits can resume without
+        # depending on the client beacon firing.
+        await _persist_board_session_safe(
+            session_id,
+            session,
+            status=session.get("status"),
+            last_event_seq=emitted_counter["n"],
+        )
         # Keep the session alive for a grace period so the client can still
         # fetch the cached summary or reconnect briefly without a 404.
         asyncio.create_task(_delayed_session_cleanup(session_id, 600))

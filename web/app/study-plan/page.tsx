@@ -2,20 +2,35 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import DOMPurify from 'dompurify'
 import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '@clerk/nextjs'
 import { PageHead, Section } from '../components/design/primitives'
 import KnowledgeGraph from '../components/design/KnowledgeGraph'
+import { SUBJECTS } from '../lib/subjects'
+import { FRAMEWORKS, getFramework } from '../lib/frameworks'
+import { getCourseSuggestions } from '../lib/course-suggestions'
+import { track } from '../lib/telemetry'
+
+// DOMPurify only runs in the browser. On the server (during SSR/prerender) we
+// fall back to passing the input through unchanged because the eventual render
+// happens client-side and will be sanitized there.
+const sanitizeHtml = (html: string): string =>
+  typeof window === 'undefined' ? html : DOMPurify.sanitize(html)
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type WorkflowPhase = 'selecting' | 'chatting' | 'plan_review' | 'creating' | 'done' | 'gaokao_chatting' | 'gaokao_saving'
+type WorkflowPhase = 'selecting' | 'chatting' | 'plan_review' | 'creating' | 'done'
 
 interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
+  // v2 smart-interaction fields: when the backend emits an ask_user block,
+  // we surface clickable option chips alongside the chat bubble.
+  options?: string[]
+  allowFreeText?: boolean
 }
 
 interface StudyUnit {
@@ -32,34 +47,6 @@ interface ProposedPlan {
   units: StudyUnit[]
 }
 
-// ── Constants ────────────────────────────────────────────────────────────────
-
-const SUBJECTS = [
-  // STEM
-  { id: 'math', label: 'Mathematics', labelZh: '数学', icon: '📐', category: 'stem' },
-  { id: 'physics', label: 'Physics', labelZh: '物理', icon: '⚛️', category: 'stem' },
-  { id: 'chemistry', label: 'Chemistry', labelZh: '化学', icon: '🧪', category: 'stem' },
-  { id: 'biology', label: 'Biology', labelZh: '生物', icon: '🧬', category: 'stem' },
-  { id: 'cs', label: 'Computer Science', labelZh: '计算机科学', icon: '💻', category: 'stem' },
-  { id: 'environmental_science', label: 'Environmental Science', labelZh: '环境科学', icon: '🌍', category: 'stem' },
-  // Humanities & Social Sciences
-  { id: 'history', label: 'History', labelZh: '历史', icon: '📜', category: 'humanities' },
-  { id: 'english', label: 'English', labelZh: '英语', icon: '📝', category: 'humanities' },
-  { id: 'economics', label: 'Economics', labelZh: '经济学', icon: '📊', category: 'humanities' },
-  { id: 'psychology', label: 'Psychology', labelZh: '心理学', icon: '🧠', category: 'humanities' },
-  { id: 'government', label: 'Government & Politics', labelZh: '政治学', icon: '🏛️', category: 'humanities' },
-  { id: 'world_languages', label: 'World Languages', labelZh: '外国语', icon: '🌐', category: 'humanities' },
-  { id: 'art', label: 'Art', labelZh: '艺术', icon: '🎨', category: 'humanities' },
-]
-
-const FRAMEWORKS = [
-  { id: 'ap', label: 'AP (Advanced Placement)', labelZh: 'AP (美国大学预修)' },
-  { id: 'a_level', label: 'A Level (Cambridge)', labelZh: 'A Level (剑桥)' },
-  { id: 'ib', label: 'IB (International Baccalaureate)', labelZh: 'IB (国际文凭)' },
-  { id: 'gaokao', label: 'Gaokao (高考)', labelZh: '高考' },
-  { id: 'general', label: 'General', labelZh: '通用' },
-]
-
 // ── Message renderer (matches /create pattern) ───────────────────────────────
 
 function AssistantMessage({ content }: { content: string }) {
@@ -72,7 +59,7 @@ function AssistantMessage({ content }: { content: string }) {
       /`([^`]+)`/g,
       '<code class="bg-gray-200 rounded px-1 py-0.5 text-xs font-mono">$1</code>'
     )
-    return <span key={key} dangerouslySetInnerHTML={{ __html: code }} />
+    return <span key={key} dangerouslySetInnerHTML={{ __html: sanitizeHtml(code) }} />
   }
 
   return (
@@ -109,14 +96,8 @@ export default function StudyPlanPage() {
   const [createdPlanId, setCreatedPlanId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Gaokao-specific state
-  const [gaokaoMessages, setGaokaoMessages] = useState<ChatMessage[]>([])
-  const [gaokaoInput, setGaokaoInput] = useState('')
-  const [gaokaoTyping, setGaokaoTyping] = useState(false)
-  const [gaokaoSessionId, setGaokaoSessionId] = useState<string | null>(null)
-  const [gaokaoTopicFocus, setGaokaoTopicFocus] = useState('')
-  const [gaokaoStreamingContent, setGaokaoStreamingContent] = useState<string | null>(null)
-  const [gaokaoSaving, setGaokaoSaving] = useState(false)
+  // Gaokao now flows through the same chat path as every other framework.
+  // Standalone Gaokao tutoring lives at /gaokao (kept for bookmark continuity).
 
   const chatEndRef = useRef<HTMLDivElement>(null)
 
@@ -155,14 +136,13 @@ export default function StudyPlanPage() {
   // Auto-scroll on new messages or streaming updates
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages, streamingContent, gaokaoMessages, gaokaoStreamingContent])
+  }, [chatMessages, streamingContent])
 
   // Warn before leaving if there's unsaved work
   useEffect(() => {
     const hasUnsavedWork =
       (phase === 'chatting' && chatMessages.length > 1) ||
-      (phase === 'plan_review' && proposedPlan !== null) ||
-      (phase === 'gaokao_chatting' && gaokaoMessages.length > 1)
+      (phase === 'plan_review' && proposedPlan !== null)
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (hasUnsavedWork) {
@@ -172,7 +152,7 @@ export default function StudyPlanPage() {
 
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [phase, chatMessages.length, proposedPlan, gaokaoMessages.length])
+  }, [phase, chatMessages.length, proposedPlan])
 
   // ── Subject/Framework Selection ──────────────────────────────────────────
 
@@ -184,23 +164,7 @@ export default function StudyPlanPage() {
     setSelectedFramework(frameworkId)
     const subject = SUBJECTS.find((s) => s.id === selectedSubject)
 
-    if (frameworkId === 'gaokao') {
-      // Start gaokao chat inline instead of redirecting
-      const openingMessage: ChatMessage = {
-        id: 'opening_1',
-        role: 'assistant',
-        content:
-          uiLanguage === 'zh'
-            ? `你好！我是你的高考${subject?.labelZh ?? ''}助手 ${subject?.icon ?? ''}\n\n有什么${subject?.labelZh ?? ''}问题想搞懂？或者告诉我你现在在复习哪个章节，我来帮你梳理重难点！`
-            : `Hi! I'm your Gaokao ${subject?.label ?? ''} tutor ${subject?.icon ?? ''}\n\nWhat ${subject?.label ?? ''} topics would you like to work on? Tell me what you're studying and I'll help!`,
-        timestamp: new Date(),
-      }
-      setGaokaoMessages([openingMessage])
-      setPhase('gaokao_chatting')
-      return
-    }
-
-    // Non-gaokao flow
+    // Unified flow: every framework (including Gaokao) runs the same plan-creation chat.
     const framework = FRAMEWORKS.find((f) => f.id === frameworkId)
     const openingMessage: ChatMessage = {
       id: 'opening_1',
@@ -233,6 +197,7 @@ export default function StudyPlanPage() {
     setIsTyping(true)
     setError(null)
 
+    const chatStartedAt = Date.now()
     try {
       const token = await getToken()
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -254,6 +219,15 @@ export default function StudyPlanPage() {
       })
 
       const data = await response.json()
+      try {
+        track(
+          'study_plan_chat_rtt',
+          { phase: typeof data?.stage === 'string' ? data.stage : chatStage },
+          { latency_ms: Date.now() - chatStartedAt },
+        )
+      } catch {
+        // swallow
+      }
 
       if (data.success || data.content) {
         if (data.stage) setChatStage(data.stage)
@@ -274,6 +248,8 @@ export default function StudyPlanPage() {
           role: 'assistant',
           content: data.content ?? '',
           timestamp: new Date(),
+          options: Array.isArray(data.options) && data.options.length > 0 ? data.options : undefined,
+          allowFreeText: data.allow_free_text !== false,
         }
         setChatMessages((prev) => [...prev, aiResponse])
 
@@ -308,141 +284,73 @@ export default function StudyPlanPage() {
     }
   }
 
-  // ── Gaokao Chat ──────────────────────────────────────────────────────────
-
-  const handleGaokaoSend = async () => {
-    if (!gaokaoInput.trim()) return
-
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: gaokaoInput,
-      timestamp: new Date(),
-    }
-
-    setGaokaoMessages((prev) => [...prev, userMessage])
-    const currentInput = gaokaoInput
-    setGaokaoInput('')
-    setGaokaoTyping(true)
-    setError(null)
-
-    try {
-      const token = await getToken()
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (token) headers.Authorization = `Bearer ${token}`
-
-      const response = await fetch('/api/backend/gaokao/chat', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          message: currentInput,
-          session_id: gaokaoSessionId,
-          subject: selectedSubject,
-          topic_focus: gaokaoTopicFocus || undefined,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (data.session_id) {
-        setGaokaoSessionId(data.session_id)
-      }
-
-      // Stream the response word by word
-      const words = ((data.content ?? '') as string).split(' ')
-      setGaokaoStreamingContent('')
-      let built = ''
-      for (let i = 0; i < words.length; i++) {
-        built += (i === 0 ? '' : ' ') + words[i]
-        setGaokaoStreamingContent(built)
-        await new Promise((r) => setTimeout(r, 28))
-      }
-      setGaokaoStreamingContent(null)
-
-      const aiResponse: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: data.content ?? '',
+  // ── Quick-reply chip click → send the chip text as user message ─────────
+  const handleChipClick = (option: string) => {
+    if (isTyping) return
+    setUserInput(option)
+    // Defer so React updates the textarea value before send
+    setTimeout(() => {
+      setUserInput('')
+      const userMessage: ChatMessage = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: option,
         timestamp: new Date(),
       }
-      setGaokaoMessages((prev) => [...prev, aiResponse])
-    } catch (err) {
-      console.error('Gaokao chat error:', err)
-      setError(
-        uiLanguage === 'zh'
-          ? '网络错误，请检查连接后重试。'
-          : 'Network error. Please check your connection and try again.'
-      )
-    } finally {
-      setGaokaoTyping(false)
-    }
-  }
-
-  const handleGaokaoKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleGaokaoSend()
-    }
-  }
-
-  const handleSaveGaokaoPlan = async () => {
-    setGaokaoSaving(true)
-    setPhase('gaokao_saving')
-    setError(null)
-
-    try {
-      const token = await getToken()
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (token) headers.Authorization = `Bearer ${token}`
-
-      const subject = SUBJECTS.find((s) => s.id === selectedSubject)
-      const title = uiLanguage === 'zh'
-        ? `高考${subject?.labelZh ?? ''}复习计划`
-        : `Gaokao ${subject?.label ?? ''} Study Plan`
-
-      const response = await fetch('/api/backend/gaokao/save-plan', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          title,
-          subject: selectedSubject,
-          description: gaokaoTopicFocus || '',
-          session_id: gaokaoSessionId,
-          diagnostic_context: {
-            chat_history: gaokaoMessages.map((m) => ({
-              role: m.role,
-              content: m.content,
-            })),
-          },
-          language: uiLanguage === 'zh' ? 'zh' : 'en',
-        }),
-      })
-
-      const data = await response.json()
-
-      if (data.success && data.plan_id) {
-        setCreatedPlanId(data.plan_id)
-        setPhase('done')
-        router.push(`/study-plan/${data.plan_id}`)
-      } else {
-        setError(
-          uiLanguage === 'zh'
-            ? '计划创建失败，请重试。'
-            : 'Failed to create plan. Please try again.'
-        )
-        setPhase('gaokao_chatting')
-      }
-    } catch (err) {
-      console.error('Gaokao save plan error:', err)
-      setError(
-        uiLanguage === 'zh'
-          ? '网络错误，计划保存失败。'
-          : 'Network error. Failed to save plan.'
-      )
-      setPhase('gaokao_chatting')
-    } finally {
-      setGaokaoSaving(false)
-    }
+      setChatMessages((prev) => [...prev, userMessage])
+      // Mirror handleSendMessage but use the option directly
+      void (async () => {
+        setIsTyping(true)
+        setError(null)
+        const chipStartedAt = Date.now()
+        try {
+          const token = await getToken()
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+          if (token) headers.Authorization = `Bearer ${token}`
+          const response = await fetch('/api/backend/study-plan/chat', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              history: [...chatMessages, userMessage].map((m) => ({ role: m.role, content: m.content })),
+              stage: chatStage,
+              subject: selectedSubject,
+              framework: selectedFramework,
+              language: uiLanguage === 'zh' ? 'zh' : 'en',
+            }),
+          })
+          const data = await response.json()
+          try {
+            track(
+              'study_plan_chat_rtt',
+              { phase: typeof data?.stage === 'string' ? data.stage : chatStage, source: 'chip' },
+              { latency_ms: Date.now() - chipStartedAt },
+            )
+          } catch {
+            // swallow
+          }
+          if (data.success || data.content) {
+            if (data.stage) setChatStage(data.stage)
+            const aiResponse: ChatMessage = {
+              id: (Date.now() + 1).toString(),
+              role: 'assistant',
+              content: data.content ?? '',
+              timestamp: new Date(),
+              options: Array.isArray(data.options) && data.options.length > 0 ? data.options : undefined,
+              allowFreeText: data.allow_free_text !== false,
+            }
+            setChatMessages((prev) => [...prev, aiResponse])
+            if (data.proposed_plan) {
+              setProposedPlan(data.proposed_plan)
+              setPhase('plan_review')
+            }
+          }
+        } catch (err) {
+          console.error('Chip click chat error:', err)
+        } finally {
+          setIsTyping(false)
+        }
+      })()
+    }, 0)
   }
 
   // ── Auto-save plan when generated ─────────────────────────────────────────
@@ -581,7 +489,6 @@ export default function StudyPlanPage() {
       <PageHead
         eyebrow={uiLanguage === 'zh' ? '学习计划' : 'Study plan'}
         title={uiLanguage === 'zh' ? '你的学习计划' : 'Your study plan'}
-        zh={uiLanguage === 'zh' ? 'Plan' : '学习计划'}
         kicker={
           uiLanguage === 'zh'
             ? '查看已有计划，或与 AI 对话创建新的学习计划。'
@@ -589,13 +496,11 @@ export default function StudyPlanPage() {
         }
       />
 
-      {myPlans.length > 0 && (
-        <Section title={uiLanguage === 'zh' ? '知识图' : 'Knowledge graph'}>
-          <div className="card-new" style={{ padding: 18 }}>
-            <KnowledgeGraph />
-          </div>
-        </Section>
-      )}
+      <Section title={uiLanguage === 'zh' ? '知识图' : 'Knowledge graph'}>
+        <div className="card-new" style={{ padding: 18 }}>
+          <KnowledgeGraph />
+        </div>
+      </Section>
 
       {/* ── MY STUDY PLANS ────────────────────────────────────────────────── */}
       {myPlans.length > 0 && (
@@ -691,22 +596,14 @@ export default function StudyPlanPage() {
         </div>
       )}
 
-      {/* Phase indicator */}
-      <div className="grid grid-cols-4 gap-2">
-        {(selectedFramework === 'gaokao' || phase === 'gaokao_chatting' || phase === 'gaokao_saving'
-          ? [
-              { key: 'selecting', label: uiLanguage === 'zh' ? '1. 选择科目' : '1. Select' },
-              { key: 'gaokao_chatting', label: uiLanguage === 'zh' ? '2. AI 辅导' : '2. Tutor' },
-              { key: 'gaokao_saving', label: uiLanguage === 'zh' ? '3. 保存计划' : '3. Save' },
-              { key: 'done', label: uiLanguage === 'zh' ? '4. 完成' : '4. Done' },
-            ]
-          : [
-              { key: 'selecting', label: uiLanguage === 'zh' ? '1. 选择科目' : '1. Select' },
-              { key: 'chatting', label: uiLanguage === 'zh' ? '2. 对话诊断' : '2. Chat' },
-              { key: 'plan_review', label: uiLanguage === 'zh' ? '3. 确认计划' : '3. Review' },
-              { key: 'creating', label: uiLanguage === 'zh' ? '4. 生成计划' : '4. Create' },
-            ]
-        ).map((step) => (
+      {/* Phase indicator (unified for every framework, including Gaokao) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {[
+          { key: 'selecting', label: uiLanguage === 'zh' ? '1. 选择科目' : '1. Select' },
+          { key: 'chatting', label: uiLanguage === 'zh' ? '2. 对话诊断' : '2. Chat' },
+          { key: 'plan_review', label: uiLanguage === 'zh' ? '3. 确认计划' : '3. Review' },
+          { key: 'creating', label: uiLanguage === 'zh' ? '4. 生成计划' : '4. Create' },
+        ].map((step) => (
           <div
             key={step.key}
             className={`rounded-xl border px-3 py-2 text-sm font-medium text-center ${
@@ -725,89 +622,215 @@ export default function StudyPlanPage() {
       {/* ── SELECTING PHASE ─────────────────────────────────────────────────── */}
       {phase === 'selecting' && (
         <div className="space-y-8">
-          {/* Subject grid */}
+          {/* Framework picker — always visible. Each card has its own icon + accent
+              so Gaokao / IB / A-Level read as distinct modules from the start. */}
           <div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              {uiLanguage === 'zh' ? '选择科目' : 'Choose a Subject'}
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">
+              {uiLanguage === 'zh' ? '选择考试框架' : 'Choose an Exam Framework'}
             </h2>
-            {/* STEM */}
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
-              {uiLanguage === 'zh' ? '理工科' : 'STEM'}
+            <p className="text-xs text-gray-500 mb-4">
+              {uiLanguage === 'zh'
+                ? '每个框架都有独立的考纲与单元结构。'
+                : 'Each framework brings its own syllabus and unit structure.'}
             </p>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3 mb-4">
-              {SUBJECTS.filter((s) => s.category === 'stem').map((subject) => (
-                <button
-                  key={subject.id}
-                  onClick={() => handleSubjectSelect(subject.id)}
-                  className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all hover:border-blue-400 hover:shadow-sm ${
-                    selectedSubject === subject.id
-                      ? 'border-blue-500 bg-blue-50 shadow-sm'
-                      : 'border-gray-200 bg-white'
-                  }`}
-                >
-                  <span className="text-2xl">{subject.icon}</span>
-                  <span className="text-xs font-medium text-gray-800 text-center leading-tight">
-                    {uiLanguage === 'zh' ? subject.labelZh : subject.label}
-                  </span>
-                </button>
-              ))}
-            </div>
-            {/* Humanities & Social Sciences */}
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
-              {uiLanguage === 'zh' ? '人文社科' : 'Humanities & Social Sciences'}
-            </p>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-3">
-              {SUBJECTS.filter((s) => s.category === 'humanities').map((subject) => (
-                <button
-                  key={subject.id}
-                  onClick={() => handleSubjectSelect(subject.id)}
-                  className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all hover:border-blue-400 hover:shadow-sm ${
-                    selectedSubject === subject.id
-                      ? 'border-blue-500 bg-blue-50 shadow-sm'
-                      : 'border-gray-200 bg-white'
-                  }`}
-                >
-                  <span className="text-2xl">{subject.icon}</span>
-                  <span className="text-xs font-medium text-gray-800 text-center leading-tight">
-                    {uiLanguage === 'zh' ? subject.labelZh : subject.label}
-                  </span>
-                </button>
-              ))}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {FRAMEWORKS.map((framework) => {
+                const isActive = selectedFramework === framework.id
+                // Count is total across all subjects when no subject picked yet
+                const totalCourses = selectedSubject
+                  ? getCourseSuggestions(framework.id, selectedSubject).length
+                  : Object.values(
+                      ({} as Record<string, never>),
+                    ).length // placeholder, see below
+                const subjectsCovered = (() => {
+                  // Number of subjects this framework has at least 1 course for
+                  // (helps users understand the scope of each module).
+                  let n = 0
+                  for (const s of SUBJECTS) {
+                    if (getCourseSuggestions(framework.id, s.id).length > 0) n++
+                  }
+                  return n
+                })()
+                return (
+                  <button
+                    key={framework.id}
+                    onClick={() => setSelectedFramework(framework.id)}
+                    className={`flex items-start gap-3 rounded-xl border-2 p-4 text-left transition-all hover:shadow-sm ${
+                      isActive
+                        ? `${framework.borderClass} ${framework.bgClass} shadow-sm`
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <div
+                      className={`shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-xl ${
+                        isActive ? framework.bgClass : 'bg-gray-100'
+                      }`}
+                      aria-hidden
+                    >
+                      {framework.icon}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`font-medium ${isActive ? framework.textClass : 'text-gray-900'}`}>
+                          {uiLanguage === 'zh' ? framework.labelZh : framework.label}
+                        </span>
+                        {selectedSubject && totalCourses > 0 && (
+                          <span className="text-[10px] uppercase tracking-wide bg-white text-gray-600 rounded-full px-2 py-0.5 border border-gray-200">
+                            {totalCourses} {uiLanguage === 'zh' ? '门课' : totalCourses === 1 ? 'course' : 'courses'}
+                          </span>
+                        )}
+                        {!selectedSubject && subjectsCovered > 0 && (
+                          <span className="text-[10px] uppercase tracking-wide bg-white text-gray-600 rounded-full px-2 py-0.5 border border-gray-200">
+                            {subjectsCovered} {uiLanguage === 'zh' ? '科目' : subjectsCovered === 1 ? 'subject' : 'subjects'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1 leading-snug">
+                        {uiLanguage === 'zh' ? framework.taglineZh : framework.taglineEn}
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           </div>
 
-          {/* Framework selection — visible once a subject is picked */}
-          {selectedSubject && (
+          {/* Subject grid — supported subjects highlighted once framework is picked. */}
+          {selectedFramework && (
             <div className="animate-in fade-in duration-300">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                {uiLanguage === 'zh' ? '选择考试框架' : 'Choose a Framework'}
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">
+                {uiLanguage === 'zh' ? '选择科目' : 'Choose a Subject'}
               </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {FRAMEWORKS.map((framework) => (
-                  <button
-                    key={framework.id}
-                    onClick={() => handleFrameworkSelect(framework.id)}
-                    className={`flex items-center gap-3 rounded-xl border-2 p-4 text-left transition-all hover:border-blue-400 hover:shadow-sm ${
-                      selectedFramework === framework.id
-                        ? 'border-blue-500 bg-blue-50 shadow-sm'
-                        : 'border-gray-200 bg-white'
-                    }`}
-                  >
-                    <div>
-                      <div className="font-medium text-gray-900">
-                        {uiLanguage === 'zh' ? framework.labelZh : framework.label}
-                      </div>
-                      {framework.id === 'gaokao' && (
-                        <div className="text-xs text-gray-500 mt-0.5">
-                          {uiLanguage === 'zh' ? '高考专属 AI 辅导模式' : 'Gaokao-specific AI tutoring mode'}
-                        </div>
-                      )}
-                    </div>
-                  </button>
-                ))}
+              <p className="text-xs text-gray-500 mb-4">
+                {uiLanguage === 'zh'
+                  ? `加亮的科目在 ${getFramework(selectedFramework)?.labelZh ?? ''} 框架下有官方课程，其他科目可走通用规划。`
+                  : `Highlighted subjects have official courses under ${getFramework(selectedFramework)?.label ?? ''}; the rest fall back to general planning.`}
+              </p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
+                {uiLanguage === 'zh' ? '理工科' : 'STEM'}
+              </p>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3 mb-4">
+                {SUBJECTS.filter((s) => s.category === 'stem').map((subject) => {
+                  const supported = getCourseSuggestions(selectedFramework, subject.id).length > 0
+                  const isActive = selectedSubject === subject.id
+                  return (
+                    <button
+                      key={subject.id}
+                      onClick={() => handleSubjectSelect(subject.id)}
+                      className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all hover:shadow-sm ${
+                        isActive
+                          ? 'border-blue-500 bg-blue-50 shadow-sm'
+                          : supported
+                            ? 'border-gray-200 bg-white hover:border-blue-400'
+                            : 'border-gray-100 bg-gray-50 opacity-60 hover:opacity-90'
+                      }`}
+                    >
+                      <span className="text-2xl">{subject.icon}</span>
+                      <span className="text-xs font-medium text-gray-800 text-center leading-tight">
+                        {uiLanguage === 'zh' ? subject.labelZh : subject.label}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
+                {uiLanguage === 'zh' ? '人文社科' : 'Humanities & Social Sciences'}
+              </p>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-3">
+                {SUBJECTS.filter((s) => s.category === 'humanities').map((subject) => {
+                  const supported = getCourseSuggestions(selectedFramework, subject.id).length > 0
+                  const isActive = selectedSubject === subject.id
+                  return (
+                    <button
+                      key={subject.id}
+                      onClick={() => handleSubjectSelect(subject.id)}
+                      className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all hover:shadow-sm ${
+                        isActive
+                          ? 'border-blue-500 bg-blue-50 shadow-sm'
+                          : supported
+                            ? 'border-gray-200 bg-white hover:border-blue-400'
+                            : 'border-gray-100 bg-gray-50 opacity-60 hover:opacity-90'
+                      }`}
+                    >
+                      <span className="text-2xl">{subject.icon}</span>
+                      <span className="text-xs font-medium text-gray-800 text-center leading-tight">
+                        {uiLanguage === 'zh' ? subject.labelZh : subject.label}
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
             </div>
           )}
+
+          {/* Subject grid (no framework picked yet) — gentle prompt */}
+          {!selectedFramework && (
+            <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-center text-xs text-gray-500">
+              {uiLanguage === 'zh'
+                ? '先选一个考试框架，再选科目。'
+                : 'Pick a framework first; then choose a subject.'}
+            </div>
+          )}
+
+          {/* Suggested courses + Continue CTA — visible once both framework and subject are picked. */}
+          {selectedFramework && selectedSubject && (() => {
+            const courses = getCourseSuggestions(selectedFramework, selectedSubject)
+            const fw = getFramework(selectedFramework)
+            const fwLabel = uiLanguage === 'zh' ? fw?.labelZh : fw?.label
+            return (
+              <div className={`rounded-xl border ${fw?.borderClass ?? 'border-gray-200'} ${fw?.bgClass ?? 'bg-gray-50'} p-4 space-y-3 animate-in fade-in duration-300`}>
+                {courses.length > 0 ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-semibold uppercase tracking-wide ${fw?.textClass ?? 'text-gray-700'}`}>
+                        {uiLanguage === 'zh' ? '推荐课程' : 'Suggested courses'}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {uiLanguage === 'zh' ? '点击直接以该课程为目标开始学习计划' : 'Tap to start the plan anchored to that course'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {courses.map((course, ci) => {
+                        const display = uiLanguage === 'zh' && course.nameZh ? course.nameZh : course.name
+                        const seed =
+                          uiLanguage === 'zh'
+                            ? `我想学 ${course.nameZh ?? course.name}`
+                            : `I want to study ${course.name}`
+                        return (
+                          <button
+                            key={ci}
+                            type="button"
+                            onClick={() => {
+                              handleFrameworkSelect(selectedFramework)
+                              setTimeout(() => setUserInput(seed), 60)
+                            }}
+                            className={`rounded-full border ${fw?.borderClass ?? 'border-gray-300'} bg-white hover:bg-gray-50 px-3 py-1.5 text-xs font-medium ${fw?.textClass ?? 'text-gray-800'}`}
+                          >
+                            {display}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <div className={`text-xs ${fw?.textClass ?? 'text-gray-700'}`}>
+                    {uiLanguage === 'zh'
+                      ? `${fwLabel} 框架下暂无该科目的官方课程，AI 会按通用大纲为你规划。`
+                      : `No official ${fwLabel} course is catalogued for this subject yet — the AI will plan from a general syllabus.`}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleFrameworkSelect(selectedFramework)}
+                  className={`w-full rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2.5 transition-colors`}
+                >
+                  {uiLanguage === 'zh'
+                    ? `开始 ${fwLabel} 学习计划 →`
+                    : `Continue to ${fwLabel} plan →`}
+                </button>
+              </div>
+            )
+          })()}
         </div>
       )}
 
@@ -851,7 +874,7 @@ export default function StudyPlanPage() {
           </div>
 
           {/* Chat window */}
-          <div className="h-[420px] overflow-y-auto space-y-4 p-4 bg-gray-50/50 rounded-lg">
+          <div className="h-[60vh] sm:h-[420px] overflow-y-auto space-y-4 p-4 bg-gray-50/50 rounded-lg">
             {chatMessages.map((message) => (
               <div
                 key={message.id}
@@ -874,6 +897,21 @@ export default function StudyPlanPage() {
                       : 'AI Advisor'}
                   </div>
                   <AssistantMessage content={message.content} />
+                  {message.role === 'assistant' && message.options && message.options.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {message.options.map((opt, oi) => (
+                        <button
+                          key={`${message.id}-opt-${oi}`}
+                          type="button"
+                          onClick={() => handleChipClick(opt)}
+                          disabled={isTyping}
+                          className="rounded-full border border-blue-300 bg-white text-blue-700 hover:bg-blue-50 px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="text-xs text-gray-500 mt-2">
                     {message.timestamp.toLocaleTimeString([], {
                       hour: '2-digit',
@@ -943,172 +981,6 @@ export default function StudyPlanPage() {
               {uiLanguage === 'zh' ? '发送' : 'Send'}
             </button>
           </div>
-        </div>
-      )}
-
-      {/* ── GAOKAO CHATTING PHASE ─────────────────────────────────────────── */}
-      {phase === 'gaokao_chatting' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">
-                  {uiLanguage === 'zh' ? '高' : 'G'}
-                </span>
-              </div>
-              <h2 className="text-lg font-semibold text-gray-900">
-                {uiLanguage === 'zh' ? '高考智能辅导' : 'Gaokao AI Tutoring'}
-              </h2>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleSaveGaokaoPlan}
-                disabled={gaokaoMessages.length < 3 || gaokaoSaving}
-                className="text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-4 py-2 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {uiLanguage === 'zh' ? '保存为学习计划' : 'Save as Study Plan'}
-              </button>
-              <button
-                onClick={() => {
-                  setPhase('selecting')
-                  setSelectedFramework(null)
-                  setGaokaoMessages([])
-                  setGaokaoSessionId(null)
-                }}
-                className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
-              >
-                {uiLanguage === 'zh' ? '← 重新选择' : '← Back'}
-              </button>
-            </div>
-          </div>
-
-          {/* Subject + Framework badge */}
-          <div className="flex gap-2 flex-wrap">
-            {selectedSubject && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-800">
-                {SUBJECTS.find((s) => s.id === selectedSubject)?.icon}{' '}
-                {uiLanguage === 'zh'
-                  ? SUBJECTS.find((s) => s.id === selectedSubject)?.labelZh
-                  : SUBJECTS.find((s) => s.id === selectedSubject)?.label}
-              </span>
-            )}
-            <span className="inline-flex items-center rounded-full bg-red-100 px-3 py-1 text-sm font-medium text-red-800">
-              {uiLanguage === 'zh' ? '高考' : 'Gaokao'}
-            </span>
-          </div>
-
-          {/* Topic focus */}
-          <input
-            type="text"
-            value={gaokaoTopicFocus}
-            onChange={(e) => setGaokaoTopicFocus(e.target.value)}
-            placeholder={
-              uiLanguage === 'zh'
-                ? '当前学习主题（选填）：如"导数应用"、"电磁感应"…'
-                : 'Current study topic (optional): e.g. "derivatives", "electromagnetism"…'
-            }
-            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white"
-          />
-
-          {/* Chat window */}
-          <div className="h-[420px] overflow-y-auto space-y-4 p-4 bg-gray-50/50 rounded-lg">
-            {gaokaoMessages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[80%] rounded-lg p-4 ${
-                    message.role === 'user'
-                      ? 'bg-blue-100 text-blue-900'
-                      : 'bg-gray-100 text-gray-900'
-                  }`}
-                >
-                  <div className="text-sm font-medium mb-1">
-                    {message.role === 'user'
-                      ? uiLanguage === 'zh' ? '你' : 'You'
-                      : uiLanguage === 'zh' ? '高考助手' : 'Gaokao Tutor'}
-                  </div>
-                  <AssistantMessage content={message.content} />
-                  <div className="text-xs text-gray-500 mt-2">
-                    {message.timestamp.toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            {gaokaoTyping && (
-              <div className="flex justify-start">
-                <div className="bg-gray-100 text-gray-900 rounded-lg p-4 max-w-[80%]">
-                  <div className="text-sm font-medium mb-1">
-                    {uiLanguage === 'zh' ? '高考助手' : 'Gaokao Tutor'}
-                  </div>
-                  {gaokaoStreamingContent !== null ? (
-                    <AssistantMessage content={gaokaoStreamingContent + ' ▍'} />
-                  ) : (
-                    <div className="flex items-center space-x-1">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {error && (
-              <div className="flex justify-center">
-                <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-2 text-sm">
-                  {error}
-                </div>
-              </div>
-            )}
-
-            <div ref={chatEndRef} />
-          </div>
-
-          {/* Input area */}
-          <div className="flex gap-2 items-end">
-            <textarea
-              value={gaokaoInput}
-              onChange={(e) => setGaokaoInput(e.target.value)}
-              onKeyDown={handleGaokaoKeyDown}
-              placeholder={
-                uiLanguage === 'zh'
-                  ? '问我关于高考的任何问题…（Enter 发送，Shift+Enter 换行）'
-                  : 'Ask me anything about Gaokao prep… (Enter to send, Shift+Enter for new line)'
-              }
-              rows={2}
-              className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              disabled={gaokaoTyping}
-            />
-            <button
-              onClick={handleGaokaoSend}
-              disabled={gaokaoTyping || !gaokaoInput.trim()}
-              className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {uiLanguage === 'zh' ? '发送' : 'Send'}
-            </button>
-          </div>
-
-          <p className="text-xs text-gray-400 text-center">
-            {uiLanguage === 'zh'
-              ? 'AI 生成内容仅供参考，请以课本和老师讲解为准'
-              : 'AI-generated content is for reference only'}
-          </p>
-        </div>
-      )}
-
-      {/* ── GAOKAO SAVING PHASE ──────────────────────────────────────────────── */}
-      {phase === 'gaokao_saving' && (
-        <div className="flex flex-col items-center justify-center py-20 space-y-4">
-          <div className="animate-spin w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full" />
-          <p className="text-lg font-medium text-gray-800">
-            {uiLanguage === 'zh' ? '正在保存高考学习计划…' : 'Saving your Gaokao study plan…'}
-          </p>
         </div>
       )}
 

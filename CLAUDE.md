@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Python-primary project. The backend uses Python with Celery for async tasks. Frontend uses TypeScript/Next.js. Docker is used for local deployment.
 
+## /create is hidden from the frontend
+
+The lesson/video-creation flow at `/create` and its backend pipeline are intact in source but unlinked from every user-facing entry point pending a video-flow redesign. See `web/docs/create-flow-hidden.md` for what was done and how to restore. Do not delete `web/app/create/`, `web/app/components/create/`, `backend/core/create_classes.py`, or related Celery tasks — they are needed for the redesign.
+
 ## Debugging
 
 When investigating bugs, first check if the issue is a client-side artifact (e.g., terminal display truncation) before diving into server-side debugging.

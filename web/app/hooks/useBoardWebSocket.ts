@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useReducer, useRef } from 'react'
+import { track } from '../lib/telemetry'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -349,6 +350,7 @@ type Action =
   | { type: 'SET_STATUS'; status: BoardStatus; error?: string | null; reconnectAttempt?: number }
   | { type: 'EVENT'; event: BoardEvent }
   | { type: 'RESET' }
+  | { type: 'RESTORE_STATE'; snapshot: Partial<BoardWSState> }
 
 function reducer(state: BoardWSState, action: Action): BoardWSState {
   switch (action.type) {
@@ -363,6 +365,43 @@ function reducer(state: BoardWSState, action: Action): BoardWSState {
       return initialState
     case 'EVENT':
       return applyEvent(state, action.event)
+    case 'RESTORE_STATE': {
+      // Hydrate a saved snapshot. We preserve any in-flight WS bookkeeping
+      // (status / reconnectAttempt / error) if the live state is already
+      // mid-stream — this prevents a late RESTORE_STATE call from clobbering
+      // an active connection. Element/narration/audio/chat collections from
+      // the snapshot are merged in but never overwrite live data.
+      const snap = action.snapshot
+      const hasLiveStream = state.status === 'streaming' || state.status === 'open'
+      const mergedElements = { ...(snap.elements || {}), ...state.elements }
+      const seenIds = new Set(state.elementOrder)
+      const mergedOrder = [
+        ...((snap.elementOrder || []).filter((id) => !seenIds.has(id))),
+        ...state.elementOrder,
+      ]
+      return {
+        ...state,
+        board: state.board ?? snap.board ?? state.board,
+        elements: hasLiveStream ? mergedElements : (snap.elements ?? state.elements),
+        elementOrder: hasLiveStream ? mergedOrder : (snap.elementOrder ?? state.elementOrder),
+        narrationLog: hasLiveStream
+          ? state.narrationLog
+          : (snap.narrationLog ?? state.narrationLog),
+        audioQueue: hasLiveStream
+          ? state.audioQueue
+          : (snap.audioQueue ?? state.audioQueue),
+        audioByElementId: hasLiveStream
+          ? state.audioByElementId
+          : (snap.audioByElementId ?? state.audioByElementId),
+        chatHistory: hasLiveStream
+          ? state.chatHistory
+          : (snap.chatHistory ?? state.chatHistory),
+        status: hasLiveStream ? state.status : (snap.status ?? state.status),
+        writingStatus: hasLiveStream
+          ? state.writingStatus
+          : (snap.writingStatus ?? state.writingStatus),
+      }
+    }
     default:
       return state
   }
@@ -631,6 +670,124 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null)
   const attemptsRef = useRef(0)
   const closedByUserRef = useRef(false)
+  // Mirror of state for unload-time access — useEffect cleanup can't read
+  // the latest reducer value through a closure, so we keep a ref in sync.
+  const stateRef = useRef<BoardWSState>(state)
+  useEffect(() => { stateRef.current = state }, [state])
+  // Debounced auto-save bookkeeping.
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastSaveSeqRef = useRef(0)
+  // Telemetry timing — captured when the WS opens so we can compute
+  // first-element / completion latencies later.
+  const openTimeRef = useRef<number | null>(null)
+  const firstElementRef = useRef(false)
+
+  // Snapshot serialiser used by both the debounced timer and the unload
+  // beacon. Keeps the payload narrow (drops UI-only collections like
+  // agentActivity) so we stay well below the 256KB backend cap. Status is
+  // passed as a string so callers can persist non-UI lifecycle states like
+  // `paused` (used during beacon-on-unload).
+  const buildSnapshot = useCallback(
+    (s: BoardWSState, status?: string, lastEventSeq?: number) => ({
+      state: {
+        board: s.board,
+        elements: s.elements,
+        element_order: s.elementOrder,
+        narration_log: s.narrationLog,
+        audio_queue: s.audioQueue,
+        chat_history: s.chatHistory,
+        status: status ?? s.status,
+      },
+      status: status ?? s.status,
+      last_event_seq: typeof lastEventSeq === 'number' ? lastEventSeq : lastSaveSeqRef.current,
+    }),
+    [],
+  )
+
+  const scheduleSave = useCallback(() => {
+    if (typeof window === 'undefined' || !sessionId) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null
+      const s = stateRef.current
+      // Skip empty / idle saves.
+      if (s.status === 'idle') return
+      if (Object.keys(s.elements).length === 0) return
+      lastSaveSeqRef.current += 1
+      const body = JSON.stringify(buildSnapshot(s))
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers.Authorization = `Bearer ${token}`
+      try {
+        void fetch(`/api/backend/board/${sessionId}/save`, {
+          method: 'POST',
+          headers,
+          body,
+          keepalive: true,
+        }).catch(() => {})
+      } catch {
+        // swallow
+      }
+    }, 750)
+  }, [buildSnapshot, sessionId, token])
+
+  // Schedule a save whenever the user-visible board content changes. The
+  // dependency list intentionally targets only "non-trivial" slices so
+  // high-frequency status flips alone don't trigger network noise.
+  useEffect(() => {
+    if (!sessionId) return
+    if (state.status === 'idle') return
+    if (Object.keys(state.elements).length === 0) return
+    scheduleSave()
+  }, [
+    sessionId,
+    scheduleSave,
+    state.status,
+    state.elements,
+    state.elementOrder,
+    state.audioQueue,
+    state.narrationLog,
+    state.chatHistory,
+  ])
+
+  // Beacon-on-unload: flush the latest snapshot to the backend so a refresh
+  // or tab close doesn't lose progress. Skip when the lesson already
+  // reached a terminal state (done/error).
+  useEffect(() => {
+    if (typeof window === 'undefined' || !sessionId) return
+    const beacon = () => {
+      const s = stateRef.current
+      if (s.status === 'done' || s.status === 'error') return
+      if (s.status === 'idle') return
+      if (Object.keys(s.elements).length === 0) return
+      try {
+        const body = JSON.stringify(buildSnapshot(s, 'paused'))
+        if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+          const blob = new Blob([body], { type: 'application/json' })
+          navigator.sendBeacon(`/api/backend/board/${sessionId}/save`, blob)
+          return
+        }
+        // Fallback: best-effort fetch with keepalive.
+        if (typeof fetch === 'function') {
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+          if (token) headers.Authorization = `Bearer ${token}`
+          void fetch(`/api/backend/board/${sessionId}/save`, {
+            method: 'POST',
+            headers,
+            body,
+            keepalive: true,
+          }).catch(() => {})
+        }
+      } catch {
+        // swallow
+      }
+    }
+    window.addEventListener('beforeunload', beacon)
+    return () => {
+      window.removeEventListener('beforeunload', beacon)
+      // Also fire on unmount to capture in-app navigation away from the page.
+      beacon()
+    }
+  }, [sessionId, token, buildSnapshot])
 
   const buildUrl = useCallback((): string | null => {
     if (!token) return null
@@ -679,6 +836,8 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
 
     ws.onopen = () => {
       attemptsRef.current = 0
+      openTimeRef.current = Date.now()
+      firstElementRef.current = false
       // Reset status from `connecting` so the UI isn't stuck there while
       // we wait for the first `board_created` event. The reducer will
       // promote this to `streaming` when real events start arriving.
@@ -690,9 +849,45 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
         const parsed = JSON.parse(msg.data as string) as BoardEvent
         if (!parsed || typeof parsed.event_type !== 'string') return
         dispatch({ type: 'EVENT', event: parsed })
+        // Telemetry: first element_added after open => first paint latency.
+        if (
+          parsed.event_type === 'element_added' &&
+          !firstElementRef.current &&
+          openTimeRef.current
+        ) {
+          firstElementRef.current = true
+          track(
+            'generation_latency',
+            { phase: 'first_element', session_id: sessionId },
+            { latency_ms: Date.now() - openTimeRef.current },
+          )
+        }
         if (parsed.event_type === 'done' || parsed.event_type === 'stream_done') {
           // Lesson finished — treat the ensuing close as intentional so we don't retry with a stale token.
           closedByUserRef.current = true
+          if (openTimeRef.current) {
+            const elementCount = Object.keys(stateRef.current.elements).length
+            track(
+              'generation_latency',
+              {
+                phase: 'complete',
+                element_count: elementCount,
+                session_id: sessionId,
+              },
+              { latency_ms: Date.now() - openTimeRef.current },
+            )
+          }
+        } else if (parsed.event_type === 'error') {
+          // Server signalled a terminal error before closing (e.g. session not
+          // found). Mark closed-by-user so the close handler doesn't retry.
+          const detail = (parsed as { data?: { error?: string } })?.data?.error
+          closedByUserRef.current = true
+          dispatch({
+            type: 'SET_STATUS',
+            status: 'error',
+            error: detail || 'Lesson session error',
+            reconnectAttempt: attemptsRef.current,
+          })
         }
       } catch (err) {
         console.warn('[useBoardWebSocket] bad message', err)
@@ -703,9 +898,41 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
       // Most browsers give no detail here; treat as transient.
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       wsRef.current = null
+      try {
+        track('ws_close', {
+          code: event.code,
+          reason: typeof event.reason === 'string' ? event.reason.slice(0, 128) : '',
+          session_id: sessionId,
+        })
+      } catch {
+        // swallow
+      }
       if (closedByUserRef.current) return
+
+      // Application-defined close codes 4001..4099 are FATAL — retrying will
+      // hit the same condition every time and burn the reconnect budget.
+      //   4001 = unauthorised (token missing / decode failed)
+      //   4003 = forbidden (user mismatch)
+      //   4004 = session not found (backend restarted, or expired session)
+      const FATAL_CLOSE_CODES = new Set([4001, 4003, 4004])
+      if (FATAL_CLOSE_CODES.has(event.code)) {
+        closedByUserRef.current = true
+        const messages: Record<number, string> = {
+          4001: 'Session token rejected — sign in again and reload.',
+          4003: 'You are not allowed to view this lesson session.',
+          4004: 'Lesson session expired or was cleared. Start a new lesson.',
+        }
+        dispatch({
+          type: 'SET_STATUS',
+          status: 'error',
+          error: messages[event.code] ?? `Connection closed (${event.code})`,
+          reconnectAttempt: attemptsRef.current,
+        })
+        return
+      }
+
       if (attemptsRef.current >= RECONNECT_MAX_ATTEMPTS) {
         dispatch({
           type: 'SET_STATUS',
@@ -729,7 +956,7 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
         if (!closedByUserRef.current) connect()
       }, delay)
     }
-  }, [buildUrl])
+  }, [buildUrl, sessionId])
 
   useEffect(() => {
     if (!enabled || !token) return
@@ -774,5 +1001,53 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
     }
   }, [])
 
-  return { state, sendAction, sendUserMessage, close }
+  // Hydrate the reducer with a previously persisted snapshot. Callers should
+  // pass the backend-shaped `state` object (board / elements / element_order /
+  // narration_log / audio_queue / chat_history / status / writingStatus).
+  const hydrate = useCallback((snapshot: Record<string, unknown> | null | undefined) => {
+    if (!snapshot || typeof snapshot !== 'object') return
+    const s = snapshot as Record<string, unknown>
+    // Re-derive elementOrder from the saved element_order (snake_case from
+    // backend) but tolerate already-camelCased payloads too.
+    const elementsRaw = (s.elements ?? {}) as Record<string, BoardElement>
+    const orderRaw =
+      (s.element_order as string[] | undefined) ??
+      (s.elementOrder as string[] | undefined) ??
+      Object.keys(elementsRaw)
+    const narrationLogRaw =
+      (s.narration_log as NarrationLog[] | undefined) ??
+      (s.narrationLog as NarrationLog[] | undefined) ??
+      []
+    const audioQueueRaw =
+      (s.audio_queue as AudioReady[] | undefined) ??
+      (s.audioQueue as AudioReady[] | undefined) ??
+      []
+    const chatHistoryRaw =
+      (s.chat_history as ChatMessage[] | undefined) ??
+      (s.chatHistory as ChatMessage[] | undefined) ??
+      []
+    const audioByEl: Record<string, AudioReady> = {}
+    for (const a of audioQueueRaw) {
+      if (a && a.element_id) audioByEl[a.element_id] = a
+    }
+    const status = (s.status as BoardStatus | undefined) ?? 'idle'
+    const writingStatus =
+      (s.writingStatus as BoardWSState['writingStatus'] | undefined) ?? 'idle'
+    dispatch({
+      type: 'RESTORE_STATE',
+      snapshot: {
+        board: (s.board as BoardState | null | undefined) ?? null,
+        elements: elementsRaw,
+        elementOrder: orderRaw,
+        narrationLog: narrationLogRaw,
+        audioQueue: audioQueueRaw,
+        audioByElementId: audioByEl,
+        chatHistory: chatHistoryRaw,
+        status,
+        writingStatus,
+      },
+    })
+  }, [])
+
+  return { state, sendAction, sendUserMessage, close, hydrate }
 }

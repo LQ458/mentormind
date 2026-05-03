@@ -1245,7 +1245,6 @@ export default function CreateLessonPage() {
       <PageHead
         eyebrow={uiLanguage === 'zh' ? '创建' : 'Create'}
         title={uiLanguage === 'zh' ? '今天想学什么？' : 'What should we learn today?'}
-        zh={uiLanguage === 'zh' ? 'Create' : '今日课题'}
         kicker={
           uiLanguage === 'zh'
             ? '描述你不太懂的地方。一节课会出现 — 为你、为你的薄弱点、为你的节奏量身定做。'

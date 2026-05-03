@@ -207,7 +207,6 @@ export default function DashboardPage() {
       <PageHead
         eyebrow={dateLine}
         title={language === 'zh' ? `${greeting}，${firstName}` : `${greeting}, ${firstName}`}
-        zh={language === 'zh' ? '今日' : greeting === 'Good morning' ? '早上好' : greeting === 'Good afternoon' ? '下午好' : greeting === 'Good evening' ? '晚上好' : '夜深了'}
         kicker={
           language === 'zh'
             ? '从昨天差点理解的地方继续。一项专注，几次复习，把循环闭合。'
@@ -247,25 +246,18 @@ export default function DashboardPage() {
               <Play size={16} /> {language === 'zh' ? '开始这节' : 'Begin lesson'}
             </Link>
           ) : (
-            <Link href="/create" className="btn btn-primary btn-lg">
-              <Sparkles size={16} /> {language === 'zh' ? '创建新课程' : 'Create a lesson'}
+            <Link href="/study-plan" className="btn btn-primary btn-lg">
+              <Sparkles size={16} /> {language === 'zh' ? '打开学习计划' : 'Open study plan'}
             </Link>
           )}
-          <Link href="/create" className="btn btn-lg">
-            {language === 'zh' ? '调整并重做' : 'Adjust & recreate'}
+          <Link href="/study-plan" className="btn btn-lg">
+            {language === 'zh' ? '管理学习计划' : 'Manage plans'}
           </Link>
         </div>
       </div>
 
       {/* Stat strip */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: 14,
-          marginTop: 20,
-        }}
-      >
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-5">
         {[
           {
             Icon: Flame,
@@ -312,7 +304,6 @@ export default function DashboardPage() {
       {/* Reviews */}
       <Section
         title={language === 'zh' ? '复习' : 'Reviews'}
-        zh={language === 'zh' ? 'Reviews' : '复习'}
         tools={
           <Link href="/lessons" style={{ color: 'var(--accent)', fontWeight: 500 }}>
             {language === 'zh' ? '查看全部' : 'See all'}

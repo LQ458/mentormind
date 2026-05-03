@@ -23,6 +23,8 @@ from .lesson import Lesson, LessonObjective, LessonResource, LessonExercise
 from .analytics import AnalyticsEventType
 from .study_plan import StudyPlan, StudyPlanUnit, GaokaoSession
 from .knowledge_graph import KGConcept, KGRelationship
+from .board_session import BoardSession
+from .telemetry import TelemetryEvent, ALLOWED_EVENT_TYPES
 
 __all__ = [
     # Enums
@@ -55,4 +57,9 @@ __all__ = [
     # Knowledge graph
     "KGConcept",
     "KGRelationship",
+    # Board sessions
+    "BoardSession",
+    # Telemetry
+    "TelemetryEvent",
+    "ALLOWED_EVENT_TYPES",
 ]

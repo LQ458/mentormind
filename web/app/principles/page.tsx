@@ -130,7 +130,7 @@ export default function PrinciplesPage() {
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-blue-500/20 via-transparent to-transparent pointer-events-none" />
         <div className="relative max-w-2xl">
           <div className="text-xs font-bold uppercase tracking-[0.2em] text-blue-300 mb-4">MentorMind</div>
-          <h1 className="text-4xl font-bold tracking-tight leading-tight">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight leading-tight">
             {language === 'zh'
               ? '不只是生成内容，而是重塑你的学习过程。'
               : 'Not just a content generator. A system that reshapes how you learn.'}
@@ -141,8 +141,8 @@ export default function PrinciplesPage() {
               : 'MentorMind weaves spaced repetition, retrieval practice, teach-to-learn, and productive friction into every lesson and review, turning passive watching into active ownership.'}
           </p>
           <div className="mt-8 flex gap-4 flex-wrap">
-            <Link href="/create" className="rounded-lg bg-blue-500 hover:bg-blue-400 px-5 py-2.5 text-sm font-semibold text-white transition-colors">
-              {language === 'zh' ? '创建课程 →' : 'Create a Lesson →'}
+            <Link href="/study-plan" className="rounded-lg bg-blue-500 hover:bg-blue-400 px-5 py-2.5 text-sm font-semibold text-white transition-colors">
+              {language === 'zh' ? '开始学习计划 →' : 'Start a Study Plan →'}
             </Link>
             <Link href="/dashboard" className="rounded-lg border border-white/20 hover:border-white/40 px-5 py-2.5 text-sm font-semibold text-white transition-colors">
               {language === 'zh' ? '仪表盘' : 'Dashboard'}
@@ -229,7 +229,7 @@ export default function PrinciplesPage() {
         <p className="mt-3 text-blue-100 text-base">
           {language === 'zh' ? '输入一个你想搞懂的主题，剩下的交给 MentorMind。' : 'Enter a topic you want to actually understand. MentorMind handles the rest.'}
         </p>
-        <Link href="/create" className="mt-6 inline-block rounded-lg bg-white text-blue-700 font-semibold px-6 py-3 text-sm hover:bg-blue-50 transition-colors">
+        <Link href="/study-plan" className="mt-6 inline-block rounded-lg bg-white text-blue-700 font-semibold px-6 py-3 text-sm hover:bg-blue-50 transition-colors">
           {language === 'zh' ? '开始学习 →' : 'Start Learning →'}
         </Link>
       </div>

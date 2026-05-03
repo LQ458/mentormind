@@ -5,7 +5,7 @@ import logging
 import os
 import time
 import uuid
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Optional
 
 from config import config
 from core.board.models import BoardEvent
@@ -22,27 +22,57 @@ def _estimate_duration_ms(text: str, language: str = "zh-CN") -> int:
         return 0
     if language.lower().startswith("zh"):
         # Count CJK characters; ignore punctuation/whitespace
-        cjk = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
+        cjk = sum(1 for ch in text if "一" <= ch <= "鿿")
         non_cjk = max(0, len(text) - cjk)
         return int(cjk * 200 + non_cjk * 80) + 400
     words = max(1, len(text.split()))
     return int(words * 380) + 400
 
 
-class BoardTTSSync:
-    """Synchronous TTS pipeline that paces board events to narration playback.
+def _fast_mode_enabled() -> bool:
+    """Whether ``BOARD_FAST_MODE`` is set to a truthy value.
 
-    Each board event is yielded first (so the client renders the element),
-    then its narration is synthesized, the ``audio_ready`` event is yielded,
-    and we sleep for the audio's playback duration before letting the next
-    board event through. This keeps the board one-step-ahead of the voice
-    instead of rendering every element up front and narrating them later.
+    When fast mode is on the backend skips TTS entirely; the frontend falls
+    back to ``window.speechSynthesis`` for narration. This trades audio
+    quality for time-to-first-element.
+    """
+    raw = os.environ.get("BOARD_FAST_MODE", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+# Cap concurrent TTS API calls so we don't flood the synth backend when an
+# orchestrator emits a burst of elements. Wave 1F target.
+_TTS_PARALLELISM = 4
+
+
+class BoardTTSSync:
+    """Decoupled TTS pipeline that paces audio independently of board events.
+
+    Wave 1F design:
+      * ``element_added`` events flow through immediately so the client renders
+        the element the moment the LLM produces it.
+      * TTS synthesis runs in parallel background tasks (capped by a
+        semaphore) and pushes ``audio_ready`` / ``audio_error`` events into a
+        shared queue.
+      * The frontend already plays ``audioQueue`` sequentially, so the
+        client preserves narration order even though the network events
+        arrive out-of-order with respect to the elements they describe.
+      * When ``BOARD_FAST_MODE`` is set, TTS is skipped entirely — the
+        client uses Web Speech API for narration and we save the round-trip
+        latency of every TTS call.
     """
 
-    def __init__(self, tts_service: Optional[Any] = None, language: str = "zh-CN", voice: str = "female"):
+    def __init__(
+        self,
+        tts_service: Optional[Any] = None,
+        language: str = "zh-CN",
+        voice: str = "female",
+        max_parallel: int = _TTS_PARALLELISM,
+    ) -> None:
         self._tts_service = tts_service
         self._language = language
         self._voice = voice
+        self._max_parallel = max(1, int(max_parallel))
 
     async def _get_tts_service(self) -> Any:
         if self._tts_service is None:
@@ -115,47 +145,110 @@ class BoardTTSSync:
         self,
         board_events: AsyncGenerator[BoardEvent, None],
     ) -> AsyncGenerator[BoardEvent, None]:
-        """Yield board events interleaved with synchronised audio playback."""
-        async for event in board_events:
-            # 1. Yield the board event itself so the client renders the
-            #    element BEFORE narration begins ("board first, voice second").
-            yield event
+        """Yield board events with audio events interleaved as TTS completes.
 
-            narration_text = self._extract_narration(event)
-            if not narration_text:
-                continue
+        Behavior:
+          * Board events (``element_added``, ``element_updated``, …) yield
+            immediately when the orchestrator produces them. The pipeline
+            does NOT block on TTS.
+          * For each event with attached narration, a background task is
+            scheduled (subject to the parallelism semaphore) that synthesizes
+            audio and emits ``audio_ready`` (or ``audio_error``) into the
+            same out-stream.
+          * When ``BOARD_FAST_MODE`` is set, we skip TTS scheduling entirely
+            and let the client handle narration via Web Speech API.
+        """
+        fast_mode = _fast_mode_enabled()
+        if fast_mode:
+            logger.info("BoardTTSSync running in fast mode — TTS skipped")
 
-            # 2. Signal that we are generating audio so the UI can show a
-            #    "writing the board…" style indicator while TTS is running.
-            yield BoardEvent(
-                event_type="narration_pending",
-                timestamp=time.time(),
-                element_id=event.element_id,
-                data={"narration_text": narration_text},
-            )
+        out_queue: "asyncio.Queue[Optional[BoardEvent]]" = asyncio.Queue()
+        semaphore = asyncio.Semaphore(self._max_parallel)
+        pending: set[asyncio.Task[None]] = set()
 
-            # 3. Synthesize audio synchronously; this is what makes the pipe
-            #    paced — we deliberately don't pull the next board event
-            #    until the current narration has had time to play.
-            audio_event = await self._generate_audio_event(
-                narration_text=narration_text,
-                element_id=event.element_id,
-            )
-            if audio_event is None:
-                continue
-            yield audio_event
+        async def _synth_and_emit(text: str, element_id: Optional[str]) -> None:
+            try:
+                async with semaphore:
+                    audio_event = await self._generate_audio_event(text, element_id)
+                if audio_event is not None:
+                    await out_queue.put(audio_event)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # defensive: a task failure must not stall the stream
+                logger.exception("TTS background task crashed: %s", exc)
 
-            # 4. Pace: hold the pipeline for the estimated playback duration
-            #    so the client has time to actually play the narration before
-            #    the next board element pours in.
-            if audio_event.event_type == "audio_ready":
-                duration_ms = audio_event.data.get("duration_ms")
-                if not duration_ms or duration_ms <= 0:
-                    duration_ms = _estimate_duration_ms(narration_text, self._language)
-                # Cap individual waits to 30s to avoid a stuck lesson if a
-                # single narration somehow claims an enormous duration.
-                sleep_s = max(0.0, min(30.0, duration_ms / 1000.0))
+        def _spawn_tts(text: str, element_id: Optional[str]) -> None:
+            task = asyncio.create_task(_synth_and_emit(text, element_id))
+            pending.add(task)
+            task.add_done_callback(pending.discard)
+
+        async def _producer() -> None:
+            """Pump board events into the out-queue and schedule TTS."""
+            try:
+                async for event in board_events:
+                    await out_queue.put(event)
+
+                    narration_text = self._extract_narration(event)
+                    if not narration_text:
+                        continue
+
+                    if fast_mode:
+                        # Hint the client that narration is available locally.
+                        await out_queue.put(
+                            BoardEvent(
+                                event_type="narration_pending",
+                                timestamp=time.time(),
+                                element_id=event.element_id,
+                                data={
+                                    "narration_text": narration_text,
+                                    "fast_mode": True,
+                                },
+                            )
+                        )
+                        continue
+
+                    # Tell the client TTS is in flight so the writing
+                    # indicator can show before audio_ready lands.
+                    await out_queue.put(
+                        BoardEvent(
+                            event_type="narration_pending",
+                            timestamp=time.time(),
+                            element_id=event.element_id,
+                            data={"narration_text": narration_text},
+                        )
+                    )
+                    _spawn_tts(narration_text, event.element_id)
+            except asyncio.CancelledError:
+                raise
+            finally:
+                # Wait for outstanding TTS tasks to drain so the consumer
+                # sees their audio events before the queue closes.
+                if pending:
+                    try:
+                        await asyncio.gather(*pending, return_exceptions=True)
+                    except asyncio.CancelledError:
+                        for t in pending:
+                            t.cancel()
+                        raise
+                await out_queue.put(None)  # sentinel: producer + workers done
+
+        producer_task = asyncio.create_task(_producer())
+
+        try:
+            while True:
+                item = await out_queue.get()
+                if item is None:
+                    break
+                yield item
+        except asyncio.CancelledError:
+            producer_task.cancel()
+            for t in pending:
+                t.cancel()
+            raise
+        finally:
+            if not producer_task.done():
+                producer_task.cancel()
                 try:
-                    await asyncio.sleep(sleep_s)
-                except asyncio.CancelledError:
-                    raise
+                    await producer_task
+                except (asyncio.CancelledError, Exception):
+                    pass

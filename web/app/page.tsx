@@ -81,10 +81,10 @@ export default function HomePage() {
         </p>
         <div className="mt-8 flex gap-4 justify-center">
           <Link
-            href="/create"
+            href="/study-plan"
             className="inline-flex items-center px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
           >
-            {t('home.startCreating')}
+            {language === 'zh' ? '开始学习计划' : 'Start a study plan'}
           </Link>
           <Link
             href="/dashboard"
@@ -115,9 +115,9 @@ export default function HomePage() {
       <div className="bg-gray-50 rounded-xl p-6">
         <h2 className="text-2xl font-bold text-gray-900 mb-4">{t('home.quickAccessTitle')}</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Link href="/create" className="bg-white rounded-lg p-4 text-center border border-gray-200 hover:border-blue-500 hover:shadow-sm transition-all">
-            <div className="text-blue-600 font-medium">{t('home.createLesson')}</div>
-            <div className="text-sm text-gray-500 mt-1">{t('home.createLessonDesc')}</div>
+          <Link href="/study-plan" className="bg-white rounded-lg p-4 text-center border border-gray-200 hover:border-blue-500 hover:shadow-sm transition-all">
+            <div className="text-blue-600 font-medium">{language === 'zh' ? '学习计划' : 'Study plan'}</div>
+            <div className="text-sm text-gray-500 mt-1">{language === 'zh' ? '与 AI 对话定制学习路线' : 'Chat with AI to build a study track'}</div>
           </Link>
           <Link href="/lessons" className="bg-white rounded-lg p-4 text-center border border-gray-200 hover:border-blue-500 hover:shadow-sm transition-all">
             <div className="text-blue-600 font-medium">{t('home.lessonManagement')}</div>

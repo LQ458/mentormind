@@ -3,21 +3,16 @@ import React from 'react'
 export function PageHead({
   eyebrow,
   title,
-  zh,
   kicker,
 }: {
   eyebrow?: string
   title: string
-  zh?: string
   kicker?: string
 }) {
   return (
     <div className="page-head-new">
       {eyebrow && <div className="eyebrow">{eyebrow}</div>}
-      <h1>
-        {title}
-        {zh && <span className="zh">{zh}</span>}
-      </h1>
+      <h1>{title}</h1>
       {kicker && <div className="kicker">{kicker}</div>}
     </div>
   )
@@ -25,22 +20,17 @@ export function PageHead({
 
 export function Section({
   title,
-  zh,
   tools,
   children,
 }: {
   title: string
-  zh?: string
   tools?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
     <div>
       <div className="section-title">
-        <h2>
-          {title}
-          {zh && <span className="zh">{zh}</span>}
-        </h2>
+        <h2>{title}</h2>
         {tools && <div className="tools">{tools}</div>}
       </div>
       {children}

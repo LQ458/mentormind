@@ -91,6 +91,10 @@ celery_app.conf.beat_schedule = {
         "task": "mentormind.rollup_proficiency",
         "schedule": _timedelta(hours=24),
     },
+    "prune_telemetry_daily": {
+        "task": "mentormind.prune_telemetry",
+        "schedule": _timedelta(hours=24),
+    },
 }
 
 
@@ -841,3 +845,26 @@ def rollup_proficiency_task(self, user_id: str = None, subject: str = None):
         session.close()
 
     return {"status": "ok", "processed": processed}
+
+
+@celery_app.task(bind=True, name="mentormind.prune_telemetry")
+def prune_telemetry_task(self, retention_days: int = 90):
+    """Delete telemetry_events older than retention_days. Run nightly via beat."""
+    from sqlalchemy import text as _text
+    init_database()
+    session = SessionLocal()
+    try:
+        result = session.execute(
+            _text("DELETE FROM telemetry_events WHERE created_at < NOW() - (:days || ' days')::interval"),
+            {"days": retention_days},
+        )
+        session.commit()
+        deleted = getattr(result, "rowcount", 0) or 0
+        print(f"🧹 prune_telemetry: deleted {deleted} rows older than {retention_days}d")
+        return {"status": "ok", "deleted": int(deleted), "retention_days": retention_days}
+    except Exception as exc:
+        session.rollback()
+        print(f"⚠️ prune_telemetry failed: {exc}")
+        return {"status": "error", "error": str(exc)}
+    finally:
+        session.close()

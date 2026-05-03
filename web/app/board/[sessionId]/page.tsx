@@ -16,6 +16,7 @@ import ClerkAuthGate from '../../components/ClerkAuthGate'
 import BoardDisplaySettings, { useBoardDisplayPrefs, boardFontScaleStyle } from '../../components/board/BoardDisplaySettings'
 import { useKeyboardShortcut } from '../../hooks/useKeyboardShortcut'
 import { useFullscreen } from '../../hooks/useFullscreen'
+import { track } from '../../lib/telemetry'
 
 export default function BoardSessionPage() {
   return (
@@ -92,11 +93,77 @@ function BoardSessionInner() {
     }
   }, [isLoaded, isSignedIn, getToken, language])
 
-  const { state, sendAction, sendUserMessage } = useBoardWebSocket({
+  const { state, sendAction, sendUserMessage, hydrate } = useBoardWebSocket({
     sessionId,
     token,
     enabled: Boolean(token && sessionId),
   })
+
+  // Resume banner state — populated when /board/{id}/state returns a saved
+  // snapshot with at least one element.
+  const [resumedAt, setResumedAt] = useState<number | null>(null)
+  const [bannerDismissed, setBannerDismissed] = useState(false)
+  const restoreAttemptedRef = useRef(false)
+
+  // Fire a one-shot board_lesson_open event when the page first mounts with
+  // a known session id.
+  useEffect(() => {
+    if (!sessionId) return
+    track('board_lesson_open', { session_id: sessionId })
+  }, [sessionId])
+
+  // Fetch any persisted state before the WS opens — gives the user immediate
+  // visual continuity on refresh / re-entry. The WS itself will pick up where
+  // the in-memory backend session left off (or start fresh if it's gone).
+  useEffect(() => {
+    if (!sessionId || !token) return
+    if (restoreAttemptedRef.current) return
+    restoreAttemptedRef.current = true
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/api/backend/board/${sessionId}/state`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (cancelled) return
+        if (res.status === 404) return
+        if (!res.ok) return
+        const body = await res.json().catch(() => null)
+        if (cancelled || !body || !body.success || !body.state) return
+        const snap = body.state as Record<string, unknown>
+        const elements = (snap.elements as Record<string, unknown> | undefined) ?? {}
+        if (Object.keys(elements).length === 0) return
+        hydrate(snap)
+        setResumedAt(typeof body.updated_at === 'number' ? body.updated_at : Date.now())
+      } catch {
+        // network errors are non-fatal; just proceed without resume banner.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [sessionId, token, hydrate])
+
+  const handleDiscardResume = useCallback(() => {
+    setBannerDismissed(true)
+    setResumedAt(null)
+    // Best-effort: ask backend to drop the saved snapshot if such an endpoint
+    // exists. We don't await — failure just means the next refresh will still
+    // see the snapshot, which the user can dismiss again.
+    if (token && sessionId) {
+      try {
+        void fetch(`/api/backend/board/${sessionId}/save`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ state: { elements: {}, element_order: [] }, status: 'idle' }),
+          keepalive: true,
+        }).catch(() => {})
+      } catch {
+        // swallow
+      }
+    }
+  }, [sessionId, token])
 
   const handlePauseToggle = useCallback(() => {
     const next = !paused
@@ -257,8 +324,8 @@ function BoardSessionInner() {
             className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
           >
             {paused
-              ? (language === 'zh' ? '继续讲课 Resume lesson' : 'Resume lesson')
-              : (language === 'zh' ? '暂停讲课 Pause lesson' : 'Pause lesson')}
+              ? (language === 'zh' ? '继续讲课' : 'Resume lesson')
+              : (language === 'zh' ? '暂停讲课' : 'Pause lesson')}
           </button>
           <BoardDisplaySettings
             prefs={displayPrefs}
@@ -285,6 +352,12 @@ function BoardSessionInner() {
             onPlaybackEnd={onPlaybackEnd}
             enabled={!paused}
             language={language}
+            narrationLog={state.narrationLog}
+            audioByElementId={state.audioByElementId}
+            fallbackEnabled={
+              process.env.NEXT_PUBLIC_BOARD_FAST_MODE === 'true' ||
+              process.env.NEXT_PUBLIC_BOARD_FAST_MODE === '1'
+            }
           />
           <button
             type="button"
@@ -307,7 +380,7 @@ function BoardSessionInner() {
             onClick={() => setSummaryOpen(true)}
             className="text-xs px-3 py-1.5 rounded-lg border border-sky-500/70 bg-sky-600/30 text-sky-100 hover:bg-sky-600/50"
           >
-            {language === 'zh' ? '总结 Summary' : 'Summary'}
+            {language === 'zh' ? '总结' : 'Summary'}
           </button>
           {lessonDone && (
             <Link
@@ -320,6 +393,36 @@ function BoardSessionInner() {
         </div>
       </header>
 
+      {/* Resume banner — shown when we hydrated from a saved snapshot */}
+      {resumedAt && !bannerDismissed && (
+        <div className="px-4 sm:px-6 pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg border border-sky-500/40 bg-sky-500/10 text-xs text-sky-100">
+            <span>
+              {language === 'zh'
+                ? `已从 ${new Date(resumedAt).toLocaleString('zh-CN')} 的进度恢复`
+                : `Resumed from ${new Date(resumedAt).toLocaleString()}`}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleDiscardResume}
+                className="px-2.5 py-1 rounded-md border border-sky-400/50 bg-sky-600/20 hover:bg-sky-600/40 text-sky-50"
+              >
+                {language === 'zh' ? '丢弃并重新开始' : 'Discard & restart'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setBannerDismissed(true)}
+                className="px-2 py-1 rounded-md text-sky-200 hover:text-sky-50"
+                aria-label={language === 'zh' ? '关闭' : 'Dismiss'}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Agent activity */}
       <div className="px-4 sm:px-6 pt-3">
         <AgentActivityBar activity={state.agentActivity} />
@@ -327,7 +430,7 @@ function BoardSessionInner() {
 
       {/* Canvas + chat area */}
       <main className="flex-1 min-h-0 px-4 sm:px-6 pb-4 pt-3">
-        <div className="flex flex-col lg:flex-row gap-3 h-[calc(100vh-320px)] min-h-[480px]">
+        <div className="flex flex-col lg:flex-row gap-3 h-[calc(100vh-200px)] md:h-[calc(100vh-260px)] lg:h-[calc(100vh-320px)] min-h-[480px]">
           <div
             ref={fullscreenRef}
             className={`relative flex-1 min-w-0 ${displayPrefs.highContrast ? 'board-high-contrast' : ''} ${isFullscreen ? 'bg-slate-950 p-4' : ''}`}

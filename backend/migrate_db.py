@@ -175,6 +175,65 @@ def migrate():
                 conn.rollback()
         print("✅ Skill-adaptive schema additions applied.")
 
+        # --- Production-readiness sprint additions: board sessions + telemetry ---
+        print("📝 Applying production-readiness schema additions (board_sessions, telemetry_events)...")
+        prodready_ddl = [
+            # Board lesson auto-save & resume
+            """CREATE TABLE IF NOT EXISTS board_sessions (
+                id VARCHAR(255) PRIMARY KEY,
+                user_id VARCHAR(255),
+                plan_id VARCHAR(255),
+                unit_id VARCHAR(255),
+                topic TEXT,
+                title TEXT,
+                status VARCHAR(32) DEFAULT 'generating',
+                elements JSONB DEFAULT '{}'::jsonb,
+                element_order JSONB DEFAULT '[]'::jsonb,
+                narration_log JSONB DEFAULT '[]'::jsonb,
+                audio_queue JSONB DEFAULT '[]'::jsonb,
+                chat_history JSONB DEFAULT '[]'::jsonb,
+                last_event_seq INTEGER DEFAULT 0,
+                config JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_board_sessions_user_id ON board_sessions(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_board_sessions_plan_id ON board_sessions(plan_id)",
+            "CREATE INDEX IF NOT EXISTS idx_board_sessions_unit_id ON board_sessions(unit_id)",
+            "CREATE INDEX IF NOT EXISTS idx_board_sessions_user_plan_unit ON board_sessions(user_id, plan_id, unit_id)",
+            "CREATE INDEX IF NOT EXISTS idx_board_sessions_updated_at ON board_sessions(updated_at)",
+            # Telemetry events
+            """CREATE TABLE IF NOT EXISTS telemetry_events (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(255),
+                session_id VARCHAR(255),
+                event_type VARCHAR(64),
+                page VARCHAR(64),
+                url VARCHAR(512),
+                latency_ms INTEGER,
+                payload JSONB DEFAULT '{}'::jsonb,
+                viewport_w INTEGER,
+                viewport_h INTEGER,
+                user_agent VARCHAR(512),
+                ip_address VARCHAR(45),
+                created_at TIMESTAMP DEFAULT NOW()
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_telemetry_events_user_id ON telemetry_events(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_telemetry_events_session_id ON telemetry_events(session_id)",
+            "CREATE INDEX IF NOT EXISTS idx_telemetry_events_event_type ON telemetry_events(event_type)",
+            "CREATE INDEX IF NOT EXISTS idx_telemetry_events_page ON telemetry_events(page)",
+            "CREATE INDEX IF NOT EXISTS idx_telemetry_events_created_at ON telemetry_events(created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_telemetry_events_type_created ON telemetry_events(event_type, created_at)",
+        ]
+        for stmt in prodready_ddl:
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+            except Exception as e:
+                print(f"⚠️ Prodready DDL failed ({stmt[:60]}…): {e}")
+                conn.rollback()
+        print("✅ Production-readiness schema additions applied.")
+
     print("🏁 Migration completed.")
 
 if __name__ == "__main__":

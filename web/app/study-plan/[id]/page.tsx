@@ -5,11 +5,29 @@ import { useParams, useRouter } from 'next/navigation'
 import { useAuth } from '@clerk/nextjs'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
+import DOMPurify from 'dompurify'
 import { HighlightAskAI, ScreenshotAskAI } from './AskAI'
 import MediaContextTab from './MediaContext'
 import { useLanguage } from '../../components/LanguageContext'
 import { toast } from 'sonner'
 import { pushNotification } from '../../lib/notifications'
+
+// Restrict allowed tags/attrs to KaTeX's output surface so that AI-derived math
+// strings can't smuggle <img onerror=…> or <script> into the page. DOMPurify
+// only runs in the browser; SSR returns the input unchanged because the actual
+// render happens after hydration.
+const KATEX_ALLOWED_TAGS = [
+  'span', 'math', 'mrow', 'mi', 'mn', 'mo', 'msup', 'msub',
+  'mfrac', 'msqrt', 'mtext', 'annotation', 'semantics',
+]
+const KATEX_ALLOWED_ATTR = ['class', 'style', 'aria-hidden']
+const sanitizeLatex = (html: string): string =>
+  typeof window === 'undefined'
+    ? html
+    : DOMPurify.sanitize(html, {
+        ALLOWED_TAGS: KATEX_ALLOWED_TAGS,
+        ALLOWED_ATTR: KATEX_ALLOWED_ATTR,
+      })
 
 // ── Active-generation persistence (localStorage) ─────────────────────────────
 const ACTIVE_GEN_KEY = 'mm-active-unit-generation-v1'
@@ -389,12 +407,12 @@ function renderInlineText(text: string): React.ReactNode {
     if (m[1] !== undefined) {
       // $$display math$$
       parts.push(
-        <span key={i++} className="block my-2" dangerouslySetInnerHTML={{ __html: renderLatex(m[1], true) }} />
+        <span key={i++} className="block my-2" dangerouslySetInnerHTML={{ __html: sanitizeLatex(renderLatex(m[1], true)) }} />
       )
     } else if (m[2] !== undefined) {
       // $inline math$
       parts.push(
-        <span key={i++} className="inline-math" dangerouslySetInnerHTML={{ __html: renderLatex(m[2]) }} />
+        <span key={i++} className="inline-math" dangerouslySetInnerHTML={{ __html: sanitizeLatex(renderLatex(m[2])) }} />
       )
     } else if (m[3] !== undefined) {
       // **bold**

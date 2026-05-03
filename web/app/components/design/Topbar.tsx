@@ -1,40 +1,41 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
-import { Search } from 'lucide-react'
+import { Search, Menu, MessageSquare } from 'lucide-react'
 import { useLanguage } from '../LanguageContext'
 import { useUser, SignInButton, SignedIn, SignedOut } from '@clerk/nextjs'
 import NotificationsPanel from '../NotificationsPanel'
 import { openCommandPalette } from '../CommandPalette'
+import { OPEN_SURVEY_EVENT } from './AppShell'
+import { track } from '../../lib/telemetry'
 
 interface PageMeta {
-  label: string
+  en: string
   zh: string
 }
 
 const PAGE_META: Record<string, PageMeta> = {
-  '/dashboard': { label: 'Today', zh: '今日' },
-  '/create': { label: 'Create', zh: '创建' },
-  '/study-plan': { label: 'Study plan', zh: '学习计划' },
-  '/lessons': { label: 'Library', zh: '文库' },
+  '/dashboard': { en: 'Today', zh: '今日' },
+  '/study-plan': { en: 'Study plan', zh: '学习计划' },
+  '/lessons': { en: 'Library', zh: '文库' },
 }
 
 function getPageMeta(pathname: string): PageMeta {
   // exact match first
   if (PAGE_META[pathname]) return PAGE_META[pathname]
   // lesson detail
-  if (pathname.startsWith('/lessons/')) return { label: 'Lesson', zh: '课' }
-  if (pathname.startsWith('/study-plan/')) return { label: 'Study plan', zh: '学习计划' }
+  if (pathname.startsWith('/lessons/')) return { en: 'Lesson', zh: '课' }
+  if (pathname.startsWith('/study-plan/')) return { en: 'Study plan', zh: '学习计划' }
   // fallbacks
-  if (pathname.startsWith('/admin')) return { label: 'Admin', zh: '管理' }
-  if (pathname.startsWith('/analytics')) return { label: 'Analytics', zh: '分析' }
-  if (pathname.startsWith('/settings')) return { label: 'Settings', zh: '设置' }
-  if (pathname.startsWith('/principles')) return { label: 'Principles', zh: '原则' }
-  if (pathname.startsWith('/auth')) return { label: 'Sign in', zh: '登录' }
-  return { label: 'MentorMind', zh: '导师' }
+  if (pathname.startsWith('/admin')) return { en: 'Admin', zh: '管理' }
+  if (pathname.startsWith('/analytics')) return { en: 'Analytics', zh: '分析' }
+  if (pathname.startsWith('/settings')) return { en: 'Settings', zh: '设置' }
+  if (pathname.startsWith('/principles')) return { en: 'Principles', zh: '原则' }
+  if (pathname.startsWith('/auth')) return { en: 'Sign in', zh: '登录' }
+  return { en: 'MentorMind', zh: '导师' }
 }
 
-export default function Topbar() {
+export default function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const pathname = usePathname() || '/'
   const { language, setLanguage } = useLanguage()
   const { user } = useUser()
@@ -44,9 +45,16 @@ export default function Topbar() {
 
   return (
     <div className="topbar">
+      <button
+        type="button"
+        className="md:hidden p-1.5 -ml-1 rounded-lg text-[var(--ink-muted)] hover:bg-[var(--surface-2)]"
+        aria-label="Open menu"
+        onClick={onMenuClick}
+      >
+        <Menu size={20} />
+      </button>
       <div className="page-title">
-        {meta.label}
-        <span className="zh">{meta.zh}</span>
+        {language === 'zh' ? meta.zh : meta.en}
       </div>
 
       <button
@@ -73,6 +81,18 @@ export default function Topbar() {
         >
           ⌘K
         </kbd>
+      </button>
+
+      <button
+        type="button"
+        className="icon-btn"
+        aria-label={language === 'zh' ? '发送反馈' : 'Send feedback'}
+        onClick={() => {
+          track('feedback_click')
+          window.dispatchEvent(new Event(OPEN_SURVEY_EVENT))
+        }}
+      >
+        <MessageSquare size={18} />
       </button>
 
       <div className="lang-toggle" role="group" aria-label="Language">

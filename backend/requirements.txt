@@ -12,6 +12,9 @@ PyJWT>=2.8.0
 cryptography>=41.0.0
 requests>=2.31.0
 
+# Rate limiting (per-IP cap on no-auth POSTs)
+slowapi>=0.1.9
+
 # Database
 sqlalchemy>=2.0.0
 asyncpg>=0.29.0

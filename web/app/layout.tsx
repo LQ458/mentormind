@@ -5,6 +5,7 @@ import { ClerkProvider } from '@clerk/nextjs'
 import { TweaksProvider } from './components/design/TweaksProvider'
 import AppShell from './components/design/AppShell'
 import TweaksPanel from './components/design/TweaksPanel'
+import TelemetryBoot from './components/TelemetryBoot'
 import { Toaster } from 'sonner'
 
 export const metadata: Metadata = {
@@ -35,6 +36,7 @@ export default function RootLayout({
         <body>
           <LanguageProvider>
             <TweaksProvider>
+              <TelemetryBoot />
               <AppShell>{children}</AppShell>
               <TweaksPanel />
               <Toaster

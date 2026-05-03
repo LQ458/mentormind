@@ -1,17 +1,44 @@
 'use client'
 
-import React from 'react'
+import React, { useState, useCallback } from 'react'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
 import ErrorBoundary from '../ErrorBoundary'
 import ShortcutsHelp from '../ShortcutsHelp'
 import CommandPalette from '../CommandPalette'
+import SurveyTrigger from '../SurveyTrigger'
+import ExitSurvey, { SURVEY_KEY } from '../ExitSurvey'
+
+export const OPEN_SURVEY_EVENT = 'mm:open-survey'
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const [surveyOpen, setSurveyOpen] = useState(false)
+  const openMenu = useCallback(() => setMobileOpen(true), [])
+  const closeMenu = useCallback(() => setMobileOpen(false), [])
+
+  // Listen for the global open-survey event (fired by Topbar feedback button)
+  React.useEffect(() => {
+    const handler = () => {
+      if (localStorage.getItem(SURVEY_KEY) !== '1') {
+        setSurveyOpen(true)
+      } else {
+        // re-open even if already dismissed when triggered manually
+        setSurveyOpen(true)
+      }
+    }
+    window.addEventListener(OPEN_SURVEY_EVENT, handler)
+    return () => window.removeEventListener(OPEN_SURVEY_EVENT, handler)
+  }, [])
+
   return (
     <div className="app">
-      <Sidebar />
-      <Topbar />
+      {/* Mobile overlay — closes drawer on click-outside */}
+      {mobileOpen && (
+        <div className="sidebar-overlay" onClick={closeMenu} aria-hidden="true" />
+      )}
+      <Sidebar mobileOpen={mobileOpen} onClose={closeMenu} />
+      <Topbar onMenuClick={openMenu} />
       <div className="main">
         <div className="main-inner">
           <ErrorBoundary>{children}</ErrorBoundary>
@@ -19,6 +46,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </div>
       <ShortcutsHelp />
       <CommandPalette />
+      {/* Auto-trigger survey after 5 min + 1 board lesson */}
+      <SurveyTrigger onTrigger={() => setSurveyOpen(true)} />
+      {/* Controlled survey modal */}
+      <ExitSurvey open={surveyOpen} onClose={() => setSurveyOpen(false)} />
     </div>
   )
 }

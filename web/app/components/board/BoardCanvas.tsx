@@ -63,6 +63,71 @@ function entryVariants(anim: StyleAnimation | undefined, reduced: boolean = fals
   }
 }
 
+interface ElementSectionProps {
+  element: BoardElement
+  index: number
+  reducedMotion: boolean
+}
+
+/**
+ * Memoised wrapper for a single element's section. Prevents the entire
+ * element list from re-rendering whenever a non-related WS event mutates the
+ * parent state. Wave 1F speed win: with 20+ elements on the board, the
+ * unmemoised baseline re-rendered every renderer on every audio_ready event.
+ */
+const ElementSection = React.memo(function ElementSection({
+  element: el,
+  index: idx,
+  reducedMotion,
+}: ElementSectionProps) {
+  const Renderer = getRenderer(el.element_type)
+  const anim = entryVariants(el.style.animation, reducedMotion)
+  const highlighted = el.state === 'highlighted'
+  const dim = el.state === 'dim'
+  return (
+    <motion.section
+      data-element-index={idx}
+      data-element-type={el.element_type}
+      data-element-state={el.state || 'normal'}
+      initial={anim.initial as any}
+      animate={anim.animate as any}
+      exit={anim.exit as any}
+      transition={{ duration: reducedMotion ? 0.15 : 0.35, ease: 'easeOut' }}
+      className={[
+        'relative w-full rounded-xl border backdrop-blur-sm',
+        'bg-slate-900/40 border-slate-700/60',
+        'px-4 sm:px-6 py-4 sm:py-5',
+        'transition-shadow duration-300',
+        highlighted
+          ? 'ring-2 ring-amber-300/80 shadow-[0_0_28px_rgba(253,224,71,0.35)] border-amber-300/40'
+          : '',
+        dim ? 'opacity-45' : '',
+      ].join(' ')}
+    >
+      <Renderer
+        element={el}
+        isHighlighted={highlighted}
+        isExiting={el.state === 'exiting'}
+      />
+    </motion.section>
+  )
+}, (prev, next) => {
+  if (prev.reducedMotion !== next.reducedMotion) return false
+  if (prev.index !== next.index) return false
+  const a = prev.element
+  const b = next.element
+  if (a === b) return true
+  if (a.element_id !== b.element_id) return false
+  if (a.content !== b.content) return false
+  if (a.state !== b.state) return false
+  if (a.element_type !== b.element_type) return false
+  if (a.narration !== b.narration) return false
+  if (a.position !== b.position && JSON.stringify(a.position) !== JSON.stringify(b.position)) return false
+  if (a.style !== b.style && JSON.stringify(a.style) !== JSON.stringify(b.style)) return false
+  if (a.metadata !== b.metadata && JSON.stringify(a.metadata) !== JSON.stringify(b.metadata)) return false
+  return true
+})
+
 export default function BoardCanvas({ state, paused = false }: BoardCanvasProps) {
   const background: BoardBackground = state.board?.background || 'dark_board'
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -124,40 +189,14 @@ export default function BoardCanvas({ state, paused = false }: BoardCanvasProps)
             </div>
           )}
           <AnimatePresence initial={false}>
-            {elements.map((el, idx) => {
-              const Renderer = getRenderer(el.element_type)
-              const anim = entryVariants(el.style.animation, reducedMotion)
-              const highlighted = el.state === 'highlighted'
-              const dim = el.state === 'dim'
-              return (
-                <motion.section
-                  key={el.element_id}
-                  data-element-index={idx}
-                  data-element-type={el.element_type}
-                  data-element-state={el.state || 'normal'}
-                  initial={anim.initial as any}
-                  animate={anim.animate as any}
-                  exit={anim.exit as any}
-                  transition={{ duration: reducedMotion ? 0.15 : 0.35, ease: 'easeOut' }}
-                  className={[
-                    'relative w-full rounded-xl border backdrop-blur-sm',
-                    'bg-slate-900/40 border-slate-700/60',
-                    'px-4 sm:px-6 py-4 sm:py-5',
-                    'transition-shadow duration-300',
-                    highlighted
-                      ? 'ring-2 ring-amber-300/80 shadow-[0_0_28px_rgba(253,224,71,0.35)] border-amber-300/40'
-                      : '',
-                    dim ? 'opacity-45' : '',
-                  ].join(' ')}
-                >
-                  <Renderer
-                    element={el}
-                    isHighlighted={highlighted}
-                    isExiting={el.state === 'exiting'}
-                  />
-                </motion.section>
-              )
-            })}
+            {elements.map((el, idx) => (
+              <ElementSection
+                key={el.element_id}
+                element={el}
+                index={idx}
+                reducedMotion={reducedMotion}
+              />
+            ))}
           </AnimatePresence>
         </div>
       </div>
