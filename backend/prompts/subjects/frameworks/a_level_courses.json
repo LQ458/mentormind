@@ -1,0 +1,191 @@
+{
+  "verification_status": "draft",
+  "source_note": "Units sourced from Cambridge International A Level (CAIE 9709, 9702, 9701, 9700, 9708, 9990) and Edexcel A Level published specifications. Verify board-specific syllabi before production rollout. AS = Year 1; A2 = Year 2.",
+  "courses": [
+    {
+      "id": "a_level_math",
+      "name": "A Level Mathematics (CAIE 9709)",
+      "subject": "math",
+      "units": [
+        "AS: Pure Mathematics 1 — Algebra, Functions, Coordinate Geometry, Trigonometry, Differentiation, Integration",
+        "AS: Mechanics 1 OR Probability & Statistics 1",
+        "A2: Pure Mathematics 3 — Algebra, Logarithms, Trigonometry, Differentiation, Integration, Numerical Methods, Vectors, Differential Equations, Complex Numbers",
+        "A2: Mechanics 2 OR Probability & Statistics 2"
+      ],
+      "exam_format": {
+        "papers": [
+          {"name": "P1 Pure Mathematics 1", "minutes": 110, "marks": 75},
+          {"name": "P3 Pure Mathematics 3", "minutes": 110, "marks": 75},
+          {"name": "P4 Mechanics OR P5 Probability & Statistics", "minutes": 75, "marks": 50},
+          {"name": "P6 Probability & Statistics 2 (paired)", "minutes": 75, "marks": 50}
+        ],
+        "calculator_allowed": true,
+        "mark_notation": ["M1=method", "A1=accuracy", "B1=independent"]
+      }
+    },
+    {
+      "id": "a_level_physics",
+      "name": "A Level Physics (CAIE 9702)",
+      "subject": "physics",
+      "units": [
+        "AS: Physical Quantities and Units",
+        "AS: Kinematics & Dynamics",
+        "AS: Forces, Density, Pressure",
+        "AS: Work, Energy, Power",
+        "AS: Deformation of Solids",
+        "AS: Waves",
+        "AS: Electric Current; D.C. Circuits",
+        "AS: Particle and Nuclear Physics (intro)",
+        "A2: Motion in a Circle",
+        "A2: Gravitational Fields",
+        "A2: Temperature, Ideal Gases, Thermodynamics",
+        "A2: Oscillations",
+        "A2: Electric Fields, Capacitance, Magnetic Fields",
+        "A2: Alternating Currents",
+        "A2: Quantum Physics, Nuclear Physics, Medical Imaging",
+        "A2: Astronomy and Cosmology"
+      ],
+      "exam_format": {
+        "papers": [
+          {"name": "Paper 1 — Multiple Choice (AS)", "minutes": 75, "marks": 40},
+          {"name": "Paper 2 — Structured (AS)", "minutes": 75, "marks": 60},
+          {"name": "Paper 3 — Practical (AS)", "minutes": 120, "marks": 40},
+          {"name": "Paper 4 — Structured (A2)", "minutes": 120, "marks": 100},
+          {"name": "Paper 5 — Planning, Analysis, Evaluation (A2)", "minutes": 75, "marks": 30}
+        ]
+      }
+    },
+    {
+      "id": "a_level_chemistry",
+      "name": "A Level Chemistry (CAIE 9701)",
+      "subject": "chemistry",
+      "units": [
+        "AS: Atoms, Molecules and Stoichiometry",
+        "AS: Atomic Structure",
+        "AS: Chemical Bonding",
+        "AS: States of Matter",
+        "AS: Chemical Energetics",
+        "AS: Electrochemistry",
+        "AS: Equilibria",
+        "AS: Reaction Kinetics",
+        "AS: Inorganic Chemistry (Periodicity, Group 2, Group 17, Nitrogen/Sulfur)",
+        "AS: Organic Chemistry (Hydrocarbons, Halogenoalkanes, Alcohols, Carbonyls, Carboxylic acids, Nitrogen)",
+        "A2: Further Chemical Energetics & Electrochemistry",
+        "A2: Reaction Kinetics extensions",
+        "A2: Equilibria (Ka, Kb, Ksp, buffers)",
+        "A2: Transition Elements",
+        "A2: Organic Chemistry (Aromatic, Carbonyls, Carboxylic acid derivatives, Polymers, Amines, Amino acids, Synthesis)",
+        "A2: Analytical Techniques (NMR, Mass Spectrometry, Chromatography)"
+      ],
+      "exam_format": {
+        "papers": [
+          {"name": "Paper 1 — MC (AS)", "minutes": 60, "marks": 40},
+          {"name": "Paper 2 — Structured (AS)", "minutes": 75, "marks": 60},
+          {"name": "Paper 3 — Practical (AS)", "minutes": 120, "marks": 40},
+          {"name": "Paper 4 — Structured (A2)", "minutes": 120, "marks": 100},
+          {"name": "Paper 5 — Planning, Analysis, Evaluation (A2)", "minutes": 75, "marks": 30}
+        ]
+      }
+    },
+    {
+      "id": "a_level_biology",
+      "name": "A Level Biology (CAIE 9700)",
+      "subject": "biology",
+      "units": [
+        "AS: Cell Structure",
+        "AS: Biological Molecules",
+        "AS: Enzymes",
+        "AS: Cell Membranes & Transport",
+        "AS: The Mitotic Cell Cycle",
+        "AS: Nucleic Acids and Protein Synthesis",
+        "AS: Transport in Plants and Mammals",
+        "AS: Gas Exchange and Smoking",
+        "AS: Infectious Diseases & Immunity",
+        "A2: Energy & Respiration",
+        "A2: Photosynthesis",
+        "A2: Homeostasis",
+        "A2: Coordination",
+        "A2: Inherited Change",
+        "A2: Selection and Evolution",
+        "A2: Biodiversity, Classification and Conservation",
+        "A2: Genetic Technology"
+      ],
+      "exam_format": {
+        "papers": [
+          {"name": "Paper 1 — MC (AS)", "minutes": 75, "marks": 40},
+          {"name": "Paper 2 — Structured (AS)", "minutes": 75, "marks": 60},
+          {"name": "Paper 3 — Practical (AS)", "minutes": 120, "marks": 40},
+          {"name": "Paper 4 — Structured (A2)", "minutes": 120, "marks": 100},
+          {"name": "Paper 5 — Planning, Analysis, Evaluation (A2)", "minutes": 75, "marks": 30}
+        ]
+      }
+    },
+    {
+      "id": "a_level_economics",
+      "name": "A Level Economics (CAIE 9708)",
+      "subject": "economics",
+      "units": [
+        "AS: Basic Economic Ideas and Resource Allocation",
+        "AS: The Price System and the Microeconomy",
+        "AS: Government Microeconomic Intervention",
+        "AS: The Macroeconomy",
+        "AS: Government Macroeconomic Intervention",
+        "A2: Basic Economic Ideas and Resource Allocation extensions",
+        "A2: The Price System and the Microeconomy extensions",
+        "A2: Government Microeconomic Intervention extensions",
+        "A2: The Macroeconomy extensions (incl. International Trade)",
+        "A2: Government Macroeconomic Intervention extensions"
+      ],
+      "exam_format": {
+        "papers": [
+          {"name": "Paper 1 — Multiple Choice (AS)", "minutes": 60, "marks": 30},
+          {"name": "Paper 2 — Data Response & Essay (AS)", "minutes": 105, "marks": 60},
+          {"name": "Paper 3 — Multiple Choice (A2)", "minutes": 75, "marks": 30},
+          {"name": "Paper 4 — Data Response & Essay (A2)", "minutes": 135, "marks": 70}
+        ]
+      }
+    },
+    {
+      "id": "a_level_english_lit",
+      "name": "A Level English Literature (Edexcel)",
+      "subject": "english",
+      "units": [
+        "AS: Drama (one Shakespeare + one other)",
+        "AS: Prose (two texts thematically linked)",
+        "AS: Poetry (anthology + named poet)",
+        "A2: Pre-1900 Drama",
+        "A2: Pre-1900 Poetry",
+        "A2: Post-2000 Prose / Drama / Poetry",
+        "A2: Coursework — Comparative Critical Study (2500-3000 words)"
+      ],
+      "exam_format": {
+        "papers": [
+          {"name": "Paper 1 — Drama", "minutes": 135, "marks": 60},
+          {"name": "Paper 2 — Prose", "minutes": 75, "marks": 40},
+          {"name": "Paper 3 — Poetry", "minutes": 135, "marks": 60},
+          {"name": "Coursework", "marks": 60, "type": "non-exam assessment"}
+        ]
+      }
+    },
+    {
+      "id": "a_level_history",
+      "name": "A Level History (CAIE 9489)",
+      "subject": "history",
+      "units": [
+        "AS: European Option (e.g., French Revolution, Russia)",
+        "AS: American Option (e.g., American Revolution, Civil War)",
+        "AS: International Option (e.g., Cold War)",
+        "A2: In-depth study (paired with AS option)",
+        "A2: Source-based historiographical investigation"
+      ],
+      "exam_format": {
+        "papers": [
+          {"name": "Paper 1 — Document Question (AS)", "minutes": 60, "marks": 40},
+          {"name": "Paper 2 — Outline Study (AS)", "minutes": 90, "marks": 60},
+          {"name": "Paper 3 — In-depth Study (A2)", "minutes": 90, "marks": 60},
+          {"name": "Paper 4 — Source-based (A2)", "minutes": 90, "marks": 40}
+        ]
+      }
+    }
+  ]
+}

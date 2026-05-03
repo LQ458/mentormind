@@ -1,0 +1,74 @@
+'use client'
+
+import React from 'react'
+
+interface ErrorBoundaryProps {
+  children: React.ReactNode
+  fallback?: (error: Error, reset: () => void) => React.ReactNode
+  onError?: (error: Error, info: React.ErrorInfo) => void
+}
+
+interface ErrorBoundaryState {
+  error: Error | null
+}
+
+export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { error: null }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    this.props.onError?.(error, info)
+    if (typeof window !== 'undefined') {
+      console.error('[ErrorBoundary]', error, info.componentStack)
+    }
+  }
+
+  reset = () => this.setState({ error: null })
+
+  render() {
+    if (this.state.error) {
+      if (this.props.fallback) return this.props.fallback(this.state.error, this.reset)
+      return <DefaultFallback error={this.state.error} reset={this.reset} />
+    }
+    return this.props.children
+  }
+}
+
+function DefaultFallback({ error, reset }: { error: Error; reset: () => void }) {
+  return (
+    <div className="min-h-[60vh] flex items-center justify-center p-6">
+      <div className="max-w-md w-full rounded-xl border border-rose-200 bg-rose-50 p-6 shadow-sm">
+        <div className="flex items-start gap-3">
+          <span className="text-3xl" aria-hidden>⚠️</span>
+          <div className="flex-1">
+            <h2 className="text-lg font-semibold text-rose-900">出错了 / Something went wrong</h2>
+            <p className="text-sm text-rose-700 mt-1">
+              页面渲染时遇到错误。可以尝试重试，或返回首页。
+            </p>
+            <pre className="mt-3 text-xs bg-white/70 border border-rose-100 rounded p-2 overflow-auto max-h-32 text-rose-800">
+              {error.message}
+            </pre>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={reset}
+                className="px-4 py-2 rounded-md bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition-colors"
+              >
+                重试 / Retry
+              </button>
+              <a
+                href="/"
+                className="px-4 py-2 rounded-md bg-white border border-rose-200 text-rose-700 text-sm font-medium hover:bg-rose-100 transition-colors"
+              >
+                返回首页 / Home
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

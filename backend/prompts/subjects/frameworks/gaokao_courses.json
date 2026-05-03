@@ -1,0 +1,179 @@
+{
+  "verification_status": "draft",
+  "source_note": "Units sourced from 教育部 published 2017修订版 课程标准 + 高考全国卷 2024 frequency tables. Verify against 普通高中课程方案 before production rollout.",
+  "courses": [
+    {
+      "id": "gaokao_math",
+      "name": "高考数学",
+      "name_en": "Gaokao Mathematics",
+      "subject": "math",
+      "units": [
+        "集合与常用逻辑用语",
+        "函数与基本初等函数",
+        "三角函数",
+        "数列",
+        "不等式",
+        "平面向量与解三角形",
+        "立体几何",
+        "解析几何（直线、圆、圆锥曲线）",
+        "概率与统计",
+        "导数及其应用"
+      ],
+      "exam_format": {
+        "duration_minutes": 120,
+        "single_choice_count": 8,
+        "multi_choice_count": 4,
+        "fill_blank_count": 4,
+        "free_response_count": 5,
+        "total_points": 150,
+        "calculator_allowed": false,
+        "language": "zh"
+      }
+    },
+    {
+      "id": "gaokao_physics",
+      "name": "高考物理",
+      "name_en": "Gaokao Physics",
+      "subject": "physics",
+      "units": [
+        "运动学",
+        "牛顿运动定律",
+        "曲线运动与万有引力",
+        "机械能与能量守恒",
+        "动量与碰撞",
+        "电场",
+        "恒定电流与电路",
+        "磁场与电磁感应",
+        "交变电流与电磁波",
+        "热学（选修3-3）",
+        "光学与原子物理（选修3-4 / 3-5）"
+      ],
+      "exam_format": {
+        "duration_minutes": 50,
+        "shared_with": ["chemistry", "biology"],
+        "shared_paper_name": "理科综合",
+        "shared_paper_duration_minutes": 150,
+        "total_points": 110,
+        "single_choice_count": 5,
+        "multi_choice_count": 3,
+        "free_response_count": 4,
+        "language": "zh"
+      }
+    },
+    {
+      "id": "gaokao_chemistry",
+      "name": "高考化学",
+      "name_en": "Gaokao Chemistry",
+      "subject": "chemistry",
+      "units": [
+        "化学计量与物质的量",
+        "化学反应原理（热化学、电化学、化学平衡）",
+        "元素及其化合物（金属、非金属）",
+        "有机化学基础",
+        "物质结构与性质",
+        "化学实验与探究",
+        "工业流程与化学应用"
+      ],
+      "exam_format": {
+        "duration_minutes": 50,
+        "shared_with": ["physics", "biology"],
+        "shared_paper_name": "理科综合",
+        "shared_paper_duration_minutes": 150,
+        "total_points": 100,
+        "single_choice_count": 7,
+        "free_response_count": 4,
+        "language": "zh"
+      }
+    },
+    {
+      "id": "gaokao_biology",
+      "name": "高考生物",
+      "name_en": "Gaokao Biology",
+      "subject": "biology",
+      "units": [
+        "细胞的分子组成与结构",
+        "细胞代谢（酶、ATP、光合呼吸）",
+        "细胞的生命历程",
+        "遗传的细胞与分子基础",
+        "遗传定律与变异",
+        "生命活动的调节（神经、体液、免疫）",
+        "生物与环境（种群、群落、生态系统）",
+        "现代生物科技（选修3）"
+      ],
+      "exam_format": {
+        "duration_minutes": 50,
+        "shared_with": ["physics", "chemistry"],
+        "shared_paper_name": "理科综合",
+        "shared_paper_duration_minutes": 150,
+        "total_points": 90,
+        "single_choice_count": 6,
+        "free_response_count": 4,
+        "language": "zh"
+      }
+    },
+    {
+      "id": "gaokao_chinese",
+      "name": "高考语文",
+      "name_en": "Gaokao Chinese (Yuwen)",
+      "subject": "world_languages",
+      "units": [
+        "现代文阅读（论述类、实用类、文学类）",
+        "古代诗文阅读（文言文、古诗）",
+        "语言文字运用",
+        "写作（议论文 / 任务驱动型作文）",
+        "名篇名句默写"
+      ],
+      "exam_format": {
+        "duration_minutes": 150,
+        "total_points": 150,
+        "essay_required": true,
+        "language": "zh"
+      }
+    },
+    {
+      "id": "gaokao_english",
+      "name": "高考英语",
+      "name_en": "Gaokao English",
+      "subject": "english",
+      "units": [
+        "Listening Comprehension",
+        "Reading Comprehension (4 passages)",
+        "七选五 (Seven-Choose-Five)",
+        "完形填空 (Cloze)",
+        "语法填空 (Grammar Cloze)",
+        "短文改错 (Error Correction)",
+        "书面表达 (Writing)"
+      ],
+      "exam_format": {
+        "duration_minutes": 120,
+        "total_points": 150,
+        "listening_points": 30,
+        "writing_points": 25,
+        "language": "en"
+      }
+    },
+    {
+      "id": "gaokao_history",
+      "name": "高考历史",
+      "name_en": "Gaokao History",
+      "subject": "history",
+      "units": [
+        "中国古代史（先秦至清）",
+        "中国近代史（1840–1949）",
+        "中国现代史（1949–至今）",
+        "世界古代中世纪史",
+        "世界近代史（资本主义与工业革命）",
+        "世界现代史（20世纪以来）",
+        "选修：历史上重大改革 / 中外历史人物评说 / 20世纪战争与和平"
+      ],
+      "exam_format": {
+        "duration_minutes": 50,
+        "shared_with": ["geography", "government"],
+        "shared_paper_name": "文科综合",
+        "shared_paper_duration_minutes": 150,
+        "total_points": 100,
+        "language": "zh"
+      }
+    }
+  ]
+}

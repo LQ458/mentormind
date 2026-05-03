@@ -1,0 +1,194 @@
+{
+  "verification_status": "draft",
+  "source_note": "Units sourced from IB Diploma Programme subject guides (2019/2023 editions). Verify against current IBO published syllabi before production rollout. SL/HL distinctions are listed where applicable.",
+  "courses": [
+    {
+      "id": "ib_math_aa_hl",
+      "name": "IB Mathematics: Analysis and Approaches HL",
+      "subject": "math",
+      "level": "HL",
+      "units": [
+        "Number and Algebra",
+        "Functions",
+        "Geometry and Trigonometry",
+        "Statistics and Probability",
+        "Calculus",
+        "HL: Proof, Series, Counting Principles",
+        "HL: Complex Numbers",
+        "HL: Vectors",
+        "HL: Further Calculus (Maclaurin, ODEs)"
+      ],
+      "exam_format": {
+        "paper_1_minutes": 120,
+        "paper_1_calculator": false,
+        "paper_2_minutes": 120,
+        "paper_2_calculator": true,
+        "paper_3_minutes": 60,
+        "paper_3_extended": true,
+        "internal_assessment": "Mathematical Exploration"
+      }
+    },
+    {
+      "id": "ib_math_aa_sl",
+      "name": "IB Mathematics: Analysis and Approaches SL",
+      "subject": "math",
+      "level": "SL",
+      "units": [
+        "Number and Algebra",
+        "Functions",
+        "Geometry and Trigonometry",
+        "Statistics and Probability",
+        "Calculus"
+      ],
+      "exam_format": {
+        "paper_1_minutes": 90,
+        "paper_1_calculator": false,
+        "paper_2_minutes": 90,
+        "paper_2_calculator": true,
+        "internal_assessment": "Mathematical Exploration"
+      }
+    },
+    {
+      "id": "ib_physics_hl",
+      "name": "IB Physics HL",
+      "subject": "physics",
+      "level": "HL",
+      "units": [
+        "Measurements and Uncertainties",
+        "Mechanics",
+        "Thermal Physics",
+        "Waves",
+        "Electricity and Magnetism",
+        "Circular Motion and Gravitation",
+        "Atomic, Nuclear and Particle Physics",
+        "Energy Production",
+        "HL: Wave Phenomena",
+        "HL: Fields",
+        "HL: Electromagnetic Induction",
+        "HL: Quantum and Nuclear Physics",
+        "Option (Relativity / Engineering / Imaging / Astrophysics)"
+      ],
+      "exam_format": {
+        "paper_1_minutes": 60,
+        "paper_2_minutes": 135,
+        "paper_3_minutes": 75,
+        "internal_assessment": "Individual Investigation (10 hours)",
+        "command_terms": ["state", "describe", "explain", "discuss", "outline", "deduce"]
+      }
+    },
+    {
+      "id": "ib_chemistry_hl",
+      "name": "IB Chemistry HL",
+      "subject": "chemistry",
+      "level": "HL",
+      "units": [
+        "Stoichiometric Relationships",
+        "Atomic Structure",
+        "Periodicity",
+        "Chemical Bonding and Structure",
+        "Energetics / Thermochemistry",
+        "Chemical Kinetics",
+        "Equilibrium",
+        "Acids and Bases",
+        "Redox Processes",
+        "Organic Chemistry",
+        "Measurement and Data Processing",
+        "HL: Atomic structure / Bonding extensions",
+        "HL: Energetics / Kinetics extensions",
+        "HL: Organic Chemistry extensions",
+        "Option (Materials / Biochemistry / Energy / Medicinal)"
+      ],
+      "exam_format": {
+        "paper_1_minutes": 60,
+        "paper_2_minutes": 135,
+        "paper_3_minutes": 75,
+        "internal_assessment": "Individual Investigation"
+      }
+    },
+    {
+      "id": "ib_biology_hl",
+      "name": "IB Biology HL",
+      "subject": "biology",
+      "level": "HL",
+      "units": [
+        "Cell Biology",
+        "Molecular Biology",
+        "Genetics",
+        "Ecology",
+        "Evolution and Biodiversity",
+        "Human Physiology",
+        "HL: Nucleic Acids",
+        "HL: Metabolism, Cell Respiration, Photosynthesis",
+        "HL: Plant Biology",
+        "HL: Genetics and Evolution extensions",
+        "HL: Animal Physiology",
+        "Option (Neurobiology / Biotechnology / Ecology / Human Physiology)"
+      ],
+      "exam_format": {
+        "paper_1_minutes": 60,
+        "paper_2_minutes": 135,
+        "paper_3_minutes": 75,
+        "internal_assessment": "Individual Investigation"
+      }
+    },
+    {
+      "id": "ib_english_a_lang_lit_hl",
+      "name": "IB English A: Language and Literature HL",
+      "subject": "english",
+      "level": "HL",
+      "units": [
+        "Readers, Writers and Texts",
+        "Time and Space",
+        "Intertextuality: Connecting Texts",
+        "HL Essay (1200-1500 words)",
+        "Individual Oral",
+        "Higher Level (HL) extension texts"
+      ],
+      "exam_format": {
+        "paper_1_minutes": 135,
+        "paper_2_minutes": 105,
+        "internal_assessment": "Individual Oral",
+        "hl_essay": true
+      }
+    },
+    {
+      "id": "ib_history_hl",
+      "name": "IB History HL",
+      "subject": "history",
+      "level": "HL",
+      "units": [
+        "Prescribed Subject (Source-based)",
+        "World History Topics (2 of 12)",
+        "HL Regional Option (Africa / Americas / Asia & Oceania / Europe)",
+        "Internal Assessment: Historical Investigation"
+      ],
+      "exam_format": {
+        "paper_1_minutes": 60,
+        "paper_2_minutes": 90,
+        "paper_3_minutes": 150,
+        "internal_assessment": "Historical Investigation (2200 words)"
+      }
+    },
+    {
+      "id": "ib_economics_hl",
+      "name": "IB Economics HL",
+      "subject": "economics",
+      "level": "HL",
+      "units": [
+        "Introduction to Economics",
+        "Microeconomics",
+        "Macroeconomics",
+        "The Global Economy (International Trade & Development)",
+        "HL: Behavioural Economics extensions",
+        "HL: Mathematical content (calculations)",
+        "Internal Assessment: 3 Commentaries"
+      ],
+      "exam_format": {
+        "paper_1_minutes": 75,
+        "paper_2_minutes": 105,
+        "paper_3_minutes": 105,
+        "internal_assessment": "Portfolio of 3 Commentaries"
+      }
+    }
+  ]
+}

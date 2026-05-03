@@ -1,0 +1,140 @@
+@page {
+  size: A4;
+  margin: 2.2cm 2cm 2.2cm 2cm;
+  @bottom-right { content: counter(page) " / " counter(pages); font-size: 9pt; color: #888; }
+  @top-left { content: "MentorMind 功能说明文档"; font-size: 9pt; color: #888; }
+}
+
+body {
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.65;
+  color: #1f2937;
+  max-width: 100%;
+}
+
+h1 {
+  font-size: 22pt;
+  color: #0f172a;
+  border-bottom: 2px solid #2563eb;
+  padding-bottom: 0.3em;
+  margin-top: 1.5em;
+  page-break-before: auto;
+}
+
+h1.title {
+  font-size: 26pt;
+  text-align: center;
+  border: none;
+  margin-top: 1em;
+  margin-bottom: 0.3em;
+}
+
+h2 {
+  font-size: 16pt;
+  color: #1e3a8a;
+  border-left: 4px solid #2563eb;
+  padding-left: 0.5em;
+  margin-top: 1.4em;
+  page-break-after: avoid;
+}
+
+h3 {
+  font-size: 13pt;
+  color: #1e40af;
+  margin-top: 1.1em;
+  page-break-after: avoid;
+}
+
+h4 {
+  font-size: 11pt;
+  color: #334155;
+  margin-top: 0.9em;
+}
+
+p { margin: 0.5em 0; }
+
+a { color: #2563eb; text-decoration: none; }
+
+code {
+  font-family: "Menlo", "SF Mono", Consolas, monospace;
+  font-size: 9.5pt;
+  background: #f1f5f9;
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+  color: #be185d;
+}
+
+pre {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 0.8em 1em;
+  overflow-x: auto;
+  font-size: 9pt;
+  line-height: 1.5;
+  page-break-inside: avoid;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  color: #0f172a;
+}
+
+blockquote {
+  border-left: 4px solid #94a3b8;
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  background: #f8fafc;
+  color: #475569;
+  font-style: italic;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+  font-size: 9.5pt;
+  page-break-inside: avoid;
+}
+
+th, td {
+  border: 1px solid #cbd5e1;
+  padding: 0.5em 0.75em;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  background: #1e3a8a;
+  color: white;
+  font-weight: 600;
+}
+
+tr:nth-child(even) td { background: #f8fafc; }
+
+ul, ol { margin: 0.4em 0 0.6em 1.4em; padding: 0; }
+li { margin: 0.2em 0; }
+
+hr { border: none; border-top: 1px solid #cbd5e1; margin: 1.5em 0; }
+
+#TOC {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  padding: 1em 1.5em;
+  margin-bottom: 2em;
+  border-radius: 6px;
+  page-break-after: always;
+}
+
+#TOC ul { list-style: none; margin-left: 0.8em; }
+#TOC li { font-size: 10pt; margin: 0.25em 0; }
+#TOC > ul > li { font-weight: 600; font-size: 11pt; margin-top: 0.4em; }
+
+.title { font-size: 26pt; }
+.subtitle { font-size: 14pt; color: #64748b; text-align: center; }
+.author { text-align: center; color: #475569; }
+.date { text-align: center; color: #94a3b8; font-size: 10pt; }
+
+strong { color: #0f172a; }

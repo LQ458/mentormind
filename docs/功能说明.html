@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-CN" xml:lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="MentorMind 团队" />
+  <meta name="dcterms.date" content="2026-05-03" />
+  <title>MentorMind 功能说明文档</title>
+  <style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+
+ul.task-list[class]{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+font-size: inherit;
+width: 0.8em;
+margin: 0 0.8em 0.2em -1.6em;
+vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+</style>
+  <style type="text/css">@page {
+size: A4;
+margin: 2.2cm 2cm 2.2cm 2cm;
+@bottom-right { content: counter(page) " / " counter(pages); font-size: 9pt; color: #888; }
+@top-left { content: "MentorMind 功能说明文档"; font-size: 9pt; color: #888; }
+}
+body {
+font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+font-size: 10.5pt;
+line-height: 1.65;
+color: #1f2937;
+max-width: 100%;
+}
+h1 {
+font-size: 22pt;
+color: #0f172a;
+border-bottom: 2px solid #2563eb;
+padding-bottom: 0.3em;
+margin-top: 1.5em;
+page-break-before: auto;
+}
+h1.title {
+font-size: 26pt;
+text-align: center;
+border: none;
+margin-top: 1em;
+margin-bottom: 0.3em;
+}
+h2 {
+font-size: 16pt;
+color: #1e3a8a;
+border-left: 4px solid #2563eb;
+padding-left: 0.5em;
+margin-top: 1.4em;
+page-break-after: avoid;
+}
+h3 {
+font-size: 13pt;
+color: #1e40af;
+margin-top: 1.1em;
+page-break-after: avoid;
+}
+h4 {
+font-size: 11pt;
+color: #334155;
+margin-top: 0.9em;
+}
+p { margin: 0.5em 0; }
+a { color: #2563eb; text-decoration: none; }
+code {
+font-family: "Menlo", "SF Mono", Consolas, monospace;
+font-size: 9.5pt;
+background: #f1f5f9;
+padding: 0.1em 0.35em;
+border-radius: 3px;
+color: #be185d;
+}
+pre {
+background: #f8fafc;
+border: 1px solid #e2e8f0;
+border-radius: 4px;
+padding: 0.8em 1em;
+overflow-x: auto;
+font-size: 9pt;
+line-height: 1.5;
+page-break-inside: avoid;
+}
+pre code {
+background: none;
+padding: 0;
+color: #0f172a;
+}
+blockquote {
+border-left: 4px solid #94a3b8;
+margin: 1em 0;
+padding: 0.5em 1em;
+background: #f8fafc;
+color: #475569;
+font-style: italic;
+}
+table {
+border-collapse: collapse;
+width: 100%;
+margin: 1em 0;
+font-size: 9.5pt;
+page-break-inside: avoid;
+}
+th, td {
+border: 1px solid #cbd5e1;
+padding: 0.5em 0.75em;
+text-align: left;
+vertical-align: top;
+}
+th {
+background: #1e3a8a;
+color: white;
+font-weight: 600;
+}
+tr:nth-child(even) td { background: #f8fafc; }
+ul, ol { margin: 0.4em 0 0.6em 1.4em; padding: 0; }
+li { margin: 0.2em 0; }
+hr { border: none; border-top: 1px solid #cbd5e1; margin: 1.5em 0; }
+#TOC {
+background: #f1f5f9;
+border: 1px solid #cbd5e1;
+padding: 1em 1.5em;
+margin-bottom: 2em;
+border-radius: 6px;
+page-break-after: always;
+}
+#TOC ul { list-style: none; margin-left: 0.8em; }
+#TOC li { font-size: 10pt; margin: 0.25em 0; }
+#TOC > ul > li { font-weight: 600; font-size: 11pt; margin-top: 0.4em; }
+.title { font-size: 26pt; }
+.subtitle { font-size: 14pt; color: #64748b; text-align: center; }
+.author { text-align: center; color: #475569; }
+.date { text-align: center; color: #94a3b8; font-size: 10pt; }
+strong { color: #0f172a; }
+</style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">MentorMind 功能说明文档</h1>
+<p class="subtitle">现有功能 + 用户体验细节全清单</p>
+<p class="author">MentorMind 团队</p>
+<p class="date">2026-05-03</p>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#mentormind-功能说明文档" id="toc-mentormind-功能说明文档">MentorMind 功能说明文档</a>
+<ul>
+<li><a href="#目录" id="toc-目录">目录</a></li>
+<li><a href="#用户系统与认证" id="toc-用户系统与认证">1.
+用户系统与认证</a></li>
+<li><a href="#课程生成管线核心管线" id="toc-课程生成管线核心管线">2.
+课程生成管线（核心管线）</a></li>
+<li><a href="#ai-导师多阶段对话" id="toc-ai-导师多阶段对话">3. AI
+导师多阶段对话</a></li>
+<li><a href="#流式白板系统核心特色" id="toc-流式白板系统核心特色">4.
+流式白板系统（核心特色）</a></li>
+<li><a href="#学习内容管理" id="toc-学习内容管理">5.
+学习内容管理</a></li>
+<li><a href="#多模态输入" id="toc-多模态输入">6. 多模态输入</a></li>
+<li><a href="#高考专项模块" id="toc-高考专项模块">7.
+高考专项模块</a></li>
+<li><a href="#质量评估与数据分析" id="toc-质量评估与数据分析">8.
+质量评估与数据分析</a></li>
+<li><a href="#异步任务系统celery" id="toc-异步任务系统celery">9.
+异步任务系统（Celery）</a></li>
+<li><a href="#外部-api-集成与降级链" id="toc-外部-api-集成与降级链">10.
+外部 API 集成与降级链</a></li>
+<li><a href="#双语支持" id="toc-双语支持">11. 双语支持</a></li>
+<li><a href="#数据库与持久化" id="toc-数据库与持久化">12.
+数据库与持久化</a></li>
+<li><a href="#前端页面与路由" id="toc-前端页面与路由">13.
+前端页面与路由</a></li>
+<li><a href="#现有-ux-细节" id="toc-现有-ux-细节">14. 现有 UX
+细节</a></li>
+<li><a href="#技术栈与依赖" id="toc-技术栈与依赖">15.
+技术栈与依赖</a></li>
+<li><a href="#附录-a核心文件索引" id="toc-附录-a核心文件索引">附录
+A：核心文件索引</a></li>
+<li><a href="#附录-b典型用户旅程" id="toc-附录-b典型用户旅程">附录
+B：典型用户旅程</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="mentormind-功能说明文档">MentorMind 功能说明文档</h1>
+<blockquote>
+<p>AI 驱动的双语（中/英）个性化教学平台。后端基于 FastAPI + Celery +
+PostgreSQL + Redis，前端基于 Next.js 14 + TypeScript + Tailwind。
+核心特色：<strong>流式白板</strong>（受豆包爱学启发）、<strong>多阶段 AI
+导师对话</strong>、<strong>Manim 数学动画自动生成</strong>。</p>
+</blockquote>
+<hr />
+<h2 id="目录">目录</h2>
+<ol type="1">
+<li>用户系统与认证</li>
+<li>课程生成管线（核心管线）</li>
+<li>AI 导师多阶段对话</li>
+<li>流式白板系统（核心特色）</li>
+<li>学习内容管理</li>
+<li>多模态输入（语音、OCR）</li>
+<li>高考专项模块</li>
+<li>质量评估与数据分析</li>
+<li>异步任务系统（Celery）</li>
+<li>外部 API 集成与降级链</li>
+<li>双语支持</li>
+<li>数据库与持久化</li>
+<li>前端页面与路由</li>
+<li>现有 UX 细节</li>
+<li>技术栈与依赖</li>
+</ol>
+<hr />
+<h2 id="用户系统与认证">1. 用户系统与认证</h2>
+<h3 id="认证机制">1.1 认证机制</h3>
+<ul>
+<li><strong>Clerk JWT 认证</strong>：通过 RS256 签名 + JWKS
+公钥验证（<code>auth.py:decode_token()</code>）。</li>
+<li><strong>自动用户预置</strong>：首次登录时通过
+<code>clerk_id_to_uuid()</code> 生成确定性 UUID5，自动同步到
+PostgreSQL。</li>
+<li><strong>依赖注入</strong>：<code>get_current_user()</code> 作为
+FastAPI 依赖项，所有受保护端点统一鉴权。</li>
+</ul>
+<h3 id="用户档案字段">1.2 用户档案字段</h3>
+<ul>
+<li><strong>基本信息</strong>：username、email、full_name、is_premium、language_preference（zh
+/ en）</li>
+<li><strong>学习画像（UserProfile）</strong>：
+<ul>
+<li>grade_level（学段：初中、高中、本科、研究生、职场）</li>
+<li>subject_interests（学科兴趣，多选）</li>
+<li>current_challenges（当前学习困难）</li>
+<li>long_term_goals（长期学习目标）</li>
+<li>preferred_learning_style（学习风格：视觉型、实践优先、概念优先、对话式）</li>
+<li>weekly_study_hours（每周学习时长）</li>
+<li>onboarding_completed（是否完成首次问卷）</li>
+</ul></li>
+<li><strong>学科熟练度（SubjectProficiency）</strong>：subject、proficiency_level、confidence、last_updated</li>
+<li><strong>学习表现（StudentPerformance）</strong>：assessment_type、score、strengths、struggles、reflection</li>
+</ul>
+<h3 id="兴趣画像问卷interestprofilequiz">1.3
+兴趣画像问卷（InterestProfileQuiz）</h3>
+<ul>
+<li>首次创建课程时引导用户填写。</li>
+<li>多步骤分步呈现，已填项高亮蓝色边框。</li>
+<li>加载状态使用骨架屏占位动画。</li>
+</ul>
+<h3 id="订阅与计费">1.4 订阅与计费</h3>
+<ul>
+<li><strong>三档计划</strong>：Basic / Professional / Enterprise</li>
+<li><strong>Stripe 集成</strong>：
+<ul>
+<li><code>/billing/create-checkout-session</code>：发起支付</li>
+<li><code>/billing/webhook</code>：接收订阅事件并更新 is_premium</li>
+</ul></li>
+<li><strong>额度追踪</strong>：每月已用课程数、剩余配额、累计花费</li>
+</ul>
+<hr />
+<h2 id="课程生成管线核心管线">2. 课程生成管线（核心管线）</h2>
+<h3 id="入口端点">2.1 入口端点</h3>
+<p><code>POST /create-class</code>
+接收主题、学段、语言、时长、风格预设，立即返回 job_id 并入队 Celery
+任务。</p>
+<h3 id="六阶段流程">2.2 六阶段流程</h3>
+<table>
+<colgroup>
+<col style="width: 27%" />
+<col style="width: 27%" />
+<col style="width: 45%" />
+</colgroup>
+<thead>
+<tr>
+<th>阶段</th>
+<th>描述</th>
+<th>核心模块</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1. 认知处理</td>
+<td>提取学习目标、构建大纲</td>
+<td><code>core/modules/cognitive.py</code></td>
+</tr>
+<tr>
+<td>2. 内容生成</td>
+<td>DeepSeek LLM 生成课程主体</td>
+<td><code>services/api_client.py</code></td>
+</tr>
+<tr>
+<td>3. 视频脚本</td>
+<td>生成 Manim 场景代码 + 旁白</td>
+<td><code>core/modules/video_scripting.py</code></td>
+</tr>
+<tr>
+<td>4. 渲染</td>
+<td>Manim 并行渲染（最多 6 并发，semaphore 控制）</td>
+<td><code>core/rendering/manim_renderer.py</code></td>
+</tr>
+<tr>
+<td>5. TTS 合成</td>
+<td>各旁白段落生成音频</td>
+<td><code>services/tts/service.py</code></td>
+</tr>
+<tr>
+<td>6. 后处理</td>
+<td>视频拼接、音频时间对齐、缩略图</td>
+<td><code>core/modules/output.py</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="容错机制">2.3 容错机制</h3>
+<ul>
+<li><strong>LLM 自修复</strong>：渲染失败时调用 DeepSeek 修复 Manim
+语法错误，最多重试 3 次（<code>_fix_code_with_llm()</code>）。</li>
+<li><strong>降级链</strong>：HeyGen → 本地 Manim；SiliconFlow TTS →
+edge-tts。</li>
+<li><strong>熔断器</strong>（CircuitBreaker）：closed → open →
+half_open，外部 API 故障时快速失败。</li>
+</ul>
+<h3 id="进度追踪">2.4 进度追踪</h3>
+<ul>
+<li>Celery 任务向 Redis
+实时写入进度：<code>hset(f&quot;job:{job_id}&quot;, mapping=progress)</code></li>
+<li><strong>双通道客户端</strong>：
+<ul>
+<li><code>GET /job-status/{job_id}</code>：轮询接口</li>
+<li><code>GET /job-stream/{job_id}</code>：Server-Sent Events
+流式推送</li>
+</ul></li>
+<li>前端策略：先尝试 SSE，12 秒未通则降级到 2 秒间隔轮询。</li>
+</ul>
+<hr />
+<h2 id="ai-导师多阶段对话">3. AI 导师多阶段对话</h2>
+<h3 id="状态机">3.1 状态机</h3>
+<p><code>MentorAgent</code> 实现四阶段（MentorStage）：</p>
+<table>
+<colgroup>
+<col style="width: 27%" />
+<col style="width: 27%" />
+<col style="width: 45%" />
+</colgroup>
+<thead>
+<tr>
+<th>阶段</th>
+<th>行为</th>
+<th>文件位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>opening</td>
+<td>学科识别 + 开场问候</td>
+<td><code>core/modules/mentor.py:_handle_opening()</code></td>
+</tr>
+<tr>
+<td>diagnostic</td>
+<td>自适应诊断（最多 3 轮）</td>
+<td><code>_handle_diagnostic()</code></td>
+</tr>
+<tr>
+<td>roadmap</td>
+<td>生成学习路线图 + 大纲</td>
+<td><code>_handle_roadmap()</code></td>
+</tr>
+<tr>
+<td>co_creation</td>
+<td>协作式问题求解</td>
+<td><code>_handle_co_creation()</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="端点">3.2 端点</h3>
+<p><code>POST /mentor/chat</code> 接收
+<code>MentorChatRequest</code>，返回
+<code>MentorChatResponse</code>，包含： - <code>text</code>：当前回复 -
+<code>stage</code>：当前所处阶段 - <code>thinking_process</code>：AI
+的”思考过程”（前端蓝色斜体框展示） -
+<code>proposed_syllabus</code>：路线图阶段返回大纲 -
+<code>diagnostic_question</code>：诊断阶段返回当前题目</p>
+<h3 id="流式响应">3.3 流式响应</h3>
+<ul>
+<li>DeepSeek <code>chat_completion_stream()</code> 流式输出 token。</li>
+<li>前端逐字呈现，提升对话感。</li>
+</ul>
+<hr />
+<h2 id="流式白板系统核心特色">4. 流式白板系统（核心特色）</h2>
+<blockquote>
+<p>项目记忆显示：<strong>Phase A + B
+已完成</strong>，灵感来自字节跳动豆包爱学。</p>
+</blockquote>
+<h3 id="元素类型14-种">4.1 元素类型（14 种）</h3>
+<ul>
+<li><strong>文本类</strong>：title（标题）、text_block（段落）、definition_box（定义框，黄底）、theorem_box（定理框，蓝底）</li>
+<li><strong>数学类</strong>：equation（KaTeX 公式）、graph（D3
+可视化）</li>
+<li><strong>代码与表格</strong>：code_block（语法高亮）、table（Markdown
+表）</li>
+<li><strong>图形类</strong>：shape（SVG
+矩形/圆/三角）、arrow（连接箭头）、image（懒加载图片）</li>
+<li><strong>结构类</strong>：step_list（编号步骤）、highlight（高亮标注）、transform（CSS
+变换）</li>
+</ul>
+<h3 id="动画与样式">4.2 动画与样式</h3>
+<ul>
+<li><strong>入场动画</strong>：fade_in（淡入）、write（带模糊的书写）、grow（缩放放大）、slide_in（侧滑）、none</li>
+<li><strong>统一时长</strong>：0.35 秒，easeOut 缓动</li>
+<li><strong>颜色系统</strong>：accent / heading / text / green / mauve /
+yellow / red</li>
+<li><strong>尺寸系统</strong>：small / medium / large / xlarge</li>
+<li><strong>背景主题</strong>：dark_board（默认）、light_board、grid（网格）、plain</li>
+<li><strong>布局</strong>：full_canvas、split_left_right、split_top_bottom、focus_center</li>
+</ul>
+<h3 id="mcp-协议工具">4.3 MCP 协议工具</h3>
+<p>通过 <code>mcp/board_server.py</code> 提供符合 MCP
+规范的工具调用接口，由 LLM 在生成课程时调度：</p>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>board_create</td>
+<td>初始化白板（标题、布局、背景）</td>
+</tr>
+<tr>
+<td>board_add_element</td>
+<td>添加可视化元素 + 可选旁白</td>
+</tr>
+<tr>
+<td>board_update_element</td>
+<td>修改/高亮/移动/动画/移除元素</td>
+</tr>
+<tr>
+<td>board_clear</td>
+<td>清空整块或区域</td>
+</tr>
+<tr>
+<td>board_focus</td>
+<td>设置焦点区域</td>
+</tr>
+<tr>
+<td>board_narrate</td>
+<td>排队旁白文本进行语音合成</td>
+</tr>
+<tr>
+<td>board_checkpoint</td>
+<td>创建理解检查点</td>
+</tr>
+<tr>
+<td>board_transition</td>
+<td>状态间过渡动画</td>
+</tr>
+</tbody>
+</table>
+<p>工具调用经 <code>ToolCallValidator</code>（JSON Schema
+校验）后才执行，防止 LLM 输出无效参数。</p>
+<h3 id="实时流式传输">4.4 实时流式传输</h3>
+<ul>
+<li><strong>WebSocket
+端点</strong>：<code>/ws/board/{session_id}</code>，JWT query
+鉴权。</li>
+<li><strong>状态管理</strong>：<code>BoardStateManager</code>
+维护内存状态 + 完整事件日志（用于断线重连）。</li>
+<li><strong>支持指令</strong>：暂停 / 恢复 / 跳过 / 重新讲解。</li>
+<li><strong>事件类型</strong>：board_add_element、board_update_element、narration、checkpoint、summary_ready、error。</li>
+</ul>
+<h3 id="tts-同步">4.5 TTS 同步</h3>
+<ul>
+<li><code>BoardTTSSync</code> 协调音频时长与白板动画时序。</li>
+<li>TTS 段落附带 duration_ms 元数据，客户端依此安排元素出场节奏。</li>
+</ul>
+<h3 id="理解检查点">4.6 理解检查点</h3>
+<ul>
+<li><code>ComprehensionCheckpoint</code>：中途弹出题目打断学习。</li>
+<li>学生作答后调用 <code>/board/checkpoint-response</code>，AI
+据此调整后续节奏。</li>
+</ul>
+<h3 id="会话总结">4.7 会话总结</h3>
+<ul>
+<li><code>core/board/summarizer.py:summarize_session()</code> 将事件日志
++ 旁白拼成 markdown 摘要。</li>
+<li><code>/board/session/{session_id}/summary</code>
+触发生成，前端在右侧抽屉滑入展示。</li>
+</ul>
+<h3 id="再讲一遍">4.8 再讲一遍</h3>
+<p><code>POST /board/explain-differently</code>
+针对学生不理解的板块，换风格重新讲解（详细/简洁/类比/类比生活）。</p>
+<h3 id="限流">4.9 限流</h3>
+<ul>
+<li>每用户最多 5 个并发会话；全局最多 100 个。</li>
+</ul>
+<hr />
+<h2 id="学习内容管理">5. 学习内容管理</h2>
+<h3 id="课程库">5.1 课程库</h3>
+<ul>
+<li><code>GET /lessons</code>：分页 / 筛选 / 排序</li>
+<li><code>GET /lessons/{id}</code>：完整结构（含
+objectives、resources、exercises）</li>
+<li><code>DELETE</code>：软删除（status = deleted）+ 批量删除</li>
+<li>导出 PDF（前端调用 jsPDF）</li>
+</ul>
+<h3 id="学习计划study-plan">5.2 学习计划（Study Plan）</h3>
+<ul>
+<li><code>POST /study-plan/chat</code>：多轮对话设计计划</li>
+<li><code>POST /study-plan/create</code>：保存计划</li>
+<li>计划由若干 Unit 组成，每个 Unit 可独立生成课程或板课</li>
+<li>状态：draft / active / completed / archived</li>
+</ul>
+<h3 id="复习队列间隔重复">5.3 复习队列（间隔重复）</h3>
+<ul>
+<li>基于 <strong>F5 算法</strong> 自动调度复习时机</li>
+<li><code>GET /users/me/review-queue</code>：返回待复习课程</li>
+<li>每晚 Celery beat
+任务（<code>sync_proactive_notifications_task</code>）刷新提醒</li>
+</ul>
+<h3 id="五种交互式练习">5.4 五种交互式练习</h3>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>端点</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>研讨会</td>
+<td><code>/seminar</code></td>
+<td>多智能体讨论一道题</td>
+</tr>
+<tr>
+<td>模拟</td>
+<td><code>/simulation</code></td>
+<td>应用场景化练习</td>
+</tr>
+<tr>
+<td>口述答辩</td>
+<td><code>/oral-defense</code></td>
+<td>反思式口述检验</td>
+</tr>
+<tr>
+<td>记忆挑战</td>
+<td><code>/memory-challenge</code></td>
+<td>间隔重复测试</td>
+</tr>
+<tr>
+<td>故意出错</td>
+<td><code>/deliberate-error</code></td>
+<td>主动找出含错的讲解</td>
+</tr>
+</tbody>
+</table>
+<h3 id="主动通知">5.5 主动通知</h3>
+<ul>
+<li><code>ProactiveNotification</code>
+模型：复习提醒、推荐、里程碑、警告</li>
+<li><code>/users/me/notifications</code> 列表 + 标记已读 / 关闭</li>
+</ul>
+<h3 id="视频参与度埋点">5.6 视频参与度埋点</h3>
+<ul>
+<li><code>/users/me/lessons/{lesson_id}/video-engagement</code>
+上报观看片段</li>
+<li>用于热力图分析与质量评估</li>
+</ul>
+<h3 id="媒体上下文">5.7 媒体上下文</h3>
+<ul>
+<li><code>UserMediaContext</code>：用户上传过的音频/图片均缓存可复用</li>
+<li><code>/user/storage-usage</code>：配额查询</li>
+</ul>
+<hr />
+<h2 id="多模态输入">6. 多模态输入</h2>
+<h3 id="音频转写asr">6.1 音频转写（ASR）</h3>
+<ul>
+<li><strong>本地 FunASR</strong>（Paraformer-zh）：中文最优</li>
+<li><strong>本地 Whisper</strong>：英文与多语言</li>
+<li><strong>自动语言检测</strong>：<code>_detect_audio_language()</code></li>
+<li>音频预处理：统一为 16 kHz 单声道 WAV</li>
+<li>端点：<code>POST /ingest/audio</code>（异步入队）</li>
+<li>Celery 任务：<code>transcribe_audio_task</code>（heavy_ml
+队列）</li>
+</ul>
+<h3 id="图像-ocr">6.2 图像 OCR</h3>
+<ul>
+<li><strong>PaddleOCR</strong>：中文文字识别强项</li>
+<li>优先调用微服务（<code>PADDLE_OCR_ENDPOINT</code>），失败降级本地模型</li>
+<li>端点：<code>POST /ingest/image</code> +
+<code>POST /study-plan/ask-ai</code>（图问答）</li>
+<li>Celery 任务：<code>ocr_image_task</code></li>
+</ul>
+<h3 id="tts-文字合成">6.3 TTS 文字合成</h3>
+<ul>
+<li><strong>中文</strong>：SiliconFlow TTS（首选）→ edge-tts（无 API key
+降级）</li>
+<li><strong>英文</strong>：OpenAI TTS</li>
+<li>端点：<code>GET /voices</code>（列出可用音色）</li>
+<li>批量合成：<code>TTSSynthesizer</code> 用于课程旁白</li>
+</ul>
+<hr />
+<h2 id="高考专项模块">7. 高考专项模块</h2>
+<p>针对中国高考备考特化：</p>
+<table>
+<thead>
+<tr>
+<th>端点</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /gaokao/chat</code></td>
+<td>高考导师对话</td>
+</tr>
+<tr>
+<td><code>POST /gaokao/practice</code></td>
+<td>习题生成</td>
+</tr>
+<tr>
+<td><code>POST /gaokao/save-plan</code></td>
+<td>保存备考计划</td>
+</tr>
+<tr>
+<td><code>GET /gaokao/sessions/{plan_id}</code></td>
+<td>会话查询</td>
+</tr>
+</tbody>
+</table>
+<p>模块文件：<code>core/content/gaokao_tutor.py</code>，预置高考各学科特化提示词。</p>
+<hr />
+<h2 id="质量评估与数据分析">8. 质量评估与数据分析</h2>
+<h3 id="课程质量评分">8.1 课程质量评分</h3>
+<ul>
+<li><code>VideoQualityAgent</code>（ML 评分模型）</li>
+<li><code>POST /quality/evaluate</code>：评估单课</li>
+<li><code>GET /quality/analytics</code>：聚合质量指标</li>
+</ul>
+<h3 id="系统级指标">8.2 系统级指标</h3>
+<ul>
+<li><code>/metrics/performance</code>：系统性能（响应时长、错误率）</li>
+<li><code>/metrics/lesson-generation</code>：管线时长、失败率</li>
+<li><code>/admin/metrics</code>：管理员仪表盘</li>
+</ul>
+<h3 id="用户分析">8.3 用户分析</h3>
+<ul>
+<li><strong>AnalyticsEvent</strong>
+事件流：lesson_started、lesson_completed、assessment_taken、video_watched</li>
+<li><strong>DailyMetrics</strong>
+每日聚合：完成课数、学习时长、得分</li>
+</ul>
+<h3 id="调试端点">8.4 调试端点</h3>
+<ul>
+<li><code>POST /debug/generation/pipeline</code>：检视各阶段输出</li>
+<li><code>POST /debug/generation/video-script</code>：检视生成的脚本</li>
+<li><code>POST /analyze-topics</code>、<code>POST /detect-subject</code>：主题与学科分析</li>
+</ul>
+<hr />
+<h2 id="异步任务系统celery">9. 异步任务系统（Celery）</h2>
+<h3 id="配置">9.1 配置</h3>
+<ul>
+<li><strong>Broker</strong>：Redis（<code>CELERY_BROKER_URL</code>）</li>
+<li><strong>三个隔离队列</strong>：
+<ul>
+<li><code>orchestration</code>：课程编排</li>
+<li><code>rendering</code>：Manim 渲染</li>
+<li><code>heavy_ml</code>：ASR / OCR</li>
+</ul></li>
+<li><strong>解决 PyTorch / Whisper SIGSEGV</strong>：使用 solo pool（不
+fork）</li>
+<li><strong>任务时限</strong>：硬限制 30 分钟，软限制 25 分钟</li>
+<li><code>acks_late = True</code>：crash 时不丢消息</li>
+</ul>
+<h3 id="任务清单">9.2 任务清单</h3>
+<table>
+<thead>
+<tr>
+<th>任务</th>
+<th>队列</th>
+<th>触发</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>sync_proactive_notifications_task</td>
+<td>orchestration</td>
+<td>beat 每 24 小时</td>
+</tr>
+<tr>
+<td>create_class_video_task</td>
+<td>orchestration</td>
+<td>用户创建课程</td>
+</tr>
+<tr>
+<td>transcript_to_lesson_task</td>
+<td>orchestration</td>
+<td>转录 → 课程</td>
+</tr>
+<tr>
+<td>transcribe_audio_task</td>
+<td>heavy_ml</td>
+<td>上传音频</td>
+</tr>
+<tr>
+<td>ocr_image_task</td>
+<td>heavy_ml</td>
+<td>上传图片</td>
+</tr>
+<tr>
+<td>generate_unit_content_task</td>
+<td>orchestration</td>
+<td>学习计划单元生成</td>
+</tr>
+<tr>
+<td>regenerate_board_segment_task</td>
+<td>orchestration</td>
+<td>板课段重生成</td>
+</tr>
+<tr>
+<td>rollup_proficiency_task</td>
+<td>orchestration</td>
+<td>学科熟练度滚动</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="外部-api-集成与降级链">10. 外部 API 集成与降级链</h2>
+<h3 id="主要服务">10.1 主要服务</h3>
+<table>
+<colgroup>
+<col style="width: 27%" />
+<col style="width: 27%" />
+<col style="width: 45%" />
+</colgroup>
+<thead>
+<tr>
+<th>服务</th>
+<th>用途</th>
+<th>降级路径</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DeepSeek</td>
+<td>主 LLM（聊天、内容生成、翻译、质量评估）</td>
+<td>5 次重试 + 指数退避</td>
+</tr>
+<tr>
+<td>HeyGen</td>
+<td>AI 数字人视频</td>
+<td>→ 本地 Manim</td>
+</tr>
+<tr>
+<td>SiliconFlow</td>
+<td>TTS / 视频生成</td>
+<td>→ edge-tts</td>
+</tr>
+<tr>
+<td>OpenAI</td>
+<td>英文 TTS</td>
+<td>（无降级）</td>
+</tr>
+<tr>
+<td>edge-tts</td>
+<td>微软 TTS（无 API key）</td>
+<td>降级终点</td>
+</tr>
+<tr>
+<td>FunASR</td>
+<td>中文 ASR</td>
+<td>本地模型</td>
+</tr>
+<tr>
+<td>Whisper</td>
+<td>英文 ASR</td>
+<td>本地模型</td>
+</tr>
+<tr>
+<td>PaddleOCR</td>
+<td>中文 OCR</td>
+<td>微服务 → 本地</td>
+</tr>
+</tbody>
+</table>
+<h3 id="翻译能力">10.2 翻译能力</h3>
+<p>DeepSeek 提供： - <code>translate_to_chinese()</code>：英文 → 中文 -
+<code>translate_to_english()</code>：中文 → 英文</p>
+<p>跨语言课程改编场景使用。</p>
+<hr />
+<h2 id="双语支持">11. 双语支持</h2>
+<h3 id="语言参数">11.1 语言参数</h3>
+<p>所有创建课程 / 板课接口都接受
+<code>language: &quot;en&quot; | &quot;zh&quot;</code>，决定： - ASR 模型选择（Whisper /
+FunASR） - TTS 服务选择（OpenAI / SiliconFlow + edge-tts） -
+提示词模板选择</p>
+<h3 id="提示词系统">11.2 提示词系统</h3>
+<ul>
+<li><code>prompts/loader.py:render_prompt()</code>：模板渲染 +
+变量替换</li>
+<li><code>prompts/language/language_instruction.md</code>：语言特定指令前缀</li>
+<li>所有 LLM 请求都自动注入语言指令</li>
+</ul>
+<h3 id="中文-nlp-库">11.3 中文 NLP 库</h3>
+<ul>
+<li><code>zhconv</code>：繁简转换</li>
+<li><code>jieba</code>：分词</li>
+<li><code>cn2an</code>：数字与汉字互转</li>
+<li><code>pynlpir</code>：中文 NLP</li>
+</ul>
+<h3 id="前端-i18n">11.4 前端 i18n</h3>
+<ul>
+<li><code>web/app/lib/translations.ts</code>：200+ 翻译键</li>
+<li><code>t(path, language, variables)</code>：支持变量替换</li>
+<li><strong>UI 语言</strong> 与 <strong>内容语言</strong>
+独立切换（分别存 localStorage）</li>
+<li>自动设置 <code>document.documentElement.lang</code></li>
+</ul>
+<hr />
+<h2 id="数据库与持久化">12. 数据库与持久化</h2>
+<h3 id="课程模型">12.1 课程模型</h3>
+<ul>
+<li><strong>Lesson</strong>：title、description、topic、language、student_level、difficulty_level、duration_minutes、verbosity（compact
+/ standard /
+thorough）、quality_score、cost_usd、ai_insights（JSON）、status（draft
+/ published / archived / deleted）</li>
+<li><strong>LessonObjective</strong>：title、description、bloom_level（布鲁姆分类）</li>
+<li><strong>LessonResource</strong>：resource_type（link / video / pdf /
+image）、url、duration_minutes</li>
+<li><strong>LessonExercise</strong>：exercise_type（multiple_choice /
+free_response / code）、prompt、answer、difficulty</li>
+</ul>
+<h3 id="用户进度">12.2 用户进度</h3>
+<ul>
+<li><strong>UserLesson</strong>：progress_percentage、is_completed、time_spent_minutes、started_at、completed_at</li>
+</ul>
+<h3 id="学习计划">12.3 学习计划</h3>
+<ul>
+<li><strong>StudyPlan</strong>：title、subject、duration_weeks、status</li>
+<li><strong>StudyPlanUnit</strong>：title、duration_hours、order、lesson_id、completed_at</li>
+</ul>
+<h3 id="通知与上下文">12.4 通知与上下文</h3>
+<ul>
+<li><strong>ProactiveNotification</strong>：title、message、notification_type、metadata、is_read、is_dismissed</li>
+<li><strong>UserMediaContext</strong>：content_type、source_url、extracted_text</li>
+</ul>
+<h3 id="媒体存储">12.5 媒体存储</h3>
+<ul>
+<li><code>GET /media/{file_path}</code>：从 <code>config.DATA_DIR</code>
+提供静态文件（音视频）</li>
+</ul>
+<hr />
+<h2 id="前端页面与路由">13. 前端页面与路由</h2>
+<h3 id="主要路由">13.1 主要路由</h3>
+<table>
+<thead>
+<tr>
+<th>路由</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/</code></td>
+<td>首页 + 系统状态指示</td>
+</tr>
+<tr>
+<td><code>/dashboard</code></td>
+<td>个人仪表盘（今日重点 + 复习队列 + 通知 + 最近课程）</td>
+</tr>
+<tr>
+<td><code>/create</code></td>
+<td>课程创建工作流（4 阶段：聊天 → 路线图 → 生成 → 预览）</td>
+</tr>
+<tr>
+<td><code>/lessons</code></td>
+<td>课程库（表格 + 详情弹窗）</td>
+</tr>
+<tr>
+<td><code>/lessons/[id]</code></td>
+<td>单课详情（PDF 下载、目标、资源、视频）</td>
+</tr>
+<tr>
+<td><code>/study-plan</code></td>
+<td>学习计划列表</td>
+</tr>
+<tr>
+<td><code>/study-plan/[id]</code></td>
+<td>计划详情 + AI 问答侧栏</td>
+</tr>
+<tr>
+<td><code>/board/[sessionId]</code></td>
+<td><strong>流式白板播放</strong>（核心页面）</td>
+</tr>
+<tr>
+<td><code>/board-replay</code>、<code>/board-test</code></td>
+<td>开发用（回放与测试）</td>
+</tr>
+<tr>
+<td><code>/settings</code></td>
+<td>设置（订阅、偏好、计费、危险区）</td>
+</tr>
+<tr>
+<td><code>/analytics</code></td>
+<td>用量分析（时间范围筛选、图表、推荐）</td>
+</tr>
+<tr>
+<td><code>/auth/login</code>、<code>/auth/register</code></td>
+<td>认证</td>
+</tr>
+<tr>
+<td><code>/admin/metrics</code></td>
+<td>管理员指标</td>
+</tr>
+<tr>
+<td><code>/principles</code></td>
+<td>平台理念静态页</td>
+</tr>
+<tr>
+<td><code>/gaokao</code></td>
+<td>高考专项</td>
+</tr>
+</tbody>
+</table>
+<h3 id="后端-api-代理">13.2 后端 API 代理</h3>
+<ul>
+<li><code>web/app/api/backend/**/route.ts</code>：20+ Next.js Route
+Handler 代理后端调用，统一鉴权头注入。</li>
+</ul>
+<h3 id="设计系统">13.3 设计系统</h3>
+<ul>
+<li><code>app/components/design/primitives.tsx</code>：PageHead、Section、Progress、Chip</li>
+<li><code>app/globals.css</code>
+全局类：<code>.card-new</code>、<code>.btn</code>、<code>.btn-primary</code>、<code>.sidebar</code>、<code>.lang-toggle</code>、<code>.muted</code>
+等</li>
+</ul>
+<h3 id="字体">13.4 字体</h3>
+<p>通过 Google Fonts 加载： - <strong>IBM Plex Sans</strong>（UI
+与正文） - <strong>IBM Plex Mono</strong>（代码） - <strong>Source Serif
+4</strong>（标题，可变光学尺寸）</p>
+<hr />
+<h2 id="现有-ux-细节">14. 现有 UX 细节</h2>
+<h3 id="视觉与排版">14.1 视觉与排版</h3>
+<ul>
+<li><strong>时间感问候</strong>：早上好 / 下午好 / 晚上好 + 名字 +
+emoji</li>
+<li><strong>暗色白板主题</strong>：slate-950 背景 + 半透明卡片 +
+高亮发光（<code>shadow-[0_0_28px_rgba(253,224,71,0.35)]</code>）</li>
+<li><strong>状态在线指示</strong>：<code>bg-yellow-400 animate-pulse</code>
+表示服务在线</li>
+</ul>
+<h3 id="动画-反馈">14.2 动画 &amp; 反馈</h3>
+<ul>
+<li><strong>白板元素入场</strong>：framer-motion，0.35 秒
+easeOut，按元素类型选动画</li>
+<li><strong>总结面板滑入</strong>：从右侧 0.25 秒 tween</li>
+<li><strong>进度条平滑</strong>：300 ms 趋近真实百分比，避免跳变</li>
+<li><strong>聊天加载点</strong>：3 个 <code>animate-bounce</code> 错时 0
+/ 0.1 / 0.2 秒</li>
+<li><strong>路线图章节圆圈悬停</strong>：<code>group-hover:scale-110</code></li>
+</ul>
+<h3 id="自动滚动">14.3 自动滚动</h3>
+<ul>
+<li>白板自动滚到最新元素</li>
+<li>检测用户上滑超过 80px 后停止自动滚动，避免打扰阅读</li>
+<li>用户滚回底部或课程恢复后再次启用</li>
+</ul>
+<h3 id="交互细节">14.4 交互细节</h3>
+<ul>
+<li><strong>AI Testing Mode
+黄色高亮开关</strong>：跳过诊断直接生成（开发用）</li>
+<li><strong>诊断进度指示</strong>：「基础诊断 1/3」+ 蓝点状态条</li>
+<li><strong>Enter 发送 / Shift+Enter 换行</strong></li>
+<li><strong>音频/图片上传异步轮询</strong>：5 秒间隔，最长 5 分钟</li>
+<li><strong>失败原因映射</strong>：网络 / API key / 视频环境 →
+可读中文提示</li>
+<li><strong>白板暂停浮层</strong>：右上角琥珀色「Paused — scroll to
+review」</li>
+</ul>
+<h3 id="课程设计开关组">14.5 课程设计开关组</h3>
+<p>创建课程时可启用： - showThinkingPath：显示知识图谱 -
+enableSeminar：研讨会模式 - enableSimulation：场景模拟 -
+enableOralDefense：口述答辩 - addDeliberateError：故意出错 -
+personalAnchor：个人锚点 - verbosity：旁白详略（compact / standard /
+thorough）</p>
+<h3 id="可访问性">14.6 可访问性</h3>
+<ul>
+<li>所有图标按钮 <code>aria-label</code></li>
+<li>语言切换 <code>role=&quot;group&quot; aria-label=&quot;Language&quot;</code></li>
+<li>检查点 <code>role=&quot;dialog&quot;</code></li>
+<li>侧栏当前页 <code>aria-current=&quot;page&quot;</code></li>
+<li>focus
+ring：<code>focus:ring-2 focus:ring-{color} focus:ring-offset-2</code></li>
+</ul>
+<hr />
+<h2 id="技术栈与依赖">15. 技术栈与依赖</h2>
+<h3 id="后端">15.1 后端</h3>
+<ul>
+<li><strong>FastAPI</strong>：Web 框架（异步）</li>
+<li><strong>SQLAlchemy + asyncpg</strong>：ORM + PostgreSQL
+异步驱动</li>
+<li><strong>Celery + Redis</strong>：任务队列 + 消息代理</li>
+<li><strong>Manim</strong>：数学动画引擎</li>
+<li><strong>FunASR + Whisper</strong>：语音识别</li>
+<li><strong>PaddleOCR</strong>：中文文字识别</li>
+<li><strong>PyJWT</strong>：JWT 认证</li>
+<li><strong>edge-tts</strong>：微软 TTS（无 API key）</li>
+<li><strong>texlive-lang-chinese</strong>：LaTeX 中文字体支持</li>
+</ul>
+<h3 id="前端">15.2 前端</h3>
+<ul>
+<li><strong>Next.js 14</strong>（App Router） + TypeScript</li>
+<li><strong>Tailwind CSS</strong>（自定义设计系统，无 shadcn /
+MUI）</li>
+<li><strong>framer-motion</strong>：动画</li>
+<li><strong>Lucide React</strong>：图标</li>
+<li><strong>react-katex / katex</strong>：数学公式</li>
+<li><strong>D3 v7</strong>：可视化</li>
+<li><strong>Clerk</strong>：认证</li>
+</ul>
+<h3 id="基础设施">15.3 基础设施</h3>
+<ul>
+<li><strong>Docker</strong>：容器部署</li>
+<li><strong>PostgreSQL</strong>：主数据库</li>
+<li><strong>Redis</strong>：消息代理 + 缓存</li>
+<li><strong>Stripe</strong>：订阅计费</li>
+</ul>
+<hr />
+<h2 id="附录-a核心文件索引">附录 A：核心文件索引</h2>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>模块</th>
+<th>文件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主服务</td>
+<td><code>server.py</code></td>
+</tr>
+<tr>
+<td>Celery 配置</td>
+<td><code>celery_app.py</code></td>
+</tr>
+<tr>
+<td>用户模型</td>
+<td><code>database/models/user.py</code></td>
+</tr>
+<tr>
+<td>课程模型</td>
+<td><code>database/models/lesson.py</code></td>
+</tr>
+<tr>
+<td>学习计划模型</td>
+<td><code>database/models/study_plan.py</code></td>
+</tr>
+<tr>
+<td>课程编排</td>
+<td><code>core/create_classes.py</code></td>
+</tr>
+<tr>
+<td>AI 导师</td>
+<td><code>core/modules/mentor.py</code></td>
+</tr>
+<tr>
+<td>视频脚本</td>
+<td><code>core/modules/video_scripting.py</code></td>
+</tr>
+<tr>
+<td>Manim 渲染</td>
+<td><code>core/rendering/manim_renderer.py</code></td>
+</tr>
+<tr>
+<td>白板状态</td>
+<td><code>core/board/state_manager.py</code>、<code>core/board/models.py</code></td>
+</tr>
+<tr>
+<td>流式生成</td>
+<td><code>core/streaming/lesson_generator.py</code></td>
+</tr>
+<tr>
+<td>MCP 工具</td>
+<td><code>mcp/board_server.py</code>、<code>mcp/agent_tools.py</code></td>
+</tr>
+<tr>
+<td>ASR</td>
+<td><code>core/asr.py</code></td>
+</tr>
+<tr>
+<td>TTS</td>
+<td><code>services/tts/service.py</code></td>
+</tr>
+<tr>
+<td>外部 API 客户端</td>
+<td><code>services/api_client.py</code>（DeepSeek）</td>
+</tr>
+<tr>
+<td>降级机制</td>
+<td><code>services/fallback_provider.py</code>、<code>services/circuit_breaker.py</code></td>
+</tr>
+<tr>
+<td>提示词加载器</td>
+<td><code>prompts/loader.py</code></td>
+</tr>
+<tr>
+<td>存储层</td>
+<td><code>database/storage.py</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="附录-b典型用户旅程">附录 B：典型用户旅程</h2>
+<ol type="1">
+<li><strong>首次注册</strong>：Clerk 登录 → 自动创建 user + UUID5 → 跳转
+dashboard。</li>
+<li><strong>首次创建课程</strong>：<code>/create</code> 触发兴趣画像问卷
+→ 保存 UserProfile → 进入聊天阶段。</li>
+<li><strong>多阶段对话</strong>：opening → diagnostic（最多 3 轮）→
+roadmap → 用户确认 → 进入生成阶段。</li>
+<li><strong>课程生成</strong>：调用 <code>/create-class</code> 入队
+Celery → SSE 接收实时进度（5 阶段管线进度条）→ 完成后跳转
+<code>/lessons/[id]</code>。</li>
+<li><strong>板课学习</strong>：<code>/board/[sessionId]</code> WebSocket
+连接 → 元素逐个出现 + 旁白同步 → 中途检查点 → 学完查看总结。</li>
+<li><strong>复习</strong>：每晚 Celery 生成主动通知 → dashboard 提示 →
+进入复习队列做记忆挑战。</li>
+<li><strong>进度追踪</strong>：每节课后录入 performance → 累积到
+SubjectProficiency → 影响后续课程难度推荐。</li>
+</ol>
+<hr />
+<p><em>文档版本：v1.0 · 生成时间：2026-05-03</em></p>
+</body>
+</html>
