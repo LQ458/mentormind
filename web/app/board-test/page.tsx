@@ -137,6 +137,7 @@ export default function BoardTestPage() {
     chatHistory: [],
     status: 'streaming',
     error: null,
+    reconnectAttempt: 0,
     writingStatus: 'idle',
     writingElementId: null,
   }

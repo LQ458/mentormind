@@ -132,6 +132,39 @@ def migrate():
                 CONSTRAINT uq_subject_proficiency_user_subject UNIQUE (user_id, subject)
             )""",
             "CREATE INDEX IF NOT EXISTS idx_subject_proficiency_user_subject ON subject_proficiency(user_id, subject)",
+            # Per-user knowledge graph tables (concepts + relationships extracted from lessons)
+            """CREATE TABLE IF NOT EXISTS kg_concepts (
+                id UUID PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name VARCHAR(200) NOT NULL,
+                normalized_name VARCHAR(200) NOT NULL,
+                language VARCHAR(10) NOT NULL DEFAULT 'en',
+                level VARCHAR(20),
+                subject VARCHAR(80),
+                summary TEXT,
+                source_lesson_id UUID REFERENCES lessons(id) ON DELETE SET NULL,
+                lesson_count FLOAT NOT NULL DEFAULT 1.0,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                CONSTRAINT uq_kg_concept_user_norm_lang UNIQUE (user_id, normalized_name, language)
+            )""",
+            "CREATE INDEX IF NOT EXISTS ix_kg_concepts_user_id ON kg_concepts(user_id)",
+            "CREATE INDEX IF NOT EXISTS ix_kg_concepts_normalized_name ON kg_concepts(normalized_name)",
+            "CREATE INDEX IF NOT EXISTS ix_kg_concepts_user_subject ON kg_concepts(user_id, subject)",
+            """CREATE TABLE IF NOT EXISTS kg_relationships (
+                id UUID PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                from_concept_id UUID NOT NULL REFERENCES kg_concepts(id) ON DELETE CASCADE,
+                to_concept_id UUID NOT NULL REFERENCES kg_concepts(id) ON DELETE CASCADE,
+                kind VARCHAR(40) NOT NULL DEFAULT 'related_to',
+                weight FLOAT NOT NULL DEFAULT 0.5,
+                source_lesson_id UUID REFERENCES lessons(id) ON DELETE SET NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                CONSTRAINT uq_kg_rel_unique_edge UNIQUE (user_id, from_concept_id, to_concept_id, kind)
+            )""",
+            "CREATE INDEX IF NOT EXISTS ix_kg_relationships_user_id ON kg_relationships(user_id)",
+            "CREATE INDEX IF NOT EXISTS ix_kg_relationships_from ON kg_relationships(from_concept_id)",
+            "CREATE INDEX IF NOT EXISTS ix_kg_relationships_to ON kg_relationships(to_concept_id)",
         ]
         for stmt in skill_adaptive_ddl:
             try:

@@ -1,7 +1,8 @@
 'use client'
 
 import React from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface SummaryPanelProps {
   open: boolean
@@ -78,15 +79,22 @@ export default function SummaryPanel({
   isLoading,
   canRequest,
 }: SummaryPanelProps) {
+  const reducedMotion = useReducedMotion() ?? false
+  const trapRef = useFocusTrap<HTMLElement>({ active: open, onEscape: onClose })
   return (
     <AnimatePresence>
       {open && (
         <motion.aside
-          initial={{ x: '100%' }}
-          animate={{ x: 0 }}
-          exit={{ x: '100%' }}
-          transition={{ type: 'tween', duration: 0.25 }}
-          className="fixed top-0 right-0 h-full w-full max-w-md bg-slate-900/95 backdrop-blur border-l border-slate-700 z-40 flex flex-col"
+          ref={trapRef as React.RefObject<HTMLElement>}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Lesson summary"
+          tabIndex={-1}
+          initial={reducedMotion ? { opacity: 0 } : { x: '100%' }}
+          animate={reducedMotion ? { opacity: 1 } : { x: 0 }}
+          exit={reducedMotion ? { opacity: 0 } : { x: '100%' }}
+          transition={{ type: 'tween', duration: reducedMotion ? 0.1 : 0.25 }}
+          className="fixed top-0 right-0 h-full w-full max-w-md bg-slate-900/95 backdrop-blur border-l border-slate-700 z-40 flex flex-col focus:outline-none"
         >
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
             <h3 className="text-sm font-semibold text-slate-100">Lesson Summary</h3>

@@ -8,6 +8,7 @@ import { translations } from '../lib/translations'
 import SessionContextCard from '../components/Chat/SessionContextCard'
 import InterestProfileQuiz, { UserInterestProfile } from '../components/InterestProfileQuiz'
 import { PageHead } from '../components/design/primitives'
+import { toast } from 'sonner'
 
 // ── Lightweight MD + LaTeX renderer ─────────────────────────────────────────
 function MentorMessage({ content }: { content: string }) {
@@ -113,6 +114,8 @@ export default function CreateLessonPage() {
   const { language: uiLanguage, contentLanguage, t } = useLanguage()
   const { getToken, isLoaded: authLoaded, isSignedIn } = useAuth()
   const [workflowPhase, setWorkflowPhase] = useState<'chatting' | 'roadmap' | 'generating' | 'preview'>('chatting')
+  const [dragOver, setDragOver] = useState(false)
+  const dragCounter = useRef(0)
   const [mentorStage, setMentorStage] = useState<'opening' | 'diagnostic' | 'roadmap' | 'co_creation' | 'locked'>('opening')
   const [streamingContent, setStreamingContent] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -184,6 +187,73 @@ export default function CreateLessonPage() {
   const [isUploadingAudio, setIsUploadingAudio] = useState(false)
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const [sessionContext, setSessionContext] = useState<LearningContext[]>([])
+
+  // ── Autosave: persist chat draft + lesson design to localStorage ────────────
+  const DRAFT_KEY = 'create-page-draft-v1'
+  const DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000 // 24 h
+  const draftHydratedRef = useRef(false)
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // On mount, try to restore a recent draft.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (draftHydratedRef.current) return
+    draftHydratedRef.current = true
+    try {
+      const raw = window.localStorage.getItem(DRAFT_KEY)
+      if (!raw) return
+      const env = JSON.parse(raw) as { savedAt: number; chatMessages: ChatMessage[]; lessonDesign: LessonDesignSettings }
+      if (!env || typeof env.savedAt !== 'number') return
+      const age = Date.now() - env.savedAt
+      if (age > DRAFT_MAX_AGE_MS) {
+        window.localStorage.removeItem(DRAFT_KEY)
+        return
+      }
+      if (!Array.isArray(env.chatMessages) || env.chatMessages.length === 0) return
+      const accept = window.confirm(
+        uiLanguage === 'zh'
+          ? `检测到 ${Math.round(age / 60000)} 分钟前的未完成会话，是否恢复？`
+          : `Found an unfinished session from ${Math.round(age / 60000)} min ago. Restore?`
+      )
+      if (accept) {
+        const restored = env.chatMessages.map((m) => ({ ...m, timestamp: new Date(m.timestamp) }))
+        setChatMessages(restored)
+        if (env.lessonDesign) setLessonDesign(env.lessonDesign)
+        toast.success(uiLanguage === 'zh' ? '已恢复上次会话' : 'Previous session restored')
+      } else {
+        window.localStorage.removeItem(DRAFT_KEY)
+      }
+    } catch (err) {
+      console.warn('[autosave] restore failed', err)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Persist chat + design with 1.5s debounce.
+  useEffect(() => {
+    if (!draftHydratedRef.current) return
+    if (typeof window === 'undefined') return
+    if (chatMessages.length === 0) return
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current)
+    draftSaveTimerRef.current = setTimeout(() => {
+      try {
+        window.localStorage.setItem(
+          DRAFT_KEY,
+          JSON.stringify({ savedAt: Date.now(), chatMessages, lessonDesign })
+        )
+      } catch (err) {
+        console.warn('[autosave] save failed', err)
+      }
+    }, 1500)
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current)
+    }
+  }, [chatMessages, lessonDesign])
+
+  const clearDraft = useCallback(() => {
+    if (typeof window === 'undefined') return
+    try { window.localStorage.removeItem(DRAFT_KEY) } catch {}
+  }, [])
   const [preferredVoice, setPreferredVoice] = useState('anna')
   
   const audioInputRef = useRef<HTMLInputElement>(null)
@@ -357,7 +427,7 @@ export default function CreateLessonPage() {
       })
     } catch (error) {
       console.error('Failed to save interest profile:', error)
-      alert(uiLanguage === 'zh' ? '学习画像保存失败，请重试。' : 'Failed to save your learner profile. Please try again.')
+      toast.error(uiLanguage === 'zh' ? '学习画像保存失败，请重试。' : 'Failed to save your learner profile. Please try again.')
       throw error
     } finally {
       setProfileSaving(false)
@@ -509,11 +579,11 @@ export default function CreateLessonPage() {
           timestamp: new Date()
         }])
       } else {
-        alert(uiLanguage === 'zh' ? '音频转录失败，请重试' : 'Audio transcription failed, please try again')
+        toast.error(uiLanguage === 'zh' ? '音频转录失败，请重试' : 'Audio transcription failed, please try again')
       }
     } catch (err) {
       console.error('Audio upload error:', err)
-      alert(uiLanguage === 'zh' ? '音频上传失败' : 'Audio upload failed')
+      toast.error(uiLanguage === 'zh' ? '音频上传失败' : 'Audio upload failed')
     } finally {
       setIsUploadingAudio(false)
     }
@@ -569,11 +639,11 @@ export default function CreateLessonPage() {
           timestamp: new Date()
         }])
       } else {
-        alert(uiLanguage === 'zh' ? '图片文字识别失败，请重试' : 'Image OCR failed, please try again')
+        toast.error(uiLanguage === 'zh' ? '图片文字识别失败，请重试' : 'Image OCR failed, please try again')
       }
     } catch (err) {
       console.error('Image upload error:', err)
-      alert(uiLanguage === 'zh' ? '图片上传失败' : 'Image upload failed')
+      toast.error(uiLanguage === 'zh' ? '图片上传失败' : 'Image upload failed')
     } finally {
       setIsUploadingImage(false)
     }
@@ -697,7 +767,7 @@ export default function CreateLessonPage() {
     const rawTopic = topicOverride || form.studentQuery
 
     if (!rawTopic.trim()) {
-      alert(t('create.enterLearningQuestion'))
+      toast.warning(t('create.enterLearningQuestion'))
       return
     }
 
@@ -793,7 +863,7 @@ export default function CreateLessonPage() {
             errorMessage = uiLanguage === 'zh' ? '未知错误，请重试。' : 'Unknown error. Please try again.'
           }
           
-          alert(uiLanguage === 'zh'
+          toast.error(uiLanguage === 'zh'
             ? `课程生成失败：${errorMessage}`
             : `Lesson creation failed: ${errorMessage}`
           )
@@ -801,6 +871,7 @@ export default function CreateLessonPage() {
         }
 
         if (result?.lesson_id) {
+          clearDraft()
           router.push(`/lessons/${result.lesson_id}`)
           return
         }
@@ -809,7 +880,7 @@ export default function CreateLessonPage() {
         if (!result?.video_url && !result?.audio_url) {
           const warning = result?.error_message || result?.error || result?.ai_insights?.error
           if (warning) {
-            alert(uiLanguage === 'zh'
+            toast.warning(uiLanguage === 'zh'
               ? `课程已创建，但视频/音频生成失败：${warning}`
               : `Course created, but video/audio generation failed: ${warning}`
             )
@@ -888,7 +959,7 @@ export default function CreateLessonPage() {
               
               // Only show success alert if generation actually succeeded
               if (finalResult?.success !== false) {
-                alert(t('create.courseCreatedSuccess'))
+                toast.success(t('create.courseCreatedSuccess'))
               }
               
               void finalizeGeneration(finalResult)
@@ -958,7 +1029,7 @@ export default function CreateLessonPage() {
                 realProgressRef.current = 100
                 setPipelineProgress(prev => prev ? { ...prev, progress: 100 } : null)
                 void finalizeGeneration(completedResult);
-                alert(t('create.courseCreatedSuccess'));
+                toast.success(t('create.courseCreatedSuccess'))
                 eventSource.close();
                 resolve(true);
               } else if (statusData.status === 'failed' || statusData.status === 'failure') {
@@ -996,17 +1067,17 @@ export default function CreateLessonPage() {
         });
       } else if (data.success) {
         await finalizeGeneration(data)
-        alert(t('create.courseCreatedSuccess'))
+        toast.success(t('create.courseCreatedSuccess'))
       } else {
         setPipelineProgress(null)
-        alert(t('create.creationFailed') + (data.error_message || t('create.unknownError')))
+        toast.error(t('create.creationFailed') + (data.error_message || t('create.unknownError')))
       }
     } catch (error) {
       console.error('Create failed:', error)
       setPipelineProgress(null)
       setWorkflowPhase('chatting')
       setGenerating(false)
-      alert(uiLanguage === 'zh'
+      toast.error(uiLanguage === 'zh'
         ? `课程生成失败：${error instanceof Error ? error.message : '未知错误，请重试。'}`
         : `Lesson creation failed: ${error instanceof Error ? error.message : 'Unknown error. Please try again.'}`
       )
@@ -1117,8 +1188,60 @@ export default function CreateLessonPage() {
 
   // Remove options-related functions as we no longer use them
 
+  const onDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    if (!e.dataTransfer?.types?.includes('Files')) return
+    dragCounter.current += 1
+    setDragOver(true)
+  }
+  const onDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    dragCounter.current = Math.max(0, dragCounter.current - 1)
+    if (dragCounter.current === 0) setDragOver(false)
+  }
+  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+  }
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    dragCounter.current = 0
+    setDragOver(false)
+    const files = Array.from(e.dataTransfer?.files || [])
+    if (files.length === 0) return
+    for (const file of files) {
+      if (file.type.startsWith('audio/')) {
+        void handleAudioUpload(file)
+      } else if (file.type.startsWith('image/')) {
+        void handleImageUpload(file)
+      } else {
+        toast.error(uiLanguage === 'zh'
+          ? `不支持的文件类型：${file.name}`
+          : `Unsupported file type: ${file.name}`)
+      }
+    }
+  }
+
   return (
-    <div className="space-y-8">
+    <div
+      className="space-y-8 relative"
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
+      {dragOver && (
+        <div className="fixed inset-0 z-50 bg-indigo-900/40 backdrop-blur-sm border-4 border-dashed border-indigo-300 pointer-events-none flex items-center justify-center">
+          <div className="bg-white/95 rounded-2xl px-8 py-6 shadow-2xl text-center">
+            <div className="text-5xl mb-3" aria-hidden>📥</div>
+            <div className="text-xl font-semibold text-indigo-900 mb-1">
+              {uiLanguage === 'zh' ? '松开上传文件' : 'Drop to upload'}
+            </div>
+            <div className="text-sm text-indigo-700">
+              {uiLanguage === 'zh' ? '支持音频和图片（自动识别类型）' : 'Audio and images supported (auto-detected)'}
+            </div>
+          </div>
+        </div>
+      )}
       <PageHead
         eyebrow={uiLanguage === 'zh' ? '创建' : 'Create'}
         title={uiLanguage === 'zh' ? '今天想学什么？' : 'What should we learn today?'}

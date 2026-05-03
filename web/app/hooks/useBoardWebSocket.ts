@@ -287,7 +287,9 @@ export interface ChatMessage {
 
 // ── Reducer state ────────────────────────────────────────────────────────────
 
-export type BoardStatus = 'idle' | 'connecting' | 'open' | 'streaming' | 'done' | 'error'
+export type BoardStatus = 'idle' | 'connecting' | 'open' | 'streaming' | 'reconnecting' | 'done' | 'error'
+
+export const RECONNECT_MAX_ATTEMPTS = 5
 
 export interface BoardWSState {
   board: BoardState | null
@@ -302,6 +304,7 @@ export interface BoardWSState {
   chatHistory: ChatMessage[]
   status: BoardStatus
   error: string | null
+  reconnectAttempt: number
   writingStatus: 'idle' | 'writing' | 'narrating'
   writingElementId: string | null
 }
@@ -319,6 +322,7 @@ export const INITIAL_BOARD_STATE: BoardWSState = {
   chatHistory: [],
   status: 'idle',
   error: null,
+  reconnectAttempt: 0,
   writingStatus: 'idle',
   writingElementId: null,
 }
@@ -336,19 +340,25 @@ const initialState: BoardWSState = {
   chatHistory: [],
   status: 'idle',
   error: null,
+  reconnectAttempt: 0,
   writingStatus: 'idle',
   writingElementId: null,
 }
 
 type Action =
-  | { type: 'SET_STATUS'; status: BoardStatus; error?: string | null }
+  | { type: 'SET_STATUS'; status: BoardStatus; error?: string | null; reconnectAttempt?: number }
   | { type: 'EVENT'; event: BoardEvent }
   | { type: 'RESET' }
 
 function reducer(state: BoardWSState, action: Action): BoardWSState {
   switch (action.type) {
     case 'SET_STATUS':
-      return { ...state, status: action.status, error: action.error ?? null }
+      return {
+        ...state,
+        status: action.status,
+        error: action.error ?? null,
+        reconnectAttempt: action.reconnectAttempt ?? (action.status === 'open' || action.status === 'streaming' ? 0 : state.reconnectAttempt),
+      }
     case 'RESET':
       return initialState
     case 'EVENT':
@@ -696,12 +706,25 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
     ws.onclose = () => {
       wsRef.current = null
       if (closedByUserRef.current) return
-      if (attemptsRef.current >= 3) {
-        dispatch({ type: 'SET_STATUS', status: 'error', error: 'WebSocket closed' })
+      if (attemptsRef.current >= RECONNECT_MAX_ATTEMPTS) {
+        dispatch({
+          type: 'SET_STATUS',
+          status: 'error',
+          error: `Connection lost after ${RECONNECT_MAX_ATTEMPTS} reconnect attempts`,
+          reconnectAttempt: attemptsRef.current,
+        })
         return
       }
-      const delay = 500 * Math.pow(2, attemptsRef.current)
-      attemptsRef.current += 1
+      const nextAttempt = attemptsRef.current + 1
+      attemptsRef.current = nextAttempt
+      // Exponential backoff with jitter: 500ms, 1s, 2s, 4s, 8s (+ up to 250ms random)
+      const delay = 500 * Math.pow(2, nextAttempt - 1) + Math.floor(Math.random() * 250)
+      dispatch({
+        type: 'SET_STATUS',
+        status: 'reconnecting',
+        error: null,
+        reconnectAttempt: nextAttempt,
+      })
       setTimeout(() => {
         if (!closedByUserRef.current) connect()
       }, delay)

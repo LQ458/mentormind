@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useAuth } from '@clerk/nextjs'
 import { useLanguage } from '../../components/LanguageContext'
-import { useBoardWebSocket } from '../../hooks/useBoardWebSocket'
+import { useBoardWebSocket, RECONNECT_MAX_ATTEMPTS } from '../../hooks/useBoardWebSocket'
 import BoardCanvas from '../../components/board/BoardCanvas'
 import NarrationPlayer from '../../components/board/NarrationPlayer'
 import SubtitleOverlay from '../../components/board/SubtitleOverlay'
@@ -13,6 +13,9 @@ import VoiceInput from '../../components/board/VoiceInput'
 import AgentActivityBar from '../../components/board/AgentActivityBar'
 import SummaryPanel from '../../components/board/SummaryPanel'
 import ClerkAuthGate from '../../components/ClerkAuthGate'
+import BoardDisplaySettings, { useBoardDisplayPrefs, boardFontScaleStyle } from '../../components/board/BoardDisplaySettings'
+import { useKeyboardShortcut } from '../../hooks/useKeyboardShortcut'
+import { useFullscreen } from '../../hooks/useFullscreen'
 
 export default function BoardSessionPage() {
   return (
@@ -38,6 +41,16 @@ function BoardSessionInner() {
   const [draft, setDraft] = useState('')
   const [activeNarration, setActiveNarration] = useState<string | null>(null)
   const [chatOpen, setChatOpen] = useState(true)
+  const [displayPrefs, setDisplayPrefs] = useBoardDisplayPrefs()
+  const fullscreenRef = useRef<HTMLDivElement | null>(null)
+  const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(fullscreenRef)
+  const [showFullscreenHint, setShowFullscreenHint] = useState(false)
+  useEffect(() => {
+    if (!isFullscreen) return
+    setShowFullscreenHint(true)
+    const t = setTimeout(() => setShowFullscreenHint(false), 2400)
+    return () => clearTimeout(t)
+  }, [isFullscreen])
   const chatScrollRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -90,6 +103,15 @@ function BoardSessionInner() {
     setPaused(next)
     sendAction({ action: next ? 'pause' : 'resume' })
   }, [paused, sendAction])
+
+  useKeyboardShortcut(
+    { key: ' ', ignoreInputs: true },
+    handlePauseToggle
+  )
+  useKeyboardShortcut(
+    { key: 'f', ignoreInputs: true },
+    () => toggleFullscreen()
+  )
 
   const handleRequestSummary = useCallback(async () => {
     if (!sessionId) return
@@ -213,12 +235,16 @@ function BoardSessionInner() {
             state.status === 'streaming' ? 'border-emerald-400/60 text-emerald-200 bg-emerald-500/10' :
             state.status === 'done' ? 'border-sky-400/60 text-sky-200 bg-sky-500/10' :
             state.status === 'error' ? 'border-rose-400/60 text-rose-200 bg-rose-500/10' :
+            state.status === 'reconnecting' ? 'border-amber-400/60 text-amber-200 bg-amber-500/10' :
             state.status === 'open' ? 'border-sky-400/60 text-sky-200 bg-sky-500/10' :
             'border-slate-500/60 text-slate-300 bg-slate-700/30'
           }`}>
             {paused
               ? (language === 'zh' ? '已暂停' : 'paused')
               : state.status === 'connecting' ? (language === 'zh' ? '连接中…' : 'connecting…')
+              : state.status === 'reconnecting' ? (language === 'zh'
+                  ? `重连中 ${state.reconnectAttempt}/${RECONNECT_MAX_ATTEMPTS}…`
+                  : `reconnecting ${state.reconnectAttempt}/${RECONNECT_MAX_ATTEMPTS}…`)
               : state.status === 'open' ? (language === 'zh' ? '等待开讲…' : 'waiting for lesson…')
               : state.status === 'streaming' ? (language === 'zh' ? '讲课中' : 'streaming')
               : state.status === 'done' ? (language === 'zh' ? '已结束' : 'done')
@@ -233,6 +259,25 @@ function BoardSessionInner() {
             {paused
               ? (language === 'zh' ? '继续讲课 Resume lesson' : 'Resume lesson')
               : (language === 'zh' ? '暂停讲课 Pause lesson' : 'Pause lesson')}
+          </button>
+          <BoardDisplaySettings
+            prefs={displayPrefs}
+            onChange={setDisplayPrefs}
+            language={language === 'zh' ? 'zh' : 'en'}
+          />
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700 flex items-center gap-1"
+            aria-label={isFullscreen
+              ? (language === 'zh' ? '退出全屏' : 'Exit fullscreen')
+              : (language === 'zh' ? '进入全屏' : 'Enter fullscreen')}
+            title={`${language === 'zh' ? '快捷键' : 'Shortcut'}: F`}
+          >
+            <span aria-hidden>{isFullscreen ? '⤢' : '⛶'}</span>
+            {isFullscreen
+              ? (language === 'zh' ? '退出全屏' : 'Exit')
+              : (language === 'zh' ? '全屏' : 'Fullscreen')}
           </button>
           <NarrationPlayer
             audioQueue={state.audioQueue}
@@ -283,8 +328,17 @@ function BoardSessionInner() {
       {/* Canvas + chat area */}
       <main className="flex-1 min-h-0 px-4 sm:px-6 pb-4 pt-3">
         <div className="flex flex-col lg:flex-row gap-3 h-[calc(100vh-320px)] min-h-[480px]">
-          <div className="relative flex-1 min-w-0">
+          <div
+            ref={fullscreenRef}
+            className={`relative flex-1 min-w-0 ${displayPrefs.highContrast ? 'board-high-contrast' : ''} ${isFullscreen ? 'bg-slate-950 p-4' : ''}`}
+            style={boardFontScaleStyle(displayPrefs)}
+          >
             <BoardCanvas state={state} paused={paused} />
+            {showFullscreenHint && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-slate-900/85 border border-slate-600 text-sm text-slate-100 shadow-lg z-50 pointer-events-none">
+                {language === 'zh' ? '按 Esc 退出全屏' : 'Press Esc to exit fullscreen'}
+              </div>
+            )}
             <SubtitleOverlay currentNarration={currentSubtitle} />
             {state.writingStatus === 'writing' && (
               <div

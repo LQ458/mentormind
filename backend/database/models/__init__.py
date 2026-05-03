@@ -22,6 +22,7 @@ from .user import User, SubjectProficiency
 from .lesson import Lesson, LessonObjective, LessonResource, LessonExercise
 from .analytics import AnalyticsEventType
 from .study_plan import StudyPlan, StudyPlanUnit, GaokaoSession
+from .knowledge_graph import KGConcept, KGRelationship
 
 __all__ = [
     # Enums
@@ -51,4 +52,7 @@ __all__ = [
     "StudyPlan",
     "StudyPlanUnit",
     "GaokaoSession",
+    # Knowledge graph
+    "KGConcept",
+    "KGRelationship",
 ]

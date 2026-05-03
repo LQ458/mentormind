@@ -559,3 +559,39 @@ body {
 
 .board-canvas .board-equation .katex { color: inherit; }
 
+/* Skeleton shimmer */
+.skeleton-shimmer {
+  background: linear-gradient(90deg,
+    rgba(229, 231, 235, 0.6) 0%,
+    rgba(229, 231, 235, 0.9) 50%,
+    rgba(229, 231, 235, 0.6) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer {
+    animation: none;
+    background: rgba(229, 231, 235, 0.7);
+  }
+}
+
+/* Board high-contrast mode (for visually impaired or low-light reading) */
+.board-high-contrast .board-canvas {
+  background: #000 !important;
+}
+.board-high-contrast .board-canvas .text-slate-100,
+.board-high-contrast .board-canvas .text-slate-200,
+.board-high-contrast .board-canvas .text-slate-300 {
+  color: #ffffff !important;
+}
+.board-high-contrast .board-canvas section {
+  background: rgba(15, 23, 42, 0.95) !important;
+  border-color: rgba(255, 255, 255, 0.4) !important;
+}
+

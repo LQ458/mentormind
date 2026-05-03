@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useLanguage } from '../../components/LanguageContext'
 import { useAuth } from '@clerk/nextjs'
+import { toast } from 'sonner'
 
 type LessonTab = 'content' | 'seminar' | 'practice' | 'script' | 'video'
 
@@ -179,7 +180,7 @@ export default function LessonDetailPage() {
       setLesson(data.lesson)
     } catch (error) {
       console.error('Error fetching lesson:', error)
-      alert(t('common.error'))
+      toast.error(t('common.error'))
       router.push('/lessons')
     } finally {
       setLoading(false)

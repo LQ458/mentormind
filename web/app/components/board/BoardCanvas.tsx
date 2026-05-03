@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useRef } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { BoardWSState, BoardElement, StyleAnimation, BoardBackground } from '../../hooks/useBoardWebSocket'
 import { getRenderer } from './elements'
 
@@ -24,7 +24,14 @@ function backgroundClass(bg: BoardBackground | undefined): string {
   }
 }
 
-function entryVariants(anim: StyleAnimation | undefined) {
+function entryVariants(anim: StyleAnimation | undefined, reduced: boolean = false) {
+  if (reduced) {
+    return {
+      initial: { opacity: 0 },
+      animate: { opacity: 1 },
+      exit: { opacity: 0 },
+    }
+  }
   switch (anim) {
     case 'slide_in':
       return {
@@ -61,6 +68,7 @@ export default function BoardCanvas({ state, paused = false }: BoardCanvasProps)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const userScrolledUpRef = useRef(false)
   const lastCountRef = useRef(0)
+  const reducedMotion = useReducedMotion() ?? false
 
   const elements: BoardElement[] = state.elementOrder
     .map(id => state.elements[id])
@@ -118,7 +126,7 @@ export default function BoardCanvas({ state, paused = false }: BoardCanvasProps)
           <AnimatePresence initial={false}>
             {elements.map((el, idx) => {
               const Renderer = getRenderer(el.element_type)
-              const anim = entryVariants(el.style.animation)
+              const anim = entryVariants(el.style.animation, reducedMotion)
               const highlighted = el.state === 'highlighted'
               const dim = el.state === 'dim'
               return (
@@ -130,7 +138,7 @@ export default function BoardCanvas({ state, paused = false }: BoardCanvasProps)
                   initial={anim.initial as any}
                   animate={anim.animate as any}
                   exit={anim.exit as any}
-                  transition={{ duration: 0.35, ease: 'easeOut' }}
+                  transition={{ duration: reducedMotion ? 0.15 : 0.35, ease: 'easeOut' }}
                   className={[
                     'relative w-full rounded-xl border backdrop-blur-sm',
                     'bg-slate-900/40 border-slate-700/60',

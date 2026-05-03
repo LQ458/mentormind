@@ -1,9 +1,11 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
-import { Search, Bell } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { useLanguage } from '../LanguageContext'
 import { useUser, SignInButton, SignedIn, SignedOut } from '@clerk/nextjs'
+import NotificationsPanel from '../NotificationsPanel'
+import { openCommandPalette } from '../CommandPalette'
 
 interface PageMeta {
   label: string
@@ -47,14 +49,31 @@ export default function Topbar() {
         <span className="zh">{meta.zh}</span>
       </div>
 
-      <div className="search-pill">
+      <button
+        type="button"
+        className="search-pill"
+        onClick={openCommandPalette}
+        aria-label={language === 'zh' ? '搜索（按 Cmd+K）' : 'Search (Cmd+K)'}
+      >
         <Search size={16} aria-hidden="true" />
-        <input
-          type="search"
-          aria-label="Search lessons, concepts, notes"
-          placeholder="Search lessons, concepts, notes…"
-        />
-      </div>
+        <span style={{ flex: 1, textAlign: 'left', color: 'var(--ink-muted)', fontSize: 13 }}>
+          {language === 'zh' ? '搜索课程、计划、操作…' : 'Search lessons, plans, actions…'}
+        </span>
+        <kbd
+          aria-hidden="true"
+          style={{
+            fontFamily: 'var(--mono, IBM Plex Mono, monospace)',
+            fontSize: 11,
+            padding: '2px 6px',
+            borderRadius: 4,
+            border: '1px solid var(--line-strong, #d4d9e2)',
+            color: 'var(--ink-muted)',
+            background: 'var(--surface, #fff)',
+          }}
+        >
+          ⌘K
+        </kbd>
+      </button>
 
       <div className="lang-toggle" role="group" aria-label="Language">
         <button
@@ -73,9 +92,7 @@ export default function Topbar() {
         </button>
       </div>
 
-      <button className="icon-btn dot" type="button" aria-label="Notifications">
-        <Bell size={18} />
-      </button>
+      <NotificationsPanel />
 
       <SignedIn>
         <button className="avatar-btn" type="button" aria-label="Account">

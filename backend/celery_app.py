@@ -264,6 +264,21 @@ def create_class_video_task(self, request_data: dict, job_id: str):
             saved_info = lesson_storage.save_lesson(save_payload)
             response["lesson_id"] = saved_info["id"]
             print(f"[{job_id}] ✅ Successfully saved lesson to DB: {saved_info['id']}")
+            # Best-effort knowledge-graph extraction (never blocks the lesson)
+            try:
+                from core.knowledge import extract_for_lesson_sync
+                kg_stats = extract_for_lesson_sync(
+                    user_id=request_data.get("user_id"),
+                    lesson_id=saved_info["id"],
+                    title=response.get("title") or save_payload.get("title"),
+                    objectives=response.get("objectives") or [],
+                    content=(response.get("description") or response.get("topic") or ""),
+                    language=request_data.get("language", "en"),
+                    subject=response.get("subject"),
+                )
+                print(f"[{job_id}] 📊 KG: {kg_stats}")
+            except Exception as kg_exc:
+                print(f"[{job_id}] ⚠️ KG extraction skipped: {kg_exc}")
         except Exception as e:
             print(f"[{job_id}] ⚠️ Failed to save lesson to DB: {e}")
     else:
@@ -523,6 +538,20 @@ def transcript_to_lesson_task(self, transcript_or_file: str, request_data: dict,
         saved_info = lesson_storage.save_lesson(save_payload)
         response["lesson_id"] = saved_info["id"]
         print(f"[{job_id}] ✅ Successfully saved transcript lesson to DB: {saved_info['id']}")
+        try:
+            from core.knowledge import extract_for_lesson_sync
+            kg_stats = extract_for_lesson_sync(
+                user_id=request_data.get("user_id"),
+                lesson_id=saved_info["id"],
+                title=response.get("title") or save_payload.get("title"),
+                objectives=response.get("objectives") or [],
+                content=(response.get("description") or response.get("topic") or ""),
+                language=request_data.get("language", "en"),
+                subject=response.get("subject"),
+            )
+            print(f"[{job_id}] 📊 KG: {kg_stats}")
+        except Exception as kg_exc:
+            print(f"[{job_id}] ⚠️ KG extraction skipped: {kg_exc}")
     except Exception as e:
         print(f"[{job_id}] ⚠️ Failed to save transcript lesson to DB: {e}")
     

@@ -8,6 +8,42 @@ import 'katex/dist/katex.min.css'
 import { HighlightAskAI, ScreenshotAskAI } from './AskAI'
 import MediaContextTab from './MediaContext'
 import { useLanguage } from '../../components/LanguageContext'
+import { toast } from 'sonner'
+import { pushNotification } from '../../lib/notifications'
+
+// ── Active-generation persistence (localStorage) ─────────────────────────────
+const ACTIVE_GEN_KEY = 'mm-active-unit-generation-v1'
+interface ActiveGenRecord {
+  planId: string
+  unitId: string
+  startedAt: number
+  contentTypes: string[]
+}
+function loadActiveGen(planId: string): ActiveGenRecord | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_GEN_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as ActiveGenRecord
+    if (parsed.planId !== planId) return null
+    // Stale after 30 minutes
+    if (Date.now() - parsed.startedAt > 30 * 60 * 1000) {
+      window.localStorage.removeItem(ACTIVE_GEN_KEY)
+      return null
+    }
+    return parsed
+  } catch {
+    return null
+  }
+}
+function saveActiveGen(rec: ActiveGenRecord) {
+  if (typeof window === 'undefined') return
+  try { window.localStorage.setItem(ACTIVE_GEN_KEY, JSON.stringify(rec)) } catch {}
+}
+function clearActiveGen() {
+  if (typeof window === 'undefined') return
+  try { window.localStorage.removeItem(ACTIVE_GEN_KEY) } catch {}
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1096,6 +1132,7 @@ export default function StudyPlanPage() {
   const [activeTab, setActiveTab] = useState<ContentTab>('study_guide')
 
   const [generating, setGenerating] = useState(false)
+  const { language: uiLanguage } = useLanguage()
   const [selectedContentTypes, setSelectedContentTypes] = useState<string[]>(['study_guide', 'quiz', 'flashcards', 'formula_sheet', 'mock_exam'])
 
   const [completing, setCompleting] = useState(false)
@@ -1245,6 +1282,7 @@ export default function StudyPlanPage() {
       if (attempts > maxAttempts) {
         stopPoll()
         setGenerating(false)
+        clearActiveGen()
         // Update local state to show failed
         setPlan(prev => {
           if (!prev) return prev
@@ -1276,8 +1314,26 @@ export default function StudyPlanPage() {
         if (unit && unit.content_status !== 'generating') {
           stopPoll()
           setGenerating(false)
+          clearActiveGen()
           if (unit.content_status === 'ready') {
             fetchContent(unitId)
+            toast.success(uiLanguage === 'zh' ? `《${unit.title}》已生成完成` : `"${unit.title}" is ready`)
+            pushNotification({
+              kind: 'lesson',
+              icon: '✅',
+              title: uiLanguage === 'zh' ? `生成完成：${unit.title}` : `Ready: ${unit.title}`,
+              body: uiLanguage === 'zh' ? '点击查看课程内容。' : 'Tap to view the lesson.',
+              href: `/study-plan/${planId}`,
+            })
+          } else if (unit.content_status === 'failed') {
+            toast.error(uiLanguage === 'zh' ? `《${unit.title}》生成失败` : `"${unit.title}" generation failed`)
+            pushNotification({
+              kind: 'system',
+              icon: '⚠️',
+              title: uiLanguage === 'zh' ? `生成失败：${unit.title}` : `Failed: ${unit.title}`,
+              body: uiLanguage === 'zh' ? '请重试或联系支持。' : 'Try again or contact support.',
+              href: `/study-plan/${planId}`,
+            })
           }
         }
       } catch {
@@ -1297,7 +1353,7 @@ export default function StudyPlanPage() {
         }
       }
     }, 5000)
-  }, [planId, authHeaders, stopPoll, fetchContent])
+  }, [planId, authHeaders, stopPoll, fetchContent, uiLanguage])
 
   useEffect(() => {
     return () => stopPoll()
@@ -1314,6 +1370,41 @@ export default function StudyPlanPage() {
       }
     }
   }, [selectedUnitId, plan, startPolling])
+
+  // Auto-resume the in-progress unit on page mount.
+  // If user kicked off generation, navigated away, then came back, jump them
+  // straight to that unit so they see the progress.
+  const resumedRef = useRef(false)
+  useEffect(() => {
+    if (!plan || resumedRef.current || selectedUnitId) return
+    const rec = loadActiveGen(planId)
+    if (!rec) return
+    const unit = plan.units?.find(u => u.id === rec.unitId)
+    if (!unit) {
+      clearActiveGen()
+      return
+    }
+    if (unit.content_status === 'generating') {
+      resumedRef.current = true
+      setSelectedUnitId(rec.unitId)
+      const elapsed = Math.round((Date.now() - rec.startedAt) / 1000)
+      toast.info(uiLanguage === 'zh'
+        ? `继续追踪《${unit.title}》的生成进度（已 ${elapsed}s）`
+        : `Resuming "${unit.title}" generation (${elapsed}s elapsed)`)
+    } else {
+      // Server already finished while we were away — surface a notification.
+      clearActiveGen()
+      if (unit.content_status === 'ready') {
+        pushNotification({
+          kind: 'lesson',
+          icon: '✅',
+          title: uiLanguage === 'zh' ? `生成完成：${unit.title}` : `Ready: ${unit.title}`,
+          body: uiLanguage === 'zh' ? '您离开期间课程已生成完成。' : 'Finished while you were away.',
+          href: `/study-plan/${planId}`,
+        })
+      }
+    }
+  }, [plan, planId, selectedUnitId, uiLanguage])
 
   // ── Select unit ────────────────────────────────────────────────────────────
 
@@ -1349,8 +1440,27 @@ export default function StudyPlanPage() {
       })
       if (!res.ok) {
         setGenerating(false)
+        toast.error(uiLanguage === 'zh' ? '生成请求失败' : 'Generation request failed')
         return
       }
+      // Persist active generation so we can resume on reload / nav.
+      saveActiveGen({
+        planId,
+        unitId: selectedUnitId,
+        startedAt: Date.now(),
+        contentTypes: selectedContentTypes,
+      })
+      const unitTitle = plan?.units?.find(u => u.id === selectedUnitId)?.title || 'Unit'
+      toast.info(uiLanguage === 'zh'
+        ? `开始生成《${unitTitle}》，可以离开页面，完成后会通知你。`
+        : `Generating "${unitTitle}". You can leave this page; we'll notify you when ready.`)
+      pushNotification({
+        kind: 'lesson',
+        icon: '⏳',
+        title: uiLanguage === 'zh' ? `开始生成：${unitTitle}` : `Started generating: ${unitTitle}`,
+        body: uiLanguage === 'zh' ? '我们会在课程内容准备好时通知你。' : "We'll notify you when the content is ready.",
+        href: `/study-plan/${planId}`,
+      })
       // Update local state to show generating
       setPlan(prev => {
         if (!prev) return prev
@@ -1364,12 +1474,12 @@ export default function StudyPlanPage() {
       startPolling(selectedUnitId)
     } catch {
       setGenerating(false)
+      toast.error(uiLanguage === 'zh' ? '生成失败' : 'Generation failed')
     }
     // NOTE: Don't setGenerating(false) here — polling will do it when complete
-  }, [selectedUnitId, planId, authHeaders, selectedContentTypes, startPolling])
+  }, [selectedUnitId, planId, authHeaders, selectedContentTypes, startPolling, plan, uiLanguage])
 
   // ── Start AI board lesson ─────────────────────────────────────────────────
-  const { language: uiLanguage } = useLanguage()
   const [startingBoard, setStartingBoard] = useState(false)
   const [boardError, setBoardError] = useState<string | null>(null)
   const handleStartBoardLesson = useCallback(async (unitId: string) => {

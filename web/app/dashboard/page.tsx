@@ -7,6 +7,7 @@ import { useAuth, useUser } from '@clerk/nextjs'
 import { Play, Flame, Clock, Sparkles, ArrowRight } from 'lucide-react'
 
 import { PageHead, Section, Progress, Chip } from '../components/design/primitives'
+import { Skeleton, SkeletonText } from '../components/Skeleton'
 
 interface ReviewQueueItem {
   id: number
@@ -169,8 +170,34 @@ export default function DashboardPage() {
 
   if (!isLoaded || loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 240 }}>
-        <div className="muted">{language === 'zh' ? '加载中…' : 'Loading…'}</div>
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-8 w-2/3" />
+          <Skeleton className="h-4 w-1/2" />
+        </div>
+        <div className="grid gap-4">
+          <div className="card-new p-6">
+            <Skeleton className="h-4 w-20 mb-3" />
+            <Skeleton className="h-7 w-3/4 mb-4" />
+            <div className="flex gap-2">
+              <Skeleton className="h-9 w-28" rounded="lg" />
+              <Skeleton className="h-9 w-32" rounded="lg" />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="card-new p-4">
+                <Skeleton className="h-3 w-12 mb-2" />
+                <Skeleton className="h-6 w-20" />
+              </div>
+            ))}
+          </div>
+          <div className="card-new p-6">
+            <Skeleton className="h-4 w-32 mb-4" />
+            <SkeletonText lines={4} />
+          </div>
+        </div>
       </div>
     )
   }

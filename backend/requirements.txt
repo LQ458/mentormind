@@ -61,3 +61,4 @@ structlog>=23.0.0
 pydub>=0.25.1
 librosa>=0.10.0
 moviepy>=1.0.3
+jsonschema>=4.21.0

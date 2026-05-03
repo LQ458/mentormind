@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 export type CheckpointResponse = 'green' | 'yellow' | 'red'
 
@@ -43,6 +44,11 @@ export default function ComprehensionCheckpoint({
   language = 'en',
 }: Props) {
   const [mcqChoice, setMcqChoice] = useState<number | null>(null)
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    active: true,
+    onEscape: onSkip,
+    returnFocusOnDeactivate: true,
+  })
 
   const submit = (response: CheckpointResponse) => {
     onSubmit({ response, mcqChoice })
@@ -57,7 +63,11 @@ export default function ComprehensionCheckpoint({
       aria-label={language === 'zh' ? '学习检查点' : 'Comprehension checkpoint'}
       className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm"
     >
-      <div className="max-w-lg w-full mx-4 rounded-xl border border-slate-700 bg-slate-900/90 p-5 shadow-xl">
+      <div
+        ref={trapRef}
+        tabIndex={-1}
+        className="max-w-lg w-full mx-4 rounded-xl border border-slate-700 bg-slate-900/90 p-5 shadow-xl focus:outline-none"
+      >
         <div className="text-xs uppercase tracking-wide text-indigo-300 mb-2">
           {language === 'zh' ? '学习检查点' : 'Quick check-in'}
         </div>

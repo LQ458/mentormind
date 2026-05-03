@@ -1217,6 +1217,24 @@ def get_my_proficiency(
     return {"items": [r.to_dict() for r in rows]}
 
 
+@app.get("/users/me/knowledge-graph")
+def get_my_knowledge_graph(
+    language: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    """Return the user's accumulated personal knowledge graph.
+
+    Built incrementally from each lesson via core.knowledge.extractor.
+    Returns {nodes:[], edges:[]}; an empty graph for a new user is
+    not an error — frontend shows an "complete a lesson to start" state."""
+    try:
+        from core.knowledge import get_user_graph
+        return get_user_graph(str(current_user.id), language=language)
+    except Exception as exc:
+        # Never 500 on a read for an empty user — graceful empty graph.
+        return {"nodes": [], "edges": [], "error": str(exc)}
+
+
 # ── Board adaptive controls (F2 / F4) ────────────────────────────────────────
 
 class ExplainDifferentlyRequest(BaseModel):

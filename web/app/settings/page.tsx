@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '@clerk/nextjs'
 import { useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
 
 interface SubscriptionPlan {
   id: string
@@ -123,10 +124,10 @@ export default function SettingsPage() {
     try {
       // In a real implementation, this would save to the backend
       await new Promise(resolve => setTimeout(resolve, 1000))
-      alert(t('settings.settingsSaved'))
+      toast.success(t('settings.settingsSaved'))
     } catch (error) {
       console.error('Failed to save settings:', error)
-      alert(t('settings.settingsSaveFailed'))
+      toast.error(t('settings.settingsSaveFailed'))
     } finally {
       setSaving(false)
     }
@@ -153,11 +154,11 @@ export default function SettingsPage() {
       if (data.checkout_url) {
         window.location.href = data.checkout_url
       } else {
-        alert(t('settings.upgradeRequested'))
+        toast.info(t('settings.upgradeRequested'))
       }
     } catch (err) {
       console.error('Checkout error:', err)
-      alert(uiLanguage === 'zh' ? '结账跳转失败，请重试。' : 'Failed to open checkout. Please try again.')
+      toast.error(uiLanguage === 'zh' ? '结账跳转失败，请重试。' : 'Failed to open checkout. Please try again.')
     }
   }
 
@@ -364,7 +365,7 @@ export default function SettingsPage() {
                       status: 'cancelled',
                     },
                   })
-                  alert(t('settings.cancellationRequested'))
+                  toast.info(t('settings.cancellationRequested'))
                 }
               }}
               className="px-6 py-2 bg-white text-red-600 border border-red-300 rounded-lg font-medium hover:bg-red-50 transition-colors"

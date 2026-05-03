@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, Plus, Layers, Book, Settings, type LucideIcon } from 'lucide-react'
+import { Home, Plus, Layers, Book, Settings, Network, type LucideIcon } from 'lucide-react'
 import { Progress } from './primitives'
 import { useUser } from '@clerk/nextjs'
 
@@ -19,6 +19,7 @@ const NAV: NavItem[] = [
   { href: '/create', label: 'Create', zh: '创建', icon: Plus },
   { href: '/study-plan', label: 'Study plan', zh: '学习计划', icon: Layers },
   { href: '/lessons', label: 'Library', zh: '文库', icon: Book },
+  { href: '/knowledge-graph', label: 'Knowledge map', zh: '学习地图', icon: Network },
 ]
 
 export default function Sidebar() {

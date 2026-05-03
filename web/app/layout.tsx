@@ -5,6 +5,7 @@ import { ClerkProvider } from '@clerk/nextjs'
 import { TweaksProvider } from './components/design/TweaksProvider'
 import AppShell from './components/design/AppShell'
 import TweaksPanel from './components/design/TweaksPanel'
+import { Toaster } from 'sonner'
 
 export const metadata: Metadata = {
   title: 'MentorMind - AI Teaching Assistant',
@@ -36,6 +37,16 @@ export default function RootLayout({
             <TweaksProvider>
               <AppShell>{children}</AppShell>
               <TweaksPanel />
+              <Toaster
+                position="top-right"
+                richColors
+                closeButton
+                toastOptions={{
+                  style: {
+                    fontFamily: 'IBM Plex Sans, "PingFang SC", system-ui, sans-serif',
+                  },
+                }}
+              />
             </TweaksProvider>
           </LanguageProvider>
         </body>
