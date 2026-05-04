@@ -445,3 +445,7 @@ node_modules/
 backend/.omc/*
 .superpowers/*
 web/.omc/*
+
+# Track the Next.js JS lib directory even though "lib/" is gitignored above for Python venvs.
+!web/app/lib/
+!web/app/lib/**
