@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -6,7 +6,7 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 export const dynamic = 'force-dynamic';
 
 export async function GET(
-    _request: Request,
+    request: NextRequest,
     { params }: { params: { id: string } }
 ) {
     try {
@@ -15,12 +15,17 @@ export async function GET(
         console.log(`[job-status proxy] Fetching: ${url}`)
 
         // Prevent Next.js fetch() from caching the "processing" state
+        const authHeader = request.headers.get('Authorization')
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate'
+        }
+        if (authHeader) {
+            headers.Authorization = authHeader
+        }
         const backendResponse = await fetch(url, {
             method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'Cache-Control': 'no-store, no-cache, must-revalidate'
-            },
+            headers,
             cache: 'no-store'
         })
 

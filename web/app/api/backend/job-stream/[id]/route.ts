@@ -12,13 +12,20 @@ export async function GET(
         const url = `${process.env.BACKEND_URL || 'http://localhost:8000'}/job-stream/${id}`
         console.log(`[job-stream proxy] Fetching SSE from: ${url}`)
 
+        // Forward auth token to backend
+        const authHeader = request.headers.get('Authorization')
+        const headers: Record<string, string> = {
+            'Accept': 'text/event-stream',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+        }
+        if (authHeader) {
+            headers.Authorization = authHeader
+        }
+
         // Fetch from backend using native Node.js fetch (passes streams through)
         const backendResponse = await fetch(url, {
             method: 'GET',
-            headers: {
-                'Accept': 'text/event-stream',
-                'Cache-Control': 'no-store, no-cache, must-revalidate',
-            },
+            headers,
             cache: 'no-store'
         })
 

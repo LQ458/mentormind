@@ -241,7 +241,7 @@ class MentorChatResponse(BaseModel):
 mentor_agent = MentorAgent()
 
 @app.post("/mentor/chat", response_model=MentorChatResponse)
-async def mentor_chat(req: MentorChatRequest):
+async def mentor_chat(req: MentorChatRequest, current_user: User = Depends(get_current_user)):
     """Main entry point for the conversational mentor."""
     try:
         current_stage = MentorStage(req.stage)
@@ -1851,7 +1851,7 @@ async def detailed_health_check():
 
 @app.get("/metrics/performance")
 @track_async_performance("get_performance_metrics", "monitoring")
-async def get_performance_metrics(operation_type: Optional[str] = None):
+async def get_performance_metrics(operation_type: Optional[str] = None, current_user: User = Depends(get_current_user)):
     """Get performance metrics summary"""
     return {
         "summary": monitor.get_performance_summary(operation_type),
@@ -1861,7 +1861,7 @@ async def get_performance_metrics(operation_type: Optional[str] = None):
 
 @app.get("/metrics/lesson-generation")
 @track_async_performance("get_lesson_generation_metrics", "monitoring")
-async def get_lesson_generation_metrics():
+async def get_lesson_generation_metrics(current_user: User = Depends(get_current_user)):
     """Get lesson generation specific metrics"""
     return {
         "lesson_operations": monitor.get_performance_summary("lesson"),
@@ -1871,7 +1871,7 @@ async def get_lesson_generation_metrics():
 
 @app.get("/job-status/{job_id}/detailed")
 @track_async_performance("get_detailed_job_status", "monitoring")
-async def get_detailed_job_status(job_id: str):
+async def get_detailed_job_status(job_id: str, current_user: User = Depends(get_current_user)):
     """Enhanced job status with performance metrics"""
     basic_status = await get_job_status(job_id)
     job_metrics = celery_monitor.get_job_metrics(job_id)
@@ -1884,7 +1884,7 @@ async def get_detailed_job_status(job_id: str):
 
 @app.get("/quality/analytics")
 @track_async_performance("get_quality_analytics", "monitoring")
-async def get_content_quality_analytics(timeframe_days: int = 7):
+async def get_content_quality_analytics(timeframe_days: int = 7, current_user: User = Depends(get_current_user)):
     """Get AI-evaluated content quality analytics"""
     try:
         import redis
@@ -1912,7 +1912,8 @@ async def evaluate_content_quality(
     content_type: str,
     student_level: str = "intermediate",
     topic: str = "",
-    learning_objectives: List[str] = None
+    learning_objectives: List[str] = None,
+    current_user: User = Depends(get_current_user),
 ):
     """AI evaluation of educational content quality"""
     try:
@@ -1959,7 +1960,7 @@ async def evaluate_content_quality(
 
 @app.get("/lessons/{lesson_id}/quality")
 @track_async_performance("get_lesson_quality", "monitoring")
-async def get_lesson_quality(lesson_id: str):
+async def get_lesson_quality(lesson_id: str, current_user: User = Depends(get_current_user)):
     """Get quality evaluation for a specific lesson"""
     try:
         import redis
@@ -2019,7 +2020,7 @@ async def get_voices():
 @app.post("/analyze-topics")
 async def analyze_topics(
     request: Dict[str, Any],
-    current_user: Optional[User] = Depends(get_optional_user),
+    current_user: User = Depends(get_current_user),
     db = Depends(get_db),
 ):
     """Analyze student query to identify learning topics"""
@@ -2030,9 +2031,7 @@ async def analyze_topics(
         if not query:
             raise HTTPException(status_code=400, detail="studentQuery is required")
             
-        profile = None
-        if current_user:
-            profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+        profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
 
         weighted_query = _build_profile_weighted_query(query, profile)
 
@@ -2051,7 +2050,7 @@ async def analyze_topics(
         )
 
 @app.post("/debug/generation/pipeline")
-async def debug_generation_pipeline(request: GenerationDebugRequest):
+async def debug_generation_pipeline(request: GenerationDebugRequest, current_user: User = Depends(get_current_user)):
     """Inspect syllabus, storyboard, render-plan, and validation artifacts without rendering."""
     try:
         pipeline = RobustVideoGenerationPipeline()
@@ -2070,7 +2069,7 @@ async def debug_generation_pipeline(request: GenerationDebugRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/debug/generation/video-script")
-async def debug_generation_video_script(request: GenerationDebugRequest):
+async def debug_generation_video_script(request: GenerationDebugRequest, current_user: User = Depends(get_current_user)):
     """Inspect the final validated renderer payload without kicking off a Celery job."""
     try:
         generator = VideoScriptGenerator()
@@ -2112,7 +2111,7 @@ async def debug_generation_video_script(request: GenerationDebugRequest):
 @track_async_performance("create_class_request", "lesson")
 async def create_class(
     request: ClassCreationRequest,
-    current_user: Optional[User] = Depends(get_optional_user),
+    current_user: User = Depends(get_current_user),
 ):
     """Initiate class creation job"""
     try:
@@ -2305,7 +2304,7 @@ async def ingest_audio(
     difficulty_level: str = Form(default="intermediate"),
     voice_id: str = Form(default="anna"),
     custom_requirements: str = Form(default=""),
-    current_user: Optional[User] = Depends(get_optional_user),
+    current_user: User = Depends(get_current_user),
 ):
     """Transcribe user-uploaded audio (ASR) via background task."""
     try:
@@ -2375,6 +2374,7 @@ async def ingest_image(
     file: UploadFile = File(...),
     language: str = Form(default="zh"),
     display_language: str = Form(default="en"),
+    current_user: User = Depends(get_current_user),
 ):
     """Extract text from image (OCR) via background task."""
     try:
@@ -3013,7 +3013,7 @@ class DetectSubjectRequest(BaseModel):
 
 
 @app.post("/detect-subject")
-async def detect_subject(req: DetectSubjectRequest):
+async def detect_subject(req: DetectSubjectRequest, current_user: User = Depends(get_current_user)):
     """Detect STEM subject, framework, and difficulty from user text."""
     try:
         detection = await subject_detector.detect(req.text, req.language)
@@ -3031,7 +3031,7 @@ async def detect_subject(req: DetectSubjectRequest):
 
 
 @app.post("/study-plan/chat", response_model=StudyPlanChatResponse)
-async def study_plan_chat(req: StudyPlanChatRequest):
+async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depends(get_current_user)):
     """Conversational study plan creation (diagnostic → plan review → locked)."""
     try:
         current_stage = PlanStage(req.stage)
@@ -3076,7 +3076,7 @@ class AskAIResponse(BaseModel):
 @app.post("/study-plan/ask-ai", response_model=AskAIResponse)
 async def study_plan_ask_ai(
     req: AskAIRequest,
-    current_user: Optional[User] = Depends(get_optional_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Answer a question about highlighted text or a screenshot from study content."""
