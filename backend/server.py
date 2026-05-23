@@ -4183,7 +4183,29 @@ async def get_board_persisted_state(
     _validate_session_id_or_400(session_id)
     loaded = _board_load_state(db, session_id, user_id=str(current_user.id))
     if loaded is None:
-        raise HTTPException(status_code=404, detail="Board session not found")
+        mem = _board_sessions.get(session_id)
+        if mem is None:
+            raise HTTPException(status_code=404, detail="Board session not found")
+        if mem.get("user_id") and str(mem["user_id"]) != str(current_user.id):
+            raise HTTPException(status_code=403, detail="Not authorized for this session")
+        loaded = {
+            "id": session_id,
+            "user_id": str(mem.get("user_id", "")),
+            "plan_id": mem.get("plan_id"),
+            "unit_id": mem.get("unit_id"),
+            "topic": mem.get("config", {}).get("topic"),
+            "title": mem.get("config", {}).get("topic"),
+            "status": mem.get("status", "created"),
+            "elements": {},
+            "element_order": [],
+            "narration_log": [],
+            "audio_queue": [],
+            "chat_history": [],
+            "last_event_seq": 0,
+            "config": mem.get("config", {}),
+            "created_at": None,
+            "updated_at": None,
+        }
     if isinstance(loaded, dict) and loaded.get("__forbidden__"):
         raise HTTPException(status_code=403, detail="Not authorized for this session")
     return {"success": True, "session": loaded}
