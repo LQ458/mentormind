@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { useAuth } from '@clerk/nextjs'
+import { useAuth } from '../../components/AuthContext'
 import { useLanguage } from '../../components/LanguageContext'
 import { useBoardWebSocket, RECONNECT_MAX_ATTEMPTS } from '../../hooks/useBoardWebSocket'
 import BoardCanvas from '../../components/board/BoardCanvas'

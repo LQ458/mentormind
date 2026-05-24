@@ -1,43 +1,44 @@
-'use client';
+'use client'
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { useAuth } from '../../components/AuthContext';
-import { useLanguage } from '../../components/LanguageContext';
+import { useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
+import { authClient } from '@/lib/auth-client'
+import { useLanguage } from '../../components/LanguageContext'
 
 export default function LoginPage() {
-  const router = useRouter();
-  const { login } = useAuth();
-  const { language: uiLang } = useLanguage();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirect = searchParams.get('redirect') || '/dashboard'
+  const { language: uiLang } = useLanguage()
+
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+    e.preventDefault()
+    setError('')
+    setLoading(true)
 
     try {
-      const res = await fetch('/api/backend/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
+      const result = await authClient.signIn.email({
+        email,
+        password,
+      })
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Login failed');
+      if (result.error) {
+        throw new Error(result.error.message || 'Sign in failed')
+      }
 
-      login(data.access_token, data.user);
-      router.push('/dashboard');
-    } catch (err: any) {
-      setError(err.message);
+      router.push(redirect)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Sign in failed')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   return (
     <div className="min-h-[80vh] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -108,5 +109,5 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
-  );
+  )
 }

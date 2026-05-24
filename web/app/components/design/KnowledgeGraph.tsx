@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useAuth } from '@clerk/nextjs'
+import { useAuth } from '../AuthContext'
 import { useLanguage } from '../LanguageContext'
 
 interface PlanSummary {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useLanguage } from '../components/LanguageContext'
-import { useAuth } from '@clerk/nextjs'
+import { useAuth } from '../components/AuthContext'
 
 interface AnalyticsData {
   total_lessons: number

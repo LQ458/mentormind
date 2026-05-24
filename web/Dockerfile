@@ -1,15 +1,12 @@
 FROM node:20-alpine AS base
 
-# Install pnpm
 RUN npm install -g pnpm
 
-# Dependencies stage
 FROM base AS deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml* ./
 RUN pnpm install --no-frozen-lockfile
 
-# Build stage
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
@@ -17,13 +14,6 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Clerk requires the publishable key at build time so it can bake it into the static bundle
-ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-
-# Backend WebSocket URL must be baked at build time for the browser bundle.
-# Without this the client falls back to same-origin (the Next server on :3000),
-# which crashes the Next server because it can't handle WS upgrade requests.
 ARG NEXT_PUBLIC_BACKEND_WS_URL
 ENV NEXT_PUBLIC_BACKEND_WS_URL=$NEXT_PUBLIC_BACKEND_WS_URL
 

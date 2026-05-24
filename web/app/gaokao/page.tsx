@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useAuth } from '@clerk/nextjs'
+import { useAuth } from '../components/AuthContext'
 
 const GAOKAO_SUBJECTS = [
   { id: 'math', label: '数学', icon: '📐' },

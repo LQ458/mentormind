@@ -1,22 +1,43 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+import { auth } from '@/lib/auth'
 
-const isProtectedRoute = createRouteMatcher([
-  '/dashboard(.*)',
-  '/settings(.*)',
-  '/create(.*)',
-  '/lessons(.*)',
-  '/study-plan(.*)',
-]);
+const PROTECTED_PREFIXES = [
+  '/dashboard',
+  '/settings',
+  '/create',
+  '/lessons',
+  '/study-plan',
+  '/knowledge-graph',
+  '/analytics',
+  '/gaokao',
+  '/board',
+  '/admin',
+]
 
-export default clerkMiddleware((auth, req) => {
-  if (isProtectedRoute(req)) auth().protect();
-});
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  const isProtected = PROTECTED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(prefix + '/'),
+  )
+  if (!isProtected) return NextResponse.next()
+
+  const session = await auth.api.getSession({
+    headers: request.headers,
+  })
+
+  if (!session?.user) {
+    const signInUrl = new URL('/auth/login', request.url)
+    signInUrl.searchParams.set('redirect', pathname)
+    return NextResponse.redirect(signInUrl)
+  }
+
+  return NextResponse.next()
+}
 
 export const config = {
   matcher: [
-    // Skip Next.js internals and all static files, unless found in search params
-    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
-    // Always run for API routes
-    '/(api|trpc)(.*)',
+    '/((?!_next|api|static|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
   ],
-};
+}

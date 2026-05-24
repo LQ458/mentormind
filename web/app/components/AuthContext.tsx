@@ -1,91 +1,117 @@
-'use client';
+'use client'
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useCallback,
+  useMemo,
+  useEffect,
+  useState,
+} from 'react'
+import { authClient, useSession } from '@/lib/auth-client'
 
-interface AuthUser {
-  id: string;
-  email: string;
-  username: string;
-  full_name: string;
-  role: string;
-  language_preference: string;
-  subscription_tier: string;
+export interface AuthUser {
+  id: string
+  email: string
+  firstName: string
+  username: string
+  fullName: string
 }
 
-interface AuthContextType {
-  user: AuthUser | null;
-  token: string | null;
-  isAuthenticated: boolean;
-  login: (token: string, user: AuthUser) => void;
-  logout: () => void;
-  updateUser: (updates: Partial<AuthUser>) => void;
+interface AuthContextValue {
+  user: AuthUser | null
+  isLoaded: boolean
+  isSignedIn: boolean
+  getToken: () => Promise<string | null>
+  signOut: () => Promise<void>
 }
 
-const AuthContext = createContext<AuthContextType>({
+const AuthCtx = createContext<AuthContextValue>({
   user: null,
-  token: null,
-  isAuthenticated: false,
-  login: () => {},
-  logout: () => {},
-  updateUser: () => {},
-});
+  isLoaded: false,
+  isSignedIn: false,
+  getToken: async () => null,
+  signOut: async () => {},
+})
+
+function mapUser(raw: Record<string, unknown> | null | undefined): AuthUser | null {
+  if (!raw) return null
+  const email = (raw.email || '') as string
+  const name = (raw.name || '') as string
+  return {
+    id: (raw.id || '') as string,
+    email,
+    firstName: name.split(' ')[0] || '',
+    username: email.split('@')[0] || name || '',
+    fullName: name || email || '',
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const { data, isPending } = useSession()
+  const [cachedToken, setCachedToken] = useState<string | null>(null)
 
-  // Rehydrate from localStorage on mount
-  useEffect(() => {
+  const sessionUser = data?.user as Record<string, unknown> | undefined
+  const user = useMemo(() => mapUser(sessionUser), [sessionUser])
+
+  const isLoaded = !isPending
+  const isSignedIn = !isPending && !!data
+
+  const getToken = useCallback(async (): Promise<string | null> => {
     try {
-      const storedToken = localStorage.getItem('mm_token');
-      const storedUser = localStorage.getItem('mm_user');
-      if (storedToken && storedUser) {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
+      const result = await authClient.getSession()
+      if (!result?.data?.session) return null
+      const sess = result.data.session as Record<string, unknown>
+      const token = (sess.token || sess.sessionToken) as string | undefined
+      if (token) {
+        setCachedToken(token)
+        return token
       }
+      return null
     } catch {
-      // Corrupt storage — clear it
-      localStorage.removeItem('mm_token');
-      localStorage.removeItem('mm_user');
+      return cachedToken
     }
-  }, []);
+  }, [cachedToken])
 
-  const login = useCallback((newToken: string, newUser: AuthUser) => {
-    setToken(newToken);
-    setUser(newUser);
-    localStorage.setItem('mm_token', newToken);
-    localStorage.setItem('mm_user', JSON.stringify(newUser));
-  }, []);
+  const handleSignOut = useCallback(async () => {
+    await authClient.signOut()
+    setCachedToken(null)
+  }, [])
 
-  const logout = useCallback(() => {
-    setToken(null);
-    setUser(null);
-    localStorage.removeItem('mm_token');
-    localStorage.removeItem('mm_user');
-  }, []);
+  const value = useMemo<AuthContextValue>(
+    () => ({ user, isLoaded, isSignedIn, getToken, signOut: handleSignOut }),
+    [user, isLoaded, isSignedIn, getToken, handleSignOut],
+  )
 
-  const updateUser = useCallback((updates: Partial<AuthUser>) => {
-    setUser(prev => {
-      if (!prev) return null;
-      const updated = { ...prev, ...updates };
-      localStorage.setItem('mm_user', JSON.stringify(updated));
-      return updated;
-    });
-  }, []);
-
-  return (
-    <AuthContext.Provider value={{ user, token, isAuthenticated: !!token, login, logout, updateUser }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>
 }
 
-export function useAuth() {
-  return useContext(AuthContext);
+export function useAuth(): AuthContextValue {
+  return useContext(AuthCtx)
 }
 
-/** Build an Authorization header object when a token is available. */
+export function useUser(): { user: AuthUser | null; isLoaded: boolean } {
+  const { user, isLoaded } = useAuth()
+  return { user, isLoaded }
+}
+
 export function useAuthHeaders(): Record<string, string> {
-  const { token } = useAuth();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const { isSignedIn, getToken } = useAuth()
+  const [headers, setHeaders] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (!isSignedIn) {
+      setHeaders({})
+      return
+    }
+    let cancelled = false
+    getToken().then((token) => {
+      if (!cancelled && token) {
+        setHeaders({ Authorization: `Bearer ${token}` })
+      }
+    })
+    return () => { cancelled = true }
+  }, [isSignedIn, getToken])
+
+  return headers
 }

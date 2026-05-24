@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '../components/LanguageContext'
-import { useAuth } from '@clerk/nextjs'
+import { useAuth } from '../components/AuthContext'
 import { translations } from '../lib/translations'
 import SessionContextCard from '../components/Chat/SessionContextCard'
 import InterestProfileQuiz, { UserInterestProfile } from '../components/InterestProfileQuiz'

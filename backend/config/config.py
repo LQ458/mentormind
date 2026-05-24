@@ -89,6 +89,7 @@ class MentorMindConfig:
     IS_TESTING: bool = os.getenv("MENTORMIND_ENV", "development") == "testing"
     VERIFY_SSL: bool = os.getenv("VERIFY_SSL", "true").lower() == "true"
     TEST_BYPASS_SECRET: str = os.getenv("TEST_BYPASS_SECRET", "")
+    BETTER_AUTH_SECRET: str = os.getenv("BETTER_AUTH_SECRET", "")
     
     # ===== MODEL CONFIGURATIONS =====
     @classmethod

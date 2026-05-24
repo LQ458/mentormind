@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '@clerk/nextjs'
+import { useAuth } from './AuthContext'
 import { Search, Home, BookOpen, BarChart3, Settings, Compass, GraduationCap, Sparkles, Network } from 'lucide-react'
 import { useLanguage } from './LanguageContext'
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut'

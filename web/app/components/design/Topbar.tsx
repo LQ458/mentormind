@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation'
 import { Search, Menu, MessageSquare } from 'lucide-react'
 import { useLanguage } from '../LanguageContext'
-import { useUser, SignInButton, SignedIn, SignedOut } from '@clerk/nextjs'
+import { useUser, useAuth } from '../AuthContext'
 import NotificationsPanel from '../NotificationsPanel'
 import { openCommandPalette } from '../CommandPalette'
 import { OPEN_SURVEY_EVENT } from './AppShell'
@@ -21,12 +21,9 @@ const PAGE_META: Record<string, PageMeta> = {
 }
 
 function getPageMeta(pathname: string): PageMeta {
-  // exact match first
   if (PAGE_META[pathname]) return PAGE_META[pathname]
-  // lesson detail
   if (pathname.startsWith('/lessons/')) return { en: 'Lesson', zh: '课' }
   if (pathname.startsWith('/study-plan/')) return { en: 'Study plan', zh: '学习计划' }
-  // fallbacks
   if (pathname.startsWith('/admin')) return { en: 'Admin', zh: '管理' }
   if (pathname.startsWith('/analytics')) return { en: 'Analytics', zh: '分析' }
   if (pathname.startsWith('/settings')) return { en: 'Settings', zh: '设置' }
@@ -38,7 +35,8 @@ function getPageMeta(pathname: string): PageMeta {
 export default function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const pathname = usePathname() || '/'
   const { language, setLanguage } = useLanguage()
-  const { user } = useUser()
+  const { user, isLoaded } = useUser()
+  const { isSignedIn, signOut } = useAuth()
 
   const meta = getPageMeta(pathname)
   const initial = (user?.firstName?.[0] || user?.username?.[0] || 'M').toUpperCase()
@@ -114,18 +112,16 @@ export default function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
 
       <NotificationsPanel />
 
-      <SignedIn>
+      {isLoaded && isSignedIn && (
         <button className="avatar-btn" type="button" aria-label="Account">
           {initial}
         </button>
-      </SignedIn>
-      <SignedOut>
-        <SignInButton mode="modal">
-          <button className="btn btn-sm btn-primary" type="button">
-            Sign in
-          </button>
-        </SignInButton>
-      </SignedOut>
+      )}
+      {isLoaded && !isSignedIn && (
+        <a href="/auth/login" className="btn btn-sm btn-primary no-underline">
+          Sign in
+        </a>
+      )}
     </div>
   )
 }

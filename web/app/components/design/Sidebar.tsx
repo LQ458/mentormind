@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { Home, Layers, Book, Settings, Network, type LucideIcon } from 'lucide-react'
 import { Progress } from './primitives'
-import { useAuth, useUser } from '@clerk/nextjs'
+import { useAuth, useUser } from '../AuthContext'
 import { useLanguage } from '../LanguageContext'
 import { getSubject } from '../../lib/subjects'
 

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useLanguage } from '../components/LanguageContext'
-import { useAuth, useUser } from '@clerk/nextjs'
+import { useAuth, useUser } from '../components/AuthContext'
 import { Play, Flame, Clock, Sparkles, ArrowRight } from 'lucide-react'
 
 import { PageHead, Section, Progress, Chip } from '../components/design/primitives'

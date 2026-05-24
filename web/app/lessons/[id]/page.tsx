@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useLanguage } from '../../components/LanguageContext'
-import { useAuth } from '@clerk/nextjs'
+import { useAuth } from '../../components/AuthContext'
 import { toast } from 'sonner'
 
 type LessonTab = 'content' | 'seminar' | 'practice' | 'script' | 'video'

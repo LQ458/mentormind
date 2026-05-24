@@ -1,27 +1,21 @@
 'use client'
 
-import React from 'react'
-import { useAuth } from '@clerk/nextjs'
+import React, { useEffect } from 'react'
+import { useAuth } from './AuthContext'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from './LanguageContext'
 
-interface ClerkAuthGateProps {
+interface AuthGateProps {
   children: React.ReactNode
   redirectTo?: string
 }
 
-/**
- * Wrap protected routes so we don't render — or open WebSockets — until
- * Clerk has finished priming the session. Without this gate, pages that
- * call `getToken()` immediately on mount race the Clerk initialization
- * and end up with `token=null`, which leaves the WS closed and the UI blank.
- */
-export default function ClerkAuthGate({ children, redirectTo = '/auth/login' }: ClerkAuthGateProps) {
+export default function AuthGate({ children, redirectTo = '/auth/login' }: AuthGateProps) {
   const { isLoaded, isSignedIn } = useAuth()
   const router = useRouter()
   const { language } = useLanguage()
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (isLoaded && !isSignedIn) {
       router.replace(redirectTo)
     }
@@ -40,7 +34,7 @@ export default function ClerkAuthGate({ children, redirectTo = '/auth/login' }: 
         <p className="text-xs text-slate-500">
           {language === 'zh'
             ? '请稍候，页面将在登录完成后自动加载。'
-            : 'Hang tight — this page loads once Clerk finishes signing you in.'}
+            : 'Hang tight — this page loads once your session is verified.'}
         </p>
       </div>
     )

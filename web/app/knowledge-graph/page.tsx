@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import * as d3 from 'd3'
-import { useAuth } from '@clerk/nextjs'
+import { useAuth } from '../components/AuthContext'
 import { useLanguage } from '../components/LanguageContext'
 import { PageHead } from '../components/design/primitives'
 import { Skeleton } from '../components/Skeleton'
