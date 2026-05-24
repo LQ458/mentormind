@@ -1,21 +1,23 @@
 'use client'
 
 import React from 'react'
+import dynamic from 'next/dynamic'
 import type { ElementProps, ElementType } from './types'
 import Title from './Title'
 import TextBlock from './TextBlock'
-import Equation from './Equation'
-import Graph from './Graph'
 import Shape from './Shape'
 import Table from './Table'
 import DefinitionBox from './DefinitionBox'
 import TheoremBox from './TheoremBox'
 import StepList from './StepList'
 import CodeBlock from './CodeBlock'
-import TransformElement from './TransformElement'
 import Arrow from './Arrow'
 import HighlightElement from './HighlightElement'
 import ImageElement from './ImageElement'
+
+const Equation = dynamic(() => import('./Equation'), { ssr: false })
+const Graph = dynamic(() => import('./Graph'), { ssr: false })
+const TransformElement = dynamic(() => import('./TransformElement'), { ssr: false })
 
 export type { ElementProps, ElementType }
 export type { BoardElement } from './types'
