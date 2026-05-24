@@ -182,9 +182,6 @@ services:
     build:
       context: ./web
       args:
-        # Baked into the client bundle at build time. Must be a URL the browser
-        # can reach directly — NOT the internal docker service name.
-        # e.g. ws://<public-host>:8000  or  wss://api.example.com
         NEXT_PUBLIC_BACKEND_WS_URL: ${NEXT_PUBLIC_BACKEND_WS_URL:-}
     container_name: mentormind-frontend
     networks:
@@ -205,6 +202,22 @@ services:
       NEXT_PUBLIC_APP_URL: http://localhost:3000
     ports:
       - "3000:3000"
+
+  nginx:
+    build: ./nginx
+    container_name: mentormind-nginx
+    networks:
+      - mentormind-net
+    depends_on:
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - nginx_cache:/var/cache/nginx/media_proxy
 
 #  funasr:
 #    image: registry.cn-hangzhou.aliyuncs.com/funasr/funasr-runtime-sdk-cpu:latest
@@ -231,3 +244,4 @@ volumes:
   modelscope_cache:
   whisper_cache:
   paddleocr_cache:
+  nginx_cache:
