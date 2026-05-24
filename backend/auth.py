@@ -4,6 +4,7 @@ Authentication utilities for MentorMind using Clerk.
 Provides:
 - FastAPI dependency: get_current_user (verifies Clerk JWT using JWKS and syncs user to DB)
 - FastAPI dependency: get_optional_user (returns None if no token)
+- verify_token_or_test_bypass: standalone token verification for WebSocket contexts
 """
 
 import os
@@ -94,6 +95,40 @@ def decode_token(token: str) -> dict:
         )
 
 
+# ── Test Auth Bypass ─────────────────────────────────────────────────────────
+
+def _check_test_bypass(token: str, db: Session) -> Optional[User]:
+    """If MENTORMIND_ENV=testing and the token matches TEST_BYPASS_SECRET,
+    return a deterministic mock admin user.  This lets automated test suites
+    authenticate without touching live signup flows or third-party auth domains.
+    """
+    if os.getenv("MENTORMIND_ENV") != "testing":
+        return None
+
+    bypass_secret = os.getenv("TEST_BYPASS_SECRET")
+    if not bypass_secret or token != bypass_secret:
+        return None
+
+    test_user_id = "00000000-0000-0000-0000-00000000test"
+    user = db.query(User).filter(User.id == test_user_id).first()
+    if not user:
+        user = User(
+            id=test_user_id,
+            email="test-admin@mentormind.local",
+            username="test_admin",
+            hashed_password="test_bypass_managed",
+            full_name="Test Admin",
+            role="admin",
+            is_active=True,
+            is_verified=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    return user
+
+
 # ── FastAPI dependencies ──────────────────────────────────────────────────────
 
 _bearer = HTTPBearer(auto_error=False)
@@ -103,14 +138,19 @@ def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
     db: Session = Depends(get_db),
 ) -> User:
-    """Require a valid Clerk JWT. Auto-creates user in DB if they don't exist."""
+    """Require a valid Clerk JWT (or test bypass token). Auto-creates user in DB if they don't exist."""
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
-        
+
+    # Test bypass: short-circuit before Clerk JWKS call when MENTORMIND_ENV=testing
+    test_user = _check_test_bypass(credentials.credentials, db)
+    if test_user:
+        return test_user
+
     payload = decode_token(credentials.credentials)
     clerk_id = payload.get("sub")
     if not clerk_id:
@@ -156,3 +196,29 @@ def get_optional_user(
         return get_current_user(credentials, db)
     except HTTPException:
         return None
+
+
+def verify_token_or_test_bypass(token: str, db: Session) -> User:
+    """Verify a token (Clerk JWT or test bypass secret) and return the resolved user.
+
+    Intended for WebSocket handlers and other non-DI contexts where
+    ``get_current_user`` cannot be used as a FastAPI dependency.
+    """
+    test_user = _check_test_bypass(token, db)
+    if test_user:
+        return test_user
+
+    payload = decode_token(token)
+    clerk_id = payload.get("sub") or payload.get("user_id")
+    if not clerk_id:
+        raise ValueError("Invalid token payload: missing sub")
+
+    user = db.query(User).filter(User.username == clerk_id).first()
+    if not user:
+        user_uuid = str(clerk_id_to_uuid(clerk_id))
+        user = db.query(User).filter(User.id == user_uuid).first()
+    if not user:
+        raise ValueError(f"User not found for clerk_id={clerk_id}")
+    if not user.is_active:
+        raise ValueError("User account is inactive")
+    return user

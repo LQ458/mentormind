@@ -86,7 +86,9 @@ class MentorMindConfig:
     VERSION: str = "1.0"
     TARGET_MARKET: str = "China"
     DEPLOYMENT_ENV: str = os.getenv("MENTORMIND_ENV", "development")
+    IS_TESTING: bool = os.getenv("MENTORMIND_ENV", "development") == "testing"
     VERIFY_SSL: bool = os.getenv("VERIFY_SSL", "true").lower() == "true"
+    TEST_BYPASS_SECRET: str = os.getenv("TEST_BYPASS_SECRET", "")
     
     # ===== MODEL CONFIGURATIONS =====
     @classmethod

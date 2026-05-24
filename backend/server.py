@@ -5053,19 +5053,11 @@ async def board_websocket(websocket: WebSocket, session_id: str):
         await _reject(4001, "Missing auth token")
         return
     try:
-        from auth import decode_token, clerk_id_to_uuid
-        payload = decode_token(token)
-        clerk_id = payload.get("sub") or payload.get("user_id")
-        if not clerk_id:
-            raise ValueError("missing sub")
-        # Resolve the same way get_current_user does: username match first,
-        # then clerk_id → deterministic UUID. Avoid DB write here; just resolve.
+        from auth import verify_token_or_test_bypass
         from database.base import SessionLocal
         with SessionLocal() as db:
-            db_user = db.query(User).filter(User.username == clerk_id).first()
-            if not db_user:
-                db_user = db.query(User).filter(User.id == str(clerk_id_to_uuid(clerk_id))).first()
-        resolved_user_id = db_user.id if db_user else str(clerk_id_to_uuid(clerk_id))
+            db_user = verify_token_or_test_bypass(token, db)
+        resolved_user_id = db_user.id
     except Exception as exc:
         logger.warning(f"[ws/board] token decode failed: {exc}")
         await _reject(4001, "Token rejected — sign in again and reload")
