@@ -266,6 +266,21 @@ def auth_headers() -> Dict[str, str]:
     }
 
 
+@pytest.fixture(autouse=True)
+def _cleanup_sessions():
+    """Clear in-memory board sessions before each test to avoid 429 bleed."""
+    if HAS_REQUESTS:
+        try:
+            requests.delete(
+                f"{BACKEND_URL}/board/cleanup-sessions",
+                headers={"Authorization": f"Bearer {TEST_BYPASS_SECRET}"},
+                timeout=5,
+            )
+        except Exception:
+            pass
+    yield
+
+
 def _create_board_session(
     topic: str = "Test: Quadratic Functions",
     language: str = "en",
@@ -512,8 +527,8 @@ class TestNetworkDropReconnect:
         try:
             # Phase 1 — initial connection, collect events
             phase1 = await _ws_consume_events(
-                session_id, reporter, abort_after_s=15
-            )  # 15s of streaming
+                session_id, reporter, abort_after_s=30
+            )  # 30s of streaming (LLM cold-start can be slow)
 
             if not phase1.events:
                 pytest.fail("No events received in phase 1 — backend may not be running")

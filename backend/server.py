@@ -3992,6 +3992,19 @@ async def create_board_session(
     return {"success": True, "session_id": session_id}
 
 
+@app.delete("/board/cleanup-sessions")
+async def cleanup_board_sessions(
+    current_user: User = Depends(get_current_user),
+):
+    """Test-only: clear all in-memory board sessions.  Only available when
+    MENTORMIND_ENV=testing."""
+    if os.getenv("MENTORMIND_ENV") != "testing":
+        raise HTTPException(status_code=403, detail="Only available in testing mode")
+    count = len(_board_sessions)
+    _board_sessions.clear()
+    return {"success": True, "cleared": count}
+
+
 @app.get("/board/session/{session_id}")
 async def get_board_session(
     session_id: str,
