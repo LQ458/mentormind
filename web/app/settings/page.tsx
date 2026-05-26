@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '../components/AuthContext'
 import { useSearchParams } from 'next/navigation'
@@ -42,6 +42,14 @@ interface UserSettings {
 }
 
 export default function SettingsPage() {
+  return (
+    <Suspense>
+      <SettingsContent />
+    </Suspense>
+  )
+}
+
+function SettingsContent() {
   const { language: uiLanguage, t } = useLanguage()
   const { getToken } = useAuth()
   const searchParams = useSearchParams()

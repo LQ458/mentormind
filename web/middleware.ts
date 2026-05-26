@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { auth } from '@/lib/auth'
 
 const PROTECTED_PREFIXES = [
   '/dashboard',
@@ -15,6 +14,13 @@ const PROTECTED_PREFIXES = [
   '/admin',
 ]
 
+function getSessionCookie(request: NextRequest): string | null {
+  const cookie = request.cookies.get('better-auth.session_token')
+  if (cookie?.value) return cookie.value
+  const sessionCookie = request.cookies.get('session_token')
+  return sessionCookie?.value ?? null
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
@@ -23,11 +29,8 @@ export async function middleware(request: NextRequest) {
   )
   if (!isProtected) return NextResponse.next()
 
-  const session = await auth.api.getSession({
-    headers: request.headers,
-  })
-
-  if (!session?.user) {
+  const token = getSessionCookie(request)
+  if (!token) {
     const signInUrl = new URL('/auth/login', request.url)
     signInUrl.searchParams.set('redirect', pathname)
     return NextResponse.redirect(signInUrl)

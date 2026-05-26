@@ -46,7 +46,7 @@ function elementPropsEqual(prev: ElementProps, next: ElementProps): boolean {
   return true
 }
 
-function memoize<P extends ElementProps>(Component: React.FC<P>, displayName: string): React.FC<P> {
+function memoize<P extends ElementProps>(Component: React.ComponentType<P>, displayName: string): React.FC<P> {
   const Memoized = React.memo(Component, elementPropsEqual as (a: P, b: P) => boolean)
   Memoized.displayName = `Memo(${displayName})`
   return Memoized as unknown as React.FC<P>

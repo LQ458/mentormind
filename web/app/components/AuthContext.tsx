@@ -8,7 +8,6 @@ import React, {
   useEffect,
   useState,
 } from 'react'
-import { authClient, useSession } from '@/lib/auth-client'
 
 export interface AuthUser {
   id: string
@@ -34,53 +33,70 @@ const AuthCtx = createContext<AuthContextValue>({
   signOut: async () => {},
 })
 
-function mapUser(raw: Record<string, unknown> | null | undefined): AuthUser | null {
-  if (!raw) return null
-  const email = (raw.email || '') as string
-  const name = (raw.name || '') as string
-  return {
-    id: (raw.id || '') as string,
-    email,
-    firstName: name.split(' ')[0] || '',
-    username: email.split('@')[0] || name || '',
-    fullName: name || email || '',
-  }
-}
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { data, isPending } = useSession()
-  const [cachedToken, setCachedToken] = useState<string | null>(null)
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [isLoaded, setIsLoaded] = useState(false)
+  const [token, setToken] = useState<string | null>(null)
 
-  const sessionUser = data?.user as Record<string, unknown> | undefined
-  const user = useMemo(() => mapUser(sessionUser), [sessionUser])
-
-  const isLoaded = !isPending
-  const isSignedIn = !isPending && !!data
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch('/api/auth/get-session', { credentials: 'include' })
+        if (!res.ok || cancelled) {
+          setIsLoaded(true)
+          return
+        }
+        const data = await res.json()
+        if (data?.user && !cancelled) {
+          const u = data.user
+          setUser({
+            id: u.id || '',
+            email: u.email || '',
+            firstName: u.name?.split(' ')[0] || '',
+            username: u.email?.split('@')[0] || u.name || '',
+            fullName: u.name || u.email || '',
+          })
+        }
+      } catch {
+        // Not signed in or server unreachable — that's fine
+      } finally {
+        if (!cancelled) setIsLoaded(true)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   const getToken = useCallback(async (): Promise<string | null> => {
     try {
-      const result = await authClient.getSession()
-      if (!result?.data?.session) return null
-      const sess = result.data.session as Record<string, unknown>
-      const token = (sess.token || sess.sessionToken) as string | undefined
-      if (token) {
-        setCachedToken(token)
-        return token
-      }
-      return null
+      const res = await fetch('/api/auth/get-session', { credentials: 'include' })
+      if (!res.ok) return null
+      const data = await res.json()
+      return data?.session?.token || data?.token || null
     } catch {
-      return cachedToken
+      return token
     }
-  }, [cachedToken])
+  }, [token])
 
   const handleSignOut = useCallback(async () => {
-    await authClient.signOut()
-    setCachedToken(null)
+    try {
+      await fetch('/api/auth/sign-out', { method: 'POST', credentials: 'include' })
+    } catch {
+      // ignore
+    }
+    setUser(null)
+    setToken(null)
   }, [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user, isLoaded, isSignedIn, getToken, signOut: handleSignOut }),
-    [user, isLoaded, isSignedIn, getToken, handleSignOut],
+    () => ({
+      user,
+      isLoaded,
+      isSignedIn: !!user,
+      getToken,
+      signOut: handleSignOut,
+    }),
+    [user, isLoaded, getToken, handleSignOut],
   )
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>
@@ -105,9 +121,9 @@ export function useAuthHeaders(): Record<string, string> {
       return
     }
     let cancelled = false
-    getToken().then((token) => {
-      if (!cancelled && token) {
-        setHeaders({ Authorization: `Bearer ${token}` })
+    void getToken().then((t) => {
+      if (!cancelled && t) {
+        setHeaders({ Authorization: `Bearer ${t}` })
       }
     })
     return () => { cancelled = true }
