@@ -11,7 +11,7 @@ export const auth = betterAuth({
   database: pool,
   emailAndPassword: {
     enabled: true,
-    autoSignIn: false,
+    autoSignIn: true,
   },
   session: {
     strategy: 'jwt',

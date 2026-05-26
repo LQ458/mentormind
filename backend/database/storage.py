@@ -46,7 +46,7 @@ class LessonStorageSQL:
                 id=str(user_id),
                 email=f"{raw_user_id}@placeholder.mentormind",
                 username=raw_user_id[:100],
-                hashed_password="clerk_managed",
+                hashed_password="better_auth_managed",
             )
             session.add(user)
             session.flush()

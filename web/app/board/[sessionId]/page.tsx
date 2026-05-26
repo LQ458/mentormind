@@ -12,7 +12,7 @@ import SubtitleOverlay from '../../components/board/SubtitleOverlay'
 import VoiceInput from '../../components/board/VoiceInput'
 import AgentActivityBar from '../../components/board/AgentActivityBar'
 import SummaryPanel from '../../components/board/SummaryPanel'
-import ClerkAuthGate from '../../components/ClerkAuthGate'
+import AuthGate from '../../components/AuthGate'
 import BoardDisplaySettings, { useBoardDisplayPrefs, boardFontScaleStyle } from '../../components/board/BoardDisplaySettings'
 import { useKeyboardShortcut } from '../../hooks/useKeyboardShortcut'
 import { useFullscreen } from '../../hooks/useFullscreen'
@@ -20,9 +20,9 @@ import { track } from '../../lib/telemetry'
 
 export default function BoardSessionPage() {
   return (
-    <ClerkAuthGate>
+    <AuthGate>
       <BoardSessionInner />
-    </ClerkAuthGate>
+    </AuthGate>
   )
 }
 
@@ -69,7 +69,7 @@ function BoardSessionInner() {
           setTokenError(null)
           return
         }
-        // Clerk can return null briefly right after sign-in; retry with backoff.
+        // Auth can return null briefly right after sign-in; retry with backoff.
         if (attempt < 5) {
           const delay = Math.min(2000, 200 * Math.pow(2, attempt))
           timer = setTimeout(() => { void tryFetch(attempt + 1) }, delay)
@@ -278,7 +278,7 @@ function BoardSessionInner() {
             <p className="text-xs text-slate-500">
               {language === 'zh'
                 ? '等待登录凭证完成初始化，稍候几秒即可。'
-                : 'Waiting for Clerk to finish issuing your session token — this only takes a moment.'}
+                : 'Waiting for your session token — this only takes a moment.'}
             </p>
           </>
         )}
