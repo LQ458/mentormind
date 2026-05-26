@@ -24,6 +24,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 function matchesSpec(e: KeyboardEvent, spec: ShortcutSpec): boolean {
+  if (!e.key || !spec.key) return false
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key
   const want = spec.key.length === 1 ? spec.key.toLowerCase() : spec.key
   if (key !== want) return false

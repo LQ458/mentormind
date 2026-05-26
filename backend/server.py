@@ -1700,11 +1700,21 @@ def get_lessons(
     language: Optional[str] = None,
     student_level: Optional[str] = None,
     difficulty: Optional[str] = None,
+    search: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
     lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
-    """List published lessons."""
+    """List published lessons.  Pass ``?search=`` for full-text search."""
+    if search:
+        lessons = lesson_storage.search_lessons(
+            search,
+            language=language,
+            student_level=student_level,
+            limit=limit,
+        )
+        return {"success": True, "lessons": lessons, "total": len(lessons)}
+
     lessons, total = lesson_storage.get_all_lessons(
         language=language,
         student_level=student_level,
@@ -3427,6 +3437,72 @@ async def get_my_study_plans(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Study-plan library endpoint ────────────────────────────────────────────
+
+@app.get("/study-plan/library")
+async def get_study_plan_library(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the user's study plans grouped with their units and most-recent
+    saved board session id (if any) per unit. Skips archived plans."""
+    try:
+        plans = (
+            db.query(StudyPlan)
+            .filter(StudyPlan.user_id == current_user.id)
+            .filter(StudyPlan.status != "archived")
+            .order_by(StudyPlan.created_at.desc())
+            .all()
+        )
+
+        # Pre-fetch most-recent board session per unit owned by this user
+        sessions = (
+            db.query(BoardSession)
+            .filter(BoardSession.user_id == str(current_user.id))
+            .order_by(BoardSession.updated_at.desc().nullslast(), BoardSession.created_at.desc())
+            .all()
+        )
+        latest_by_unit: Dict[str, str] = {}
+        for s in sessions:
+            if s.plan_id and s.unit_id and s.unit_id not in latest_by_unit:
+                key = f"{s.plan_id}:{s.unit_id}"
+                latest_by_unit.setdefault(key, s.id)
+
+        result = []
+        for plan in plans:
+            units_payload = []
+            for unit in plan.units:
+                key = f"{plan.id}:{unit.id}"
+                units_payload.append({
+                    "id": str(unit.id),
+                    "order_index": unit.order_index,
+                    "title": unit.title,
+                    "topics": unit.topics or [],
+                    "estimated_minutes": unit.estimated_minutes,
+                    "content_status": unit.content_status,
+                    "is_completed": bool(unit.is_completed),
+                    "score": unit.score,
+                    "board_session_id": latest_by_unit.get(key),
+                })
+            result.append({
+                "id": str(plan.id),
+                "title": plan.title,
+                "subject": plan.subject,
+                "framework": plan.framework,
+                "status": plan.status,
+                "progress_percentage": plan.progress_percentage,
+                "language": plan.language,
+                "units": units_payload,
+            })
+
+        return {"success": True, "plans": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch study plan library: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/study-plan/{plan_id}")
 async def get_study_plan(
     plan_id: str,
@@ -4101,7 +4177,7 @@ async def _delayed_session_cleanup(session_id: str, delay_seconds: float) -> Non
     _board_sessions.pop(session_id, None)
 
 
-def _board_session_to_state_dict(session: dict, status: Optional[str] = None) -> Dict[str, Any]:
+def _board_session_to_state_dict(session: dict, status: Optional[str] = None, conversation_state: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Convert an in-memory _board_sessions entry into the persisted state shape."""
     state_mgr = session.get("state_manager")
     board_dict = None
@@ -4128,6 +4204,7 @@ def _board_session_to_state_dict(session: dict, status: Optional[str] = None) ->
         "chat_history": session.get("chat_history", []) or [],
         "last_event_seq": last_event_seq,
         "status": status or session.get("status") or "generating",
+        "conversation_state": conversation_state or [],
     }
 
 
@@ -4136,13 +4213,14 @@ def _persist_board_session_sync(
     session: dict,
     status: Optional[str] = None,
     last_event_seq: Optional[int] = None,
+    conversation_state: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     """Synchronous helper — never call directly from an async coroutine; use _persist_board_session_safe."""
     try:
         from database.base import SessionLocal as _SL
         with _SL() as _db:
             cfg = session.get("config") or {}
-            state_dict = _board_session_to_state_dict(session, status=status)
+            state_dict = _board_session_to_state_dict(session, status=status, conversation_state=conversation_state)
             # Caller passed an explicit running counter — override the value
             # derived from in-memory event_log so a server restart can't reset
             # the persisted seq to 0.
@@ -4169,12 +4247,13 @@ async def _persist_board_session_safe(
     session: dict,
     status: Optional[str] = None,
     last_event_seq: Optional[int] = None,
+    conversation_state: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     """Best-effort durable save offloaded to a thread so we don't block the asyncio loop."""
     try:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
-            None, _persist_board_session_sync, session_id, session, status, last_event_seq
+            None, _persist_board_session_sync, session_id, session, status, last_event_seq, conversation_state
         )
     except Exception as exc:
         logger.warning(f"_persist_board_session_safe scheduling failed for {session_id}: {exc}")
@@ -4956,73 +5035,6 @@ async def get_admin_feedback_aggregate(
     }
 
 
-# ── Study-plan library endpoint ────────────────────────────────────────────
-
-@app.get("/study-plan/library")
-async def get_study_plan_library(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Return the user's study plans grouped with their units and most-recent
-    saved board session id (if any) per unit. Skips archived plans."""
-    try:
-        plans = (
-            db.query(StudyPlan)
-            .filter(StudyPlan.user_id == current_user.id)
-            .filter(StudyPlan.status != "archived")
-            .order_by(StudyPlan.created_at.desc())
-            .all()
-        )
-
-        # Pre-fetch most-recent board session per unit owned by this user
-        # (joined via plan_id+unit_id). Use a single query for efficiency.
-        sessions = (
-            db.query(BoardSession)
-            .filter(BoardSession.user_id == str(current_user.id))
-            .order_by(BoardSession.updated_at.desc().nullslast(), BoardSession.created_at.desc())
-            .all()
-        )
-        latest_by_unit: Dict[str, str] = {}
-        for s in sessions:
-            if s.plan_id and s.unit_id and s.unit_id not in latest_by_unit:
-                key = f"{s.plan_id}:{s.unit_id}"
-                latest_by_unit.setdefault(key, s.id)
-
-        result = []
-        for plan in plans:
-            units_payload = []
-            for unit in plan.units:
-                key = f"{plan.id}:{unit.id}"
-                units_payload.append({
-                    "id": str(unit.id),
-                    "order_index": unit.order_index,
-                    "title": unit.title,
-                    "topics": unit.topics or [],
-                    "estimated_minutes": unit.estimated_minutes,
-                    "content_status": unit.content_status,
-                    "is_completed": bool(unit.is_completed),
-                    "score": unit.score,
-                    "board_session_id": latest_by_unit.get(key),
-                })
-            result.append({
-                "id": str(plan.id),
-                "title": plan.title,
-                "subject": plan.subject,
-                "framework": plan.framework,
-                "status": plan.status,
-                "progress_percentage": plan.progress_percentage,
-                "language": plan.language,
-                "units": units_payload,
-            })
-
-        return {"success": True, "plans": result}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to fetch study plan library: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.websocket("/ws/board/{session_id}")
 async def board_websocket(websocket: WebSocket, session_id: str):
     """WebSocket endpoint for streaming board lesson events in real-time.
@@ -5077,11 +5089,107 @@ async def board_websocket(websocket: WebSocket, session_id: str):
         return
 
     session = _board_sessions.get(session_id)
+
+    # Resurrect from DB if the in-memory session has been garbage-collected.
     if not session:
-        await _reject(4004, "Lesson session expired or was cleared. Start a new lesson.")
-        return
+        from database.base import SessionLocal as _SL
+        with _SL() as _db:
+            loaded = _board_load_state(_db, session_id, user_id=str(resolved_user_id))
+        if loaded and not loaded.get("__forbidden__"):
+            conv = loaded.get("conversation_state") or []
+            board_meta = loaded.get("board_metadata") or {}
+            config = loaded.get("config") or {}
+
+            from core.board.state_manager import BoardStateManager
+            from core.board.models import BoardState
+            state_mgr = BoardStateManager()
+            try:
+                board_state = BoardState.from_dict(board_meta)
+                state_mgr._state = board_state
+            except Exception:
+                state_mgr.create_board(
+                    title=config.get("topic", ""),
+                    layout=board_meta.get("layout", "full_canvas"),
+                    background=board_meta.get("background", "dark_board"),
+                    topic=config.get("topic", ""),
+                )
+
+            from mcp.board_server import BoardMCPServer
+            board_server = BoardMCPServer(state_manager=state_mgr)
+
+            persisted_status = loaded.get("status", "generating")
+            if conv and persisted_status != "done":
+                session = {
+                    "state_manager": state_mgr,
+                    "board_server": board_server,
+                    "config": config,
+                    "user_id": resolved_user_id,
+                    "plan_id": loaded.get("plan_id"),
+                    "unit_id": loaded.get("unit_id"),
+                    "status": "generating",
+                    "audio_queue": loaded.get("audio_queue", []),
+                    "chat_history": loaded.get("chat_history", []),
+                    "_conversation_state": conv,
+                }
+                _board_sessions[session_id] = session
+                logger.info(f"[ws/board] Resurrected session {session_id} from DB with conversation state")
+            else:
+                try:
+                    await websocket.send_json({
+                        "event_type": "session_state",
+                        "timestamp": time.time(),
+                        "data": loaded,
+                    })
+                    await websocket.send_json({
+                        "event_type": "done",
+                        "timestamp": time.time(),
+                        "data": {"message": "Session is read-only. Start a new lesson to continue."},
+                    })
+                except Exception:
+                    pass
+                try:
+                    await websocket.close(code=1000)
+                except Exception:
+                    pass
+                return
+        else:
+            await _reject(4004, "Lesson session expired or was cleared. Start a new lesson.")
+            return
+
     if str(session.get("user_id")) != str(resolved_user_id):
         await _reject(4003, "You are not allowed to view this lesson session.")
+        return
+
+    # After disconnection, if the session had LLM conversation state saved we
+    # can resume the stream.  "done" means the generator finished naturally —
+    # everything else should resume.
+    existing_status = session.get("status")
+    conv_state = session.get("_conversation_state") or None
+    if not conv_state and existing_status == "done":
+        state_dict = _board_session_to_state_dict(session, status=existing_status)
+        try:
+            await websocket.send_json({
+                "event_type": "session_state",
+                "timestamp": time.time(),
+                "data": state_dict,
+            })
+            await websocket.send_json({
+                "event_type": "done",
+                "timestamp": time.time(),
+                "data": {},
+            })
+        except WebSocketDisconnect:
+            return
+        except Exception:
+            pass
+        try:
+            while True:
+                try:
+                    await asyncio.wait_for(websocket.receive_json(), timeout=30)
+                except asyncio.TimeoutError:
+                    continue
+        except WebSocketDisconnect:
+            pass
         return
 
     session["status"] = "streaming"
@@ -5092,6 +5200,9 @@ async def board_websocket(websocket: WebSocket, session_id: str):
     from core.streaming.tts_sync import BoardTTSSync
     board_server: BoardMCPServer = session["board_server"]
     agent_server = AgentToolsServer()
+
+    # Resume from saved conversation state if available.
+    resume_messages = session.get("_conversation_state") or None
 
     generator = StreamingLessonGenerator(
         board_server=board_server, agent_tools_server=agent_server
@@ -5110,12 +5221,29 @@ async def board_websocket(websocket: WebSocket, session_id: str):
 
     async def _send_events():
         nonlocal paused
+        # When resuming, first send the current board snapshot so the client
+        # can immediately render previously generated content (elements,
+        # narration, chat) while the LLM continues.
+        if resume_messages:
+            state_dict = _board_session_to_state_dict(session, status="generating")
+            try:
+                await websocket.send_json({
+                    "event_type": "session_state",
+                    "timestamp": time.time(),
+                    "data": state_dict,
+                })
+            except WebSocketDisconnect:
+                return
+            except Exception:
+                pass
+
         board_stream = generator.generate_lesson(
             topic=config["topic"],
             language=config["language"],
             student_level=config["student_level"],
             duration_minutes=config["duration_minutes"],
             custom_requirements=config.get("custom_requirements"),
+            resume_messages=resume_messages,
         )
         tts_stream = tts_sync.stream_with_tts(board_stream)
 
@@ -5125,22 +5253,34 @@ async def board_websocket(websocket: WebSocket, session_id: str):
             try:
                 await websocket.send_json(event.to_dict())
             except WebSocketDisconnect:
-                # Persist whatever state we have so a revisit can resume.
                 await _persist_board_session_safe(
-                    session_id, session, status="paused", last_event_seq=emitted_counter["n"]
+                    session_id, session, status="paused",
+                    last_event_seq=emitted_counter["n"],
+                    conversation_state=generator._current_messages,
                 )
                 return
             except Exception as e:
                 logger.error(f"Error sending board event: {e}")
                 await _persist_board_session_safe(
-                    session_id, session, status="error", last_event_seq=emitted_counter["n"]
+                    session_id, session, status="error",
+                    last_event_seq=emitted_counter["n"],
+                    conversation_state=generator._current_messages,
                 )
                 return
+            if event.event_type == "audio_ready":
+                session.setdefault("audio_queue", []).append(event.to_dict())
+            if event.event_type == "element_added" and event.data.get("narration"):
+                session.setdefault("chat_history", []).append({
+                    "role": "assistant",
+                    "text": event.data["narration"],
+                    "timestamp": event.timestamp,
+                })
             emitted_counter["n"] += 1
-            # Persist every 5 events so revisits are close to current state.
             if emitted_counter["n"] % 5 == 0:
                 await _persist_board_session_safe(
-                    session_id, session, status="generating", last_event_seq=emitted_counter["n"]
+                    session_id, session, status="generating",
+                    last_event_seq=emitted_counter["n"],
+                    conversation_state=generator._current_messages,
                 )
 
         # Auto-generate summary the moment the lesson stream finishes so the
@@ -5166,7 +5306,9 @@ async def board_websocket(websocket: WebSocket, session_id: str):
                     })
                 except WebSocketDisconnect:
                     await _persist_board_session_safe(
-                        session_id, session, status="done", last_event_seq=emitted_counter["n"]
+                        session_id, session, status="done",
+                        last_event_seq=emitted_counter["n"],
+                        conversation_state=generator._current_messages,
                     )
                     return
         except Exception as exc:
@@ -5178,15 +5320,18 @@ async def board_websocket(websocket: WebSocket, session_id: str):
             )
         except WebSocketDisconnect:
             await _persist_board_session_safe(
-                session_id, session, status="done", last_event_seq=emitted_counter["n"]
+                session_id, session, status="done",
+                last_event_seq=emitted_counter["n"],
+                conversation_state=generator._current_messages,
             )
             return
         except Exception as e:
             logger.debug(f"Could not send done event: {e}")
 
-        # Final durable save with status=done so library shows it as resumable.
         await _persist_board_session_safe(
-            session_id, session, status="done", last_event_seq=emitted_counter["n"]
+            session_id, session, status="done",
+            last_event_seq=emitted_counter["n"],
+            conversation_state=generator._current_messages,
         )
 
     send_task = asyncio.create_task(_send_events())
@@ -5203,7 +5348,6 @@ async def board_websocket(websocket: WebSocket, session_id: str):
                 elif action == "user_message":
                     text = (msg.get("text") or "").strip()
                     if text:
-                        # Echo to the client so the chat log captures the question
                         try:
                             await websocket.send_json({
                                 "event_type": "user_message",
@@ -5212,6 +5356,12 @@ async def board_websocket(websocket: WebSocket, session_id: str):
                             })
                         except Exception as exc:
                             logger.debug(f"Could not echo user_message: {exc}")
+                        # Persist chat on server so reconnect doesn't lose it
+                        session.setdefault("chat_history", []).append({
+                            "role": "user",
+                            "text": text,
+                            "timestamp": time.time(),
+                        })
                         generator.enqueue_user_message(text)
             except asyncio.TimeoutError:
                 if send_task.done():
@@ -5226,17 +5376,22 @@ async def board_websocket(websocket: WebSocket, session_id: str):
             await send_task
         except asyncio.CancelledError:
             pass
-        session["status"] = "completed"
-        # Persist final state on disconnect so revisits can resume without
-        # depending on the client beacon firing.
+        # Preserve mid-stream status — don't overwrite "paused" set by the
+        # internal disconnect handler in _send_events.
+        current = session.get("status")
+        if current not in ("paused", "error"):
+            session["status"] = "completed"
+        # Persist conversation state on the in-memory session so a reconnect
+        # can find it without hitting the DB again.
+        if generator._current_messages:
+            session["_conversation_state"] = generator._current_messages
         await _persist_board_session_safe(
             session_id,
             session,
             status=session.get("status"),
             last_event_seq=emitted_counter["n"],
+            conversation_state=generator._current_messages,
         )
-        # Keep the session alive for a grace period so the client can still
-        # fetch the cached summary or reconnect briefly without a 404.
         asyncio.create_task(_delayed_session_cleanup(session_id, 600))
 
 

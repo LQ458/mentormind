@@ -237,6 +237,7 @@ export default function LessonsPage() {
   const [plans, setPlans] = useState<StudyPlan[]>([])
   const [loading, setLoading] = useState(true)
   const [unauthenticated, setUnauthenticated] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isLoaded) return
@@ -261,9 +262,22 @@ export default function LessonsPage() {
         const data: LibraryResponse = await res.json()
         if (!cancelled) {
           setPlans(Array.isArray(data?.plans) ? data.plans : [])
+          if (!res.ok) {
+            setError(
+              lang === 'zh'
+                ? `加载失败 (${res.status}): ${(data as any)?.detail || '请稍后重试'}`
+                : `Failed to load library (${res.status}): ${(data as any)?.detail || 'Please try again later'}`
+            )
+          }
         }
-      } catch {
-        if (!cancelled) setPlans([])
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(
+            lang === 'zh'
+              ? '无法连接到服务器，请检查网络后重试'
+              : 'Could not connect to server. Please check your connection and try again.'
+          )
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -294,6 +308,28 @@ export default function LessonsPage() {
           <Link href="/auth/login" className="btn btn-primary">
             {lang === 'zh' ? '登录' : 'Sign in'} <ArrowRight size={14} />
           </Link>
+        </div>
+      </div>
+    )
+  }
+
+  if (error && plans.length === 0) {
+    return (
+      <div>
+        <PageHead
+          eyebrow={lang === 'zh' ? '文库' : 'Library'}
+          title={lang === 'zh' ? '你的学习库' : 'Your learning library'}
+        />
+        <div className="card-new" style={{ padding: 40, textAlign: 'center' }}>
+          <div style={{ fontSize: 16, marginBottom: 8, color: 'var(--color-danger, #dc2626)' }}>
+            {error}
+          </div>
+          <button
+            className="btn btn-secondary"
+            onClick={() => { setError(null); setLoading(true); window.location.reload() }}
+          >
+            {lang === 'zh' ? '重试' : 'Retry'}
+          </button>
         </div>
       </div>
     )

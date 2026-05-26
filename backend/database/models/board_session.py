@@ -56,6 +56,8 @@ class BoardSession(Base):
     chat_history = Column(JSON, default=list)
     last_event_seq = Column(Integer, default=0)
     config = Column(JSON, default=dict)
+    board_metadata = Column(JSON, default=dict)
+    conversation_state = Column(JSON, default=list)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -83,6 +85,8 @@ class BoardSession(Base):
             "chat_history": self.chat_history or [],
             "last_event_seq": self.last_event_seq or 0,
             "config": self.config or {},
+            "board_metadata": self.board_metadata or {},
+            "conversation_state": self.conversation_state or [],
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

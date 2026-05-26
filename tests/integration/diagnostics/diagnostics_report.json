@@ -1,0 +1,75 @@
+{
+  "report_generated_at": "2026-05-26T10:59:47.276497",
+  "test_name": "test_concurrent_sessions_limit",
+  "total_elapsed_seconds": 99.78,
+  "initial_latency": {
+    "timestamp": 1779764287.550129,
+    "iso_time": "2026-05-26T10:58:07.550129",
+    "memory_rss_mb": 89.39,
+    "memory_vms_mb": 401193.91,
+    "cpu_percent": 0.1,
+    "db_connections": 2,
+    "ws_latency_ms": -1.0,
+    "event_count": 0
+  },
+  "terminal_latency": {
+    "timestamp": 1779764387.144026,
+    "iso_time": "2026-05-26T10:59:47.144026",
+    "memory_rss_mb": 100.92,
+    "memory_vms_mb": 401566.28,
+    "cpu_percent": 0.1,
+    "db_connections": 2,
+    "ws_latency_ms": -1.0,
+    "event_count": 0
+  },
+  "memory_footprint_growth_mb": 11.53,
+  "memory_growth_rate_mb_per_hour": 416.03,
+  "snapshots": [
+    {
+      "timestamp": 1779764287.550129,
+      "iso_time": "2026-05-26T10:58:07.550129",
+      "memory_rss_mb": 89.39,
+      "memory_vms_mb": 401193.91,
+      "cpu_percent": 0.1,
+      "db_connections": 2,
+      "ws_latency_ms": -1.0,
+      "event_count": 0
+    },
+    {
+      "timestamp": 1779764318.435164,
+      "iso_time": "2026-05-26T10:58:38.435164",
+      "memory_rss_mb": 100.8,
+      "memory_vms_mb": 401566.28,
+      "cpu_percent": 0.1,
+      "db_connections": 2,
+      "ws_latency_ms": -1.0,
+      "event_count": 3
+    },
+    {
+      "timestamp": 1779764379.910964,
+      "iso_time": "2026-05-26T10:59:39.910964",
+      "memory_rss_mb": 100.86,
+      "memory_vms_mb": 401566.28,
+      "cpu_percent": 0.1,
+      "db_connections": 2,
+      "ws_latency_ms": 23077.64,
+      "event_count": 7
+    },
+    {
+      "timestamp": 1779764387.144026,
+      "iso_time": "2026-05-26T10:59:47.144026",
+      "memory_rss_mb": 100.92,
+      "memory_vms_mb": 401566.28,
+      "cpu_percent": 0.1,
+      "db_connections": 2,
+      "ws_latency_ms": -1.0,
+      "event_count": 0
+    }
+  ],
+  "errors": [],
+  "pass_criteria": {
+    "memory_growth_within_threshold": false,
+    "no_db_connection_exhaustion": false,
+    "no_uncaught_errors": true
+  }
+}

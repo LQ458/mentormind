@@ -101,6 +101,10 @@ def save_board_state(
                 row.audio_queue = state["audio_queue"]
             if "chat_history" in state and state["chat_history"] is not None:
                 row.chat_history = state["chat_history"]
+            if "board" in state and state["board"] is not None:
+                row.board_metadata = state["board"]
+            if "conversation_state" in state and state["conversation_state"] is not None:
+                row.conversation_state = state["conversation_state"]
             seq = state.get("last_event_seq")
             if isinstance(seq, int):
                 # Never let last_event_seq regress — take max of the persisted

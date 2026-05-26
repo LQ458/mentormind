@@ -36,7 +36,7 @@ const AuthCtx = createContext<AuthContextValue>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
-  const [token, setToken] = useState<string | null>(null)
+  const tokenRef = React.useRef<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -58,6 +58,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             fullName: u.name || u.email || '',
           })
         }
+        // Populate token from the JWT cookie (httpOnly, can only read server-side)
+        try {
+          const tokenRes = await fetch('/api/token', { credentials: 'include' })
+          if (tokenRes.ok) {
+            const tokenData = await tokenRes.json()
+            if (tokenData?.token) tokenRef.current = tokenData.token
+          }
+        } catch { /* token endpoint may not be available in all environments */ }
       } catch {
         // Not signed in or server unreachable — that's fine
       } finally {
@@ -68,15 +76,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const getToken = useCallback(async (): Promise<string | null> => {
+    if (tokenRef.current) return tokenRef.current
     try {
-      const res = await fetch('/api/auth/get-session', { credentials: 'include' })
+      const res = await fetch('/api/token', { credentials: 'include' })
       if (!res.ok) return null
       const data = await res.json()
-      return data?.session?.token || data?.token || null
+      const t = data?.token || null
+      if (t) tokenRef.current = t
+      return t
     } catch {
-      return token
+      return null
     }
-  }, [token])
+  }, [])
 
   const handleSignOut = useCallback(async () => {
     try {
@@ -85,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // ignore
     }
     setUser(null)
-    setToken(null)
+    tokenRef.current = null
   }, [])
 
   const value = useMemo<AuthContextValue>(

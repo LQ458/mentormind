@@ -194,9 +194,14 @@ def migrate():
                 chat_history JSONB DEFAULT '[]'::jsonb,
                 last_event_seq INTEGER DEFAULT 0,
                 config JSONB DEFAULT '{}'::jsonb,
+                board_metadata JSONB DEFAULT '{}'::jsonb,
+                conversation_state JSONB DEFAULT '[]'::jsonb,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
             )""",
+            # Add board_metadata and conversation_state columns to existing rows
+            "ALTER TABLE board_sessions ADD COLUMN IF NOT EXISTS board_metadata JSONB DEFAULT '{}'::jsonb",
+            "ALTER TABLE board_sessions ADD COLUMN IF NOT EXISTS conversation_state JSONB DEFAULT '[]'::jsonb",
             "CREATE INDEX IF NOT EXISTS idx_board_sessions_user_id ON board_sessions(user_id)",
             "CREATE INDEX IF NOT EXISTS idx_board_sessions_plan_id ON board_sessions(plan_id)",
             "CREATE INDEX IF NOT EXISTS idx_board_sessions_unit_id ON board_sessions(unit_id)",

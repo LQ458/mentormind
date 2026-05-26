@@ -17,6 +17,8 @@ from typing import Any, Dict, Iterable, List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 
+import networkx as nx
+
 from database.base import SessionLocal
 from database.models.knowledge_graph import KGConcept, KGRelationship
 from services.api_client import DeepSeekClient
@@ -383,34 +385,126 @@ def get_user_graph(user_id: str, language: Optional[str] = None) -> Dict[str, An
 
         eq = select(KGRelationship).where(KGRelationship.user_id == user_id)
         edges = db.execute(eq).scalars().all()
-        # Restrict edges to nodes in the returned set.
         node_ids = {str(c.id) for c in concepts}
         edges = [e for e in edges if str(e.from_concept_id) in node_ids and str(e.to_concept_id) in node_ids]
 
+        nodes = [
+            {
+                "id": str(c.id),
+                "name": c.name,
+                "level": c.level,
+                "subject": c.subject,
+                "language": c.language,
+                "summary": c.summary,
+                "lesson_count": int(c.lesson_count or 1),
+                "proficiency": _compute_proficiency(c.lesson_count or 1.0),
+                "source_lesson_id": str(c.source_lesson_id) if c.source_lesson_id else None,
+            }
+            for c in concepts
+        ]
+
+        edge_list = [
+            {
+                "from": str(e.from_concept_id),
+                "to": str(e.to_concept_id),
+                "kind": e.kind,
+                "weight": float(e.weight or 0.5),
+                "source_lesson_id": str(e.source_lesson_id) if e.source_lesson_id else None,
+            }
+            for e in edges
+        ]
+
         return {
-            "nodes": [
-                {
-                    "id": str(c.id),
-                    "name": c.name,
-                    "level": c.level,
-                    "subject": c.subject,
-                    "language": c.language,
-                    "summary": c.summary,
-                    "lesson_count": int(c.lesson_count or 1),
-                    "source_lesson_id": str(c.source_lesson_id) if c.source_lesson_id else None,
-                }
-                for c in concepts
-            ],
-            "edges": [
-                {
-                    "from": str(e.from_concept_id),
-                    "to": str(e.to_concept_id),
-                    "kind": e.kind,
-                    "weight": float(e.weight or 0.5),
-                    "source_lesson_id": str(e.source_lesson_id) if e.source_lesson_id else None,
-                }
-                for e in edges
-            ],
+            "nodes": nodes,
+            "edges": edge_list,
+            "learning_path": _compute_learning_path(nodes, edge_list),
         }
     finally:
         db.close()
+
+
+def _compute_proficiency(lesson_count: float) -> float:
+    """Crude proficiency heuristic: min(1.0, lesson_count / 5)."""
+    lc = float(lesson_count or 0)
+    if lc <= 0:
+        return 0.0
+    return round(min(1.0, lc / 5.0), 2)
+
+
+def _compute_learning_path(
+    nodes: list,
+    edges: list,
+    min_weight: float = 0.6,
+    min_lesson_count: float = 2.0,
+) -> list:
+    """Topologically sorted learning path from prerequisite edges.
+
+    Quality gates:
+    - Only ``kind = prerequisite`` edges
+    - Edge weight >= *min_weight*
+    - Both nodes appear in >= *min_lesson_count* lessons
+    - Both nodes share the same subject
+    - Cycles are detected and broken by removing the lowest-weight edge
+    """
+    if not nodes or not edges:
+        return []
+
+    node_map = {n["id"]: n for n in nodes}
+    g = nx.DiGraph()
+
+    for n in nodes:
+        if (n.get("lesson_count") or 1) < min_lesson_count:
+            continue
+        g.add_node(n["id"], **n)
+
+    for e in edges:
+        if e.get("kind") != "prerequisite":
+            continue
+        if (e.get("weight") or 0) < min_weight:
+            continue
+        a, b = e["from"], e["to"]
+        if a not in g or b not in g:
+            continue
+        if node_map.get(a, {}).get("subject") != node_map.get(b, {}).get("subject"):
+            continue
+        g.add_edge(a, b, weight=e["weight"])
+
+    if g.number_of_nodes() == 0:
+        return []
+
+    # If no qualifying prerequisite edges exist there is no learning path.
+    if g.number_of_edges() == 0:
+        return []
+
+    # Break cycles by removing the lowest-weight edge in each simple cycle.
+    try:
+        order = list(nx.topological_sort(g))
+    except nx.NetworkXUnfeasible:
+        try:
+            for cycle in list(nx.simple_cycles(g)):
+                if len(cycle) <= 1:
+                    continue
+                min_edge = None
+                min_w = float("inf")
+                for i in range(len(cycle)):
+                    u, v = cycle[i], cycle[(i + 1) % len(cycle)]
+                    if g.has_edge(u, v):
+                        w = g.edges[u, v].get("weight", 0.5)
+                        if w < min_w:
+                            min_w = w
+                            min_edge = (u, v)
+                if min_edge:
+                    g.remove_edge(*min_edge)
+            order = list(nx.topological_sort(g))
+        except nx.NetworkXUnfeasible:
+            order = [nid for nid in g.nodes() if g.degree(nid) > 0]
+
+    return [
+        {
+            "id": nid,
+            "name": node_map.get(nid, {}).get("name", nid),
+            "proficiency": _compute_proficiency(node_map.get(nid, {}).get("lesson_count", 1)),
+            "order_index": i,
+        }
+        for i, nid in enumerate(order)
+    ]

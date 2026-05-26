@@ -71,3 +71,5 @@ pydub>=0.25.1
 librosa>=0.10.0
 moviepy>=1.0.3
 jsonschema>=4.21.0
+locust>=2.31.0
+locust-plugins>=4.3.0

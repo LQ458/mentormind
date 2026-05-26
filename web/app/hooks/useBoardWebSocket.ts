@@ -646,6 +646,27 @@ function applyEvent(state: BoardWSState, ev: BoardEvent): BoardWSState {
     case 'stream_done':
     case 'done':
       return { ...state, status: 'done' }
+    case 'session_state': {
+      const d = ev.data || {}
+      const snapElements = (d.elements || {}) as Record<string, BoardElement>
+      const snapOrder = (d.element_order as string[] | undefined) || Object.keys(snapElements)
+      const audioQueue = (d.audio_queue || d.audioQueue || []) as AudioReady[]
+      const audioByEl: Record<string, AudioReady> = {}
+      for (const a of audioQueue) {
+        if (a?.element_id) audioByEl[a.element_id] = a
+      }
+      return {
+        ...state,
+        board: (d.board || state.board) as BoardState | null,
+        elements: snapElements,
+        elementOrder: snapOrder,
+        narrationLog: (d.narration_log || d.narrationLog || []) as NarrationLog[],
+        audioQueue,
+        audioByElementId: audioByEl,
+        chatHistory: (d.chat_history || d.chatHistory || []) as ChatMessage[],
+        status: (d.status === 'generating' || d.status === 'streaming') ? 'streaming' : 'done',
+      }
+    }
     default:
       return state
   }

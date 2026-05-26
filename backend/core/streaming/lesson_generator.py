@@ -102,6 +102,7 @@ class StreamingLessonGenerator:
         self.model = model
         self.follow_up_timeout_s = follow_up_timeout_s
         self.user_message_queue: "asyncio.Queue[str]" = asyncio.Queue()
+        self._current_messages: Optional[List[Dict[str, Any]]] = None
 
     def enqueue_user_message(self, text: str) -> None:
         """Push a mid-lesson student message into the orchestrator conversation.
@@ -121,30 +122,41 @@ class StreamingLessonGenerator:
         student_level: str = "beginner",
         duration_minutes: int = 10,
         custom_requirements: Optional[str] = None,
+        resume_messages: Optional[List[Dict[str, Any]]] = None,
     ) -> AsyncGenerator[BoardEvent, None]:
-        """Stream board events for a lesson on the given topic."""
+        """Stream board events for a lesson on the given topic.
 
-        req_section = ""
-        if custom_requirements:
-            req_section = f"\n## Additional Requirements\n\n{custom_requirements}\n"
+        If ``resume_messages`` is provided the generator continues an existing
+        LLM conversation from the given message history instead of building a
+        fresh system prompt.
+        """
 
-        system_prompt = render_prompt(
-            "board/board_lesson",
-            topic=topic,
-            student_level=student_level,
-            language_instruction=get_language_instruction(language),
-            duration_minutes=str(duration_minutes),
-            custom_requirements_section=req_section,
-        )
+        if resume_messages:
+            messages: List[Dict[str, Any]] = list(resume_messages)
+        else:
+            req_section = ""
+            if custom_requirements:
+                req_section = f"\n## Additional Requirements\n\n{custom_requirements}\n"
 
-        user_content = f"Please teach a lesson on: {topic}"
-        if custom_requirements:
-            user_content += f"\n\nAdditional requirements: {custom_requirements}"
+            system_prompt = render_prompt(
+                "board/board_lesson",
+                topic=topic,
+                student_level=student_level,
+                language_instruction=get_language_instruction(language),
+                duration_minutes=str(duration_minutes),
+                custom_requirements_section=req_section,
+            )
 
-        messages: List[Dict[str, Any]] = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ]
+            user_content = f"Please teach a lesson on: {topic}"
+            if custom_requirements:
+                user_content += f"\n\nAdditional requirements: {custom_requirements}"
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ]
+
+        self._current_messages = messages
 
         tools = list(BoardMCPServer.get_tool_definitions())
         if self.agent_tools_server is not None:
@@ -197,6 +209,20 @@ class StreamingLessonGenerator:
                                 },
                             )
                             yield event
+                            # Feed the error back as a tool result so the LLM
+                            # can retry instead of having the round count as
+                            # "no tool calls" and terminating the lesson.
+                            tool_calls_in_round.append(
+                                {
+                                    "id": chunk.tool_call_id,
+                                    "name": chunk.tool_name,
+                                    "arguments": {"_raw_preview": chunk.tool_arguments[:200]},
+                                    "result": {
+                                        "error": "Invalid tool call JSON — please retry with corrected JSON arguments",
+                                        "tool_name": chunk.tool_name,
+                                    },
+                                }
+                            )
                             continue
                         logger.info(
                             "Recovered malformed tool arguments for %s via repair",

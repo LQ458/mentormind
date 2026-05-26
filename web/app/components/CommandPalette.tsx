@@ -71,6 +71,7 @@ export default function CommandPalette() {
   const [query, setQuery] = useState('')
   const [lessons, setLessons] = useState<LessonRow[]>([])
   const [plans, setPlans] = useState<PlanRow[]>([])
+  const [searchResults, setSearchResults] = useState<LessonRow[]>([])
   const [activeIdx, setActiveIdx] = useState(0)
   const [loading, setLoading] = useState(false)
 
@@ -125,6 +126,30 @@ export default function CommandPalette() {
     })()
   }, [open, isSignedIn, getToken])
 
+  // Server-side search: when user types 2+ chars, query the backend.
+  useEffect(() => {
+    const q = query.trim()
+    if (q.length < 2 || !isSignedIn) {
+      setSearchResults([])
+      return
+    }
+    let cancelled = false
+    const debounce = setTimeout(async () => {
+      try {
+        const token = await getToken()
+        const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+        const res = await fetch(`/api/backend/lessons?search=${encodeURIComponent(q)}&limit=20`, { headers })
+        if (!cancelled && res.ok) {
+          const data = await res.json().catch(() => null)
+          setSearchResults(Array.isArray(data?.lessons) ? data.lessons : [])
+        }
+      } catch {
+        // swallow — pre-fetched data still works
+      }
+    }, 300)
+    return () => { cancelled = true; clearTimeout(debounce) }
+  }, [query, isSignedIn, getToken])
+
   // Reset transient UI state on close.
   useEffect(() => {
     if (!open) {
@@ -147,7 +172,17 @@ export default function CommandPalette() {
       icon: n.icon,
       keywords: `${n.zh} ${n.en} ${n.hint_zh ?? ''} ${n.hint_en ?? ''}`.toLowerCase(),
     }))
-    const lessonHits: Hit[] = lessons.map((l) => ({
+
+    const seen = new Set<string>()
+    const allLessons: LessonRow[] = [...lessons]
+    for (const sr of searchResults) {
+      if (!seen.has(sr.id)) {
+        seen.add(sr.id)
+        allLessons.push(sr)
+      }
+    }
+
+    const lessonHits: Hit[] = allLessons.map((l) => ({
       id: `lesson:${l.id}`,
       title: l.lesson_title || l.title || l.topic || (lang === 'zh' ? '未命名课程' : 'Untitled lesson'),
       subtitle: l.query || l.topic || (lang === 'zh' ? '课程' : 'Lesson'),
