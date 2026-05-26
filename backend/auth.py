@@ -32,7 +32,7 @@ BETTER_AUTH_SECRET = os.getenv("BETTER_AUTH_SECRET", "")
 
 def _get_jwt_secret() -> str:
     """Return the HS256 secret for verifying Better Auth JWTs."""
-    secret = BETTER_AUTH_SECRET
+    secret = os.environ.get("BETTER_AUTH_SECRET", "") or BETTER_AUTH_SECRET
     if not secret:
         raise RuntimeError("BETTER_AUTH_SECRET environment variable is not set")
     return secret
