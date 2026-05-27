@@ -76,7 +76,7 @@ services:
       - modelscope_cache:/root/.cache/modelscope
       - whisper_cache:/root/.cache/whisper
       - paddleocr_cache:/root/.paddleocr
-    command: uvicorn server:app --host 0.0.0.0 --port 8000
+    command: sh -c "python migrate_db.py && uvicorn server:app --host 0.0.0.0 --port 8000"
 
   celery-orchestration:
     build: ./backend

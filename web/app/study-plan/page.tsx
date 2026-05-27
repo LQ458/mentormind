@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import DOMPurify from 'dompurify'
+import { Mic, ImagePlus, X } from 'lucide-react'
 import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '../components/AuthContext'
 import { PageHead, Section } from '../components/design/primitives'
@@ -11,6 +12,7 @@ import { SUBJECTS } from '../lib/subjects'
 import { FRAMEWORKS, getFramework } from '../lib/frameworks'
 import { getCourseSuggestions } from '../lib/course-suggestions'
 import { track } from '../lib/telemetry'
+import { useIngestUpload, type MediaContext } from '../hooks/useIngestUpload'
 
 // DOMPurify only runs in the browser. On the server (during SSR/prerender) we
 // fall back to passing the input through unchanged because the eventual render
@@ -79,6 +81,19 @@ export default function StudyPlanPage() {
   const router = useRouter()
   const { language: uiLanguage } = useLanguage()
   const { getToken } = useAuth()
+
+  const audioInputRef = useRef<HTMLInputElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const lang = uiLanguage === 'zh' ? 'zh' as const : 'en' as const
+  const {
+    contexts,
+    isUploading,
+    handleAudioUpload,
+    handleImageUpload,
+    removeContext,
+    buildContextMessage,
+    clearContexts,
+  } = useIngestUpload(lang)
 
   const [phase, setPhase] = useState<WorkflowPhase>('selecting')
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null)
@@ -184,10 +199,13 @@ export default function StudyPlanPage() {
   const handleSendMessage = async () => {
     if (!userInput.trim()) return
 
+    const contextMsg = buildContextMessage()
+    const fullContent = contextMsg ? `${contextMsg}\n\n---\n${userInput}` : userInput
+
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
-      content: userInput,
+      content: fullContent,
       timestamp: new Date(),
     }
 
@@ -196,6 +214,8 @@ export default function StudyPlanPage() {
     setUserInput('')
     setIsTyping(true)
     setError(null)
+
+    if (contextMsg) clearContexts()
 
     const chatStartedAt = Date.now()
     try {
@@ -847,6 +867,7 @@ export default function StudyPlanPage() {
                 setSelectedFramework(null)
                 setChatMessages([])
                 setChatStage('opening')
+                clearContexts()
               }}
               className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
             >
@@ -959,27 +980,89 @@ export default function StudyPlanPage() {
           </div>
 
           {/* Input area */}
-          <div className="flex gap-2 items-end">
-            <textarea
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                uiLanguage === 'zh'
-                  ? '描述你的基础水平、目标、考试时间线…'
-                  : 'Describe your current level, goals, exam timeline…'
-              }
-              rows={2}
-              className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              disabled={isTyping}
+          <div className="space-y-2">
+            {/* Hidden file inputs */}
+            <input
+              ref={audioInputRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) { handleAudioUpload(f); e.target.value = '' } }}
             />
-            <button
-              onClick={handleSendMessage}
-              disabled={isTyping || !userInput.trim()}
-              className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {uiLanguage === 'zh' ? '发送' : 'Send'}
-            </button>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*,.pdf"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) { handleImageUpload(f); e.target.value = '' } }}
+            />
+
+            {/* Uploaded context pills */}
+            {contexts.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {contexts.map((ctx) => (
+                  <span
+                    key={ctx.id}
+                    className="inline-flex items-center gap-1 rounded-full bg-blue-100 text-blue-800 text-xs font-medium px-3 py-1"
+                  >
+                    <span className="shrink-0">{ctx.type === 'audio' ? '🎵' : '🖼️'}</span>
+                    <span className="max-w-[200px] truncate">{ctx.title}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeContext(ctx.id)}
+                      className="shrink-0 ml-0.5 hover:text-blue-600 transition-colors"
+                      title={uiLanguage === 'zh' ? '移除' : 'Remove'}
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2 items-end">
+              <textarea
+                value={userInput}
+                onChange={(e) => setUserInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  uiLanguage === 'zh'
+                    ? '描述你的基础水平、目标、考试时间线…'
+                    : 'Describe your current level, goals, exam timeline…'
+                }
+                rows={2}
+                className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                disabled={isTyping}
+              />
+
+              {/* Upload buttons */}
+              <button
+                type="button"
+                onClick={() => audioInputRef.current?.click()}
+                disabled={isTyping || isUploading}
+                className="rounded-lg border border-gray-300 p-2.5 text-gray-500 hover:text-blue-600 hover:border-blue-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title={uiLanguage === 'zh' ? '上传音频' : 'Upload audio'}
+              >
+                <Mic size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => imageInputRef.current?.click()}
+                disabled={isTyping || isUploading}
+                className="rounded-lg border border-gray-300 p-2.5 text-gray-500 hover:text-blue-600 hover:border-blue-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title={uiLanguage === 'zh' ? '上传图片' : 'Upload image'}
+              >
+                <ImagePlus size={18} />
+              </button>
+
+              <button
+                onClick={handleSendMessage}
+                disabled={isTyping || !userInput.trim()}
+                className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {uiLanguage === 'zh' ? '发送' : 'Send'}
+              </button>
+            </div>
           </div>
         </div>
       )}
