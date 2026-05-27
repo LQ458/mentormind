@@ -1,8 +1,6 @@
 {
-  "/_not-found/page": "app/_not-found/page.js",
-  "/study-plan/page": "app/study-plan/page.js",
-  "/dashboard/page": "app/dashboard/page.js",
-  "/principles/page": "app/principles/page.js",
   "/knowledge-graph/page": "app/knowledge-graph/page.js",
-  "/api/backend/telemetry/event/route": "app/api/backend/telemetry/event/route.js"
+  "/study-plan/page": "app/study-plan/page.js",
+  "/principles/page": "app/principles/page.js",
+  "/dashboard/page": "app/dashboard/page.js"
 }

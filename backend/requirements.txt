@@ -10,6 +10,7 @@ jsonschema>=4.20.0
 # Auth
 PyJWT>=2.8.0
 cryptography>=41.0.0
+bcrypt>=4.0.0
 requests>=2.31.0
 
 # Rate limiting (per-IP cap on no-auth POSTs)
