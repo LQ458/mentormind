@@ -298,7 +298,7 @@ def migrate():
 
         # Seed 5 invite codes if table is empty
         import os as _os
-        codes_str = _os.getenv("INVITE_CODES", "MENTOR_ALPHA_001,MENTOR_ALPHA_002,MENTOR_ALPHA_003,MENTOR_ALPHA_004,MENTOR_ALPHA_005")
+        codes_str = _os.getenv("INVITE_CODES", "MM-NX7K-ALPHA-2024,MM-V3TQ-BETA-2025,MM-R8WJ-DELTA-5083,MM-P2HC-SIGMA-3091,MM-F6LN-OMEGA-7610")
         for c in codes_str.split(","):
             c = c.strip()
             if not c:
