@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   description: 'AI-powered personalized learning platform',
   icons: {
     icon: '/favicon.jpg',
-    apple: '/icon.jpg',
+    apple: '/apple-touch-icon.png',
   },
   manifest: '/manifest.json',
   other: {
@@ -34,7 +34,8 @@ export default function RootLayout({
     <html lang="zh-CN">
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-        <meta name="theme-color" content="#1e1b4b" />
+        <meta name="theme-color" content="#F7F8FA" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link

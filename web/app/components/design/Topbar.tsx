@@ -16,6 +16,7 @@ interface PageMeta {
 
 const PAGE_META: Record<string, PageMeta> = {
   '/dashboard': { en: 'Today', zh: '今日' },
+  '/today': { en: 'Daily review', zh: '每日复习' },
   '/study-plan': { en: 'Study plan', zh: '学习计划' },
   '/lessons': { en: 'Library', zh: '文库' },
 }

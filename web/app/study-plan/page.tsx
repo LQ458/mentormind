@@ -49,6 +49,39 @@ interface ProposedPlan {
   units: StudyUnit[]
 }
 
+async function readJsonOrThrow(response: Response): Promise<any> {
+  const contentType = response.headers.get('content-type') || ''
+  const text = await response.text()
+  let data: any = null
+
+  if (contentType.includes('application/json') && text) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = null
+    }
+  }
+
+  if (!response.ok) {
+    const rawDetail = data?.detail
+    const detail =
+      (typeof rawDetail === 'object' && rawDetail?.error) ||
+      (typeof rawDetail === 'string' && rawDetail) ||
+      data?.error ||
+      (response.status === 504
+        ? 'Study-plan chat timed out. Please retry or type "generate".'
+        : text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180))
+
+    throw new Error(typeof detail === 'string' && detail ? detail : `Request failed (${response.status})`)
+  }
+
+  if (data === null) {
+    throw new Error('Server returned a non-JSON response. Please retry.')
+  }
+
+  return data
+}
+
 // ── Message renderer (matches /create pattern) ───────────────────────────────
 
 function AssistantMessage({ content }: { content: string }) {
@@ -238,7 +271,7 @@ export default function StudyPlanPage() {
         }),
       })
 
-      const data = await response.json()
+      const data = await readJsonOrThrow(response)
       try {
         track(
           'study_plan_chat_rtt',
@@ -287,10 +320,12 @@ export default function StudyPlanPage() {
       }
     } catch (err) {
       console.error('Study plan chat error:', err)
-      setError(
+      const fallback =
         uiLanguage === 'zh'
           ? '网络错误，请检查连接后重试。'
           : 'Network error. Please check your connection and try again.'
+      setError(
+        err instanceof Error && err.message ? err.message : fallback
       )
     } finally {
       setIsTyping(false)
@@ -338,7 +373,7 @@ export default function StudyPlanPage() {
               language: uiLanguage === 'zh' ? 'zh' : 'en',
             }),
           })
-          const data = await response.json()
+          const data = await readJsonOrThrow(response)
           try {
             track(
               'study_plan_chat_rtt',
@@ -366,6 +401,11 @@ export default function StudyPlanPage() {
           }
         } catch (err) {
           console.error('Chip click chat error:', err)
+          const fallback =
+            uiLanguage === 'zh'
+              ? '网络错误，请检查连接后重试。'
+              : 'Network error. Please check your connection and try again.'
+          setError(err instanceof Error && err.message ? err.message : fallback)
         } finally {
           setIsTyping(false)
         }

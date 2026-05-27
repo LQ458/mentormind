@@ -39,6 +39,7 @@ function BoardSessionInner() {
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [localSummary, setLocalSummary] = useState<string | null>(null)
+  const [shareStatus, setShareStatus] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [activeNarration, setActiveNarration] = useState<string | null>(null)
   const [chatOpen, setChatOpen] = useState(true)
@@ -208,6 +209,34 @@ function BoardSessionInner() {
       setSummaryLoading(false)
     }
   }, [sessionId, getToken])
+
+  const handleCreateShareLink = useCallback(async () => {
+    if (!sessionId) return
+    setShareStatus(language === 'zh' ? '正在创建链接…' : 'Creating link…')
+    try {
+      const authToken = await getToken()
+      const res = await fetch(`/api/backend/board/session/${sessionId}/share`, {
+        method: 'POST',
+        headers: {
+          Authorization: authToken ? `Bearer ${authToken}` : '',
+        },
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok || !body.share_url) {
+        setShareStatus(language === 'zh' ? '创建失败' : 'Could not create link')
+        return
+      }
+      const url = body.share_url as string
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url)
+        setShareStatus(language === 'zh' ? '分享链接已复制' : 'Share link copied')
+      } else {
+        setShareStatus(url)
+      }
+    } catch (err) {
+      setShareStatus(err instanceof Error ? err.message : (language === 'zh' ? '创建失败' : 'Could not create link'))
+    }
+  }, [sessionId, getToken, language])
 
   const handleSend = useCallback(() => {
     const text = draft.trim()
@@ -382,6 +411,14 @@ function BoardSessionInner() {
           >
             {language === 'zh' ? '总结' : 'Summary'}
           </button>
+          <button
+            type="button"
+            onClick={handleCreateShareLink}
+            className="text-xs px-3 py-1.5 rounded-lg border border-violet-500/70 bg-violet-600/30 text-violet-100 hover:bg-violet-600/50"
+            title={shareStatus || undefined}
+          >
+            {language === 'zh' ? '分享' : 'Share'}
+          </button>
           {lessonDone && (
             <Link
               href="/study-plan"
@@ -392,6 +429,14 @@ function BoardSessionInner() {
           )}
         </div>
       </header>
+
+      {shareStatus && (
+        <div className="px-4 sm:px-6 pt-3">
+          <div className="rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-2 text-xs text-violet-100">
+            {shareStatus}
+          </div>
+        </div>
+      )}
 
       {/* Resume banner — shown when we hydrated from a saved snapshot */}
       {resumedAt && !bannerDismissed && (

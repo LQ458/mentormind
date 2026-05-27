@@ -2893,6 +2893,39 @@ def get_admin_metrics(
         }
 
 
+@app.get("/admin/ops/queues")
+def get_ops_queue_depths(current_user: User = Depends(get_current_user)):
+    """Return lightweight queue and active-session visibility for VPS ops."""
+    redis_client = _redis_for_limits()
+    queue_names = ["orchestration", "rendering", "heavy_ml"]
+    queues = []
+    for name in queue_names:
+        depth = None
+        error = None
+        if redis_client is not None:
+            try:
+                depth = int(redis_client.llen(name))
+            except Exception as exc:
+                error = str(exc)
+        else:
+            error = "redis_unavailable"
+        queues.append({"name": name, "depth": depth, "error": error})
+
+    by_user: Dict[str, int] = {}
+    for session in _board_sessions.values():
+        uid = str(session.get("user_id") or "anonymous")
+        by_user[uid] = by_user.get(uid, 0) + 1
+
+    return {
+        "success": True,
+        "queues": queues,
+        "active_board_sessions": len(_board_sessions),
+        "max_board_sessions": MAX_BOARD_SESSIONS,
+        "max_sessions_per_user": MAX_SESSIONS_PER_USER,
+        "active_board_sessions_by_user": by_user,
+    }
+
+
 @app.get("/users/me/analytics")
 def get_my_analytics(
     current_user: User = Depends(get_current_user),
@@ -3078,6 +3111,8 @@ async def stripe_webhook(request: Request):
 from core.agents.study_plan_agent import StudyPlanAgent, PlanStage, PlanResponse
 from core.agents.subject_detector import SubjectDetector
 from core.content.gaokao_tutor import GaokaoTutor
+from core.content.cache_keys import build_unit_content_cache_key
+from core.usage_limits import consume_quota
 from database.models.study_plan import StudyPlan, StudyPlanUnit, GaokaoSession
 from database.models.board_session import BoardSession
 from database.models.telemetry import TelemetryEvent, ALLOWED_EVENT_TYPES
@@ -3120,10 +3155,48 @@ class StudyPlanChatResponse(BaseModel):
 class StudyPlanCreateRequest(BaseModel):
     plan_data: Dict[str, Any]
     language: str = "zh"
+    request_id: Optional[str] = None
 
 
 class UnitGenerateRequest(BaseModel):
     content_types: List[str] = Field(default_factory=lambda: ["study_guide", "quiz", "flashcards"])
+
+
+EXPENSIVE_ACTION_LIMITS = {
+    "study_plan_chat": (120, 3600),
+    "unit_generate": (20, 24 * 3600),
+    "board_lesson": (30, 24 * 3600),
+}
+
+
+def _redis_for_limits():
+    try:
+        from celery_app import _redis_client
+        return _redis_client
+    except Exception:
+        return None
+
+
+def _enforce_quota(user: User, action: str) -> None:
+    limit, window = EXPENSIVE_ACTION_LIMITS[action]
+    result = consume_quota(
+        _redis_for_limits(),
+        user_id=str(user.id),
+        action=action,
+        limit=limit,
+        window_seconds=window,
+    )
+    if not result.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "quota_exceeded",
+                "action": action,
+                "limit": result.limit,
+                "used": result.used,
+                "retry_after_seconds": result.reset_seconds,
+            },
+        )
 
 
 class GaokaoChatRequest(BaseModel):
@@ -3171,13 +3244,17 @@ async def detect_subject(req: DetectSubjectRequest, current_user: User = Depends
 async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depends(get_current_user)):
     """Conversational study plan creation (diagnostic → plan review → locked)."""
     try:
+        _enforce_quota(current_user, "study_plan_chat")
         current_stage = PlanStage(req.stage)
-        response = await study_plan_agent.get_next_response(
-            history=req.history,
-            current_stage=current_stage,
-            language=req.language,
-            preselected_subject=req.subject,
-            preselected_framework=req.framework,
+        response = await asyncio.wait_for(
+            study_plan_agent.get_next_response(
+                history=req.history,
+                current_stage=current_stage,
+                language=req.language,
+                preselected_subject=req.subject,
+                preselected_framework=req.framework,
+            ),
+            timeout=float(os.getenv("STUDY_PLAN_CHAT_BACKEND_TIMEOUT_SECONDS", "45")),
         )
         return StudyPlanChatResponse(
             success=True,
@@ -3191,6 +3268,16 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
             options=response.options,
             allow_free_text=response.allow_free_text,
         )
+    except asyncio.TimeoutError:
+        logger.warning("Study plan chat timed out for user=%s stage=%s", current_user.id, req.stage)
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "Study-plan chat took too long. Please retry, or type 'generate' to create the plan from the current answers."
+            ),
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Study plan chat failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -3493,6 +3580,42 @@ async def create_study_plan(
 ):
     """Create a study plan from the confirmed plan data."""
     try:
+        if req.request_id:
+            request_hash = req.request_id.strip()[:120]
+        else:
+            import hashlib
+            encoded = json.dumps(
+                {"plan_data": req.plan_data, "language": req.language},
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            )
+            request_hash = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+        idem_key = f"idempotency:study_plan_create:{current_user.id}:{request_hash}"
+        redis_client = _redis_for_limits()
+        if redis_client is not None:
+            try:
+                existing_plan_id = redis_client.get(idem_key)
+                if existing_plan_id:
+                    existing_plan_id = existing_plan_id.decode("utf-8") if isinstance(existing_plan_id, bytes) else existing_plan_id
+                    existing = (
+                        db.query(StudyPlan)
+                        .filter(StudyPlan.id == existing_plan_id, StudyPlan.user_id == current_user.id)
+                        .first()
+                    )
+                    if existing:
+                        return {
+                            "success": True,
+                            "plan_id": str(existing.id),
+                            "title": existing.title,
+                            "total_units": existing.total_units,
+                            "status": existing.status,
+                            "idempotent": True,
+                        }
+            except Exception as exc:
+                logger.warning(f"Study plan idempotency lookup failed: {exc}")
+
         plan_data = req.plan_data
         units_data = plan_data.get("units", [])
 
@@ -3508,6 +3631,7 @@ async def create_study_plan(
             estimated_hours=plan_data.get("estimated_hours", 0),
             diagnostic_context=plan_data.get("diagnostic_context", {}),
             status="active",
+            ai_metadata={"request_id": request_hash},
         )
         db.add(plan)
         db.flush()  # Get plan.id
@@ -3527,6 +3651,11 @@ async def create_study_plan(
 
         db.commit()
         db.refresh(plan)
+        if redis_client is not None:
+            try:
+                redis_client.setex(idem_key, 24 * 3600, str(plan.id))
+            except Exception as exc:
+                logger.warning(f"Study plan idempotency write failed: {exc}")
 
         return {
             "success": True,
@@ -3663,6 +3792,7 @@ async def generate_unit_content(
 ):
     """Trigger content generation for a study plan unit via Celery."""
     try:
+        _enforce_quota(current_user, "unit_generate")
         plan = (
             db.query(StudyPlan)
             .filter(StudyPlan.id == plan_id, StudyPlan.user_id == current_user.id)
@@ -3677,6 +3807,57 @@ async def generate_unit_content(
         if not unit:
             raise HTTPException(status_code=404, detail="Unit not found")
 
+        allowed_content_types = {"study_guide", "quiz", "flashcards", "formula_sheet", "mock_exam"}
+        content_types = [ct for ct in req.content_types if ct in allowed_content_types]
+        if not content_types:
+            raise HTTPException(status_code=400, detail="No valid content types requested")
+
+        plan_payload = {
+            "subject": plan.subject,
+            "framework": plan.framework,
+            "course_name": plan.course_name,
+            "difficulty_level": plan.difficulty_level or "intermediate",
+        }
+        unit_payload = {
+            "title": unit.title,
+            "description": unit.description,
+            "topics": unit.topics or [],
+            "learning_objectives": unit.learning_objectives or [],
+        }
+        cache_key = build_unit_content_cache_key(
+            plan_data=plan_payload,
+            unit_data=unit_payload,
+            content_types=content_types,
+            language=plan.language,
+        )
+        redis_client = _redis_for_limits()
+        if redis_client is not None:
+            try:
+                cached_raw = redis_client.get(f"unit_content_cache:{cache_key}")
+                if cached_raw:
+                    cached_text = cached_raw.decode("utf-8") if isinstance(cached_raw, bytes) else cached_raw
+                    cached = json.loads(cached_text)
+                    for ct in content_types:
+                        if ct in cached and cached[ct] is not None:
+                            setattr(unit, ct, cached[ct])
+                    from datetime import datetime, timezone
+                    unit.content_status = "ready"
+                    unit.generation_task_id = None
+                    unit.generation_content_types = content_types
+                    unit.generation_started_at = None
+                    unit.generation_cache_key = cache_key
+                    unit.updated_at = datetime.now(timezone.utc)
+                    db.commit()
+                    return {
+                        "success": True,
+                        "cached": True,
+                        "unit_id": str(unit.id),
+                        "content_types": content_types,
+                        "cache_key": cache_key,
+                    }
+            except Exception as exc:
+                logger.warning(f"Unit content cache lookup failed: {exc}")
+
         # Recovery: if stuck in 'generating' for over 10 minutes, reset
         if unit.content_status == "generating":
             from datetime import datetime, timezone, timedelta
@@ -3685,10 +3866,20 @@ async def generate_unit_content(
                 unit.content_status = "failed"
                 db.commit()
             else:
-                return {"success": True, "message": "Generation already in progress", "unit_id": str(unit.id)}
+                return {
+                    "success": True,
+                    "message": "Generation already in progress",
+                    "unit_id": str(unit.id),
+                    "task_id": unit.generation_task_id,
+                    "cache_key": unit.generation_cache_key,
+                }
 
         # Mark as generating
+        from datetime import datetime, timezone
         unit.content_status = "generating"
+        unit.generation_content_types = content_types
+        unit.generation_started_at = datetime.now(timezone.utc)
+        unit.generation_cache_key = cache_key
         db.commit()
 
         # Dispatch Celery task
@@ -3696,27 +3887,21 @@ async def generate_unit_content(
 
         task = generate_unit_content_task.delay(
             unit_id=str(unit.id),
-            plan_data={
-                "subject": plan.subject,
-                "framework": plan.framework,
-                "course_name": plan.course_name,
-                "difficulty_level": plan.difficulty_level or "intermediate",
-            },
-            unit_data={
-                "title": unit.title,
-                "description": unit.description,
-                "topics": unit.topics or [],
-                "learning_objectives": unit.learning_objectives or [],
-            },
-            content_types=req.content_types,
+            plan_data=plan_payload,
+            unit_data=unit_payload,
+            content_types=content_types,
             language=plan.language,
+            cache_key=cache_key,
         )
+        unit.generation_task_id = task.id
+        db.commit()
 
         return {
             "success": True,
             "task_id": task.id,
             "unit_id": str(unit.id),
-            "content_types": req.content_types,
+            "content_types": content_types,
+            "cache_key": cache_key,
         }
     except HTTPException:
         raise
@@ -3739,6 +3924,7 @@ async def create_unit_board_lesson(
     WebSocket at /ws/board/{session_id} for real-time board streaming.
     """
     try:
+        _enforce_quota(current_user, "board_lesson")
         plan = (
             db.query(StudyPlan)
             .filter(StudyPlan.id == plan_id, StudyPlan.user_id == current_user.id)
@@ -3834,6 +4020,10 @@ async def get_unit_content(
         return {
             "success": True,
             "content_status": unit.content_status,
+            "generation_task_id": unit.generation_task_id,
+            "generation_content_types": unit.generation_content_types,
+            "generation_started_at": unit.generation_started_at.isoformat() if unit.generation_started_at else None,
+            "generation_cache_key": unit.generation_cache_key,
             "study_guide": unit.study_guide,
             "quiz": unit.quiz,
             "flashcards": unit.flashcards,
@@ -4289,6 +4479,116 @@ async def get_board_summary(
     summary = await summarize_session(state_mgr, language=language)
     session["cached_summary"] = summary
     return {"success": True, "summary": summary}
+
+
+def _make_board_share_token(session_id: str, user_id: str, ttl_seconds: int = 7 * 24 * 3600) -> str:
+    import base64
+    import hashlib
+    import hmac
+    import time as _time
+
+    secret = os.getenv("BETTER_AUTH_SECRET", "")
+    if not secret:
+        raise HTTPException(status_code=500, detail="Share links are not configured")
+    expires_at = int(_time.time()) + ttl_seconds
+    payload = f"{session_id}.{user_id}.{expires_at}"
+    sig = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    raw = f"{payload}.{sig}".encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _verify_board_share_token(token: str, session_id: str) -> str:
+    import base64
+    import hashlib
+    import hmac
+    import time as _time
+
+    secret = os.getenv("BETTER_AUTH_SECRET", "")
+    if not secret:
+        raise HTTPException(status_code=500, detail="Share links are not configured")
+    try:
+        padded = token + "=" * (-len(token) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        token_session_id, user_id, exp_text, sig = raw.rsplit(".", 3)
+        if token_session_id != session_id:
+            raise ValueError("session mismatch")
+        expires_at = int(exp_text)
+        if expires_at < int(_time.time()):
+            raise HTTPException(status_code=410, detail="Share link expired")
+        payload = f"{token_session_id}.{user_id}.{expires_at}"
+        expected = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, sig):
+            raise ValueError("bad signature")
+        return user_id
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=403, detail="Invalid share token")
+
+
+@app.post("/board/session/{session_id}/share")
+async def create_board_share_link(
+    session_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a signed, expiring public summary link for a board session."""
+    _validate_session_id_or_400(session_id)
+    loaded = _board_load_state(db, session_id, user_id=str(current_user.id))
+    mem = _board_sessions.get(session_id)
+    if loaded is None and not mem:
+        raise HTTPException(status_code=404, detail="Board session not found")
+    if isinstance(loaded, dict) and loaded.get("__forbidden__"):
+        raise HTTPException(status_code=403, detail="Not authorized for this session")
+    if mem and str(mem.get("user_id")) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized for this session")
+
+    token = _make_board_share_token(session_id, str(current_user.id))
+    origin = str(request.base_url).rstrip("/")
+    return {
+        "success": True,
+        "session_id": session_id,
+        "token": token,
+        "share_url": f"{origin}/board-share/{session_id}?token={token}",
+    }
+
+
+@app.get("/board/session/{session_id}/share")
+async def get_public_board_share(
+    session_id: str,
+    token: str,
+    db: Session = Depends(get_db),
+):
+    """Resolve a signed board summary link without requiring login."""
+    _validate_session_id_or_400(session_id)
+    owner_id = _verify_board_share_token(token, session_id)
+    loaded = _board_load_state(db, session_id, user_id=owner_id)
+    if not loaded or loaded.get("__forbidden__"):
+        raise HTTPException(status_code=404, detail="Board session not found")
+
+    narration = loaded.get("narration_log") or []
+    elements = loaded.get("elements") or {}
+    title = loaded.get("title") or loaded.get("topic") or "Board lesson"
+    excerpt_parts = []
+    for item in narration[:5]:
+        text = item.get("text") or item.get("narration") or item.get("content")
+        if isinstance(text, str) and text.strip():
+            excerpt_parts.append(text.strip())
+    fallback_summary = "\n\n".join(excerpt_parts)
+
+    return {
+        "success": True,
+        "session": {
+            "id": loaded.get("id"),
+            "title": title,
+            "topic": loaded.get("topic"),
+            "status": loaded.get("status"),
+            "updated_at": loaded.get("updated_at"),
+            "element_count": len(elements),
+            "summary_markdown": fallback_summary,
+        },
+    }
 
 
 async def _delayed_session_cleanup(session_id: str, delay_seconds: float) -> None:

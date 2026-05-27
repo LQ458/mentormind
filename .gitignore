@@ -180,6 +180,10 @@ data/
 *.gif
 *.avi
 *.mov
+!web/public/icon-192.png
+!web/public/icon-512.png
+!web/public/icon-maskable-512.png
+!web/public/apple-touch-icon.png
 
 # Cache files
 .cache/

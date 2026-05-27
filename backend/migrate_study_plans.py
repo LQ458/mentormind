@@ -69,6 +69,10 @@ def migrate_study_plans():
                 prerequisites JSONB DEFAULT '[]',
                 estimated_minutes INTEGER DEFAULT 60,
                 content_status VARCHAR(20) DEFAULT 'pending',
+                generation_task_id VARCHAR(255),
+                generation_content_types JSONB,
+                generation_started_at TIMESTAMPTZ,
+                generation_cache_key VARCHAR(128),
                 study_guide JSONB,
                 quiz JSONB,
                 flashcards JSONB,
@@ -89,6 +93,8 @@ def migrate_study_plans():
             "CREATE INDEX IF NOT EXISTS idx_study_plan_units_plan_id ON study_plan_units (plan_id);",
             "CREATE INDEX IF NOT EXISTS idx_study_plan_units_order ON study_plan_units (plan_id, order_index);",
             "CREATE INDEX IF NOT EXISTS idx_study_plan_units_content_status ON study_plan_units (content_status);",
+            "CREATE INDEX IF NOT EXISTS idx_study_plan_units_generation_task_id ON study_plan_units (generation_task_id);",
+            "CREATE INDEX IF NOT EXISTS idx_study_plan_units_generation_cache_key ON study_plan_units (generation_cache_key);",
         ]:
             conn.execute(text(idx_sql))
         conn.commit()
@@ -130,6 +136,19 @@ def migrate_study_plans():
         """))
         conn.commit()
         print("✅ 'difficulty_level' column ready.")
+
+        print("📝 Ensuring study-plan generation metadata columns exist...")
+        for ddl in [
+            "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_task_id VARCHAR(255);",
+            "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_content_types JSONB;",
+            "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_started_at TIMESTAMPTZ;",
+            "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_cache_key VARCHAR(128);",
+            "CREATE INDEX IF NOT EXISTS idx_study_plan_units_generation_task_id ON study_plan_units (generation_task_id);",
+            "CREATE INDEX IF NOT EXISTS idx_study_plan_units_generation_cache_key ON study_plan_units (generation_cache_key);",
+        ]:
+            conn.execute(text(ddl))
+        conn.commit()
+        print("✅ Study-plan generation metadata columns ready.")
 
     print("🏁 Study plans migration completed successfully.")
 

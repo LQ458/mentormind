@@ -207,6 +207,13 @@ def migrate():
             "CREATE INDEX IF NOT EXISTS idx_board_sessions_unit_id ON board_sessions(unit_id)",
             "CREATE INDEX IF NOT EXISTS idx_board_sessions_user_plan_unit ON board_sessions(user_id, plan_id, unit_id)",
             "CREATE INDEX IF NOT EXISTS idx_board_sessions_updated_at ON board_sessions(updated_at)",
+            # Study-plan generation metadata for task tracking and cache reuse
+            "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_task_id VARCHAR(255)",
+            "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_content_types JSONB",
+            "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_started_at TIMESTAMPTZ",
+            "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_cache_key VARCHAR(128)",
+            "CREATE INDEX IF NOT EXISTS idx_study_plan_units_generation_task_id ON study_plan_units(generation_task_id)",
+            "CREATE INDEX IF NOT EXISTS idx_study_plan_units_generation_cache_key ON study_plan_units(generation_cache_key)",
             # Telemetry events
             """CREATE TABLE IF NOT EXISTS telemetry_events (
                 id VARCHAR(36) PRIMARY KEY,

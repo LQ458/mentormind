@@ -689,7 +689,7 @@ def ocr_image_task(self, file_path: str, language: str, job_id: str, target_lang
 @celery_app.task(bind=True, name="mentormind.generate_unit_content", time_limit=600,
                  max_retries=2, default_retry_delay=10)
 def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: dict,
-                                content_types: list, language: str = "zh"):
+                                content_types: list, language: str = "zh", cache_key: str = None):
     """
     Celery task: generate study content (guides, quizzes, flashcards, etc.) for a study plan unit.
     """
@@ -733,6 +733,16 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
         missing = [ct for ct in content_types if ct in result and result[ct] is None]
         print(f"[unit:{unit_id}] ⚠️ Content types returned None (parse failure): {missing}")
     status_to_set = "ready" if (not has_error and not has_missing) else "failed"
+    if cache_key and status_to_set == "ready":
+        try:
+            _redis_client.setex(
+                f"unit_content_cache:{cache_key}",
+                7 * 24 * 3600,
+                json.dumps(result, default=str)
+            )
+            print(f"[unit:{unit_id}] ✅ Cached generated content: {cache_key[:12]}")
+        except Exception as e:
+            print(f"[unit:{unit_id}] ⚠️ Failed to cache generated content: {e}")
     for attempt in range(2):
         try:
             init_database()
@@ -746,6 +756,7 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
                             if ct in result and result[ct] is not None:
                                 setattr(unit, ct, result[ct])
                     unit.content_status = status_to_set
+                    unit.generation_cache_key = cache_key or unit.generation_cache_key
                     unit.updated_at = datetime.now(timezone.utc)
                     session.commit()
                     print(f"[unit:{unit_id}] ✅ Updated unit content in DB (status={status_to_set})")

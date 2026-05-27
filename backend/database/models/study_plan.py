@@ -190,6 +190,10 @@ class StudyPlanUnit(Base):
 
     # Content generation status
     content_status = Column(String(20), default=UnitStatus.PENDING.value)
+    generation_task_id = Column(String(255), nullable=True)
+    generation_content_types = Column(JSON, nullable=True)
+    generation_started_at = Column(DateTime(timezone=True), nullable=True)
+    generation_cache_key = Column(String(128), nullable=True)
 
     # Generated content blobs
     study_guide = Column(JSON, nullable=True)
@@ -216,6 +220,8 @@ class StudyPlanUnit(Base):
         Index('idx_study_plan_units_plan_id', 'plan_id'),
         Index('idx_study_plan_units_order', 'plan_id', 'order_index'),
         Index('idx_study_plan_units_content_status', 'content_status'),
+        Index('idx_study_plan_units_generation_task_id', 'generation_task_id'),
+        Index('idx_study_plan_units_generation_cache_key', 'generation_cache_key'),
     )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -231,6 +237,10 @@ class StudyPlanUnit(Base):
             "prerequisites": self.prerequisites,
             "estimated_minutes": self.estimated_minutes,
             "content_status": self.content_status,
+            "generation_task_id": self.generation_task_id,
+            "generation_content_types": self.generation_content_types,
+            "generation_started_at": self.generation_started_at.isoformat() if self.generation_started_at else None,
+            "generation_cache_key": self.generation_cache_key,
             "study_guide": self.study_guide,
             "quiz": self.quiz,
             "flashcards": self.flashcards,

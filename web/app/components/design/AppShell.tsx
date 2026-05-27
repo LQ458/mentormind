@@ -8,6 +8,7 @@ import ShortcutsHelp from '../ShortcutsHelp'
 import CommandPalette from '../CommandPalette'
 import SurveyTrigger from '../SurveyTrigger'
 import ExitSurvey, { SURVEY_KEY } from '../ExitSurvey'
+import PWAClient from '../PWAClient'
 
 export const OPEN_SURVEY_EVENT = 'mm:open-survey'
 
@@ -50,6 +51,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <SurveyTrigger onTrigger={() => setSurveyOpen(true)} />
       {/* Controlled survey modal */}
       <ExitSurvey open={surveyOpen} onClose={() => setSurveyOpen(false)} />
+      <PWAClient />
     </div>
   )
 }
