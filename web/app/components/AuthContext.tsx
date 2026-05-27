@@ -22,7 +22,8 @@ interface AuthContextValue {
   isLoaded: boolean
   isSignedIn: boolean
   getToken: () => Promise<string | null>
-  signOut: () => Promise<void>
+  signOut: () => void
+  loginWithInvite: (inviteCode: string | undefined, username: string, password: string, lang?: string) => Promise<AuthUser>
 }
 
 const AuthCtx = createContext<AuthContextValue>({
@@ -30,73 +31,89 @@ const AuthCtx = createContext<AuthContextValue>({
   isLoaded: false,
   isSignedIn: false,
   getToken: async () => null,
-  signOut: async () => {},
+  signOut: () => {},
+  loginWithInvite: async () => {
+    throw new Error('AuthContext not mounted')
+  },
 })
+
+const TOKEN_KEY = 'mm_token'
+const USER_KEY = 'mm_user'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
-  const tokenRef = React.useRef<string | null>(null)
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const res = await fetch('/api/auth/get-session', { credentials: 'include' })
-        if (!res.ok || cancelled) {
-          setIsLoaded(true)
-          return
-        }
-        const data = await res.json()
-        if (data?.user && !cancelled) {
-          const u = data.user
-          setUser({
-            id: u.id || '',
-            email: u.email || '',
-            firstName: u.name?.split(' ')[0] || '',
-            username: u.email?.split('@')[0] || u.name || '',
-            fullName: u.name || u.email || '',
-          })
-        }
-        // Populate token from the JWT cookie (httpOnly, can only read server-side)
-        try {
-          const tokenRes = await fetch('/api/token', { credentials: 'include' })
-          if (tokenRes.ok) {
-            const tokenData = await tokenRes.json()
-            if (tokenData?.token) tokenRef.current = tokenData.token
-          }
-        } catch { /* token endpoint may not be available in all environments */ }
-      } catch {
-        // Not signed in or server unreachable — that's fine
-      } finally {
-        if (!cancelled) setIsLoaded(true)
+    try {
+      const token = localStorage.getItem(TOKEN_KEY)
+      const savedUser = localStorage.getItem(USER_KEY)
+      if (token && savedUser) {
+        setUser(JSON.parse(savedUser))
       }
-    })()
-    return () => { cancelled = true }
+    } catch {
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(USER_KEY)
+    }
+    setIsLoaded(true)
   }, [])
 
-  const getToken = useCallback(async (): Promise<string | null> => {
-    if (tokenRef.current) return tokenRef.current
-    try {
-      const res = await fetch('/api/token', { credentials: 'include' })
-      if (!res.ok) return null
+  const loginWithInvite = useCallback(
+    async (inviteCode: string | undefined, username: string, password: string, lang?: string): Promise<AuthUser> => {
+      const body: Record<string, string> = { username, password }
+      if (inviteCode) body.invite_code = inviteCode
+
+      const res = await fetch('/api/backend/auth/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as any)?.detail || `Auth failed (${res.status})`)
+      }
       const data = await res.json()
-      const t = data?.token || null
-      if (t) tokenRef.current = t
-      return t
+      if (!data?.success || !data?.token) {
+        throw new Error('Invalid response from server')
+      }
+      const u: AuthUser = {
+        id: data.user?.id || '',
+        username: data.user?.username || '',
+        email: data.user?.username
+          ? `${data.user.username}@mentormind.local`
+          : '',
+        firstName: data.user?.username || '',
+        fullName: data.user?.username || '',
+      }
+      localStorage.setItem(TOKEN_KEY, data.token)
+      localStorage.setItem(USER_KEY, JSON.stringify(u))
+      setUser(u)
+      return u
+    },
+    [],
+  )
+
+  const getToken = useCallback(async (): Promise<string | null> => {
+    try {
+      return localStorage.getItem(TOKEN_KEY)
     } catch {
       return null
     }
   }, [])
 
-  const handleSignOut = useCallback(async () => {
+  const signOut = useCallback(async () => {
     try {
-      await fetch('/api/auth/sign-out', { method: 'POST', credentials: 'include' })
+      await fetch('/api/backend/auth/logout', { method: 'POST' })
+    } catch {
+      // ignore
+    }
+    try {
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(USER_KEY)
     } catch {
       // ignore
     }
     setUser(null)
-    tokenRef.current = null
   }, [])
 
   const value = useMemo<AuthContextValue>(
@@ -105,9 +122,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoaded,
       isSignedIn: !!user,
       getToken,
-      signOut: handleSignOut,
+      signOut,
+      loginWithInvite,
     }),
-    [user, isLoaded, getToken, handleSignOut],
+    [user, isLoaded, getToken, signOut, loginWithInvite],
   )
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>

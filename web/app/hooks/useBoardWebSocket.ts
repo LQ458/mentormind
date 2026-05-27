@@ -250,6 +250,11 @@ interface StreamDoneEvent extends BaseEvent {
   data: Record<string, unknown>
 }
 
+interface SessionStateEvent extends BaseEvent {
+  event_type: 'session_state'
+  data: Record<string, unknown>
+}
+
 // F2 — mid-lesson comprehension checkpoint (emitted by backend; paused on FE)
 interface ComprehensionCheckEvent extends BaseEvent {
   event_type: 'comprehension_check'
@@ -278,6 +283,7 @@ export type BoardEvent =
   | SummaryReadyEvent
   | UserMessageEvent
   | StreamDoneEvent
+  | SessionStateEvent
   | ComprehensionCheckEvent
 
 export interface ChatMessage {

@@ -31,20 +31,6 @@ export async function GET() {
         text_extraction: 'simulated',
         video_generation: 'simulated'
       },
-      subscription: {
-        plan: 'Pro',
-        monthly_cost: 160.00,
-        lessons_included: 1000,
-        lessons_used: 42,
-        lessons_remaining: 958,
-        cost_this_month: 3.42,
-        renewal_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days from now
-      },
-      cost_analysis: {
-        monthly_budget: 160.00,
-        current_month: 3.42,
-        remaining: 156.58
-      },
       configuration: {
         max_lesson_duration_minutes: 60,
         quality_threshold: 0.7,

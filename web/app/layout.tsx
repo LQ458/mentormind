@@ -9,11 +9,19 @@ import TelemetryBoot from './components/TelemetryBoot'
 import { Toaster } from 'sonner'
 
 export const metadata: Metadata = {
-  title: 'MentorMind - AI Teaching Assistant',
-  description: 'Process-first AI learning system with spaced review, seminar learning, and simulation-based practice',
+  title: 'MentorMind',
+  description: 'AI-powered personalized learning platform',
   icons: {
     icon: '/favicon.jpg',
     apple: '/icon.jpg',
+  },
+  manifest: '/manifest.json',
+  other: {
+    'mobile-web-app-capable': 'yes',
+    'apple-mobile-web-app-capable': 'yes',
+    'apple-mobile-web-app-status-bar-style': 'black-translucent',
+    'apple-mobile-web-app-title': 'MentorMind',
+    'format-detection': 'telephone=no',
   },
 }
 
@@ -25,6 +33,8 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+        <meta name="theme-color" content="#1e1b4b" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link

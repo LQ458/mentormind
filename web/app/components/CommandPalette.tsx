@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from './AuthContext'
-import { Search, Home, BookOpen, BarChart3, Settings, Compass, GraduationCap, Sparkles, Network } from 'lucide-react'
+import { Search, Home, BookOpen, BarChart3, Settings, Compass, Sparkles } from 'lucide-react'
 import { useLanguage } from './LanguageContext'
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut'
 import { useFocusTrap } from '../hooks/useFocusTrap'
@@ -30,11 +30,9 @@ interface NavEntry {
 const NAV: NavEntry[] = [
   { href: '/dashboard', zh: '今日仪表盘', en: 'Dashboard', hint_zh: '今日学习焦点 + 复习', hint_en: "Today's focus + reviews", icon: <Home size={16} /> },
   { href: '/lessons', zh: '课程库', en: 'Library', hint_zh: '已生成的所有课程', hint_en: 'All generated lessons', icon: <BookOpen size={16} /> },
-  { href: '/knowledge-graph', zh: '学习地图', en: 'Knowledge map', hint_zh: '从已学课程自动构建的概念图谱', hint_en: 'Concept graph built from your finished lessons', icon: <Network size={16} /> },
   { href: '/study-plan', zh: '学习计划', en: 'Study plans', hint_zh: '多周备考路线', hint_en: 'Multi-week study tracks', icon: <Compass size={16} /> },
-  { href: '/gaokao', zh: '高考专项', en: 'Gaokao prep', hint_zh: '中国高考备考工具', hint_en: 'Chinese college entrance exam', icon: <GraduationCap size={16} /> },
   { href: '/analytics', zh: '使用分析', en: 'Analytics', hint_zh: '学习时长、质量、成本', hint_en: 'Time, quality, cost', icon: <BarChart3 size={16} /> },
-  { href: '/settings', zh: '设置', en: 'Settings', hint_zh: '订阅 / 偏好 / 计费', hint_en: 'Subscription / preferences', icon: <Settings size={16} /> },
+  { href: '/settings', zh: '设置', en: 'Settings', hint_zh: '偏好设置', hint_en: 'Preferences', icon: <Settings size={16} /> },
   { href: '/principles', zh: '产品理念', en: 'Principles', hint_zh: '平台设计原则', hint_en: 'Design principles', icon: <Sparkles size={16} /> },
 ]
 

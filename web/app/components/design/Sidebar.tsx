@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
-import { Home, Layers, Book, Settings, Network, type LucideIcon } from 'lucide-react'
+import { Home, Layers, Book, Settings, type LucideIcon } from 'lucide-react'
 import { Progress } from './primitives'
 import { useAuth, useUser } from '../AuthContext'
 import { useLanguage } from '../LanguageContext'
@@ -21,7 +21,6 @@ const NAV: NavItem[] = [
   { href: '/dashboard', label: 'Today', zh: '今日', icon: Home },
   { href: '/study-plan', label: 'Study plan', zh: '学习计划', icon: Layers },
   { href: '/lessons', label: 'Library', zh: '文库', icon: Book },
-  { href: '/knowledge-graph', label: 'Knowledge map', zh: '学习地图', icon: Network },
 ]
 
 interface MyPlan {

@@ -1,9 +1,9 @@
 {
   "pages": {
-    "/page": [
+    "/study-plan/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/page.js"
+      "static/chunks/app/study-plan/page.js"
     ],
     "/layout": [
       "static/chunks/webpack.js",
@@ -11,51 +11,40 @@
       "static/css/app/layout.css",
       "static/chunks/app/layout.js"
     ],
-    "/auth/login/page": [
+    "/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/auth/login/page.js"
-    ],
-    "/auth/register/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/auth/register/page.js"
+      "static/chunks/app/page.js"
     ],
     "/dashboard/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/dashboard/page.js"
     ],
-    "/study-plan/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/study-plan/page.js"
-    ],
     "/lessons/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/lessons/page.js"
-    ],
-    "/knowledge-graph/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/knowledge-graph/page.js"
     ],
     "/settings/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/settings/page.js"
     ],
-    "/study-plan/[id]/page": [
+    "/principles/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/css/app/study-plan/[id]/page.css",
-      "static/chunks/app/study-plan/[id]/page.js"
+      "static/chunks/app/principles/page.js"
     ],
-    "/board/[sessionId]/page": [
+    "/knowledge-graph/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/board/[sessionId]/page.js"
+      "static/chunks/app/knowledge-graph/page.js"
+    ],
+    "/_not-found/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/_not-found/page.js"
     ]
   }
 }

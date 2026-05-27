@@ -278,6 +278,41 @@ def migrate():
                 conn.rollback()
         print("✅ Survey schema additions applied.")
 
+        # --- Invite codes for internal testing ---
+        print("📝 Applying invite_codes schema...")
+        invite_ddl = [
+            """CREATE TABLE IF NOT EXISTS invite_codes (
+                code VARCHAR(255) PRIMARY KEY,
+                max_uses INTEGER DEFAULT 0,
+                used_count INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT NOW()
+            )""",
+        ]
+        for stmt in invite_ddl:
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+            except Exception as e:
+                print(f"⚠️ Invite DDL failed: {e}")
+                conn.rollback()
+
+        # Seed 5 invite codes if table is empty
+        import os as _os
+        codes_str = _os.getenv("INVITE_CODES", "MENTOR_ALPHA_001,MENTOR_ALPHA_002,MENTOR_ALPHA_003,MENTOR_ALPHA_004,MENTOR_ALPHA_005")
+        for c in codes_str.split(","):
+            c = c.strip()
+            if not c:
+                continue
+            try:
+                conn.execute(
+                    text("INSERT INTO invite_codes (code, max_uses) VALUES (:code, 0) ON CONFLICT (code) DO NOTHING"),
+                    {"code": c},
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+        print("✅ Invite codes ready.")
+
     print("🏁 Migration completed.")
 
 if __name__ == "__main__":

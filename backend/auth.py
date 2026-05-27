@@ -103,27 +103,40 @@ def _check_test_bypass(token: str, db: Session) -> Optional[User]:
 def _resolve_user_from_payload(payload: dict, db: Session) -> User:
     """Given a decoded JWT payload, find or create the local User record.
 
-    Better Auth JWTs contain:
-      - sub: the Better Auth user ID
-      - email: the user's email address
-      - name:  the user's display name (if provided)
+    Supports two JWT formats:
 
-    We match first by username == auth_user_id, then fall back to a
-    deterministic UUID derived from the auth user ID.  If no local record
-    exists, one is auto-created.
+    1. **Invite JWTs** (post-auth/invite): ``sub`` is a UUID (the user's id),
+       ``username`` is the display name.  Look up directly by ``id == sub``.
+
+    2. **Better Auth JWTs** (legacy): ``sub`` is the Better Auth user ID
+       (not a UUID), ``email`` and ``name`` are present.  Match by username
+       first, then fall back to deterministic UUID5.
+
+    If no local record exists, one is auto-created.
     """
+
     auth_user_id = payload.get("sub")
     if not auth_user_id:
         raise ValueError("Invalid token payload: missing 'sub' claim")
 
+    # Check if sub is already a valid UUID → direct lookup (invite JWT)
+    try:
+        uuid.UUID(str(auth_user_id))
+        user = db.query(User).filter(User.id == str(auth_user_id)).first()
+        if user:
+            if not user.is_active:
+                raise ValueError("User account is inactive")
+            return user
+    except (ValueError, AttributeError):
+        pass
+
+    # Legacy Better Auth path
     email = payload.get("email", f"{auth_user_id}@mentormind.local")
     name = payload.get("name", email.split("@")[0])
 
-    # Try to find by username (auth_user_id stored as username)
     user = db.query(User).filter(User.username == auth_user_id).first()
 
     if not user:
-        # Generate a deterministic UUID from the auth user ID
         namespace = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
         user_uuid = str(uuid.uuid5(namespace, auth_user_id))
         user = db.query(User).filter(User.id == user_uuid).first()

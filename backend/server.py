@@ -1840,6 +1840,133 @@ async def get_status():
     }
 
 
+# ── Invite-only auth (internal testing) ───────────────────────────────────
+
+import bcrypt as _bcrypt
+
+class InviteLoginPayload(BaseModel):
+    invite_code: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    language: Optional[str] = "zh"
+
+
+def _hash_password(password: str) -> str:
+    return _bcrypt.hashpw(password.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
+
+
+def _verify_password(password: str, hashed: str) -> bool:
+    return _bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+
+
+def _sign_jwt(user_id: str, username: str) -> str:
+    import jwt as _jwt
+    from datetime import datetime, timedelta
+    _secret = os.getenv("BETTER_AUTH_SECRET", "")
+    now = datetime.utcnow()
+    return _jwt.encode(
+        {"sub": user_id, "username": username, "iat": now, "exp": now + timedelta(days=30)},
+        _secret,
+        algorithm="HS256",
+    )
+
+
+@app.post("/auth/invite")
+@limiter.limit("5/minute")
+async def invite_login(request: Request):
+    """Register or login with invite code + username + password.
+
+    **Register**: `invite_code` + `username` + `password` → creates user
+    **Login**: `username` + `password` (no invite_code) → returns JWT
+
+    Rate-limited to prevent crawling (5 attempts per minute per IP).
+    """
+    try:
+        body = await request.json()
+        payload = InviteLoginPayload(**body)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid request body")
+
+    lang = payload.language or "zh"
+    username = (payload.username or "").strip()
+    password = (payload.password or "").strip()
+    invite_code = (payload.invite_code or "").strip()
+
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="Username and password are required")
+
+    if len(username) < 2:
+        raise HTTPException(status_code=400, detail="Username must be at least 2 characters")
+    if len(password) < 4:
+        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+
+    from database.base import SessionLocal as _SL
+    from database.models.invite_code import InviteCode
+    import uuid as _uuid
+
+    with _SL() as db:
+        # ── Login mode: username + password, no invite code ──
+        if not invite_code:
+            user = db.query(User).filter(User.username == username).first()
+            if not user:
+                raise HTTPException(status_code=401, detail="User not found. Please register first.")
+            if user.hashed_password == "invite_managed":
+                raise HTTPException(status_code=401, detail="This account was created via invite-only mode and requires the same device/browser. Please re-register with a password.")
+            if not _verify_password(password, user.hashed_password):
+                raise HTTPException(status_code=401, detail="Incorrect password")
+            if not user.is_active:
+                raise HTTPException(status_code=403, detail="Account is inactive")
+
+            token = _sign_jwt(user.id, user.username)
+            return {
+                "success": True,
+                "token": token,
+                "user": {"id": user.id, "username": user.username, "language": user.language_preference or lang},
+            }
+
+        # ── Register mode: invite_code + username + password ──
+        invite_code = invite_code.upper()
+        code_row = db.query(InviteCode).filter(InviteCode.code == invite_code).first()
+        if not code_row:
+            raise HTTPException(status_code=403, detail="Invalid invite code")
+        if not code_row.is_available:
+            raise HTTPException(status_code=403, detail="Invite code has reached its usage limit")
+
+        # Check if username already taken
+        existing = db.query(User).filter(User.username == username).first()
+        if existing:
+            raise HTTPException(status_code=409, detail="Username already taken. Please choose another.")
+
+        code_row.used_count += 1
+        db.commit()
+
+        user_id = str(_uuid.uuid4())
+        user = User(
+            id=user_id,
+            email=f"{username}@mentormind.local",
+            username=username,
+            hashed_password=_hash_password(password),
+            full_name=username,
+            language_preference=lang,
+            is_active=True,
+            is_verified=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        token = _sign_jwt(user.id, user.username)
+        return {
+            "success": True,
+            "token": token,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "language": lang,
+            },
+        }
+
+
 # ── Monitoring & Metrics ─────────────────────────────────────────────────────
 
 @app.get("/health")

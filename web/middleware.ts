@@ -9,12 +9,13 @@ const PROTECTED_PREFIXES = [
   '/study-plan',
   '/knowledge-graph',
   '/analytics',
-  '/gaokao',
   '/board',
   '/admin',
 ]
 
 function getSessionCookie(request: NextRequest): string | null {
+  const token = request.cookies.get('mm_token')
+  if (token?.value) return token.value
   const cookie = request.cookies.get('better-auth.session_token')
   if (cookie?.value) return cookie.value
   const sessionCookie = request.cookies.get('session_token')
@@ -31,7 +32,7 @@ export async function middleware(request: NextRequest) {
 
   const token = getSessionCookie(request)
   if (!token) {
-    const signInUrl = new URL('/auth/login', request.url)
+    const signInUrl = new URL('/', request.url)
     signInUrl.searchParams.set('redirect', pathname)
     return NextResponse.redirect(signInUrl)
   }
