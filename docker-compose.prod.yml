@@ -1,0 +1,204 @@
+name: mentormind-prod
+
+x-backend-image: &backend_image mentormind-backend:${MENTORMIND_IMAGE_TAG:-prod}
+x-backend-env: &backend_env
+  MENTORMIND_ENV: ${MENTORMIND_ENV:-production}
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  POSTGRES_USER: ${POSTGRES_USER:-mentormind}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mentormind}
+  DATABASE_URL: postgresql://${POSTGRES_USER:-mentormind}:${POSTGRES_PASSWORD:-mentormind}@postgres:5432/${POSTGRES_DB:-mentormind_metadata}
+  CELERY_BROKER_URL: redis://redis:6379/0
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
+  DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+  SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
+  UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
+  PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
+  HEYGEN_API_KEY: ${HEYGEN_API_KEY:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  VOLC_TTS_APPID: ${VOLC_TTS_APPID:-}
+  VOLC_TTS_TOKEN: ${VOLC_TTS_TOKEN:-}
+  CORS_ORIGINS: ${CORS_ORIGINS:-}
+  VERIFY_SSL: ${VERIFY_SSL:-true}
+  TEST_BYPASS_SECRET: ${TEST_BYPASS_SECRET:-}
+  S3_ENABLED: ${S3_ENABLED:-false}
+  S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  S3_BUCKET_NAME: ${S3_BUCKET_NAME:-mentormind-videos}
+  S3_PUBLIC_URL_PREFIX: ${S3_PUBLIC_URL_PREFIX:-}
+  PRELOAD_ASR_LANG: ${PRELOAD_ASR_LANG:-en}
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: mentormind-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mentormind}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mentormind}
+      POSTGRES_DB: ${POSTGRES_DB:-mentormind_metadata}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mentormind} -d ${POSTGRES_DB:-mentormind_metadata}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mentormind-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: mentormind-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mentormind-net
+
+  backend:
+    image: *backend_image
+    build:
+      context: ./backend
+    container_name: mentormind-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *backend_env
+    volumes:
+      - backend_data:/app/data
+      - backend_logs:/app/logs
+      - modelscope_cache:/root/.cache/modelscope
+      - whisper_cache:/root/.cache/whisper
+      - paddleocr_cache:/root/.paddleocr
+    command: sh -c "python migrate_db.py && uvicorn server:app --host 0.0.0.0 --port 8000"
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")'"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - mentormind-net
+
+  celery-orchestration:
+    image: *backend_image
+    container_name: mentormind-celery-orchestration
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      <<: *backend_env
+    volumes:
+      - backend_data:/app/data
+      - backend_logs:/app/logs
+    command: celery -A celery_app worker --loglevel=info --concurrency=4 -Q orchestration
+    networks:
+      - mentormind-net
+
+  celery-rendering:
+    image: *backend_image
+    container_name: mentormind-celery-rendering
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      <<: *backend_env
+    volumes:
+      - backend_data:/app/data
+      - backend_logs:/app/logs
+    command: celery -A celery_app worker --loglevel=info --concurrency=1 -Q rendering
+    networks:
+      - mentormind-net
+
+  celery-heavy-ml:
+    image: *backend_image
+    container_name: mentormind-celery-heavy-ml
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      <<: *backend_env
+    volumes:
+      - backend_data:/app/data
+      - backend_logs:/app/logs
+      - modelscope_cache:/root/.cache/modelscope
+      - whisper_cache:/root/.cache/whisper
+      - paddleocr_cache:/root/.paddleocr
+    command: celery -A celery_app worker --loglevel=info --concurrency=2 -Q heavy_ml
+    networks:
+      - mentormind-net
+
+  frontend:
+    image: mentormind-frontend:${MENTORMIND_IMAGE_TAG:-prod}
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
+        NEXT_PUBLIC_BACKEND_WS_URL: ${NEXT_PUBLIC_BACKEND_WS_URL:-}
+    container_name: mentormind-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      BACKEND_URL: http://backend:8000
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
+      BETTER_AUTH_DB_URL: postgresql://${POSTGRES_USER:-mentormind}:${POSTGRES_PASSWORD:-mentormind}@postgres:5432/${POSTGRES_DB:-mentormind_metadata}
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
+      NEXT_PUBLIC_BACKEND_WS_URL: ${NEXT_PUBLIC_BACKEND_WS_URL:-}
+    expose:
+      - "3000"
+    networks:
+      - mentormind-net
+
+  nginx:
+    image: mentormind-nginx:${MENTORMIND_IMAGE_TAG:-prod}
+    build:
+      context: ./nginx
+    container_name: mentormind-nginx
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - nginx_cache:/var/cache/nginx/media_proxy
+    networks:
+      - mentormind-net
+
+networks:
+  mentormind-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_data:
+  backend_logs:
+  modelscope_cache:
+  whisper_cache:
+  paddleocr_cache:
+  nginx_cache:

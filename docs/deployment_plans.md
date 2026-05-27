@@ -78,7 +78,8 @@
 1. Push your code to GitHub.
 2. Connect to [vercel.com](https://vercel.com) → Import project → select [web/](file:///Users/LeoQin/Documents/GitHub/mentormind/backend/core/create_classes.py#253-255) as root.
 3. Set environment variable:
-   - `NEXT_PUBLIC_API_URL` = `https://your-sae-api-domain.aliyun.com`
+   - `BACKEND_URL` = `https://your-sae-api-domain.aliyun.com`
+   - `NEXT_PUBLIC_APP_URL` = your Vercel frontend URL
 
 #### Environment Variables for SAE (API + Worker Services)
 ```bash
@@ -160,7 +161,8 @@ OPENAI_API_KEY=...
 1. Go to [vercel.com](https://vercel.com) → New Project → import your GitHub repo.
 2. Set **Root Directory** to [web/](file:///Users/LeoQin/Documents/GitHub/mentormind/backend/core/create_classes.py#253-255).
 3. Set environment variable:
-   - `NEXT_PUBLIC_API_URL` = your Railway backend URL
+   - `BACKEND_URL` = your Railway backend URL
+   - `NEXT_PUBLIC_APP_URL` = your Vercel frontend URL
 
 #### Environment Variables (for Railway services)
 ```bash
@@ -195,14 +197,65 @@ OPENAI_API_KEY=...
 
 ## Fix Required Before Either Deployment
 
-> [!CAUTION]
-> **[database/base.py](file:///Users/LeoQin/Documents/GitHub/mentormind/backend/database/base.py) Pool Config Bug** — if `DATABASE_URL` is set without individual `POSTGRES_*` env vars, `db_config` will be `None` and the `pool_size=db_config.max_connections` line will throw an `AttributeError` crash on startup. Fix this before deploying.
+The previous `database/base.py` pool config crash has already been fixed in this repo. The production Docker path below is now the preferred path for a single CentOS VPS.
 
-Apply this fix to [backend/database/base.py](file:///Users/LeoQin/Documents/GitHub/mentormind/backend/database/base.py):
-```python
-# Replace:
-pool_size=db_config.max_connections,
+---
 
-# With:
-pool_size=db_config.max_connections if db_config else 10,
+## Plan C: Single VPS (CentOS + Docker Compose)
+
+**Goal:** Fast repeat deployments on one Linux server while keeping PostgreSQL, Redis, model caches, generated media, and Docker dependency layers persistent.
+
+### Why this is faster than the old compose flow
+
+- The backend image is built once and reused by `backend`, `celery-orchestration`, `celery-rendering`, and `celery-heavy-ml`.
+- Python, Manim, TeX, Torch, and OCR dependencies stay in Docker build cache layers unless `backend/requirements.txt` or `backend/Dockerfile` changes.
+- Runtime data and model downloads persist in named volumes: `backend_data`, `modelscope_cache`, `whisper_cache`, and `paddleocr_cache`.
+- PostgreSQL and Redis are private to the Docker network; only nginx publishes port 80.
+
+### Server Setup
+
+1. Install Docker Engine and the Docker Compose v2 plugin on CentOS.
+2. Clone the repo on the VPS.
+3. Create production env:
+
+```bash
+cp .env.example .env
 ```
+
+4. Edit `.env` for production. At minimum set:
+
+```bash
+MENTORMIND_ENV=production
+BETTER_AUTH_SECRET=<openssl-rand-base64-32>
+NEXT_PUBLIC_APP_URL=https://your-domain.com
+ALLOWED_ORIGIN=your-domain.com
+CORS_ORIGINS=https://your-domain.com
+SILICONFLOW_API_KEY=...
+DEEPSEEK_API_KEY=...
+```
+
+For same-host VPS deployment, keep `NEXT_PUBLIC_BACKEND_WS_URL` blank so browser WebSockets use the same origin through nginx `/ws/`.
+
+### Deploy
+
+```bash
+chmod +x scripts/deploy-prod.sh
+./scripts/deploy-prod.sh deploy
+```
+
+Routine code deploys use the same command. Docker will reuse dependency layers; only changed app layers rebuild.
+
+Useful commands:
+
+```bash
+./scripts/deploy-prod.sh ps
+./scripts/deploy-prod.sh logs
+./scripts/deploy-prod.sh restart
+./scripts/deploy-prod.sh down
+```
+
+### Notes
+
+- `docker-compose.prod.yml` is production-only. Keep using `docker-compose.yml` or existing dev scripts for local development.
+- The production nginx config listens on HTTP port 80. Put HTTPS in front with your VPS-level reverse proxy, cloud load balancer, or a future TLS-enabled nginx update.
+- Do not run `docker system prune -a` as part of normal deploys; it deletes the dependency cache that makes rebuilds fast.

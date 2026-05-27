@@ -754,7 +754,7 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
       } catch {
         // swallow
       }
-    }, 750)
+    }, 2500)
   }, [buildSnapshot, sessionId, token])
 
   // Schedule a save whenever the user-visible board content changes. The

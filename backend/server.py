@@ -4490,6 +4490,20 @@ async def save_board_persisted_state(
     # with no owner, treat as squat: refuse silently.
     if existing is not None and existing.user_id is None and not user_id and not mem_user_id:
         raise HTTPException(status_code=403, detail="Anonymous saves are not allowed for this session")
+    incoming_seq = None
+    if state is not None and isinstance(state.get("last_event_seq"), int):
+        incoming_seq = state.get("last_event_seq")
+    elif isinstance(seq, int):
+        incoming_seq = seq
+    existing_seq = existing.last_event_seq if existing and isinstance(existing.last_event_seq, int) else None
+    if (
+        existing is not None
+        and isinstance(incoming_seq, int)
+        and isinstance(existing_seq, int)
+        and incoming_seq <= existing_seq
+        and (status is None or status == existing.status)
+    ):
+        return {"success": True, "skipped": True}
     cfg = mem.get("config") or {}
     # Bind to whichever owner we can identify: prefer authenticated user, else
     # fall back to the in-memory owner so sendBeacon (no auth) still binds.

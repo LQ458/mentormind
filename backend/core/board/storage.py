@@ -4,8 +4,8 @@ Board session persistence helpers.
 Wraps SQLAlchemy upsert/load/list/delete for the `board_sessions` table so the
 WebSocket pipeline and HTTP endpoints can share a single API.
 
-`save_board_state` is upsert-style and safe to call on a few-hundred-ms
-debounce. The caller passes a `state` dict shaped like::
+`save_board_state` is upsert-style and safe to call from periodic snapshots.
+The caller passes a `state` dict shaped like::
 
     {
         "board": {...},          # optional BoardState.to_dict() blob

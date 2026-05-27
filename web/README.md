@@ -125,7 +125,8 @@ npm start
 Create a `.env.local` file:
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:8000  # Your backend URL
+BACKEND_URL=http://localhost:8000  # Used by Next.js API routes
+NEXT_PUBLIC_BACKEND_WS_URL=        # Leave blank for same-origin production WS
 ```
 
 ### Docker Deployment

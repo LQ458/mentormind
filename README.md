@@ -106,6 +106,18 @@ print(config.get_models()["deepseek_v3"].cost_per_1k_tokens)  # 0.001
 
 ## 🚀 Quick Start
 
+### Production on a CentOS VPS
+
+Use the production compose workflow for VPS deployment:
+
+```bash
+cp .env.example .env
+# edit .env with production secrets and public URL
+./scripts/deploy-prod.sh deploy
+```
+
+This builds the backend image once for the API and all Celery workers, preserving Docker dependency layers and model/data volumes across deploys.
+
 ### Option 1: Automated Setup (Recommended)
 
 ```bash
