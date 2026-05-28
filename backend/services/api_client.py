@@ -171,9 +171,12 @@ class DeepSeekClient:
         return pro_model if max_tokens >= 1800 else flash_model
 
     def _thinking_payload(self) -> Optional[Dict[str, str]]:
-        mode = os.getenv("DEEPSEEK_THINKING", "disabled").strip().lower()
-        if mode in {"enabled", "disabled"}:
-            return {"type": mode}
+        # DeepSeek's thinking mode requires reasoning_content continuity across
+        # multi-turn requests. The app does not persist that provider-specific
+        # field, so the safest default is to omit the thinking parameter
+        # entirely for both flash and pro models.
+        if os.getenv("DEEPSEEK_THINKING", "disabled").strip().lower() == "force_enabled":
+            return {"type": "enabled"}
         return None
     
     async def chat_completion(
