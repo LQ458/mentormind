@@ -445,6 +445,8 @@ cython_debug/
 node_modules/
 .next/
 .next/*
+web/.next/
+web/.next/**
 
 backend/.omc/*
 .superpowers/*
