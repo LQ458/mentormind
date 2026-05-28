@@ -177,28 +177,45 @@ function UnitCard({
       </div>
 
       {/* CTA */}
-      {unit.board_session_id ? (
-        <Link
-          href={`/board/${unit.board_session_id}`}
-          className="btn btn-sm btn-primary"
-          style={{ marginTop: 'auto', textAlign: 'center' }}
-        >
-          {lang === 'zh' ? '继续学习' : 'Resume'} <ArrowRight size={13} />
-        </Link>
-      ) : (
+      <div style={{ marginTop: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+        {unit.board_session_id ? (
+          <Link
+            href={`/board/${unit.board_session_id}`}
+            className="btn btn-sm btn-primary"
+            style={{ flex: 1, justifyContent: 'center', textAlign: 'center' }}
+          >
+            {lang === 'zh' ? '继续学习' : 'Resume'} <ArrowRight size={13} />
+          </Link>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-sm btn-primary"
+            style={{ flex: 1, justifyContent: 'center' }}
+            onClick={handleStart}
+            disabled={starting}
+          >
+            {starting
+              ? lang === 'zh' ? '准备中…' : 'Starting…'
+              : lang === 'zh' ? '开始学习' : 'Start lesson'}
+            {!starting && <ArrowRight size={13} />}
+          </button>
+        )}
         <button
           type="button"
-          className="btn btn-sm btn-primary"
-          style={{ marginTop: 'auto' }}
-          onClick={handleStart}
-          disabled={starting}
+          className="btn btn-sm"
+          onClick={() => onDelete(plan.id, unit.id)}
+          disabled={deleting || starting}
+          aria-label={lang === 'zh' ? '删除课程' : 'Delete lesson'}
+          title={lang === 'zh' ? '删除课程' : 'Delete lesson'}
+          style={{
+            color: 'var(--color-danger, #dc2626)',
+            borderColor: 'color-mix(in oklch, var(--color-danger, #dc2626) 35%, var(--line))',
+          }}
         >
-          {starting
-            ? lang === 'zh' ? '准备中…' : 'Starting…'
-            : lang === 'zh' ? '开始学习' : 'Start lesson'}
-          {!starting && <ArrowRight size={13} />}
+          <Trash2 size={13} />
+          {lang === 'zh' ? '删除' : 'Delete'}
         </button>
-      )}
+      </div>
     </div>
   )
 }

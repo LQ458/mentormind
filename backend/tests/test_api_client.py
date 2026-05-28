@@ -75,3 +75,57 @@ def test_deepseek_tool_messages_preserve_reasoning_content_for_provider_compat()
     )
 
     assert messages[0]["reasoning_content"] == "hidden chain"
+
+
+def test_deepseek_stream_routes_tool_calls_to_flash(monkeypatch):
+    client = DeepSeekClient()
+    captured = {}
+
+    class FakeResponse:
+        status = 400
+
+        async def text(self):
+            return "{}"
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class FakeSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def post(self, *args, **kwargs):
+            captured.update(kwargs.get("json") or {})
+            return FakeResponse()
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test")
+    client.api_key = "test"
+    client.headers["Authorization"] = "Bearer test"
+    monkeypatch.setattr("services.api_client.aiohttp.ClientSession", FakeSession)
+
+    async def collect():
+        chunks = []
+        async for chunk in client.chat_completion_stream(
+            messages=[{"role": "user", "content": "hi"}],
+            tools=[{"type": "function", "function": {"name": "noop", "parameters": {"type": "object"}}}],
+            model="deepseek-v4-pro",
+            max_tokens=4000,
+        ):
+            chunks.append(chunk)
+        return chunks
+
+    import asyncio
+
+    asyncio.run(collect())
+
+    assert captured["model"] == "deepseek-v4-flash"
+    assert captured["thinking"] == {"type": "disabled"}

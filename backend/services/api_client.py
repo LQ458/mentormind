@@ -384,6 +384,12 @@ class DeepSeekClient:
 
         url = f"{self.base_url}/chat/completions"
         selected_model = self._select_model(model, max_tokens)
+        if tools and selected_model == self.SAFE_PRO_MODEL:
+            self.logger.info(
+                "Routing tool-call stream through %s to avoid thinking-mode replay requirements",
+                self.SAFE_FLASH_MODEL,
+            )
+            selected_model = self.SAFE_FLASH_MODEL
         payload = {
             "model": selected_model,
             "messages": self._sanitize_messages(messages),
