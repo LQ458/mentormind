@@ -318,115 +318,117 @@ function BoardSessionInner() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       {/* Top bar */}
-      <header className="flex flex-wrap items-start justify-between gap-3 px-3 sm:px-6 py-3 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
-        <div className="min-w-0 flex-1 basis-full sm:basis-64">
+      <header className="space-y-3 px-3 sm:px-6 py-4 border-b border-slate-800 bg-slate-900/85 backdrop-blur">
+        <div className="min-w-0">
           <h1 className="text-base sm:text-lg font-semibold truncate">{title}</h1>
           {topic && topic !== title && (
             <p className="text-xs text-slate-400 truncate">{topic}</p>
           )}
         </div>
-        <div className="flex w-full sm:w-auto max-w-full flex-wrap items-center justify-start sm:justify-end gap-1.5 sm:gap-2">
-          <span className={`text-xs px-2 py-0.5 rounded-full border ${
-            paused ? 'border-amber-400/60 text-amber-200 bg-amber-500/10' :
-            state.status === 'streaming' ? 'border-emerald-400/60 text-emerald-200 bg-emerald-500/10' :
-            state.status === 'done' ? 'border-sky-400/60 text-sky-200 bg-sky-500/10' :
-            state.status === 'error' ? 'border-rose-400/60 text-rose-200 bg-rose-500/10' :
-            state.status === 'reconnecting' ? 'border-amber-400/60 text-amber-200 bg-amber-500/10' :
-            state.status === 'open' ? 'border-sky-400/60 text-sky-200 bg-sky-500/10' :
-            'border-slate-500/60 text-slate-300 bg-slate-700/30'
-          }`}>
-            {paused
-              ? (language === 'zh' ? '已暂停' : 'paused')
-              : state.status === 'connecting' ? (language === 'zh' ? '连接中…' : 'connecting…')
-              : state.status === 'reconnecting' ? (language === 'zh'
-                  ? `重连中 ${state.reconnectAttempt}/${RECONNECT_MAX_ATTEMPTS}…`
-                  : `reconnecting ${state.reconnectAttempt}/${RECONNECT_MAX_ATTEMPTS}…`)
-              : state.status === 'open' ? (language === 'zh' ? '等待开讲…' : 'waiting for lesson…')
-              : state.status === 'streaming' ? (language === 'zh' ? '讲课中' : 'streaming')
-              : state.status === 'done' ? (language === 'zh' ? '已结束' : 'done')
-              : state.status === 'error' ? (language === 'zh' ? '出错了' : 'error')
-              : state.status}
-          </span>
-          <button
-            type="button"
-            onClick={handlePauseToggle}
-            className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
-          >
-            {paused
-              ? (language === 'zh' ? '继续讲课' : 'Resume lesson')
-              : (language === 'zh' ? '暂停讲课' : 'Pause lesson')}
-          </button>
-          <BoardDisplaySettings
-            prefs={displayPrefs}
-            onChange={setDisplayPrefs}
-            language={language === 'zh' ? 'zh' : 'en'}
-          />
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700 flex items-center gap-1"
-            aria-label={isFullscreen
-              ? (language === 'zh' ? '退出全屏' : 'Exit fullscreen')
-              : (language === 'zh' ? '进入全屏' : 'Enter fullscreen')}
-            title={`${language === 'zh' ? '快捷键' : 'Shortcut'}: F`}
-          >
-            <span aria-hidden>{isFullscreen ? '⤢' : '⛶'}</span>
-            {isFullscreen
-              ? (language === 'zh' ? '退出全屏' : 'Exit')
-              : (language === 'zh' ? '全屏' : 'Fullscreen')}
-          </button>
-          <NarrationPlayer
-            audioQueue={state.audioQueue}
-            onPlaybackStart={onPlaybackStart}
-            onPlaybackEnd={onPlaybackEnd}
-            enabled={!paused}
-            language={language}
-            narrationLog={state.narrationLog}
-            audioByElementId={state.audioByElementId}
-            fallbackEnabled={
-              process.env.NEXT_PUBLIC_BOARD_FAST_MODE === 'true' ||
-              process.env.NEXT_PUBLIC_BOARD_FAST_MODE === '1'
-            }
-          />
-          <button
-            type="button"
-            onClick={() => setMuted(m => !m)}
-            className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
-          >
-            {muted ? (language === 'zh' ? '启用字幕' : 'Subtitles on') : (language === 'zh' ? '仅字幕' : 'Subtitles only')}
-          </button>
-          <button
-            type="button"
-            onClick={() => setChatOpen(v => !v)}
-            className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
-          >
-            {chatOpen
-              ? (language === 'zh' ? '隐藏对话' : 'Hide chat')
-              : (language === 'zh' ? '显示对话' : 'Show chat')}
-          </button>
-          <button
-            type="button"
-            onClick={() => setSummaryOpen(true)}
-            className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-sky-500/70 bg-sky-600/30 text-sky-100 hover:bg-sky-600/50"
-          >
-            {language === 'zh' ? '总结' : 'Summary'}
-          </button>
-          <button
-            type="button"
-            onClick={handleCreateShareLink}
-            className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-violet-500/70 bg-violet-600/30 text-violet-100 hover:bg-violet-600/50"
-            title={shareStatus || undefined}
-          >
-            {language === 'zh' ? '分享' : 'Share'}
-          </button>
-          {lessonDone && (
-            <Link
-              href="/study-plan"
-              className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-emerald-500/70 bg-emerald-600/30 text-emerald-100 hover:bg-emerald-600/50"
+        <div className="-mx-3 sm:mx-0 overflow-x-auto px-3 sm:px-0 pb-1">
+          <div className="flex min-w-max items-center gap-2">
+            <span className={`h-9 inline-flex items-center whitespace-nowrap text-xs px-3 rounded-full border ${
+              paused ? 'border-amber-400/60 text-amber-200 bg-amber-500/10' :
+              state.status === 'streaming' ? 'border-emerald-400/60 text-emerald-200 bg-emerald-500/10' :
+              state.status === 'done' ? 'border-sky-400/60 text-sky-200 bg-sky-500/10' :
+              state.status === 'error' ? 'border-rose-400/60 text-rose-200 bg-rose-500/10' :
+              state.status === 'reconnecting' ? 'border-amber-400/60 text-amber-200 bg-amber-500/10' :
+              state.status === 'open' ? 'border-sky-400/60 text-sky-200 bg-sky-500/10' :
+              'border-slate-500/60 text-slate-300 bg-slate-700/30'
+            }`}>
+              {paused
+                ? (language === 'zh' ? '已暂停' : 'paused')
+                : state.status === 'connecting' ? (language === 'zh' ? '连接中…' : 'connecting…')
+                : state.status === 'reconnecting' ? (language === 'zh'
+                    ? `重连中 ${state.reconnectAttempt}/${RECONNECT_MAX_ATTEMPTS}…`
+                    : `reconnecting ${state.reconnectAttempt}/${RECONNECT_MAX_ATTEMPTS}…`)
+                : state.status === 'open' ? (language === 'zh' ? '等待开讲…' : 'waiting for lesson…')
+                : state.status === 'streaming' ? (language === 'zh' ? '讲课中' : 'streaming')
+                : state.status === 'done' ? (language === 'zh' ? '已结束' : 'done')
+                : state.status === 'error' ? (language === 'zh' ? '出错了' : 'error')
+                : state.status}
+            </span>
+            <button
+              type="button"
+              onClick={handlePauseToggle}
+              className="h-9 inline-flex items-center whitespace-nowrap text-xs px-3 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
             >
-              {language === 'zh' ? '返回学习计划' : 'Back to study plan'}
-            </Link>
-          )}
+              {paused
+                ? (language === 'zh' ? '继续讲课' : 'Resume lesson')
+                : (language === 'zh' ? '暂停讲课' : 'Pause lesson')}
+            </button>
+            <BoardDisplaySettings
+              prefs={displayPrefs}
+              onChange={setDisplayPrefs}
+              language={language === 'zh' ? 'zh' : 'en'}
+            />
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              className="h-9 inline-flex items-center whitespace-nowrap text-xs px-3 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700 gap-1"
+              aria-label={isFullscreen
+                ? (language === 'zh' ? '退出全屏' : 'Exit fullscreen')
+                : (language === 'zh' ? '进入全屏' : 'Enter fullscreen')}
+              title={`${language === 'zh' ? '快捷键' : 'Shortcut'}: F`}
+            >
+              <span aria-hidden>{isFullscreen ? '⤢' : '⛶'}</span>
+              {isFullscreen
+                ? (language === 'zh' ? '退出全屏' : 'Exit')
+                : (language === 'zh' ? '全屏' : 'Fullscreen')}
+            </button>
+            <NarrationPlayer
+              audioQueue={state.audioQueue}
+              onPlaybackStart={onPlaybackStart}
+              onPlaybackEnd={onPlaybackEnd}
+              enabled={!paused}
+              language={language}
+              narrationLog={state.narrationLog}
+              audioByElementId={state.audioByElementId}
+              fallbackEnabled={
+                process.env.NEXT_PUBLIC_BOARD_FAST_MODE === 'true' ||
+                process.env.NEXT_PUBLIC_BOARD_FAST_MODE === '1'
+              }
+            />
+            <button
+              type="button"
+              onClick={() => setMuted(m => !m)}
+              className="h-9 inline-flex items-center whitespace-nowrap text-xs px-3 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
+            >
+              {muted ? (language === 'zh' ? '启用字幕' : 'Subtitles on') : (language === 'zh' ? '仅字幕' : 'Subtitles only')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setChatOpen(v => !v)}
+              className="h-9 inline-flex items-center whitespace-nowrap text-xs px-3 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
+            >
+              {chatOpen
+                ? (language === 'zh' ? '隐藏对话' : 'Hide chat')
+                : (language === 'zh' ? '显示对话' : 'Show chat')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSummaryOpen(true)}
+              className="h-9 inline-flex items-center whitespace-nowrap text-xs px-3 rounded-lg border border-sky-500/70 bg-sky-600/30 text-sky-100 hover:bg-sky-600/50"
+            >
+              {language === 'zh' ? '总结' : 'Summary'}
+            </button>
+            <button
+              type="button"
+              onClick={handleCreateShareLink}
+              className="h-9 inline-flex items-center whitespace-nowrap text-xs px-3 rounded-lg border border-violet-500/70 bg-violet-600/30 text-violet-100 hover:bg-violet-600/50"
+              title={shareStatus || undefined}
+            >
+              {language === 'zh' ? '分享' : 'Share'}
+            </button>
+            {lessonDone && (
+              <Link
+                href="/study-plan"
+                className="h-9 inline-flex items-center whitespace-nowrap text-xs px-3 rounded-lg border border-emerald-500/70 bg-emerald-600/30 text-emerald-100 hover:bg-emerald-600/50"
+              >
+                {language === 'zh' ? '返回学习计划' : 'Back to study plan'}
+              </Link>
+            )}
+          </div>
         </div>
       </header>
 

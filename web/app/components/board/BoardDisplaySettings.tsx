@@ -84,7 +84,7 @@ export default function BoardDisplaySettings({ prefs, onChange, language }: Prop
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700 flex items-center gap-1"
+        className="h-9 inline-flex items-center whitespace-nowrap text-xs px-3 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700 gap-1"
         aria-label={language === 'zh' ? '显示设置' : 'Display settings'}
         aria-expanded={open}
       >

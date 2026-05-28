@@ -209,7 +209,7 @@ export default function NarrationPlayer({
   }, [])
 
   return (
-    <div className="inline-flex flex-wrap items-center gap-1.5 sm:gap-2">
+    <div className="inline-flex items-center gap-2">
       <audio
         ref={audioRef}
         onEnded={handleEnded}
@@ -219,7 +219,7 @@ export default function NarrationPlayer({
       <button
         type="button"
         onClick={() => setPaused(p => !p)}
-        className="whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700"
+        className="h-9 inline-flex items-center whitespace-nowrap text-xs px-3 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700"
         aria-pressed={paused}
         aria-label={paused ? 'Resume audio narration' : 'Pause audio narration'}
         title={paused ? 'Resume audio narration' : 'Pause audio narration'}
@@ -231,7 +231,7 @@ export default function NarrationPlayer({
       <button
         type="button"
         onClick={() => setMuted(m => !m)}
-        className="whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700"
+        className="h-9 inline-flex items-center whitespace-nowrap text-xs px-3 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700"
         aria-pressed={muted}
       >
         {language === 'zh'
@@ -247,7 +247,7 @@ export default function NarrationPlayer({
           onChange={e => setSpeed(Number(e.target.value))}
           aria-label={language === 'zh' ? '朗读速度 Playback speed' : 'Playback speed'}
           title={language === 'zh' ? '朗读速度 Playback speed' : 'Playback speed'}
-          className="text-xs px-2 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-500"
+          className="h-9 text-xs px-3 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-500"
         >
           <option value={0.8}>0.8×</option>
           <option value={1}>1×</option>

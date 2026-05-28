@@ -47,7 +47,7 @@ class APIResponse:
 @dataclass
 class StreamChunk:
     """A chunk from a streaming LLM response"""
-    chunk_type: str  # "content_delta", "tool_call_delta", "tool_call_complete", "done", "error"
+    chunk_type: str  # "content_delta", "reasoning_delta", "tool_call_delta", "tool_call_complete", "done", "error"
     content: str = ""
     tool_call_index: int = 0
     tool_call_id: str = ""
@@ -414,6 +414,20 @@ class DeepSeekClient:
                             yield StreamChunk(
                                 chunk_type="content_delta",
                                 content=delta["content"],
+                            )
+
+                        # Some DeepSeek thinking-mode responses include
+                        # reasoning_content even when the request did not
+                        # explicitly ask for it. If the assistant turn also
+                        # contains tool calls, DeepSeek expects that
+                        # reasoning_content to be passed back in the next
+                        # request. Surface it so orchestrators can preserve
+                        # the provider-required field without showing it to
+                        # users.
+                        if "reasoning_content" in delta and delta["reasoning_content"]:
+                            yield StreamChunk(
+                                chunk_type="reasoning_delta",
+                                content=delta["reasoning_content"],
                             )
 
                         # Tool call deltas
