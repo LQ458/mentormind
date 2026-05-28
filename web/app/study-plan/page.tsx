@@ -544,6 +544,10 @@ export default function StudyPlanPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  const latestOptionMessageId = [...chatMessages]
+    .reverse()
+    .find((message) => message.role === 'assistant' && message.options && message.options.length > 0)?.id
+
   return (
     <div className="space-y-8">
       <PageHead
@@ -958,7 +962,7 @@ export default function StudyPlanPage() {
                       : 'AI Advisor'}
                   </div>
                   <AssistantMessage content={message.content} />
-                  {message.role === 'assistant' && message.options && message.options.length > 0 && (
+                  {message.role === 'assistant' && message.id === latestOptionMessageId && message.options && message.options.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-3">
                       {message.options.map((opt, oi) => (
                         <button

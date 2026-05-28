@@ -189,7 +189,19 @@ def _has_timeline_signal(text: str) -> bool:
         for token in [
             "exam", "test", "deadline", "before", " by ", "may", "june",
             "july", "august", "september", "october", "november", "december",
-            "考试", "截止", "考前", "之前", "几号", "时间",
+            "not sure", "unsure", "unknown", "no idea",
+            "考试", "截止", "考前", "之前", "几号", "时间", "还不确定", "不确定", "不知道",
+        ]
+    )
+
+
+def _has_level_signal(text: str) -> bool:
+    t = text.lower()
+    return any(
+        token in t
+        for token in [
+            "beginner", "intermediate", "advanced", "weak", "strong", "score",
+            "target", "基础", "零基础", "初学", "一般", "中等", "熟悉", "薄弱", "目标", "分数", "目标分",
         ]
     )
 
@@ -375,6 +387,26 @@ class StudyPlanAgent:
                 ["Within 4 weeks", "1-3 months", "3+ months", "Not sure"]
                 if language == "en"
                 else ["4周内", "1-3个月", "3个月以上", "还不确定"]
+            )
+            return PlanResponse(
+                stage=PlanStage.DIAGNOSTIC,
+                content=content,
+                diagnostic_question=content,
+                options=options,
+                allow_free_text=True,
+                detected_subject=_detection_to_dict(detection),
+            )
+
+        if detection and detection.course_id and _has_timeline_signal(user_text) and not _has_level_signal(user_text):
+            content = (
+                f"Got it. What is your current level in {detection.course_name}, and what score or outcome are you aiming for?"
+                if language == "en"
+                else f"明白。你现在学 {detection.course_name} 的基础大概怎样？目标分数或目标结果是什么？"
+            )
+            options = (
+                ["Weak foundation", "Average", "Strong", "Top score"]
+                if language == "en"
+                else ["基础薄弱", "中等水平", "基础较好", "冲高分"]
             )
             return PlanResponse(
                 stage=PlanStage.DIAGNOSTIC,
