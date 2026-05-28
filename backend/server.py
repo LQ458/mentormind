@@ -1813,7 +1813,7 @@ async def get_status():
     # External service probes
     funasr_endpoint = os.getenv("FUNASR_ENDPOINT", "http://localhost:10095")
     paddle_endpoint = os.getenv("PADDLE_OCR_ENDPOINT", "http://localhost:8866")
-    deepseek_key = os.getenv("SILICONFLOW_API_KEY")
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY")
 
     funasr_ext, paddle_ext = await asyncio.gather(
         probe(funasr_endpoint),

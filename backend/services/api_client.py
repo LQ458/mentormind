@@ -129,14 +129,29 @@ class APIRetryManager:
 
 
 class DeepSeekClient:
-    """Client for DeepSeek API with resilience patterns"""
+    """Client for DeepSeek official API with resilience patterns.
+
+    Production defaults to DeepSeek official V4:
+    - short/medium calls -> deepseek-v4-flash
+    - long generation calls -> deepseek-v4-pro
+
+    If DEEPSEEK_API_KEY is missing, it falls back to the legacy SiliconFlow
+    key/path so local legacy environments do not crash before envs are updated.
+    """
     
     def __init__(self):
-        self.api_key = os.getenv("SILICONFLOW_API_KEY")
-        if not self.api_key:
-            raise ValueError("SILICONFLOW_API_KEY not set in environment variables")
+        self.provider = "deepseek_official"
+        self.api_key = os.getenv("DEEPSEEK_API_KEY")
+        self.base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
 
-        self.base_url = "https://api.siliconflow.cn/v1"
+        if not self.api_key:
+            self.provider = "siliconflow_legacy"
+            self.api_key = os.getenv("SILICONFLOW_API_KEY")
+            self.base_url = "https://api.siliconflow.cn/v1"
+
+        if not self.api_key:
+            raise ValueError("DEEPSEEK_API_KEY not set in environment variables")
+
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -155,11 +170,32 @@ class DeepSeekClient:
         )
         self.circuit_breaker = circuit_breaker_manager.get_circuit_breaker("deepseek_api", cb_config)
         self.logger = logging.getLogger(__name__)
+
+    def _select_model(self, requested_model: Optional[str], max_tokens: int) -> str:
+        if self.provider != "deepseek_official":
+            return requested_model or os.getenv("SILICONFLOW_DEFAULT_MODEL", "Pro/zai-org/GLM-5.1")
+
+        flash_model = os.getenv("DEEPSEEK_FLASH_MODEL", "deepseek-v4-flash")
+        pro_model = os.getenv("DEEPSEEK_PRO_MODEL", "deepseek-v4-pro")
+        if requested_model and requested_model.startswith("deepseek-v4-"):
+            return requested_model
+
+        # Legacy callers pass SiliconFlow model ids. Map them to V4 instead of
+        # leaking provider-specific ids into the official DeepSeek endpoint.
+        return pro_model if max_tokens >= 1800 else flash_model
+
+    def _thinking_payload(self) -> Optional[Dict[str, str]]:
+        if self.provider != "deepseek_official":
+            return None
+        mode = os.getenv("DEEPSEEK_THINKING", "disabled").strip().lower()
+        if mode in {"enabled", "disabled"}:
+            return {"type": mode}
+        return None
     
     async def chat_completion(
         self,
         messages: list,
-        model: str = "Pro/zai-org/GLM-5.1",
+        model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 2000
     ) -> APIResponse:
@@ -173,7 +209,8 @@ class DeepSeekClient:
                 messages=messages,
                 model=model,
                 temperature=temperature,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                thinking=self._thinking_payload(),
             )
         except Exception as e:
             # Convert circuit breaker exceptions to APIResponse
@@ -194,9 +231,10 @@ class DeepSeekClient:
     async def _chat_completion_with_retry(
         self,
         messages: list,
-        model: str = "Pro/zai-org/GLM-5.1",
+        model: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2000
+        max_tokens: int = 2000,
+        thinking: Optional[Dict[str, str]] = None,
     ) -> APIResponse:
         """
         Chat completion with retry logic (called by circuit breaker)
@@ -206,28 +244,33 @@ class DeepSeekClient:
             messages=messages,
             model=model,
             temperature=temperature,
-            max_tokens=max_tokens
+            max_tokens=max_tokens,
+            thinking=thinking,
         )
     
     async def _chat_completion_raw(
         self,
         messages: list,
-        model: str = "Pro/zai-org/GLM-5.1",
+        model: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2000
+        max_tokens: int = 2000,
+        thinking: Optional[Dict[str, str]] = None,
     ) -> APIResponse:
         """
         Raw chat completion call without retry logic
         """
         url = f"{self.base_url}/chat/completions"
         
+        selected_model = self._select_model(model, max_tokens)
         payload = {
-            "model": model,
+            "model": selected_model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False
         }
+        if thinking:
+            payload["thinking"] = thinking
         
         try:
             connector = aiohttp.TCPConnector(verify_ssl=config.VERIFY_SSL)
@@ -993,33 +1036,13 @@ class APIClient:
         temperature: float = 0.4,
         max_tokens: int = 2000,
     ) -> APIResponse:
-        provider = os.getenv("STUDY_PLAN_LLM_PROVIDER", "siliconflow").strip().lower()
-
-        if provider in {"deepseek", "deepseek_direct", "deepseek-official"} and hasattr(self, "deepseek_direct"):
-            is_plan = phase == "plan_review"
-            model = os.getenv(
-                "STUDY_PLAN_PLAN_MODEL" if is_plan else "STUDY_PLAN_DIAGNOSTIC_MODEL",
-                "deepseek-v4-pro" if is_plan else "deepseek-v4-flash",
-            )
-            thinking_mode = os.getenv(
-                "STUDY_PLAN_PLAN_THINKING" if is_plan else "STUDY_PLAN_DIAGNOSTIC_THINKING",
-                "disabled",
-            ).strip().lower()
-            result = await self.deepseek_direct.chat_completion(
-                messages=messages,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                thinking={"type": thinking_mode} if thinking_mode in {"enabled", "disabled"} else None,
-                reasoning_effort=os.getenv("STUDY_PLAN_REASONING_EFFORT") if thinking_mode == "enabled" else None,
-            )
-            if result.success:
-                return result
-            self.logger.warning("DeepSeek direct study-plan call failed: %s", result.error)
-
+        is_plan = phase == "plan_review"
         return await self.deepseek.chat_completion(
             messages=messages,
-            model=os.getenv("STUDY_PLAN_SILICONFLOW_MODEL", "Pro/zai-org/GLM-5.1"),
+            model=os.getenv(
+                "STUDY_PLAN_PLAN_MODEL" if is_plan else "STUDY_PLAN_DIAGNOSTIC_MODEL",
+                "deepseek-v4-pro" if is_plan else "deepseek-v4-flash",
+            ),
             temperature=temperature,
             max_tokens=max_tokens,
         )
