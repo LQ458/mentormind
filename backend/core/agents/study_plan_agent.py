@@ -157,6 +157,43 @@ def _detection_to_dict(detection: SubjectDetection) -> Dict[str, Any]:
     }
 
 
+_COURSE_LABEL_ZH = {
+    "ap_calculus_ab": "微积分AB",
+    "ap_calculus_bc": "微积分BC",
+    "ap_statistics": "统计学",
+}
+
+
+def _course_label(course: Dict[str, Any], language: str) -> str:
+    if language == "zh":
+        return _COURSE_LABEL_ZH.get(course.get("id"), course.get("name", ""))
+    return course.get("name", "")
+
+
+def _course_options(framework: Optional[str], subject: Optional[str], language: str) -> List[str]:
+    if not framework or not subject:
+        return []
+    catalog = _get_catalog(framework)
+    options = [
+        _course_label(course, language)
+        for course in catalog.get("courses", [])
+        if course.get("subject") == subject
+    ]
+    return [option for option in options if option][:4]
+
+
+def _has_timeline_signal(text: str) -> bool:
+    t = text.lower()
+    return any(
+        token in t
+        for token in [
+            "exam", "test", "deadline", "before", " by ", "may", "june",
+            "july", "august", "september", "october", "november", "december",
+            "考试", "截止", "考前", "之前", "几号", "时间",
+        ]
+    )
+
+
 class StudyPlanAgent:
     """Manages the conversational stages for whole-course study plan creation.
 
@@ -184,8 +221,16 @@ class StudyPlanAgent:
         user_messages = [m for m in history if m["role"] == "user"]
         first_user = user_messages[0]["content"] if user_messages else ""
 
+        joined_user_text = " ".join(m["content"] for m in user_messages)
+
         detection: Optional[SubjectDetection] = None
-        if first_user:
+        if preselected_framework or preselected_subject:
+            # The picker UI already gave us high-confidence subject/framework.
+            # Avoid an LLM classifier call on vague diagnostic text like
+            # "3-5 hours per week"; it adds latency to the chip-click path and
+            # can push production requests into gateway timeouts.
+            detection = self.subject_detector.detect_fast(joined_user_text or first_user)
+        elif first_user:
             detection = await self.subject_detector.detect(first_user, language)
 
         # Honour the user-selected framework/subject from the picker over auto-detect.
@@ -212,8 +257,7 @@ class StudyPlanAgent:
                 or not detection.course_id.startswith(preselected_framework + "_")
             ):
                 from core.agents.subject_detector import _detect_course
-                joined = " ".join(m["content"] for m in user_messages).lower()
-                course = _detect_course(joined, framework=preselected_framework)
+                course = _detect_course(joined_user_text.lower(), framework=preselected_framework)
                 if course:
                     detection.course_id = course["id"]
                     detection.course_name = course.get("name")
@@ -246,7 +290,7 @@ class StudyPlanAgent:
             return await self._handle_plan_review(history, language, lang_instruction, detection, fast=True)
 
         if current_stage == PlanStage.OPENING:
-            return await self._handle_opening(history, language, lang_instruction)
+            return await self._handle_opening(history, language, lang_instruction, preselected_subject, preselected_framework)
         elif current_stage == PlanStage.DIAGNOSTIC:
             return await self._handle_diagnostic(history, language, lang_instruction, preselected_subject, preselected_framework)
         elif current_stage == PlanStage.PLAN_REVIEW:
@@ -257,11 +301,24 @@ class StudyPlanAgent:
 
         return PlanResponse(stage=PlanStage.OPENING, content="Ready to build your study plan?")
 
-    async def _handle_opening(self, history, language, lang_instr) -> PlanResponse:
+    async def _handle_opening(
+        self,
+        history,
+        language,
+        lang_instr,
+        preselected_subject: Optional[str] = None,
+        preselected_framework: Optional[str] = None,
+    ) -> PlanResponse:
         """Stage 1: Ask what subject and exam framework the student is preparing for."""
         if history and history[-1]["role"] == "user":
             # User already provided input — move to diagnostic (detection runs there)
-            return await self._handle_diagnostic(history, language, lang_instr)
+            return await self._handle_diagnostic(
+                history,
+                language,
+                lang_instr,
+                preselected_subject,
+                preselected_framework,
+            )
 
         content = (
             "What subject and exam framework are you preparing for? "
@@ -289,6 +346,44 @@ class StudyPlanAgent:
         # Hard cap: after MAX_DIAGNOSTIC_TURNS turns, force plan generation
         if diagnostic_turns >= MAX_DIAGNOSTIC_TURNS:
             return await self._handle_plan_review(history, language, lang_instr, detection, fast=True)
+
+        if detection and preselected_subject and preselected_framework and not detection.course_id:
+            options = _course_options(preselected_framework, preselected_subject, language)
+            if options:
+                content = (
+                    "Got it. Which exact course should this plan follow?"
+                    if language == "en"
+                    else "明白了。这个计划具体要按哪门课程来安排？"
+                )
+                return PlanResponse(
+                    stage=PlanStage.DIAGNOSTIC,
+                    content=content,
+                    diagnostic_question=content,
+                    options=options,
+                    allow_free_text=True,
+                    detected_subject=_detection_to_dict(detection),
+                )
+
+        user_text = " ".join(m["content"] for m in history if m["role"] == "user")
+        if detection and detection.course_id and not _has_timeline_signal(user_text):
+            content = (
+                f"Great, I’ll anchor the plan to {detection.course_name}. When is your exam or target deadline?"
+                if language == "en"
+                else f"好的，我会按 {detection.course_name} 来规划。你的考试或目标完成时间大概是什么时候？"
+            )
+            options = (
+                ["Within 4 weeks", "1-3 months", "3+ months", "Not sure"]
+                if language == "en"
+                else ["4周内", "1-3个月", "3个月以上", "还不确定"]
+            )
+            return PlanResponse(
+                stage=PlanStage.DIAGNOSTIC,
+                content=content,
+                diagnostic_question=content,
+                options=options,
+                allow_free_text=True,
+                detected_subject=_detection_to_dict(detection),
+            )
 
         subject_ctx = ""
         if detection:
