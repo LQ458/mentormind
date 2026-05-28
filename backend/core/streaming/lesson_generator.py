@@ -115,6 +115,74 @@ class StreamingLessonGenerator:
             return
         self.user_message_queue.put_nowait(text.strip())
 
+    def _build_initial_messages(
+        self,
+        topic: str,
+        language: str,
+        student_level: str,
+        duration_minutes: int,
+        custom_requirements: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        req_section = ""
+        if custom_requirements:
+            req_section = f"\n## Additional Requirements\n\n{custom_requirements}\n"
+
+        system_prompt = render_prompt(
+            "board/board_lesson",
+            topic=topic,
+            student_level=student_level,
+            language_instruction=get_language_instruction(language),
+            duration_minutes=str(duration_minutes),
+            custom_requirements_section=req_section,
+        )
+
+        user_content = f"Please teach a lesson on: {topic}"
+        if custom_requirements:
+            user_content += f"\n\nAdditional requirements: {custom_requirements}"
+
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+
+    def _build_resume_messages(
+        self,
+        resume_messages: List[Dict[str, Any]],
+        topic: str,
+        language: str,
+        student_level: str,
+        duration_minutes: int,
+        custom_requirements: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        messages = self._build_initial_messages(
+            topic=topic,
+            language=language,
+            student_level=student_level,
+            duration_minutes=duration_minutes,
+            custom_requirements=custom_requirements,
+        )
+        last_user = next(
+            (
+                msg.get("content", "").strip()
+                for msg in reversed(resume_messages or [])
+                if isinstance(msg, dict)
+                and msg.get("role") == "user"
+                and isinstance(msg.get("content"), str)
+                and msg.get("content", "").strip()
+            ),
+            "",
+        )
+
+        continuation = (
+            f"Continue the existing board lesson on: {topic}.\n"
+            "The board state has already been restored from saved events, so do not recreate the initial board or repeat completed setup. "
+            "Continue with the next useful teaching step."
+        )
+        if last_user and not last_user.startswith("Please teach a lesson on:"):
+            continuation += f"\nMost recent student message: {last_user}"
+        messages.append({"role": "user", "content": continuation})
+        return messages
+
     async def generate_lesson(
         self,
         topic: str,
@@ -132,29 +200,22 @@ class StreamingLessonGenerator:
         """
 
         if resume_messages:
-            messages: List[Dict[str, Any]] = list(resume_messages)
-        else:
-            req_section = ""
-            if custom_requirements:
-                req_section = f"\n## Additional Requirements\n\n{custom_requirements}\n"
-
-            system_prompt = render_prompt(
-                "board/board_lesson",
+            messages = self._build_resume_messages(
+                resume_messages=resume_messages,
                 topic=topic,
+                language=language,
                 student_level=student_level,
-                language_instruction=get_language_instruction(language),
-                duration_minutes=str(duration_minutes),
-                custom_requirements_section=req_section,
+                duration_minutes=duration_minutes,
+                custom_requirements=custom_requirements,
             )
-
-            user_content = f"Please teach a lesson on: {topic}"
-            if custom_requirements:
-                user_content += f"\n\nAdditional requirements: {custom_requirements}"
-
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ]
+        else:
+            messages = self._build_initial_messages(
+                topic=topic,
+                language=language,
+                student_level=student_level,
+                duration_minutes=duration_minutes,
+                custom_requirements=custom_requirements,
+            )
 
         self._current_messages = messages
 

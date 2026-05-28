@@ -33,6 +33,15 @@ class FakeStreamingLLM:
         yield StreamChunk(chunk_type="done")
 
 
+class CapturingStreamingLLM:
+    def __init__(self):
+        self.messages = None
+
+    async def chat_completion_stream(self, *args, **kwargs):
+        self.messages = kwargs["messages"]
+        yield StreamChunk(chunk_type="done")
+
+
 @pytest.mark.asyncio
 async def test_streaming_generator_does_not_persist_reasoning_content():
     llm = FakeStreamingLLM()
@@ -55,3 +64,41 @@ async def test_streaming_generator_does_not_persist_reasoning_content():
     ]
     assert assistant_messages
     assert "reasoning_content" not in assistant_messages[-1]
+
+
+@pytest.mark.asyncio
+async def test_resumed_lesson_does_not_replay_saved_tool_history():
+    llm = CapturingStreamingLLM()
+    generator = StreamingLessonGenerator(llm_client=llm, follow_up_timeout_s=0.01)
+    resume_messages = [
+        {"role": "system", "content": "old system"},
+        {"role": "user", "content": "Please teach a lesson on: limits"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "board_create", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_1", "content": "{}"},
+    ]
+
+    events = [
+        event
+        async for event in generator.generate_lesson(
+            topic="limits",
+            language="en",
+            duration_minutes=1,
+            resume_messages=resume_messages,
+        )
+    ]
+
+    assert events == []
+    assert llm.messages
+    assert not any(message.get("role") == "tool" for message in llm.messages)
+    assert not any("tool_calls" in message for message in llm.messages)
+    assert "Continue the existing board lesson" in llm.messages[-1]["content"]
