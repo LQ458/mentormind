@@ -318,14 +318,14 @@ function BoardSessionInner() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       {/* Top bar */}
-      <header className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-3 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
-        <div className="min-w-0 flex-1">
+      <header className="flex flex-wrap items-start justify-between gap-3 px-3 sm:px-6 py-3 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+        <div className="min-w-0 flex-1 basis-full sm:basis-64">
           <h1 className="text-base sm:text-lg font-semibold truncate">{title}</h1>
           {topic && topic !== title && (
             <p className="text-xs text-slate-400 truncate">{topic}</p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full sm:w-auto max-w-full flex-wrap items-center justify-start sm:justify-end gap-1.5 sm:gap-2">
           <span className={`text-xs px-2 py-0.5 rounded-full border ${
             paused ? 'border-amber-400/60 text-amber-200 bg-amber-500/10' :
             state.status === 'streaming' ? 'border-emerald-400/60 text-emerald-200 bg-emerald-500/10' :
@@ -350,7 +350,7 @@ function BoardSessionInner() {
           <button
             type="button"
             onClick={handlePauseToggle}
-            className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
+            className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
           >
             {paused
               ? (language === 'zh' ? '继续讲课' : 'Resume lesson')
@@ -364,7 +364,7 @@ function BoardSessionInner() {
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700 flex items-center gap-1"
+            className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700 flex items-center gap-1"
             aria-label={isFullscreen
               ? (language === 'zh' ? '退出全屏' : 'Exit fullscreen')
               : (language === 'zh' ? '进入全屏' : 'Enter fullscreen')}
@@ -391,14 +391,14 @@ function BoardSessionInner() {
           <button
             type="button"
             onClick={() => setMuted(m => !m)}
-            className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
+            className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
           >
             {muted ? (language === 'zh' ? '启用字幕' : 'Subtitles on') : (language === 'zh' ? '仅字幕' : 'Subtitles only')}
           </button>
           <button
             type="button"
             onClick={() => setChatOpen(v => !v)}
-            className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
+            className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
           >
             {chatOpen
               ? (language === 'zh' ? '隐藏对话' : 'Hide chat')
@@ -407,14 +407,14 @@ function BoardSessionInner() {
           <button
             type="button"
             onClick={() => setSummaryOpen(true)}
-            className="text-xs px-3 py-1.5 rounded-lg border border-sky-500/70 bg-sky-600/30 text-sky-100 hover:bg-sky-600/50"
+            className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-sky-500/70 bg-sky-600/30 text-sky-100 hover:bg-sky-600/50"
           >
             {language === 'zh' ? '总结' : 'Summary'}
           </button>
           <button
             type="button"
             onClick={handleCreateShareLink}
-            className="text-xs px-3 py-1.5 rounded-lg border border-violet-500/70 bg-violet-600/30 text-violet-100 hover:bg-violet-600/50"
+            className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-violet-500/70 bg-violet-600/30 text-violet-100 hover:bg-violet-600/50"
             title={shareStatus || undefined}
           >
             {language === 'zh' ? '分享' : 'Share'}
@@ -422,7 +422,7 @@ function BoardSessionInner() {
           {lessonDone && (
             <Link
               href="/study-plan"
-              className="text-xs px-3 py-1.5 rounded-lg border border-emerald-500/70 bg-emerald-600/30 text-emerald-100 hover:bg-emerald-600/50"
+              className="whitespace-nowrap text-xs px-2.5 sm:px-3 py-1.5 rounded-lg border border-emerald-500/70 bg-emerald-600/30 text-emerald-100 hover:bg-emerald-600/50"
             >
               {language === 'zh' ? '返回学习计划' : 'Back to study plan'}
             </Link>
@@ -474,8 +474,8 @@ function BoardSessionInner() {
       </div>
 
       {/* Canvas + chat area */}
-      <main className="flex-1 min-h-0 px-4 sm:px-6 pb-4 pt-3">
-        <div className="flex flex-col lg:flex-row gap-3 h-[calc(100vh-200px)] md:h-[calc(100vh-260px)] lg:h-[calc(100vh-320px)] min-h-[480px]">
+      <main className="flex-1 min-h-0 px-3 sm:px-6 pb-4 pt-3">
+        <div className="flex flex-col lg:flex-row gap-3 h-[calc(100dvh-260px)] sm:h-[calc(100dvh-230px)] lg:h-[calc(100dvh-320px)] min-h-[420px]">
           <div
             ref={fullscreenRef}
             className={`relative flex-1 min-w-0 ${displayPrefs.highContrast ? 'board-high-contrast' : ''} ${isFullscreen ? 'bg-slate-950 p-4' : ''}`}
@@ -498,7 +498,7 @@ function BoardSessionInner() {
               </div>
             )}
             {state.error && (
-              <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-rose-600/80 text-white text-xs px-3 py-1.5 rounded-lg">
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 max-w-[calc(100%-1rem)] bg-rose-600/85 text-white text-xs px-3 py-2 rounded-lg break-words">
                 {state.error}
               </div>
             )}
@@ -545,7 +545,7 @@ function BoardSessionInner() {
 
       {/* Bottom controls */}
       <footer className="border-t border-slate-800 bg-slate-900/80 backdrop-blur px-4 sm:px-6 py-3">
-        <div className="flex flex-wrap items-start gap-3">
+        <div className="flex flex-wrap items-start gap-2 sm:gap-3">
           <VoiceInput
             language={language === 'zh' ? 'zh-CN' : 'en-US'}
             onTranscript={(text, isFinal) => {
@@ -562,13 +562,13 @@ function BoardSessionInner() {
                 ? '向 AI 老师提问…（回车发送，Shift+回车换行）'
                 : 'Ask the AI teacher anything… (Enter to send, Shift+Enter for newline)'
             }
-            className="flex-1 min-w-[240px] text-sm bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 placeholder:text-slate-500 resize-none"
+            className="flex-1 min-w-[180px] text-sm bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 placeholder:text-slate-500 resize-none"
           />
           <button
             type="button"
             onClick={handleSend}
             disabled={!draft.trim() || state.status === 'error'}
-            className="text-xs px-4 py-2 rounded-lg border border-sky-500/70 bg-sky-600/40 text-sky-50 hover:bg-sky-600/60 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="whitespace-nowrap text-xs px-3 sm:px-4 py-2 rounded-lg border border-sky-500/70 bg-sky-600/40 text-sky-50 hover:bg-sky-600/60 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {language === 'zh' ? '发送' : 'Send'}
           </button>

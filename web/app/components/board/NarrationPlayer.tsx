@@ -209,7 +209,7 @@ export default function NarrationPlayer({
   }, [])
 
   return (
-    <div className="inline-flex items-center gap-2">
+    <div className="inline-flex flex-wrap items-center gap-1.5 sm:gap-2">
       <audio
         ref={audioRef}
         onEnded={handleEnded}
@@ -219,23 +219,23 @@ export default function NarrationPlayer({
       <button
         type="button"
         onClick={() => setPaused(p => !p)}
-        className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700"
+        className="whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700"
         aria-pressed={paused}
         aria-label={paused ? 'Resume audio narration' : 'Pause audio narration'}
         title={paused ? 'Resume audio narration' : 'Pause audio narration'}
       >
         {language === 'zh'
-          ? paused ? '继续朗读 Resume audio' : '暂停朗读 Pause audio'
+          ? paused ? '继续朗读' : '暂停朗读'
           : paused ? 'Resume audio' : 'Pause audio'}
       </button>
       <button
         type="button"
         onClick={() => setMuted(m => !m)}
-        className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700"
+        className="whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-200 hover:bg-slate-700"
         aria-pressed={muted}
       >
         {language === 'zh'
-          ? muted ? '取消静音 Unmute' : '静音 Mute'
+          ? muted ? '取消静音' : '静音'
           : muted ? 'Unmute' : 'Mute'}
       </button>
       <label className="inline-flex items-center gap-1">
