@@ -467,9 +467,11 @@ Tailor the question to {detection.framework.upper().replace('_', ' ') if detecti
 
 Keep total response ≤ 60 words excluding the ask_user block.
 """
-        response = await api_client.deepseek.chat_completion(
+        response = await api_client.study_plan_chat_completion(
             messages=[{"role": "user", "content": prompt}],
+            phase="diagnostic",
             temperature=0.6,
+            max_tokens=800,
         )
         content = response.data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
 
@@ -572,8 +574,9 @@ Output format — text first, then the JSON block:
 }}
 ```
 """
-        response = await api_client.deepseek.chat_completion(
+        response = await api_client.study_plan_chat_completion(
             messages=[{"role": "user", "content": prompt}],
+            phase="plan_review",
             temperature=0.4,
             max_tokens=3000,
         )

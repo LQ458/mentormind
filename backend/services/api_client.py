@@ -873,7 +873,7 @@ class DeepSeekDirectClient:
 
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.base_url = "https://api.deepseek.com/v1"
+        self.base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -882,9 +882,11 @@ class DeepSeekDirectClient:
     async def chat_completion(
         self,
         messages: list,
-        model: str = "deepseek-chat",
+        model: str = "deepseek-v4-flash",
         temperature: float = 0.7,
         max_tokens: int = 2000,
+        thinking: Optional[Dict[str, str]] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> APIResponse:
         url = f"{self.base_url}/chat/completions"
         payload = {
@@ -894,6 +896,10 @@ class DeepSeekDirectClient:
             "max_tokens": max_tokens,
             "stream": False,
         }
+        if thinking:
+            payload["thinking"] = thinking
+        if reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
         try:
             connector = aiohttp.TCPConnector(verify_ssl=config.VERIFY_SSL)
             async with aiohttp.ClientSession(connector=connector) as session:
@@ -979,6 +985,44 @@ class APIClient:
                 self.deepseek_direct = DeepSeekDirectClient(deepseek_key)
             except Exception:
                 self.logger.warning("Failed to init DeepSeek direct client")
+
+    async def study_plan_chat_completion(
+        self,
+        messages: list,
+        phase: str,
+        temperature: float = 0.4,
+        max_tokens: int = 2000,
+    ) -> APIResponse:
+        provider = os.getenv("STUDY_PLAN_LLM_PROVIDER", "siliconflow").strip().lower()
+
+        if provider in {"deepseek", "deepseek_direct", "deepseek-official"} and hasattr(self, "deepseek_direct"):
+            is_plan = phase == "plan_review"
+            model = os.getenv(
+                "STUDY_PLAN_PLAN_MODEL" if is_plan else "STUDY_PLAN_DIAGNOSTIC_MODEL",
+                "deepseek-v4-pro" if is_plan else "deepseek-v4-flash",
+            )
+            thinking_mode = os.getenv(
+                "STUDY_PLAN_PLAN_THINKING" if is_plan else "STUDY_PLAN_DIAGNOSTIC_THINKING",
+                "disabled",
+            ).strip().lower()
+            result = await self.deepseek_direct.chat_completion(
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                thinking={"type": thinking_mode} if thinking_mode in {"enabled", "disabled"} else None,
+                reasoning_effort=os.getenv("STUDY_PLAN_REASONING_EFFORT") if thinking_mode == "enabled" else None,
+            )
+            if result.success:
+                return result
+            self.logger.warning("DeepSeek direct study-plan call failed: %s", result.error)
+
+        return await self.deepseek.chat_completion(
+            messages=messages,
+            model=os.getenv("STUDY_PLAN_SILICONFLOW_MODEL", "Pro/zai-org/GLM-5.1"),
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
     
     async def process_query(
         self,
