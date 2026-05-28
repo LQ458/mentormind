@@ -64,10 +64,10 @@ export default function PWAClient() {
   }, [])
 
   const installText = useMemo(() => ({
-    title: zh ? '添加到主屏幕' : 'Add to Home Screen',
+    title: zh ? '添加到桌面，方便下次打开' : 'Add shortcut for next time',
     install: zh ? '添加' : 'Add',
     later: zh ? '稍后' : 'Later',
-    offline: zh ? '当前离线。已缓存页面可继续打开，生成与保存需联网。' : 'Offline. Cached pages can reopen; generation and saving need a connection.',
+    offline: zh ? '已离线。联网后可继续生成和保存。' : 'You are offline. Connect to continue generating and saving.',
   }), [zh])
 
   const dismissInstall = () => {

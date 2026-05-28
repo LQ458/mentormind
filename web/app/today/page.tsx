@@ -34,15 +34,15 @@ export default function TodayPage() {
       <section className="mb-6">
         <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 py-1 text-sm text-[var(--ink-muted)]">
           <Flame size={14} />
-          {zh ? '每日入口' : 'Daily entry'}
+          {zh ? '今日' : 'Today'}
         </div>
         <h1 className="font-serif text-4xl font-normal leading-tight text-[var(--ink)]">
-          {zh ? '今天只完成一件最有价值的事。' : 'Do one valuable learning thing today.'}
+          {zh ? '今天先完成一件重要的事。' : 'Start with one useful step today.'}
         </h1>
         <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--ink-muted)]">
           {zh
-            ? '这里是 PWA 和移动端的轻入口：复习、继续计划、打开最近课程，减少第一次进入时的选择负担。'
-            : 'A lightweight PWA entry for review, plan continuation, and saved lessons so returning learners have less to decide.'}
+            ? '复习、继续计划、打开课程，都从这里开始。'
+            : 'Review, continue your plan, or reopen a lesson from one place.'}
         </p>
       </section>
 
@@ -61,7 +61,7 @@ export default function TodayPage() {
               <div className="min-w-0 flex-1">
                 <div className="text-base font-medium">{zh ? action.zh : action.en}</div>
                 <div className="text-sm text-[var(--ink-muted)]">
-                  {zh ? '适合手机桌面快捷入口' : 'Designed for mobile home-screen entry'}
+                  {zh ? '快速继续学习' : 'Continue quickly'}
                 </div>
               </div>
               <ArrowRight size={18} />
