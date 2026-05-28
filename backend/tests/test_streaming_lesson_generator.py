@@ -22,6 +22,7 @@ class FakeStreamingLLM:
         if self.calls == 1:
             yield StreamChunk(chunk_type="reasoning_delta", content="Need to create the board first. ")
             yield StreamChunk(chunk_type="reasoning_delta", content="Then add content.")
+            yield StreamChunk(chunk_type="content_delta", content="I will set up the board.")
             yield StreamChunk(
                 chunk_type="tool_call_complete",
                 tool_call_id="call_1",
@@ -66,6 +67,7 @@ async def test_streaming_generator_preserves_tool_call_reasoning_content():
     assert assistant_messages[-1]["reasoning_content"] == (
         "Need to create the board first. Then add content."
     )
+    assert assistant_messages[-1]["content"] == "I will set up the board."
 
 
 @pytest.mark.asyncio

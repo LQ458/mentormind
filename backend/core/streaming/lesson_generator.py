@@ -240,6 +240,7 @@ class StreamingLessonGenerator:
 
             tool_calls_in_round: List[Dict[str, Any]] = []
             follow_up_injected = False
+            assistant_content_parts: List[str] = []
             assistant_reasoning_parts: List[str] = []
 
             async for chunk in self.llm_client.chat_completion_stream(
@@ -340,6 +341,10 @@ class StreamingLessonGenerator:
                     )
                     return
 
+                elif chunk.chunk_type == "content_delta":
+                    if chunk.content:
+                        assistant_content_parts.append(chunk.content)
+
                 elif chunk.chunk_type == "reasoning_delta":
                     if chunk.content:
                         assistant_reasoning_parts.append(chunk.content)
@@ -378,13 +383,14 @@ class StreamingLessonGenerator:
                 }
                 for tc in tool_calls_in_round
             ]
+            assistant_content = "".join(assistant_content_parts).strip()
+            assistant_reasoning = "".join(assistant_reasoning_parts).strip()
             assistant_message: Dict[str, Any] = {
                 "role": "assistant",
+                "content": assistant_content,
+                "reasoning_content": assistant_reasoning,
                 "tool_calls": assistant_tool_calls,
             }
-            assistant_reasoning = "".join(assistant_reasoning_parts).strip()
-            if assistant_reasoning:
-                assistant_message["reasoning_content"] = assistant_reasoning
             messages.append(assistant_message)
 
             for tc in tool_calls_in_round:
