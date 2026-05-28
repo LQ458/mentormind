@@ -80,7 +80,17 @@ function statusLabel(status: string, lang: 'en' | 'zh'): string {
 
 // ---- Unit Card -----------------------------------------------------------
 
-function UnitCard({ unit, plan }: { unit: PlanUnit; plan: StudyPlan }) {
+function UnitCard({
+  unit,
+  plan,
+  deleting,
+  onDelete,
+}: {
+  unit: PlanUnit
+  plan: StudyPlan
+  deleting: boolean
+  onDelete: (planId: string, unitId: string) => void
+}) {
   const { language } = useLanguage()
   const { getToken } = useAuth()
   const router = useRouter()
@@ -132,6 +142,22 @@ function UnitCard({ unit, plan }: { unit: PlanUnit; plan: StudyPlan }) {
             {Math.round(unit.score)}%
           </span>
         )}
+        <button
+          type="button"
+          className="btn btn-sm btn-secondary"
+          onClick={() => onDelete(plan.id, unit.id)}
+          disabled={deleting || starting}
+          aria-label={lang === 'zh' ? '删除课程' : 'Delete lesson'}
+          title={lang === 'zh' ? '删除课程' : 'Delete lesson'}
+          style={{
+            marginLeft: unit.is_completed || unit.score !== null ? 0 : 'auto',
+            padding: '6px 8px',
+            color: 'var(--color-danger, #dc2626)',
+          }}
+        >
+          <Trash2 size={13} />
+          {lang === 'zh' ? '删除' : 'Delete'}
+        </button>
       </div>
 
       {/* Title */}
@@ -184,17 +210,21 @@ function PlanSection({
   collapsed,
   selected,
   deleting,
+  deletingUnitIds,
   onToggle,
   onSelect,
   onDelete,
+  onDeleteUnit,
 }: {
   plan: StudyPlan
   collapsed: boolean
   selected: boolean
   deleting: boolean
+  deletingUnitIds: Set<string>
   onToggle: (planId: string) => void
   onSelect: (planId: string) => void
   onDelete: (planId: string) => void
+  onDeleteUnit: (planId: string, unitId: string) => void
 }) {
   const { language } = useLanguage()
   const lang: 'en' | 'zh' = language === 'zh' ? 'zh' : 'en'
@@ -259,9 +289,21 @@ function PlanSection({
       {/* Units grid */}
       {!collapsed && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" style={{ marginTop: 16 }}>
-          {plan.units.map((unit) => (
-            <UnitCard key={unit.id} unit={unit} plan={plan} />
-          ))}
+          {plan.units.length > 0 ? (
+            plan.units.map((unit) => (
+              <UnitCard
+                key={unit.id}
+                unit={unit}
+                plan={plan}
+                deleting={deletingUnitIds.has(unit.id)}
+                onDelete={onDeleteUnit}
+              />
+            ))
+          ) : (
+            <div className="muted" style={{ fontSize: 13, padding: 12 }}>
+              {lang === 'zh' ? '这个计划下暂无课程。' : 'No lessons in this plan.'}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -306,6 +348,7 @@ export default function LessonsPage() {
   const [collapsedPlans, setCollapsedPlans] = useState<Set<string>>(new Set())
   const [selectedPlans, setSelectedPlans] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
+  const [deletingUnitIds, setDeletingUnitIds] = useState<Set<string>>(new Set())
 
   const fetchLibrary = useCallback(async (cancelledRef?: { current: boolean }) => {
       setLoading(true)
@@ -427,6 +470,40 @@ export default function LessonsPage() {
       setDeleting(false)
     }
   }, [getToken, lang, plans.length, selectedPlans])
+
+  const deleteOneUnit = useCallback(async (planId: string, unitId: string) => {
+    const ok = window.confirm(lang === 'zh' ? '删除这个课程？30天后会自动清空。' : 'Delete this lesson? It will be cleared after 30 days.')
+    if (!ok) return
+    setDeletingUnitIds((prev) => new Set(prev).add(unitId))
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = {}
+      if (token) headers.Authorization = `Bearer ${token}`
+      const res = await fetch(`/api/backend/study-plan/${planId}/unit/${unitId}`, { method: 'DELETE', headers })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.detail || `Delete failed (${res.status})`)
+      setPlans((prev) => prev.map((plan) => {
+        if (plan.id !== planId) return plan
+        const units = plan.units.filter((unit) => unit.id !== unitId)
+        return {
+          ...plan,
+          units,
+          progress_percentage: typeof data?.plan?.progress_percentage === 'number'
+            ? data.plan.progress_percentage
+            : plan.progress_percentage,
+          status: typeof data?.plan?.status === 'string' ? data.plan.status : plan.status,
+        }
+      }))
+    } catch {
+      setError(lang === 'zh' ? '课程删除失败，请重试。' : 'Lesson delete failed. Please try again.')
+    } finally {
+      setDeletingUnitIds((prev) => {
+        const next = new Set(prev)
+        next.delete(unitId)
+        return next
+      })
+    }
+  }, [getToken, lang])
 
   const selectedCount = selectedPlans.size
   const allSelected = plans.length > 0 && selectedCount === plans.length
@@ -581,9 +658,11 @@ export default function LessonsPage() {
               collapsed={collapsedPlans.has(plan.id)}
               selected={selectedPlans.has(plan.id)}
               deleting={deleting}
+              deletingUnitIds={deletingUnitIds}
               onToggle={togglePlan}
               onSelect={toggleSelectedPlan}
               onDelete={deleteOnePlan}
+              onDeleteUnit={deleteOneUnit}
             />
           ))}
         </>

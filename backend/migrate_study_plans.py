@@ -73,6 +73,8 @@ def migrate_study_plans():
                 generation_content_types JSONB,
                 generation_started_at TIMESTAMPTZ,
                 generation_cache_key VARCHAR(128),
+                deleted_at TIMESTAMPTZ,
+                purge_after TIMESTAMPTZ,
                 study_guide JSONB,
                 quiz JSONB,
                 flashcards JSONB,
@@ -95,6 +97,7 @@ def migrate_study_plans():
             "CREATE INDEX IF NOT EXISTS idx_study_plan_units_content_status ON study_plan_units (content_status);",
             "CREATE INDEX IF NOT EXISTS idx_study_plan_units_generation_task_id ON study_plan_units (generation_task_id);",
             "CREATE INDEX IF NOT EXISTS idx_study_plan_units_generation_cache_key ON study_plan_units (generation_cache_key);",
+            "CREATE INDEX IF NOT EXISTS idx_study_plan_units_purge_after ON study_plan_units (purge_after);",
         ]:
             conn.execute(text(idx_sql))
         conn.commit()
@@ -143,8 +146,11 @@ def migrate_study_plans():
             "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_content_types JSONB;",
             "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_started_at TIMESTAMPTZ;",
             "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_cache_key VARCHAR(128);",
+            "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;",
+            "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;",
             "CREATE INDEX IF NOT EXISTS idx_study_plan_units_generation_task_id ON study_plan_units (generation_task_id);",
             "CREATE INDEX IF NOT EXISTS idx_study_plan_units_generation_cache_key ON study_plan_units (generation_cache_key);",
+            "CREATE INDEX IF NOT EXISTS idx_study_plan_units_purge_after ON study_plan_units (purge_after);",
             "ALTER TABLE study_plans ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;",
             "ALTER TABLE study_plans ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;",
             "CREATE INDEX IF NOT EXISTS idx_study_plans_purge_after ON study_plans (purge_after);",

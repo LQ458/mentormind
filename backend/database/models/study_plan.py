@@ -130,7 +130,11 @@ class StudyPlan(Base):
         }
 
         if include_units and include_relationships:
-            result["units"] = [unit.to_dict() for unit in self.units]
+            result["units"] = [
+                unit.to_dict()
+                for unit in self.units
+                if unit.content_status != UnitStatus.DELETED.value
+            ]
 
         if include_relationships and self.framework == "gaokao":
             result["gaokao_sessions"] = [s.to_dict() for s in self.gaokao_sessions]
@@ -199,6 +203,8 @@ class StudyPlanUnit(Base):
     generation_content_types = Column(JSON, nullable=True)
     generation_started_at = Column(DateTime(timezone=True), nullable=True)
     generation_cache_key = Column(String(128), nullable=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    purge_after = Column(DateTime(timezone=True), nullable=True)
 
     # Generated content blobs
     study_guide = Column(JSON, nullable=True)
@@ -227,6 +233,7 @@ class StudyPlanUnit(Base):
         Index('idx_study_plan_units_content_status', 'content_status'),
         Index('idx_study_plan_units_generation_task_id', 'generation_task_id'),
         Index('idx_study_plan_units_generation_cache_key', 'generation_cache_key'),
+        Index('idx_study_plan_units_purge_after', 'purge_after'),
     )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -246,6 +253,8 @@ class StudyPlanUnit(Base):
             "generation_content_types": self.generation_content_types,
             "generation_started_at": self.generation_started_at.isoformat() if self.generation_started_at else None,
             "generation_cache_key": self.generation_cache_key,
+            "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
+            "purge_after": self.purge_after.isoformat() if self.purge_after else None,
             "study_guide": self.study_guide,
             "quiz": self.quiz,
             "flashcards": self.flashcards,

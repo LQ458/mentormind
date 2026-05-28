@@ -197,6 +197,7 @@ class UnitStatus(str, Enum):
     GENERATING = "generating"
     READY = "ready"
     FAILED = "failed"
+    DELETED = "deleted"
 
 
 class PlanStatus(str, Enum):

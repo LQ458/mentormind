@@ -3159,11 +3159,55 @@ def _purge_expired_deleted_study_plans(db: Session) -> int:
     return int(deleted or 0)
 
 
+def _purge_expired_deleted_study_plan_units(db: Session) -> int:
+    now = datetime.utcnow()
+    deleted = (
+        db.query(StudyPlanUnit)
+        .filter(StudyPlanUnit.content_status == "deleted")
+        .filter(StudyPlanUnit.purge_after.isnot(None))
+        .filter(StudyPlanUnit.purge_after <= now)
+        .delete(synchronize_session=False)
+    )
+    if deleted:
+        db.commit()
+    return int(deleted or 0)
+
+
 def _soft_delete_study_plan(plan: StudyPlan) -> None:
     now = datetime.utcnow()
     plan.status = "deleted"
     plan.deleted_at = now
     plan.purge_after = now + timedelta(days=STUDY_PLAN_DELETE_RETENTION_DAYS)
+
+
+def _soft_delete_study_plan_unit(unit: StudyPlanUnit) -> None:
+    now = datetime.utcnow()
+    unit.content_status = "deleted"
+    unit.deleted_at = now
+    unit.purge_after = now + timedelta(days=STUDY_PLAN_DELETE_RETENTION_DAYS)
+
+
+def _active_study_plan_unit_query(db: Session, plan_id: str):
+    return (
+        db.query(StudyPlanUnit)
+        .filter(StudyPlanUnit.plan_id == plan_id)
+        .filter(StudyPlanUnit.content_status != "deleted")
+    )
+
+
+def _sync_study_plan_progress(db: Session, plan: StudyPlan) -> None:
+    total = _active_study_plan_unit_query(db, str(plan.id)).count()
+    completed = (
+        _active_study_plan_unit_query(db, str(plan.id))
+        .filter(StudyPlanUnit.is_completed.is_(True))
+        .count()
+    )
+    plan.total_units = total
+    plan.progress_percentage = round((completed / total) * 100, 1) if total else 0.0
+    if total and completed >= total:
+        plan.status = "completed"
+    elif plan.status == "completed":
+        plan.status = "active"
 
 
 subject_detector = SubjectDetector()
@@ -3789,6 +3833,7 @@ async def get_my_study_plans(
     """Get all study plans for the current user."""
     try:
         _purge_expired_deleted_study_plans(db)
+        _purge_expired_deleted_study_plan_units(db)
         plans = (
             _active_study_plan_query(db, current_user.id)
             .order_by(StudyPlan.created_at.desc())
@@ -3814,6 +3859,7 @@ async def get_study_plan_library(
     saved board session id (if any) per unit. Skips archived plans."""
     try:
         _purge_expired_deleted_study_plans(db)
+        _purge_expired_deleted_study_plan_units(db)
         plans = (
             _active_study_plan_query(db, current_user.id)
             .order_by(StudyPlan.created_at.desc())
@@ -3837,6 +3883,8 @@ async def get_study_plan_library(
         for plan in plans:
             units_payload = []
             for unit in plan.units:
+                if unit.content_status == "deleted":
+                    continue
                 key = f"{plan.id}:{unit.id}"
                 units_payload.append({
                     "id": str(unit.id),
@@ -3879,6 +3927,7 @@ async def delete_study_plan(
     """Soft delete one study plan. Deleted plans are purged after 30 days."""
     try:
         _purge_expired_deleted_study_plans(db)
+        _purge_expired_deleted_study_plan_units(db)
         plan = (
             _active_study_plan_query(db, current_user.id)
             .filter(StudyPlan.id == plan_id)
@@ -3913,6 +3962,7 @@ async def delete_study_plans(
     """Soft delete selected plans, or all active plans when delete_all is true."""
     try:
         _purge_expired_deleted_study_plans(db)
+        _purge_expired_deleted_study_plan_units(db)
         query = _active_study_plan_query(db, current_user.id)
         if not req.delete_all:
             plan_ids = [pid for pid in req.plan_ids if isinstance(pid, str) and pid]
@@ -3944,6 +3994,7 @@ async def get_study_plan(
 ):
     """Get a study plan with all its units."""
     try:
+        _purge_expired_deleted_study_plan_units(db)
         plan = (
             _active_study_plan_query(db, current_user.id)
             .filter(StudyPlan.id == plan_id)
@@ -3959,6 +4010,54 @@ async def get_study_plan(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.delete("/study-plan/{plan_id}/unit/{unit_id}")
+async def delete_study_plan_unit(
+    plan_id: str,
+    unit_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Soft delete one study plan unit. Deleted units are purged after 30 days."""
+    try:
+        _purge_expired_deleted_study_plan_units(db)
+        plan = (
+            _active_study_plan_query(db, current_user.id)
+            .filter(StudyPlan.id == plan_id)
+            .first()
+        )
+        if not plan:
+            raise HTTPException(status_code=404, detail="Study plan not found")
+
+        unit = (
+            _active_study_plan_unit_query(db, plan_id)
+            .filter(StudyPlanUnit.id == unit_id)
+            .first()
+        )
+        if not unit:
+            raise HTTPException(status_code=404, detail="Unit not found")
+
+        _soft_delete_study_plan_unit(unit)
+        db.flush()
+        _sync_study_plan_progress(db, plan)
+        db.commit()
+        return {
+            "success": True,
+            "deleted": 1,
+            "unit_id": unit_id,
+            "plan_id": plan_id,
+            "retention_days": STUDY_PLAN_DELETE_RETENTION_DAYS,
+            "plan": plan.to_dict(include_units=False),
+            "deleted_at": unit.deleted_at.isoformat() if unit.deleted_at else None,
+            "purge_after": unit.purge_after.isoformat() if unit.purge_after else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to delete study plan unit: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/study-plan/{plan_id}/unit/{unit_id}/generate")
 async def generate_unit_content(
     plan_id: str,
@@ -3971,16 +4070,14 @@ async def generate_unit_content(
     try:
         _enforce_quota(current_user, "unit_generate")
         plan = (
-            db.query(StudyPlan)
-            .filter(StudyPlan.id == plan_id, StudyPlan.user_id == current_user.id)
+            _active_study_plan_query(db, current_user.id)
+            .filter(StudyPlan.id == plan_id)
             .first()
         )
         if not plan:
             raise HTTPException(status_code=404, detail="Study plan not found")
 
-        unit = db.query(StudyPlanUnit).filter(
-            StudyPlanUnit.id == unit_id, StudyPlanUnit.plan_id == plan_id
-        ).first()
+        unit = _active_study_plan_unit_query(db, plan_id).filter(StudyPlanUnit.id == unit_id).first()
         if not unit:
             raise HTTPException(status_code=404, detail="Unit not found")
 
@@ -4103,16 +4200,14 @@ async def create_unit_board_lesson(
     try:
         _enforce_quota(current_user, "board_lesson")
         plan = (
-            db.query(StudyPlan)
-            .filter(StudyPlan.id == plan_id, StudyPlan.user_id == current_user.id)
+            _active_study_plan_query(db, current_user.id)
+            .filter(StudyPlan.id == plan_id)
             .first()
         )
         if not plan:
             raise HTTPException(status_code=404, detail="Study plan not found")
 
-        unit = db.query(StudyPlanUnit).filter(
-            StudyPlanUnit.id == unit_id, StudyPlanUnit.plan_id == plan_id
-        ).first()
+        unit = _active_study_plan_unit_query(db, plan_id).filter(StudyPlanUnit.id == unit_id).first()
         if not unit:
             raise HTTPException(status_code=404, detail="Unit not found")
 
@@ -4188,9 +4283,15 @@ async def get_unit_content(
 ):
     """Get generated content for a study plan unit."""
     try:
-        unit = db.query(StudyPlanUnit).filter(
-            StudyPlanUnit.id == unit_id, StudyPlanUnit.plan_id == plan_id
-        ).first()
+        plan = (
+            _active_study_plan_query(db, current_user.id)
+            .filter(StudyPlan.id == plan_id)
+            .first()
+        )
+        if not plan:
+            raise HTTPException(status_code=404, detail="Study plan not found")
+
+        unit = _active_study_plan_unit_query(db, plan_id).filter(StudyPlanUnit.id == unit_id).first()
         if not unit:
             raise HTTPException(status_code=404, detail="Unit not found")
 
@@ -4226,26 +4327,20 @@ async def mark_unit_complete(
     """Mark a unit as completed and update plan progress."""
     try:
         plan = (
-            db.query(StudyPlan)
-            .filter(StudyPlan.id == plan_id, StudyPlan.user_id == current_user.id)
+            _active_study_plan_query(db, current_user.id)
+            .filter(StudyPlan.id == plan_id)
             .first()
         )
         if not plan:
             raise HTTPException(status_code=404, detail="Study plan not found")
 
-        unit = db.query(StudyPlanUnit).filter(
-            StudyPlanUnit.id == unit_id, StudyPlanUnit.plan_id == plan_id
-        ).first()
+        unit = _active_study_plan_unit_query(db, plan_id).filter(StudyPlanUnit.id == unit_id).first()
         if not unit:
             raise HTTPException(status_code=404, detail="Unit not found")
 
         unit.is_completed = True
         # Update plan progress
-        total = plan.total_units or 1
-        completed = db.query(StudyPlanUnit).filter(
-            StudyPlanUnit.plan_id == plan_id, StudyPlanUnit.is_completed.is_(True)
-        ).count()
-        plan.progress_percentage = round((completed / total) * 100, 1)
+        _sync_study_plan_progress(db, plan)
 
         if plan.progress_percentage >= 100:
             plan.status = "completed"
@@ -4294,16 +4389,14 @@ async def submit_unit_quiz_score(
     """Submit a quiz score for a unit. Adjusts plan difficulty adaptively."""
     try:
         plan = (
-            db.query(StudyPlan)
-            .filter(StudyPlan.id == plan_id, StudyPlan.user_id == current_user.id)
+            _active_study_plan_query(db, current_user.id)
+            .filter(StudyPlan.id == plan_id)
             .first()
         )
         if not plan:
             raise HTTPException(status_code=404, detail="Study plan not found")
 
-        unit = db.query(StudyPlanUnit).filter(
-            StudyPlanUnit.id == unit_id, StudyPlanUnit.plan_id == plan_id
-        ).first()
+        unit = _active_study_plan_unit_query(db, plan_id).filter(StudyPlanUnit.id == unit_id).first()
         if not unit:
             raise HTTPException(status_code=404, detail="Unit not found")
 
@@ -4314,6 +4407,7 @@ async def submit_unit_quiz_score(
             db.query(StudyPlanUnit)
             .filter(
                 StudyPlanUnit.plan_id == plan_id,
+                StudyPlanUnit.content_status != "deleted",
                 StudyPlanUnit.score.isnot(None),
             )
             .order_by(StudyPlanUnit.order_index)

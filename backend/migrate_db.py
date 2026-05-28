@@ -212,8 +212,11 @@ def migrate():
             "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_content_types JSONB",
             "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_started_at TIMESTAMPTZ",
             "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_cache_key VARCHAR(128)",
+            "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+            "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ",
             "CREATE INDEX IF NOT EXISTS idx_study_plan_units_generation_task_id ON study_plan_units(generation_task_id)",
             "CREATE INDEX IF NOT EXISTS idx_study_plan_units_generation_cache_key ON study_plan_units(generation_cache_key)",
+            "CREATE INDEX IF NOT EXISTS idx_study_plan_units_purge_after ON study_plan_units(purge_after)",
             # Study-plan soft delete lifecycle
             "ALTER TABLE study_plans ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
             "ALTER TABLE study_plans ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ",
