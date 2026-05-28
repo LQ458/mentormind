@@ -6,6 +6,14 @@ const CHAT_TIMEOUT_MS = Number(process.env.STUDY_PLAN_CHAT_TIMEOUT_MS || 55000)
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+function makeRequestId() {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+}
+
 async function readUpstreamJson(res: Response) {
   const contentType = res.headers.get('content-type') || ''
   const text = await res.text()
@@ -27,8 +35,22 @@ async function readUpstreamJson(res: Response) {
 export async function POST(req: NextRequest) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS)
+  const startedAt = Date.now()
+  let requestId = makeRequestId()
   try {
     const body = await req.json()
+    if (typeof body?.request_id === 'string' && body.request_id) {
+      requestId = body.request_id
+    } else if (body && typeof body === 'object') {
+      body.request_id = requestId
+    }
+    console.info('[study-plan/chat proxy] start', {
+      requestId,
+      stage: body?.stage,
+      subject: body?.subject,
+      framework: body?.framework,
+      historyLen: Array.isArray(body?.history) ? body.history.length : 0,
+    })
     const res = await fetch(`${BACKEND_URL}/study-plan/chat`, {
       method: 'POST',
       headers: {
@@ -39,9 +61,19 @@ export async function POST(req: NextRequest) {
       signal: controller.signal,
     })
     const data = await readUpstreamJson(res)
+    console.info('[study-plan/chat proxy] done', {
+      requestId,
+      status: res.status,
+      source: data?.response_source ?? 'unknown',
+      elapsedMs: Date.now() - startedAt,
+    })
     return NextResponse.json(data, { status: res.status })
   } catch (err) {
-    console.error('[study-plan/chat proxy] error:', err)
+    console.error('[study-plan/chat proxy] error:', {
+      requestId,
+      elapsedMs: Date.now() - startedAt,
+      error: err,
+    })
     const timedOut = err instanceof Error && err.name === 'AbortError'
     return NextResponse.json(
       {

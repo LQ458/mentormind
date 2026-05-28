@@ -33,6 +33,10 @@ from slowapi.errors import RateLimitExceeded
 # Load environment variables
 load_dotenv()
 
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(levelname)s:%(name)s:%(message)s",
+)
 logger = logging.getLogger(__name__)
 
 # Add current directory to path
@@ -3132,6 +3136,7 @@ class StudyPlanChatRequest(BaseModel):
     history: List[Dict[str, str]]
     stage: str = "opening"
     language: str = "en"
+    request_id: Optional[str] = None
     # Frontend sends the user-selected subject/framework from the framework
     # picker; honour these as authoritative and only fall back to detection
     # when they are missing.
@@ -3251,7 +3256,8 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
     )
     try:
         logger.info(
-            "study_plan_chat start user=%s stage=%s subject=%s framework=%s history_len=%s last_user=%r",
+            "study_plan_chat start request_id=%s user=%s stage=%s subject=%s framework=%s history_len=%s last_user=%r",
+            req.request_id,
             current_user.id,
             req.stage,
             req.subject,
@@ -3273,7 +3279,8 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
         )
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         logger.info(
-            "study_plan_chat done user=%s stage=%s response_stage=%s source=%s elapsed_ms=%s options=%s proposed_plan=%s",
+            "study_plan_chat done request_id=%s user=%s stage=%s response_stage=%s source=%s elapsed_ms=%s options=%s proposed_plan=%s",
+            req.request_id,
             current_user.id,
             req.stage,
             response.stage.value,
@@ -3298,7 +3305,8 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
     except asyncio.TimeoutError:
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         logger.warning(
-            "study_plan_chat timeout user=%s stage=%s subject=%s framework=%s elapsed_ms=%s last_user=%r",
+            "study_plan_chat timeout request_id=%s user=%s stage=%s subject=%s framework=%s elapsed_ms=%s last_user=%r",
+            req.request_id,
             current_user.id,
             req.stage,
             req.subject,
@@ -3317,7 +3325,8 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
     except Exception as e:
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         logger.error(
-            "study_plan_chat failed user=%s stage=%s subject=%s framework=%s elapsed_ms=%s error=%s",
+            "study_plan_chat failed request_id=%s user=%s stage=%s subject=%s framework=%s elapsed_ms=%s error=%s",
+            req.request_id,
             current_user.id,
             req.stage,
             req.subject,

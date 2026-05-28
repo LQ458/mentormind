@@ -82,6 +82,14 @@ async function readJsonOrThrow(response: Response): Promise<any> {
   return data
 }
 
+function makeStudyPlanRequestId() {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+}
+
 // ── Message renderer (matches /create pattern) ───────────────────────────────
 
 function AssistantMessage({ content }: { content: string }) {
@@ -251,12 +259,14 @@ export default function StudyPlanPage() {
     if (contextMsg) clearContexts()
 
     const chatStartedAt = Date.now()
+    const requestId = makeStudyPlanRequestId()
     try {
       const token = await getToken()
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (token) headers.Authorization = `Bearer ${token}`
 
       console.info('[study-plan/chat] send', {
+        requestId,
         mode: 'typed',
         stage: chatStage,
         subject: selectedSubject,
@@ -271,6 +281,7 @@ export default function StudyPlanPage() {
             content: m.content,
           })),
           stage: chatStage,
+          request_id: requestId,
           subject: selectedSubject,
           framework: selectedFramework,
           language: uiLanguage === 'zh' ? 'zh' : 'en',
@@ -279,6 +290,7 @@ export default function StudyPlanPage() {
 
       const data = await readJsonOrThrow(response)
       console.info('[study-plan/chat] response', {
+        requestId,
         mode: 'typed',
         stage: data?.stage ?? chatStage,
         source: data?.response_source ?? 'unknown',
@@ -374,11 +386,13 @@ export default function StudyPlanPage() {
         setIsTyping(true)
         setError(null)
         const chipStartedAt = Date.now()
+        const requestId = makeStudyPlanRequestId()
         try {
           const token = await getToken()
           const headers: Record<string, string> = { 'Content-Type': 'application/json' }
           if (token) headers.Authorization = `Bearer ${token}`
           console.info('[study-plan/chat] send', {
+            requestId,
             mode: 'chip',
             stage: chatStage,
             subject: selectedSubject,
@@ -391,6 +405,7 @@ export default function StudyPlanPage() {
             body: JSON.stringify({
               history: [...chatMessages, userMessage].map((m) => ({ role: m.role, content: m.content })),
               stage: chatStage,
+              request_id: requestId,
               subject: selectedSubject,
               framework: selectedFramework,
               language: uiLanguage === 'zh' ? 'zh' : 'en',
@@ -398,6 +413,7 @@ export default function StudyPlanPage() {
           })
           const data = await readJsonOrThrow(response)
           console.info('[study-plan/chat] response', {
+            requestId,
             mode: 'chip',
             stage: data?.stage ?? chatStage,
             source: data?.response_source ?? 'unknown',
