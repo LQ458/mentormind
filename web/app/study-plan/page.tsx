@@ -49,6 +49,34 @@ interface ProposedPlan {
   units: StudyUnit[]
 }
 
+interface StudyPlanChatDraft {
+  version: 2
+  savedAt: number
+  phase: WorkflowPhase
+  selectedSubject: string | null
+  selectedFramework: string | null
+  chatMessages: Array<Omit<ChatMessage, 'timestamp'> & { timestamp: string }>
+  userInput: string
+  chatStage: string
+  proposedPlan: ProposedPlan | null
+  planFeedback: string
+  createdPlanId: string | null
+  autoSaveStatus: 'idle' | 'saving' | 'saved'
+}
+
+const STUDY_PLAN_DRAFT_KEY_PREFIX = 'study-plan-chat-draft-v2'
+const STUDY_PLAN_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+
+function serializeChatMessages(messages: ChatMessage[]): StudyPlanChatDraft['chatMessages'] {
+  return messages.map((message) => ({
+    ...message,
+    timestamp:
+      message.timestamp instanceof Date
+        ? message.timestamp.toISOString()
+        : new Date(message.timestamp).toISOString(),
+  }))
+}
+
 async function readJsonOrThrow(response: Response): Promise<any> {
   const contentType = response.headers.get('content-type') || ''
   const text = await response.text()
@@ -121,7 +149,7 @@ function AssistantMessage({ content }: { content: string }) {
 export default function StudyPlanPage() {
   const router = useRouter()
   const { language: uiLanguage } = useLanguage()
-  const { getToken } = useAuth()
+  const { getToken, user, isLoaded: authLoaded } = useAuth()
 
   const audioInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -156,8 +184,11 @@ export default function StudyPlanPage() {
   // Standalone Gaokao tutoring lives at /gaokao (kept for bookmark continuity).
 
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const draftHydratedRef = useRef(false)
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const draftKey = `${STUDY_PLAN_DRAFT_KEY_PREFIX}:${user?.id ?? 'anonymous'}`
 
   // Existing plans
   const [myPlans, setMyPlans] = useState<{
@@ -188,6 +219,139 @@ export default function StudyPlanPage() {
     }
     fetchPlans()
   }, [getToken, createdPlanId])
+
+  const clearStudyPlanDraft = useCallback(() => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.removeItem(draftKey)
+    } catch {
+      // ignore storage failures
+    }
+  }, [draftKey])
+
+  const buildStudyPlanDraft = useCallback((): StudyPlanChatDraft | null => {
+    if (phase === 'done') return null
+
+    const hasDraft =
+      phase !== 'selecting' ||
+      Boolean(selectedSubject) ||
+      Boolean(selectedFramework) ||
+      chatMessages.length > 0 ||
+      Boolean(userInput.trim()) ||
+      Boolean(proposedPlan) ||
+      Boolean(planFeedback.trim()) ||
+      Boolean(createdPlanId)
+
+    if (!hasDraft) return null
+
+    return {
+      version: 2,
+      savedAt: Date.now(),
+      phase: phase === 'creating' ? 'plan_review' : phase,
+      selectedSubject,
+      selectedFramework,
+      chatMessages: serializeChatMessages(chatMessages),
+      userInput,
+      chatStage,
+      proposedPlan,
+      planFeedback,
+      createdPlanId,
+      autoSaveStatus,
+    }
+  }, [
+    phase,
+    selectedSubject,
+    selectedFramework,
+    chatMessages,
+    userInput,
+    chatStage,
+    proposedPlan,
+    planFeedback,
+    createdPlanId,
+    autoSaveStatus,
+  ])
+
+  const writeStudyPlanDraft = useCallback(() => {
+    if (typeof window === 'undefined' || !draftHydratedRef.current) return
+    const draft = buildStudyPlanDraft()
+    try {
+      if (!draft) {
+        window.localStorage.removeItem(draftKey)
+        return
+      }
+      window.localStorage.setItem(draftKey, JSON.stringify(draft))
+    } catch (err) {
+      console.warn('[study-plan/draft] save failed', err)
+    }
+  }, [buildStudyPlanDraft, draftKey])
+
+  const writeStudyPlanDraftSnapshot = useCallback((draft: StudyPlanChatDraft) => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(draftKey, JSON.stringify(draft))
+    } catch (err) {
+      console.warn('[study-plan/draft] save failed', err)
+    }
+  }, [draftKey])
+
+  useEffect(() => {
+    if (!authLoaded || typeof window === 'undefined' || draftHydratedRef.current) return
+    draftHydratedRef.current = true
+    try {
+      const raw = window.localStorage.getItem(draftKey)
+      if (!raw) return
+      const draft = JSON.parse(raw) as StudyPlanChatDraft
+      if (!draft || draft.version !== 2 || typeof draft.savedAt !== 'number') return
+      if (Date.now() - draft.savedAt > STUDY_PLAN_DRAFT_MAX_AGE_MS) {
+        window.localStorage.removeItem(draftKey)
+        return
+      }
+      const restoredMessages = Array.isArray(draft.chatMessages)
+        ? draft.chatMessages.map((message) => ({
+            ...message,
+            timestamp: new Date(message.timestamp),
+          }))
+        : []
+      setPhase(draft.phase || 'selecting')
+      setSelectedSubject(draft.selectedSubject ?? null)
+      setSelectedFramework(draft.selectedFramework ?? null)
+      setChatMessages(restoredMessages)
+      setUserInput(draft.userInput ?? '')
+      setChatStage(draft.chatStage || 'opening')
+      setProposedPlan(draft.proposedPlan ?? null)
+      setPlanFeedback(draft.planFeedback ?? '')
+      setCreatedPlanId(draft.createdPlanId ?? null)
+      setAutoSaveStatus(draft.autoSaveStatus === 'saved' ? 'saved' : 'idle')
+      setIsTyping(false)
+      setStreamingContent(null)
+      setError(null)
+    } catch (err) {
+      console.warn('[study-plan/draft] restore failed', err)
+    }
+  }, [authLoaded, draftKey])
+
+  useEffect(() => {
+    if (!draftHydratedRef.current || typeof window === 'undefined') return
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current)
+    draftSaveTimerRef.current = setTimeout(writeStudyPlanDraft, 250)
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current)
+    }
+  }, [writeStudyPlanDraft])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const flush = () => writeStudyPlanDraft()
+    const flushWhenHidden = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', flushWhenHidden)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', flushWhenHidden)
+    }
+  }, [writeStudyPlanDraft])
 
   // Auto-scroll on new messages or streaming updates
   useEffect(() => {
@@ -233,6 +397,20 @@ export default function StudyPlanPage() {
     }
     setChatMessages([openingMessage])
     setPhase('chatting')
+    writeStudyPlanDraftSnapshot({
+      version: 2,
+      savedAt: Date.now(),
+      phase: 'chatting',
+      selectedSubject,
+      selectedFramework: frameworkId,
+      chatMessages: serializeChatMessages([openingMessage]),
+      userInput: '',
+      chatStage: 'opening',
+      proposedPlan: null,
+      planFeedback: '',
+      createdPlanId: null,
+      autoSaveStatus: 'idle',
+    })
   }
 
   // ── Chat ─────────────────────────────────────────────────────────────────
@@ -251,8 +429,21 @@ export default function StudyPlanPage() {
     }
 
     setChatMessages((prev) => [...prev, userMessage])
-    const currentInput = userInput
     setUserInput('')
+    writeStudyPlanDraftSnapshot({
+      version: 2,
+      savedAt: Date.now(),
+      phase: 'chatting',
+      selectedSubject,
+      selectedFramework,
+      chatMessages: serializeChatMessages([...chatMessages, userMessage]),
+      userInput: '',
+      chatStage,
+      proposedPlan,
+      planFeedback,
+      createdPlanId,
+      autoSaveStatus,
+    })
     setIsTyping(true)
     setError(null)
 
@@ -381,6 +572,20 @@ export default function StudyPlanPage() {
         timestamp: new Date(),
       }
       setChatMessages((prev) => [...prev, userMessage])
+      writeStudyPlanDraftSnapshot({
+        version: 2,
+        savedAt: Date.now(),
+        phase: 'chatting',
+        selectedSubject,
+        selectedFramework,
+        chatMessages: serializeChatMessages([...chatMessages, userMessage]),
+        userInput: '',
+        chatStage,
+        proposedPlan,
+        planFeedback,
+        createdPlanId,
+        autoSaveStatus,
+      })
       // Mirror handleSendMessage but use the option directly
       void (async () => {
         setIsTyping(true)
@@ -534,6 +739,7 @@ export default function StudyPlanPage() {
     // If auto-save already created the plan, just navigate
     if (createdPlanId) {
       setPhase('done')
+      clearStudyPlanDraft()
       router.push(`/study-plan/${createdPlanId}`)
       return
     }
@@ -565,10 +771,12 @@ export default function StudyPlanPage() {
       if (data.success && data.plan_id) {
         setCreatedPlanId(data.plan_id)
         setPhase('done')
+        clearStudyPlanDraft()
         router.push(`/study-plan/${data.plan_id}`)
       } else if (data.plan_id) {
         setCreatedPlanId(data.plan_id)
         setPhase('done')
+        clearStudyPlanDraft()
         router.push(`/study-plan/${data.plan_id}`)
       } else {
         setError(
@@ -957,9 +1165,16 @@ export default function StudyPlanPage() {
             <button
               onClick={() => {
                 setPhase('selecting')
+                setSelectedSubject(null)
                 setSelectedFramework(null)
                 setChatMessages([])
                 setChatStage('opening')
+                setUserInput('')
+                setProposedPlan(null)
+                setPlanFeedback('')
+                setCreatedPlanId(null)
+                setAutoSaveStatus('idle')
+                clearStudyPlanDraft()
                 clearContexts()
               }}
               className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
