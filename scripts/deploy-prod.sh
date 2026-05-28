@@ -24,6 +24,7 @@ Usage: ./scripts/deploy-prod.sh [command]
 Commands:
   check     Validate shell, env file, and rendered compose config
   config    Validate compose and print services/images without env values
+  smoke     Test the public /ws/ WebSocket upgrade path
   deploy    Build changed app images and start/update all production services
   build     Build backend, frontend, and nginx images only
   up        Start/update services without rebuilding
@@ -37,6 +38,7 @@ Default command: deploy
 Environment overrides:
   MENTORMIND_ENV_FILE=/path/to/.env
   MENTORMIND_COMPOSE_FILE=/path/to/docker-compose.prod.yml
+  PUBLIC_APP_URL=https://your-domain.com
 EOF
 }
 
@@ -91,6 +93,15 @@ show_config_summary() {
   compose config --images
 }
 
+smoke_test() {
+  local public_url="${PUBLIC_APP_URL:-}"
+  if [ -z "$public_url" ] && [ -f "$ENV_FILE" ]; then
+    public_url="$(grep -E '^NEXT_PUBLIC_APP_URL=' "$ENV_FILE" | tail -1 | cut -d= -f2- || true)"
+  fi
+  public_url="${public_url:-https://mentormind.cloud}"
+  python3 "$PROJECT_DIR/scripts/ws-smoke-test.py" "$public_url"
+}
+
 build_images() {
   compose build backend frontend nginx
 }
@@ -107,6 +118,9 @@ case "${1:-deploy}" in
     ;;
   config)
     show_config_summary
+    ;;
+  smoke)
+    smoke_test
     ;;
   deploy)
     require_prereqs

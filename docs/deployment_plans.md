@@ -236,6 +236,12 @@ DEEPSEEK_API_KEY=...
 
 For same-host VPS deployment, keep `NEXT_PUBLIC_BACKEND_WS_URL` blank so browser WebSockets use the same origin through nginx `/ws/`.
 
+If HTTPS is terminated by a host-level nginx or an older `nginx-proxy`
+container, that external nginx must also route `/ws/` to the backend with
+WebSocket upgrade headers. Use `nginx/external-tls-proxy.example.conf` as the
+reference. A broken `/ws/` route usually shows up as browser-only board lesson
+failures while normal HTTP API calls still work.
+
 ### Deploy
 
 ```bash
@@ -251,6 +257,7 @@ Useful commands:
 ./scripts/deploy-prod.sh ps
 ./scripts/deploy-prod.sh logs
 ./scripts/deploy-prod.sh restart
+PUBLIC_APP_URL=https://your-domain.com ./scripts/deploy-prod.sh smoke
 ./scripts/deploy-prod.sh down
 ```
 
@@ -258,4 +265,5 @@ Useful commands:
 
 - `docker-compose.prod.yml` is production-only. Keep using `docker-compose.yml` or existing dev scripts for local development.
 - The production nginx config listens on HTTP port 80. Put HTTPS in front with your VPS-level reverse proxy, cloud load balancer, or a future TLS-enabled nginx update.
+- After changing nginx or deployment settings, run `PUBLIC_APP_URL=https://your-domain.com ./scripts/deploy-prod.sh smoke`. A healthy WebSocket path returns `HTTP/1.1 101 Switching Protocols`; `502` means the TLS nginx cannot reach the `/ws/` upstream.
 - Do not run `docker system prune -a` as part of normal deploys; it deletes the dependency cache that makes rebuilds fast.
