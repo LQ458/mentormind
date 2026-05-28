@@ -93,7 +93,7 @@ class StreamingLessonGenerator:
         llm_client: Optional[DeepSeekClient] = None,
         board_server: Optional[BoardMCPServer] = None,
         agent_tools_server: Optional[AgentToolsServer] = None,
-        model: str = "deepseek-v4-flash",
+        model: str = "deepseek-v4-pro",
         follow_up_timeout_s: float = 60.0,
     ) -> None:
         self.llm_client = llm_client or DeepSeekClient()
@@ -240,6 +240,7 @@ class StreamingLessonGenerator:
 
             tool_calls_in_round: List[Dict[str, Any]] = []
             follow_up_injected = False
+            assistant_reasoning_parts: List[str] = []
 
             async for chunk in self.llm_client.chat_completion_stream(
                 messages=messages,
@@ -339,6 +340,10 @@ class StreamingLessonGenerator:
                     )
                     return
 
+                elif chunk.chunk_type == "reasoning_delta":
+                    if chunk.content:
+                        assistant_reasoning_parts.append(chunk.content)
+
                 elif chunk.chunk_type == "done":
                     if not tool_calls_in_round:
                         # LLM finished without tool calls. Give the student a
@@ -377,6 +382,9 @@ class StreamingLessonGenerator:
                 "role": "assistant",
                 "tool_calls": assistant_tool_calls,
             }
+            assistant_reasoning = "".join(assistant_reasoning_parts).strip()
+            if assistant_reasoning:
+                assistant_message["reasoning_content"] = assistant_reasoning
             messages.append(assistant_message)
 
             for tc in tool_calls_in_round:

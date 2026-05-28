@@ -25,17 +25,19 @@ PROMPT = (
 )
 
 
-def post_chat(base_url: str, api_key: str, model: str, timeout: int) -> tuple[bool, float, str]:
+def post_chat(base_url: str, api_key: str, model: str, timeout: int, thinking: bool) -> tuple[bool, float, str]:
     url = f"{base_url.rstrip('/')}/chat/completions"
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": PROMPT}],
-        "temperature": 0.2,
         "max_tokens": 80,
         "stream": False,
+        "thinking": {"type": "enabled" if thinking else "disabled"},
     }
-    if "deepseek.com" in base_url:
-        payload["thinking"] = {"type": "disabled"}
+    if thinking:
+        payload["reasoning_effort"] = "high"
+    else:
+        payload["temperature"] = 0.2
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -62,8 +64,8 @@ def post_chat(base_url: str, api_key: str, model: str, timeout: int) -> tuple[bo
         return False, elapsed_ms, str(exc)
 
 
-def configured_providers() -> list[tuple[str, str, str, str]]:
-    providers: list[tuple[str, str, str, str]] = []
+def configured_providers() -> list[tuple[str, str, str, str, bool]]:
+    providers: list[tuple[str, str, str, str, bool]] = []
     if os.getenv("DEEPSEEK_API_KEY"):
         providers.extend(
             [
@@ -71,7 +73,15 @@ def configured_providers() -> list[tuple[str, str, str, str]]:
                     "deepseek-v4-flash",
                     os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
                     os.environ["DEEPSEEK_API_KEY"],
-                    os.getenv("BENCH_DEEPSEEK_FLASH_MODEL", "deepseek-v4-flash"),
+                    "deepseek-v4-flash",
+                    False,
+                ),
+                (
+                    "deepseek-v4-pro-thinking",
+                    os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+                    os.environ["DEEPSEEK_API_KEY"],
+                    "deepseek-v4-pro",
+                    True,
                 ),
             ]
         )
@@ -98,18 +108,18 @@ def main() -> int:
         return 2
 
     print(f"Running {args.runs} calls per provider from this host...\n")
-    for name, base_url, key, model in providers:
+    for name, base_url, key, model, thinking in providers:
         times: list[float] = []
         errors: list[str] = []
         for _ in range(args.runs):
-            ok, elapsed_ms, detail = post_chat(base_url, key, model, args.timeout)
+            ok, elapsed_ms, detail = post_chat(base_url, key, model, args.timeout, thinking)
             if ok:
                 times.append(elapsed_ms)
             else:
                 errors.append(detail)
         if times:
             print(
-                f"{name:22} model={model:28} ok={len(times)}/{args.runs} "
+                f"{name:22} model={model:28} thinking={thinking!s:5} ok={len(times)}/{args.runs} "
                 f"p50={statistics.median(times):.0f}ms p95={percentile(times, 0.95):.0f}ms "
                 f"min={min(times):.0f}ms max={max(times):.0f}ms"
             )

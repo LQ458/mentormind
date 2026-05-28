@@ -43,7 +43,7 @@ class CapturingStreamingLLM:
 
 
 @pytest.mark.asyncio
-async def test_streaming_generator_does_not_persist_reasoning_content():
+async def test_streaming_generator_preserves_tool_call_reasoning_content():
     llm = FakeStreamingLLM()
     generator = StreamingLessonGenerator(llm_client=llm, follow_up_timeout_s=0.01)
 
@@ -63,7 +63,9 @@ async def test_streaming_generator_does_not_persist_reasoning_content():
         if message.get("role") == "assistant" and message.get("tool_calls")
     ]
     assert assistant_messages
-    assert "reasoning_content" not in assistant_messages[-1]
+    assert assistant_messages[-1]["reasoning_content"] == (
+        "Need to create the board first. Then add content."
+    )
 
 
 @pytest.mark.asyncio

@@ -10,45 +10,30 @@ if BACKEND_ROOT not in sys.path:
 from services.api_client import DeepSeekClient
 
 
-def test_deepseek_thinking_is_disabled_by_default(monkeypatch):
-    monkeypatch.delenv("DEEPSEEK_THINKING", raising=False)
-    assert DeepSeekClient()._thinking_payload() == {"type": "disabled"}
+def test_deepseek_thinking_mode_is_model_based():
+    client = DeepSeekClient()
+
+    assert client._thinking_payload("deepseek-v4-flash") == {"type": "disabled"}
+    assert client._thinking_payload("deepseek-v4-pro") == {"type": "enabled"}
 
 
-def test_deepseek_thinking_disabled_env_keeps_payload_disabled(monkeypatch):
-    monkeypatch.setenv("DEEPSEEK_THINKING", "disabled")
-    assert DeepSeekClient()._thinking_payload() == {"type": "disabled"}
-
-
-def test_deepseek_thinking_enabled_env_is_ignored(monkeypatch):
-    monkeypatch.setenv("DEEPSEEK_THINKING", "enabled")
-    assert DeepSeekClient()._thinking_payload() == {"type": "disabled"}
-
-
-def test_deepseek_thinking_force_env_is_ignored(monkeypatch):
-    monkeypatch.setenv("DEEPSEEK_THINKING", "force_enabled")
-    assert DeepSeekClient()._thinking_payload() == {"type": "disabled"}
-
-
-def test_deepseek_model_selection_only_allows_v4_flash(monkeypatch):
-    monkeypatch.delenv("DEEPSEEK_FLASH_MODEL", raising=False)
-    monkeypatch.delenv("DEEPSEEK_PRO_MODEL", raising=False)
+def test_deepseek_model_selection_uses_flash_for_simple_and_pro_for_complex():
     client = DeepSeekClient()
 
     assert client._select_model("deepseek-v4-flash", 4000) == "deepseek-v4-flash"
-    assert client._select_model("deepseek-v4-pro", 200) == "deepseek-v4-flash"
-    assert client._select_model("deepseek-reasoner", 4000) == "deepseek-v4-flash"
+    assert client._select_model("deepseek-v4-pro", 200) == "deepseek-v4-pro"
+    assert client._select_model("deepseek-reasoner", 4000) == "deepseek-v4-pro"
     assert client._select_model("deepseek-r1", 200) == "deepseek-v4-flash"
-    assert client._select_model("deepseek-v4-pro-thinking", 4000) == "deepseek-v4-flash"
+    assert client._select_model("deepseek-v4-pro-thinking", 4000) == "deepseek-v4-pro"
 
 
-def test_deepseek_model_env_rejects_non_approved_models(monkeypatch):
+def test_deepseek_model_selection_ignores_model_env(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_FLASH_MODEL", "deepseek-reasoner")
     monkeypatch.setenv("DEEPSEEK_PRO_MODEL", "deepseek-v4-pro-thinking")
     client = DeepSeekClient()
 
     assert client._select_model(None, 200) == "deepseek-v4-flash"
-    assert client._select_model(None, 4000) == "deepseek-v4-flash"
+    assert client._select_model(None, 4000) == "deepseek-v4-pro"
 
 
 def test_deepseek_messages_drop_provider_thinking_fields():
@@ -69,7 +54,7 @@ def test_deepseek_messages_drop_provider_thinking_fields():
     assert messages == [{"role": "assistant", "content": "ok"}]
 
 
-def test_deepseek_tool_messages_get_empty_reasoning_content_for_provider_compat():
+def test_deepseek_tool_messages_preserve_reasoning_content_for_provider_compat():
     client = DeepSeekClient()
 
     messages = client._sanitize_messages(
@@ -89,4 +74,4 @@ def test_deepseek_tool_messages_get_empty_reasoning_content_for_provider_compat(
         ]
     )
 
-    assert messages[0]["reasoning_content"] == ""
+    assert messages[0]["reasoning_content"] == "hidden chain"

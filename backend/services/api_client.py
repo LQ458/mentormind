@@ -48,7 +48,7 @@ class APIResponse:
 @dataclass
 class StreamChunk:
     """A chunk from a streaming LLM response"""
-    chunk_type: str  # "content_delta", "tool_call_delta", "tool_call_complete", "done", "error"
+    chunk_type: str  # "content_delta", "reasoning_delta", "tool_call_delta", "tool_call_complete", "done", "error"
     content: str = ""
     tool_call_index: int = 0
     tool_call_id: str = ""
@@ -132,13 +132,13 @@ class APIRetryManager:
 class DeepSeekClient:
     """Client for DeepSeek official API with resilience patterns.
 
-    Production uses DeepSeek V4 Flash only. V4 Pro currently behaves as a
-    provider thinking-mode model in tool-call flows, which conflicts with the
-    app's global no-thinking requirement.
+    Production routes simple calls to V4 Flash in non-thinking mode and complex
+    generation/tool calls to V4 Pro in thinking mode.
     """
 
     SAFE_FLASH_MODEL = "deepseek-v4-flash"
-    SAFE_MODELS = {SAFE_FLASH_MODEL}
+    SAFE_PRO_MODEL = "deepseek-v4-pro"
+    SAFE_MODELS = {SAFE_FLASH_MODEL, SAFE_PRO_MODEL}
     FORBIDDEN_MESSAGE_KEYS = {"reasoning", "thinking"}
     
     def __init__(self):
@@ -166,27 +166,17 @@ class DeepSeekClient:
         self.logger = logging.getLogger(__name__)
 
     def _select_model(self, requested_model: Optional[str], max_tokens: int) -> str:
-        flash_model = self._safe_model_from_env("DEEPSEEK_FLASH_MODEL", self.SAFE_FLASH_MODEL)
         if requested_model:
             model = requested_model.strip()
             if model in self.SAFE_MODELS:
                 return model
-            self.logger.warning("Ignoring non-approved DeepSeek model: %s; using flash", requested_model)
+            self.logger.warning("Ignoring non-approved DeepSeek model: %s", requested_model)
 
-        # Legacy callers may pass SiliconFlow ids or V4 Pro. Map every runtime
-        # request to Flash to keep thinking mode unavailable globally.
-        return flash_model
+        return self.SAFE_PRO_MODEL if max_tokens >= 3000 else self.SAFE_FLASH_MODEL
 
-    def _safe_model_from_env(self, env_name: str, fallback: str) -> str:
-        model = os.getenv(env_name, fallback).strip()
-        if model in self.SAFE_MODELS:
-            return model
-        self.logger.warning("Ignoring non-approved %s=%s; using %s", env_name, model, fallback)
-        return fallback
-
-    def _thinking_payload(self) -> Optional[Dict[str, str]]:
-        # DeepSeek V4 defaults this provider mode to enabled. Always send the
-        # explicit off switch, regardless of environment or caller settings.
+    def _thinking_payload(self, selected_model: str) -> Dict[str, str]:
+        if selected_model == self.SAFE_PRO_MODEL:
+            return {"type": "enabled"}
         return {"type": "disabled"}
 
     def _sanitize_messages(self, messages: list) -> list:
@@ -200,10 +190,7 @@ class DeepSeekClient:
                 if key not in self.FORBIDDEN_MESSAGE_KEYS and key != "reasoning_content"
             }
             if clean_message.get("role") == "assistant" and clean_message.get("tool_calls"):
-                # DeepSeek V4 validates this key on tool-call turns even when
-                # the request explicitly disables provider thinking mode.
-                # Use an empty value so we never store or replay hidden content.
-                clean_message["reasoning_content"] = ""
+                clean_message["reasoning_content"] = str(message.get("reasoning_content") or "")
             sanitized.append(clean_message)
         return sanitized
 
@@ -307,11 +294,14 @@ class DeepSeekClient:
         payload = {
             "model": selected_model,
             "messages": self._sanitize_messages(messages),
-            "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,
-            "thinking": self._thinking_payload(),
+            "thinking": self._thinking_payload(selected_model),
         }
+        if selected_model == self.SAFE_PRO_MODEL:
+            payload["reasoning_effort"] = "high"
+        else:
+            payload["temperature"] = temperature
         
         try:
             connector = aiohttp.TCPConnector(verify_ssl=config.VERIFY_SSL)
@@ -397,11 +387,14 @@ class DeepSeekClient:
         payload = {
             "model": selected_model,
             "messages": self._sanitize_messages(messages),
-            "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
-            "thinking": self._thinking_payload(),
+            "thinking": self._thinking_payload(selected_model),
         }
+        if selected_model == self.SAFE_PRO_MODEL:
+            payload["reasoning_effort"] = "high"
+        else:
+            payload["temperature"] = temperature
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
@@ -470,6 +463,12 @@ class DeepSeekClient:
                             yield StreamChunk(
                                 chunk_type="content_delta",
                                 content=delta["content"],
+                            )
+
+                        if "reasoning_content" in delta and delta["reasoning_content"]:
+                            yield StreamChunk(
+                                chunk_type="reasoning_delta",
+                                content=delta["reasoning_content"],
                             )
 
                         # Tool call deltas
@@ -552,7 +551,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-v4-flash",
+            model="deepseek-v4-pro",
             temperature=0.3,
             max_tokens=4000
         )
@@ -601,7 +600,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-v4-flash",
+            model="deepseek-v4-pro",
             temperature=0.3,
             max_tokens=2000
         )
@@ -648,7 +647,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-v4-flash",
+            model="deepseek-v4-pro",
             temperature=0.7,
             max_tokens=4000
         )
@@ -746,7 +745,7 @@ class DeepSeekClient:
             
             response = await self.chat_completion(
                 messages=messages,
-                model="deepseek-v4-flash",
+                model="deepseek-v4-pro",
                 temperature=0.7,
                 max_tokens=4000
             )
@@ -1034,10 +1033,7 @@ class APIClient:
         is_plan = phase == "plan_review"
         return await self.deepseek.chat_completion(
             messages=messages,
-            model=os.getenv(
-                "STUDY_PLAN_PLAN_MODEL" if is_plan else "STUDY_PLAN_DIAGNOSTIC_MODEL",
-                "deepseek-v4-flash",
-            ),
+            model="deepseek-v4-pro" if is_plan else "deepseek-v4-flash",
             temperature=temperature,
             max_tokens=max_tokens,
         )
