@@ -5548,6 +5548,7 @@ async def board_websocket(websocket: WebSocket, session_id: str):
     """
     # Always accept first so close codes / error events reach the browser.
     await websocket.accept()
+    print(f"🔌 [ws/board] accepted session={session_id}", flush=True)
 
     # Reject malformed session_id paths early.
     if not _SESSION_ID_RE.fullmatch(session_id or ""):
@@ -5586,6 +5587,7 @@ async def board_websocket(websocket: WebSocket, session_id: str):
         resolved_user_id = db_user.id
     except Exception as exc:
         logger.warning(f"[ws/board] token decode failed: {exc}")
+        print(f"🔌 [ws/board] token rejected session={session_id} error={exc}", flush=True)
         await _reject(4001, "Token rejected — sign in again and reload")
         return
 
@@ -5654,10 +5656,12 @@ async def board_websocket(websocket: WebSocket, session_id: str):
                     pass
                 return
         else:
+            print(f"🔌 [ws/board] missing session={session_id} user={resolved_user_id}", flush=True)
             await _reject(4004, "Lesson session expired or was cleared. Start a new lesson.")
             return
 
     if str(session.get("user_id")) != str(resolved_user_id):
+        print(f"🔌 [ws/board] forbidden session={session_id} user={resolved_user_id}", flush=True)
         await _reject(4003, "You are not allowed to view this lesson session.")
         return
 
@@ -5748,41 +5752,59 @@ async def board_websocket(websocket: WebSocket, session_id: str):
         )
         tts_stream = tts_sync.stream_with_tts(board_stream)
 
-        async for event in tts_stream:
-            while paused:
-                await asyncio.sleep(0.1)
+        try:
+            async for event in tts_stream:
+                while paused:
+                    await asyncio.sleep(0.1)
+                try:
+                    await websocket.send_json(event.to_dict())
+                except WebSocketDisconnect:
+                    await _persist_board_session_safe(
+                        session_id, session, status="paused",
+                        last_event_seq=emitted_counter["n"],
+                        conversation_state=generator._current_messages,
+                    )
+                    return
+                except Exception as e:
+                    logger.error(f"Error sending board event: {e}")
+                    await _persist_board_session_safe(
+                        session_id, session, status="error",
+                        last_event_seq=emitted_counter["n"],
+                        conversation_state=generator._current_messages,
+                    )
+                    return
+                if event.event_type == "audio_ready":
+                    session.setdefault("audio_queue", []).append(event.to_dict())
+                if event.event_type == "element_added" and event.data.get("narration"):
+                    session.setdefault("chat_history", []).append({
+                        "role": "assistant",
+                        "text": event.data["narration"],
+                        "timestamp": event.timestamp,
+                    })
+                emitted_counter["n"] += 1
+                if emitted_counter["n"] % 5 == 0:
+                    await _persist_board_session_safe(
+                        session_id, session, status="generating",
+                        last_event_seq=emitted_counter["n"],
+                        conversation_state=generator._current_messages,
+                    )
+        except Exception as exc:
+            logger.exception("[ws/board] lesson stream crashed")
+            print(f"🔌 [ws/board] stream crashed session={session_id} error={exc}", flush=True)
             try:
-                await websocket.send_json(event.to_dict())
-            except WebSocketDisconnect:
-                await _persist_board_session_safe(
-                    session_id, session, status="paused",
-                    last_event_seq=emitted_counter["n"],
-                    conversation_state=generator._current_messages,
-                )
-                return
-            except Exception as e:
-                logger.error(f"Error sending board event: {e}")
-                await _persist_board_session_safe(
-                    session_id, session, status="error",
-                    last_event_seq=emitted_counter["n"],
-                    conversation_state=generator._current_messages,
-                )
-                return
-            if event.event_type == "audio_ready":
-                session.setdefault("audio_queue", []).append(event.to_dict())
-            if event.event_type == "element_added" and event.data.get("narration"):
-                session.setdefault("chat_history", []).append({
-                    "role": "assistant",
-                    "text": event.data["narration"],
-                    "timestamp": event.timestamp,
+                await websocket.send_json({
+                    "event_type": "error",
+                    "timestamp": time.time(),
+                    "data": {"error": f"Board lesson failed: {exc}"},
                 })
-            emitted_counter["n"] += 1
-            if emitted_counter["n"] % 5 == 0:
-                await _persist_board_session_safe(
-                    session_id, session, status="generating",
-                    last_event_seq=emitted_counter["n"],
-                    conversation_state=generator._current_messages,
-                )
+            except Exception:
+                pass
+            await _persist_board_session_safe(
+                session_id, session, status="error",
+                last_event_seq=emitted_counter["n"],
+                conversation_state=generator._current_messages,
+            )
+            return
 
         # Auto-generate summary the moment the lesson stream finishes so the
         # client receives it without a follow-up HTTP round-trip.

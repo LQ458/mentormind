@@ -854,6 +854,7 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
     wsRef.current = ws
 
     ws.onopen = () => {
+      console.info('[board/ws] open', { sessionId })
       attemptsRef.current = 0
       openTimeRef.current = Date.now()
       firstElementRef.current = false
@@ -913,11 +914,19 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
       }
     }
 
-    ws.onerror = () => {
+    ws.onerror = (event) => {
+      console.warn('[board/ws] error', { sessionId, event })
       // Most browsers give no detail here; treat as transient.
     }
 
     ws.onclose = (event) => {
+      console.warn('[board/ws] close', {
+        sessionId,
+        code: event.code,
+        reason: event.reason,
+        wasClean: event.wasClean,
+        attempt: attemptsRef.current,
+      })
       wsRef.current = null
       try {
         track('ws_close', {

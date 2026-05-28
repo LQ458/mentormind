@@ -332,7 +332,7 @@ class DeepSeekClient:
         self,
         messages: list,
         tools: Optional[List[Dict[str, Any]]] = None,
-        model: str = "Pro/zai-org/GLM-5.1",
+        model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 4000,
     ) -> AsyncGenerator[StreamChunk, None]:
@@ -343,13 +343,17 @@ class DeepSeekClient:
         tool_call_complete chunk when the full tool call is assembled.
         """
         url = f"{self.base_url}/chat/completions"
+        selected_model = self._select_model(model, max_tokens)
         payload = {
-            "model": model,
+            "model": selected_model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
         }
+        thinking = self._thinking_payload()
+        if thinking:
+            payload["thinking"] = thinking
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
