@@ -10,24 +10,24 @@ if BACKEND_ROOT not in sys.path:
 from services.api_client import DeepSeekClient
 
 
-def test_deepseek_thinking_is_omitted_by_default(monkeypatch):
+def test_deepseek_thinking_is_disabled_by_default(monkeypatch):
     monkeypatch.delenv("DEEPSEEK_THINKING", raising=False)
-    assert DeepSeekClient()._thinking_payload() is None
+    assert DeepSeekClient()._thinking_payload() == {"type": "disabled"}
 
 
-def test_deepseek_thinking_disabled_is_omitted(monkeypatch):
+def test_deepseek_thinking_disabled_env_keeps_payload_disabled(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_THINKING", "disabled")
-    assert DeepSeekClient()._thinking_payload() is None
+    assert DeepSeekClient()._thinking_payload() == {"type": "disabled"}
 
 
-def test_deepseek_thinking_enabled_is_not_accidentally_sent(monkeypatch):
+def test_deepseek_thinking_enabled_env_is_ignored(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_THINKING", "enabled")
-    assert DeepSeekClient()._thinking_payload() is None
+    assert DeepSeekClient()._thinking_payload() == {"type": "disabled"}
 
 
-def test_deepseek_thinking_force_is_still_omitted(monkeypatch):
+def test_deepseek_thinking_force_env_is_ignored(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_THINKING", "force_enabled")
-    assert DeepSeekClient()._thinking_payload() is None
+    assert DeepSeekClient()._thinking_payload() == {"type": "disabled"}
 
 
 def test_deepseek_model_selection_only_allows_v4_flash_or_pro(monkeypatch):

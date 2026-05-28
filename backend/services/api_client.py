@@ -186,9 +186,9 @@ class DeepSeekClient:
         return fallback
 
     def _thinking_payload(self) -> Optional[Dict[str, str]]:
-        # Chain-of-thought provider mode is globally disabled. Do not send a
-        # special provider payload even if an environment variable exists.
-        return None
+        # DeepSeek V4 defaults this provider mode to enabled. Always send the
+        # explicit off switch, regardless of environment or caller settings.
+        return {"type": "disabled"}
 
     def _sanitize_messages(self, messages: list) -> list:
         sanitized = []
@@ -281,7 +281,8 @@ class DeepSeekClient:
             "messages": self._sanitize_messages(messages),
             "temperature": temperature,
             "max_tokens": max_tokens,
-            "stream": False
+            "stream": False,
+            "thinking": self._thinking_payload(),
         }
         
         try:
@@ -366,6 +367,7 @@ class DeepSeekClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
+            "thinking": self._thinking_payload(),
         }
         if tools:
             payload["tools"] = tools
