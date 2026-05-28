@@ -7,8 +7,6 @@ HTTP 101 Switching Protocols. HTTP 404/502/504 means the request never reached
 the FastAPI WebSocket endpoint correctly.
 """
 
-from __future__ import annotations
-
 import argparse
 import base64
 import os
@@ -20,7 +18,7 @@ from urllib.parse import urlparse
 ZERO_SESSION = "00000000-0000-0000-0000-000000000000"
 
 
-def _to_ws_url(base_url: str) -> str:
+def _to_ws_url(base_url):
     parsed = urlparse(base_url)
     if not parsed.scheme:
         parsed = urlparse(f"https://{base_url}")
@@ -29,7 +27,7 @@ def _to_ws_url(base_url: str) -> str:
     return f"{scheme}://{netloc}/ws/board/{ZERO_SESSION}?token=invalid-smoke-token"
 
 
-def _handshake(url: str, timeout: float) -> tuple[int | None, str]:
+def _handshake(url, timeout):
     parsed = urlparse(url)
     host = parsed.hostname
     if not host:
@@ -54,7 +52,6 @@ def _handshake(url: str, timeout: float) -> tuple[int | None, str]:
     raw = socket.create_connection((host, port), timeout=timeout)
     try:
         raw.settimeout(timeout)
-        sock: socket.socket
         if parsed.scheme == "wss":
             context = ssl.create_default_context()
             sock = context.wrap_socket(raw, server_hostname=host)
@@ -63,7 +60,7 @@ def _handshake(url: str, timeout: float) -> tuple[int | None, str]:
 
         with sock:
             sock.sendall(request)
-            chunks: list[bytes] = []
+            chunks = []
             while b"\r\n\r\n" not in b"".join(chunks):
                 chunk = sock.recv(4096)
                 if not chunk:
@@ -84,7 +81,7 @@ def _handshake(url: str, timeout: float) -> tuple[int | None, str]:
     return status, response
 
 
-def _diagnosis(status: int | None) -> str:
+def _diagnosis(status):
     if status == 101:
         return "OK: WebSocket upgrade reached the backend."
     if status == 502:
@@ -100,7 +97,7 @@ def _diagnosis(status: int | None) -> str:
     return f"FAIL: unexpected WebSocket handshake status {status}."
 
 
-def main() -> int:
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "base_url",
