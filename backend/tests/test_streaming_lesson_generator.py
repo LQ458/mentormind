@@ -37,9 +37,11 @@ class FakeStreamingLLM:
 class CapturingStreamingLLM:
     def __init__(self):
         self.messages = None
+        self.model = None
 
     async def chat_completion_stream(self, *args, **kwargs):
         self.messages = kwargs["messages"]
+        self.model = kwargs.get("model")
         yield StreamChunk(chunk_type="done")
 
 
@@ -105,4 +107,5 @@ async def test_resumed_lesson_does_not_replay_saved_tool_history():
     assert llm.messages
     assert not any(message.get("role") == "tool" for message in llm.messages)
     assert not any("tool_calls" in message for message in llm.messages)
+    assert llm.model == "deepseek-v4-flash"
     assert "Continue the existing board lesson" in llm.messages[-1]["content"]

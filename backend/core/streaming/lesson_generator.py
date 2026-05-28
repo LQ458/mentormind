@@ -218,6 +218,7 @@ class StreamingLessonGenerator:
             )
 
         self._current_messages = messages
+        model_for_request = "deepseek-v4-flash" if resume_messages else self.model
 
         tools = list(BoardMCPServer.get_tool_definitions())
         if self.agent_tools_server is not None:
@@ -246,7 +247,7 @@ class StreamingLessonGenerator:
             async for chunk in self.llm_client.chat_completion_stream(
                 messages=messages,
                 tools=tools,
-                model=self.model,
+                model=model_for_request,
                 temperature=0.7,
                 max_tokens=4000,
             ):
