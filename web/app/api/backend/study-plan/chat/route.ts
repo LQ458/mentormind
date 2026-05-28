@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
       {
         success: false,
         error: timedOut
-          ? 'Study-plan chat took too long. Please try a shorter answer or retry.'
+          ? 'Study-plan chat took too long. Please retry once.'
           : 'Failed to reach study-plan service',
       },
       { status: timedOut ? 504 : 502 },

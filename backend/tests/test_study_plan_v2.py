@@ -35,6 +35,7 @@ from core.agents.subject_detector import (
     A_LEVEL_COURSE_PATTERNS,
     SubjectDetection,
 )
+from core.agents import study_plan_agent as study_plan_agent_module
 from core.agents.study_plan_agent import (
     StudyPlanAgent,
     PlanResponse,
@@ -369,3 +370,77 @@ def test_T29_a_level_asks_paper_focus_after_core_info():
     )
     assert response.response_source == "diagnostic_a_level_papers"
     assert response.options == ["AS papers", "A2 papers", "Practical/coursework", "Full A Level"]
+
+
+def test_T30_plan_review_timeout_returns_error_not_catalog_fallback(monkeypatch):
+    agent = StudyPlanAgent()
+
+    async def slow_completion(*args, **kwargs):
+        await asyncio.sleep(0.05)
+        raise AssertionError("wait_for should cancel before this completes")
+
+    monkeypatch.setattr(study_plan_agent_module, "PLAN_REVIEW_LLM_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(
+        study_plan_agent_module.api_client,
+        "study_plan_chat_completion",
+        slow_completion,
+    )
+
+    response = asyncio.run(
+        agent.get_next_response(
+            [
+                {"role": "user", "content": "AP US History"},
+                {"role": "assistant", "content": "When do you need to be ready?"},
+                {"role": "user", "content": "1-3 months"},
+                {"role": "assistant", "content": "What is your current level?"},
+                {"role": "user", "content": "generate"},
+            ],
+            PlanStage.DIAGNOSTIC,
+            "en",
+            "history",
+            "ap",
+        )
+    )
+
+    assert response.stage == PlanStage.DIAGNOSTIC
+    assert response.proposed_plan is None
+    assert response.response_source == "llm_plan_review_timeout_fast"
+    assert "did not finish" in response.content
+
+
+def test_T31_plan_review_parse_error_returns_retryable_error(monkeypatch):
+    agent = StudyPlanAgent()
+
+    class DummyResponse:
+        success = True
+        data = {"choices": [{"message": {"content": "not json"}}]}
+
+    async def bad_completion(*args, **kwargs):
+        return DummyResponse()
+
+    monkeypatch.setattr(
+        study_plan_agent_module.api_client,
+        "study_plan_chat_completion",
+        bad_completion,
+    )
+
+    response = asyncio.run(
+        agent.get_next_response(
+            [
+                {"role": "user", "content": "AP US History"},
+                {"role": "assistant", "content": "When do you need to be ready?"},
+                {"role": "user", "content": "1-3 months"},
+                {"role": "assistant", "content": "What is your current level?"},
+                {"role": "user", "content": "generate"},
+            ],
+            PlanStage.DIAGNOSTIC,
+            "zh",
+            "history",
+            "ap",
+        )
+    )
+
+    assert response.stage == PlanStage.DIAGNOSTIC
+    assert response.proposed_plan is None
+    assert response.response_source == "llm_plan_review_parse_error_fast"
+    assert "没有生成完成" in response.content

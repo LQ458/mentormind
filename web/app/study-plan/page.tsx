@@ -97,7 +97,7 @@ async function readJsonOrThrow(response: Response): Promise<any> {
       (typeof rawDetail === 'string' && rawDetail) ||
       data?.error ||
       (response.status === 504
-        ? 'Study-plan chat timed out. Please retry or type "generate".'
+        ? '学习计划没有生成完成，请再试一次。'
         : text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180))
 
     throw new Error(typeof detail === 'string' && detail ? detail : `Request failed (${response.status})`)

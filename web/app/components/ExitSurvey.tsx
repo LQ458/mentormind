@@ -45,28 +45,28 @@ const PRIOR_TOOLS_OPTIONS = [
 const LIKERT_QUESTIONS = [
   {
     key: 'plan_useful',
-    en: 'The study plan was useful',
-    zh: '学习计划对我有帮助',
+    en: 'I got a useful study plan within 2 minutes',
+    zh: '我能在 2 分钟内拿到有用计划',
   },
   {
     key: 'lesson_clarity',
-    en: 'AI explanations were clear',
-    zh: 'AI 讲解清晰易懂',
+    en: 'AI answers matched my exact course or exam',
+    zh: 'AI 回答贴合我的课程或考试',
   },
   {
     key: 'latency_ok',
-    en: 'The platform felt fast enough',
-    zh: '平台响应速度可以接受',
+    en: 'Waiting time did not interrupt my flow',
+    zh: '等待时间没有打断我的学习',
   },
   {
     key: 'smooth',
-    en: 'The platform felt smooth, not glitchy',
-    zh: '平台流畅，不卡顿',
+    en: 'Board lessons opened and saved reliably',
+    zh: '板书课能稳定打开并保存',
   },
   {
     key: 'return_next_week',
-    en: 'I would come back next week',
-    zh: '我下周还会再来用',
+    en: 'I would choose this over my current main tool next week',
+    zh: '下周我愿意优先用它替代现有工具',
   },
 ] as const
 
@@ -82,6 +82,26 @@ const PMF_OPTIONS = [
 ] as const
 
 type PmfValue = typeof PMF_OPTIONS[number]['value']
+
+const TRADEOFF_OPTIONS = [
+  {
+    key: 'speed_depth',
+    en: ['Faster first answer', 'Deeper first answer'],
+    zh: ['先快点回答', '先回答更深入'],
+  },
+  {
+    key: 'guided_free',
+    en: ['More guided steps', 'More free chat'],
+    zh: ['更多引导步骤', '更多自由对话'],
+  },
+  {
+    key: 'plan_board',
+    en: ['Better study plans', 'Better board lessons'],
+    zh: ['学习计划更好', '板书课更好'],
+  },
+] as const
+
+type TradeoffKey = typeof TRADEOFF_OPTIONS[number]['key']
 
 // ---------- Component ----------
 
@@ -114,6 +134,11 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
   })
   const [pmf, setPmf] = useState<PmfValue | null>(null)
   const [nps, setNps] = useState<number | null>(null)
+  const [tradeoffs, setTradeoffs] = useState<Record<TradeoffKey, string | null>>({
+    speed_depth: null,
+    guided_free: null,
+    plan_board: null,
+  })
 
   // Page 3 — open feedback
   const [painPoint, setPainPoint] = useState('')
@@ -131,9 +156,10 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
     return (
       Object.values(likert).every((v) => typeof v === 'number') &&
       pmf !== null &&
-      typeof nps === 'number'
+      typeof nps === 'number' &&
+      Object.values(tradeoffs).every((v) => typeof v === 'string')
     )
-  }, [likert, pmf, nps])
+  }, [likert, pmf, nps, tradeoffs])
   const page3Valid = painPoint.trim().length >= 10
 
   // ---- Helpers ----
@@ -159,7 +185,10 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
       nps: typeof nps === 'number' ? nps : 0,
       pain_point: painPoint.slice(0, 4000),
       feature_request: featureRequest.slice(0, 4000),
-      other_feedback: otherFeedback.slice(0, 4000),
+      other_feedback: [
+        `tradeoffs=${JSON.stringify(tradeoffs)}`,
+        otherFeedback.trim(),
+      ].filter(Boolean).join('\n').slice(0, 4000),
       contact_email: contactEmail.trim().slice(0, 320),
       language: lang,
       session_id: getOrCreateSessionId(),
@@ -224,8 +253,8 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
   // ---- Step renderers ----
 
   const stepLabels = lang === 'zh'
-    ? ['关于你', '量化反馈', '具体感受']
-    : ['About you', 'Quantitative', 'Open feedback']
+    ? ['你的场景', '选择对比', '具体卡点']
+    : ['Your context', 'Trade-offs', 'Blocking detail']
 
   return (
     <div
@@ -271,10 +300,10 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
         >
           <div>
             <div style={{ fontWeight: 600, fontSize: 16 }}>
-              {lang === 'zh' ? '你的反馈' : 'Your feedback'}
+              {lang === 'zh' ? '帮我们找出最该修的地方' : 'Help us find what to fix first'}
             </div>
             <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-              {lang === 'zh' ? '约 5 分钟' : 'about 5 minutes'}
+              {lang === 'zh' ? '约 5 分钟，尽量选具体答案' : 'About 5 minutes, concrete answers only'}
             </div>
           </div>
           <button
@@ -346,6 +375,8 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
               setPmf={setPmf}
               nps={nps}
               setNps={setNps}
+              tradeoffs={tradeoffs}
+              setTradeoffs={setTradeoffs}
             />
           )}
           {step === 3 && (
@@ -558,6 +589,8 @@ function Step2({
   setPmf,
   nps,
   setNps,
+  tradeoffs,
+  setTradeoffs,
 }: {
   lang: 'zh' | 'en'
   scaleLabels: string[]
@@ -567,13 +600,15 @@ function Step2({
   setPmf: (v: PmfValue) => void
   nps: number | null
   setNps: (n: number) => void
+  tradeoffs: Record<TradeoffKey, string | null>
+  setTradeoffs: React.Dispatch<React.SetStateAction<Record<TradeoffKey, string | null>>>
 }) {
   return (
     <div>
       {/* Likert */}
       <div style={{ marginBottom: 22 }}>
         <FieldLabel>
-          {lang === 'zh' ? '4-8. 请评分' : '4-8. Please rate'}
+          {lang === 'zh' ? '4-8. 按今天真实体验评分' : '4-8. Rate today’s actual experience'}
         </FieldLabel>
         <div
           style={{
@@ -659,12 +694,62 @@ function Step2({
         })}
       </div>
 
+      <div style={{ marginBottom: 22 }}>
+        <FieldLabel>
+          {lang === 'zh'
+            ? '9-11. 两个只能先做好一个，你选哪个？'
+            : '9-11. If we can improve only one first, pick the winner'}
+        </FieldLabel>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {TRADEOFF_OPTIONS.map((item) => {
+            const labels = lang === 'zh' ? item.zh : item.en
+            return (
+              <div
+                key={item.key}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 8,
+                }}
+              >
+                {labels.map((label) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setTradeoffs((prev) => ({ ...prev, [item.key]: label }))}
+                    aria-pressed={tradeoffs[item.key] === label}
+                    style={{
+                      borderRadius: 8,
+                      border:
+                        tradeoffs[item.key] === label
+                          ? '2px solid var(--accent, #6366f1)'
+                          : '1.5px solid var(--line, #e8ecf0)',
+                      background:
+                        tradeoffs[item.key] === label
+                          ? 'rgba(99, 102, 241, 0.10)'
+                          : 'var(--surface-2, #f5f7fa)',
+                      color: 'var(--ink, #111)',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      padding: '10px 8px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
       {/* PMF */}
       <div style={{ marginBottom: 22 }}>
         <FieldLabel>
           {lang === 'zh'
-            ? '9. 如果 MentorMind 突然消失，你会怎么想？'
-            : '9. How would you feel if MentorMind disappeared?'}
+            ? '12. 如果明天不能用了，你会有多失望？'
+            : '12. If MentorMind disappeared tomorrow, how disappointed would you be?'}
         </FieldLabel>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {PMF_OPTIONS.map((opt) => (
@@ -683,8 +768,8 @@ function Step2({
       <div style={{ marginBottom: 4 }}>
         <FieldLabel>
           {lang === 'zh'
-            ? '10. 你会向朋友推荐 MentorMind 吗？（0-10）'
-            : '10. Would you recommend MentorMind to a friend? (0-10)'}
+            ? '13. 你会推荐给同学或朋友吗？（0-10）'
+            : '13. Would you recommend it to a classmate or friend? (0-10)'}
         </FieldLabel>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
           {Array.from({ length: 11 }).map((_, i) => (
@@ -757,15 +842,15 @@ function Step3({
         id="survey-pain"
         label={
           lang === 'zh'
-            ? '11. 哪一步差点让你放弃？（必填，至少 10 字）'
-            : '11. What almost made you quit? (required, ≥10 chars)'
+            ? '14. 哪一步差点让你放弃？写具体位置和发生了什么（必填）'
+            : '14. What almost made you quit? Name the exact step and what happened (required)'
         }
         value={painPoint}
         onChange={setPainPoint}
         placeholder={
           lang === 'zh'
-            ? '比如：板书加载慢；AI 听不懂我的问题…'
-            : 'e.g. board took too long to load; AI misunderstood my question…'
+            ? '例：学习计划第 2 步，点“5分”后等了很久，最后没有生成计划。'
+            : 'Example: Study plan step 2, clicked “5”, waited a long time, plan never generated.'
         }
         rows={3}
         required
@@ -774,22 +859,30 @@ function Step3({
         id="survey-feature"
         label={
           lang === 'zh'
-            ? '12. 如果只能加一个新功能，你想要什么？'
-            : '12. If you could pick one new feature, what would it be?'
+            ? '15. 哪个改动会让你明天还想打开？'
+            : '15. What one change would make you open it again tomorrow?'
         }
         value={featureRequest}
         onChange={setFeatureRequest}
-        placeholder={lang === 'zh' ? '（可选）' : '(optional)'}
+        placeholder={
+          lang === 'zh'
+            ? '例：生成前显示进度；学习计划能一键改成 4 周冲刺。'
+            : 'Example: show progress while generating; turn a plan into a 4-week sprint.'
+        }
         rows={3}
       />
       <Textarea
         id="survey-other"
         label={
-          lang === 'zh' ? '13. 还有想说的？' : '13. Anything else?'
+          lang === 'zh' ? '16. 你现在主要用什么替代它？' : '16. What do you mainly use instead right now?'
         }
         value={otherFeedback}
         onChange={setOtherFeedback}
-        placeholder={lang === 'zh' ? '（可选）' : '(optional)'}
+        placeholder={
+          lang === 'zh'
+            ? '例：DeepSeek + 真题；B站课程；学校老师发的资料。'
+            : 'Example: DeepSeek + past papers; YouTube; teacher handouts.'
+        }
         rows={2}
       />
 
@@ -799,8 +892,8 @@ function Step3({
           style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}
         >
           {lang === 'zh'
-            ? '14. 邮箱（如果可以联系你）'
-            : '14. Email (if we can follow up)'}
+            ? '17. 邮箱（如果可以追问细节）'
+            : '17. Email (if we can ask one follow-up)'}
         </label>
         <input
           id="survey-email"

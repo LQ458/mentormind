@@ -7,6 +7,7 @@ Recognizes intent signals like "just start" / "generate" and skips straight to g
 
 import json
 import re
+import asyncio
 from typing import Dict, List, Optional, Any
 from enum import Enum
 from dataclasses import dataclass, field
@@ -48,6 +49,7 @@ class PlanResponse:
 
 # Diagnostic turn cap (was 3, raised to 6 for the dynamic flow)
 MAX_DIAGNOSTIC_TURNS = 6
+PLAN_REVIEW_LLM_TIMEOUT_SECONDS = 35
 
 
 _ASK_USER_BLOCK_RE = re.compile(r"```ask_user\s*(\{.*?\})\s*```", re.DOTALL)
@@ -98,6 +100,27 @@ def _temporary_ai_error(language: str, plan_generation: bool = False) -> str:
             else "Plan generation did not come through. Please retry in a moment."
         )
     return "AI 回复暂时没有返回。可以重试，或先补充一个目标细节。" if not plan_generation else "计划暂时生成失败，请稍后重试。"
+
+
+def _plan_generation_error_response(
+    language: str,
+    source: str,
+    detection: Optional[SubjectDetection],
+) -> PlanResponse:
+    content = (
+        "The plan did not finish generating. Please retry once, or add one shorter detail and try again."
+        if language == "en"
+        else "学习计划没有生成完成。请再试一次，或补充一句更短的信息后重试。"
+    )
+    return PlanResponse(
+        stage=PlanStage.DIAGNOSTIC,
+        content=content,
+        response_source=source,
+        diagnostic_question=content,
+        options=["Retry", "Add one detail"] if language == "en" else ["重试生成", "补充信息"],
+        allow_free_text=True,
+        detected_subject=_detection_to_dict(detection) if detection else None,
+    )
 
 
 def _build_curriculum_note(detection: SubjectDetection) -> str:
@@ -525,7 +548,7 @@ Diagnostic answers: {diagnostic_summary}
 
 Your task:
 1. In 1-2 sentences, briefly explain your plan rationale — friendly and encouraging.
-2. Generate a full-course study plan with 6-12 units covering the complete syllabus.
+2. Generate a compact full-course study plan with 6-10 units covering the complete syllabus.
 
 Output format — text first, then the JSON block:
 
@@ -550,23 +573,29 @@ Output format — text first, then the JSON block:
 }}
 ```
 """
-        response = await api_client.study_plan_chat_completion(
-            messages=[{"role": "user", "content": prompt}],
-            phase="plan_review",
-            temperature=0.4,
-            max_tokens=3000,
-        )
+        try:
+            response = await asyncio.wait_for(
+                api_client.study_plan_chat_completion(
+                    messages=[{"role": "user", "content": prompt}],
+                    phase="plan_review",
+                    temperature=0.4,
+                    max_tokens=1800,
+                ),
+                timeout=PLAN_REVIEW_LLM_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            return _plan_generation_error_response(
+                language,
+                "llm_plan_review_timeout_fast" if fast else "llm_plan_review_timeout",
+                detection,
+            )
+
         full_content = _chat_completion_content(response)
         if not full_content:
-            error_content = _temporary_ai_error(language, plan_generation=True)
-            return PlanResponse(
-                stage=PlanStage.DIAGNOSTIC,
-                content=error_content,
-                response_source="llm_plan_review_error",
-                diagnostic_question=error_content,
-                options=["Retry", "Add details"] if language == "en" else ["重试", "补充信息"],
-                allow_free_text=True,
-                detected_subject=_detection_to_dict(detection) if detection else None,
+            return _plan_generation_error_response(
+                language,
+                "llm_plan_review_error_fast" if fast else "llm_plan_review_error",
+                detection,
             )
 
         thinking_process = ""
@@ -589,6 +618,13 @@ Output format — text first, then the JSON block:
                 proposed_plan = None
         else:
             thinking_process = full_content
+
+        if not proposed_plan:
+            return _plan_generation_error_response(
+                language,
+                "llm_plan_review_parse_error_fast" if fast else "llm_plan_review_parse_error",
+                detection,
+            )
 
         summary = (
             "Here's your personalized study plan — review it and hit **Let's go!** when ready."

@@ -10,7 +10,7 @@ interface AuthGateProps {
   redirectTo?: string
 }
 
-export default function AuthGate({ children, redirectTo = '/auth/login' }: AuthGateProps) {
+export default function AuthGate({ children, redirectTo = '/' }: AuthGateProps) {
   const { isLoaded, isSignedIn } = useAuth()
   const router = useRouter()
   const { language } = useLanguage()

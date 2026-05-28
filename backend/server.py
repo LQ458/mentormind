@@ -3338,9 +3338,7 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
         )
         raise HTTPException(
             status_code=504,
-            detail=(
-                "Study-plan chat took too long. Please retry, or type 'generate' to create the plan from the current answers."
-            ),
+            detail="Study-plan chat took too long. Please retry once.",
         )
     except HTTPException:
         raise

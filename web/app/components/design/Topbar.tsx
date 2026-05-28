@@ -120,7 +120,7 @@ export default function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
       )}
       {isLoaded && !isSignedIn && (
         <a href="/auth/login" className="btn btn-sm btn-primary no-underline">
-          Sign in
+          {language === 'zh' ? '登录' : 'Sign in'}
         </a>
       )}
     </div>
