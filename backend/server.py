@@ -3143,6 +3143,7 @@ class StudyPlanChatResponse(BaseModel):
     success: bool
     stage: str
     content: str
+    response_source: Optional[str] = None
     thinking_process: Optional[str] = None
     proposed_plan: Optional[Dict[str, Any]] = None
     diagnostic_question: Optional[str] = None
@@ -3243,7 +3244,21 @@ async def detect_subject(req: DetectSubjectRequest, current_user: User = Depends
 @app.post("/study-plan/chat", response_model=StudyPlanChatResponse)
 async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depends(get_current_user)):
     """Conversational study plan creation (diagnostic → plan review → locked)."""
+    started_at = time.perf_counter()
+    last_user = next(
+        (m.get("content", "") for m in reversed(req.history or []) if m.get("role") == "user"),
+        "",
+    )
     try:
+        logger.info(
+            "study_plan_chat start user=%s stage=%s subject=%s framework=%s history_len=%s last_user=%r",
+            current_user.id,
+            req.stage,
+            req.subject,
+            req.framework,
+            len(req.history or []),
+            last_user[:120],
+        )
         _enforce_quota(current_user, "study_plan_chat")
         current_stage = PlanStage(req.stage)
         response = await asyncio.wait_for(
@@ -3256,10 +3271,22 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
             ),
             timeout=float(os.getenv("STUDY_PLAN_CHAT_BACKEND_TIMEOUT_SECONDS", "45")),
         )
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.info(
+            "study_plan_chat done user=%s stage=%s response_stage=%s source=%s elapsed_ms=%s options=%s proposed_plan=%s",
+            current_user.id,
+            req.stage,
+            response.stage.value,
+            response.response_source,
+            elapsed_ms,
+            bool(response.options),
+            bool(response.proposed_plan),
+        )
         return StudyPlanChatResponse(
             success=True,
             stage=response.stage.value,
             content=response.content,
+            response_source=response.response_source,
             thinking_process=response.thinking_process,
             proposed_plan=response.proposed_plan,
             diagnostic_question=response.diagnostic_question,
@@ -3269,7 +3296,16 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
             allow_free_text=response.allow_free_text,
         )
     except asyncio.TimeoutError:
-        logger.warning("Study plan chat timed out for user=%s stage=%s", current_user.id, req.stage)
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.warning(
+            "study_plan_chat timeout user=%s stage=%s subject=%s framework=%s elapsed_ms=%s last_user=%r",
+            current_user.id,
+            req.stage,
+            req.subject,
+            req.framework,
+            elapsed_ms,
+            last_user[:120],
+        )
         raise HTTPException(
             status_code=504,
             detail=(
@@ -3279,7 +3315,16 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Study plan chat failed: {e}")
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.error(
+            "study_plan_chat failed user=%s stage=%s subject=%s framework=%s elapsed_ms=%s error=%s",
+            current_user.id,
+            req.stage,
+            req.subject,
+            req.framework,
+            elapsed_ms,
+            e,
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 

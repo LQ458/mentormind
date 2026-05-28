@@ -256,6 +256,12 @@ export default function StudyPlanPage() {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (token) headers.Authorization = `Bearer ${token}`
 
+      console.info('[study-plan/chat] send', {
+        mode: 'typed',
+        stage: chatStage,
+        subject: selectedSubject,
+        framework: selectedFramework,
+      })
       const response = await fetch('/api/backend/study-plan/chat', {
         method: 'POST',
         headers,
@@ -272,10 +278,20 @@ export default function StudyPlanPage() {
       })
 
       const data = await readJsonOrThrow(response)
+      console.info('[study-plan/chat] response', {
+        mode: 'typed',
+        stage: data?.stage ?? chatStage,
+        source: data?.response_source ?? 'unknown',
+        hasPlan: Boolean(data?.proposed_plan),
+      })
       try {
         track(
           'study_plan_chat_rtt',
-          { phase: typeof data?.stage === 'string' ? data.stage : chatStage },
+          {
+            phase: typeof data?.stage === 'string' ? data.stage : chatStage,
+            source: data?.response_source ?? 'unknown',
+            mode: 'typed',
+          },
           { latency_ms: Date.now() - chatStartedAt },
         )
       } catch {
@@ -362,6 +378,13 @@ export default function StudyPlanPage() {
           const token = await getToken()
           const headers: Record<string, string> = { 'Content-Type': 'application/json' }
           if (token) headers.Authorization = `Bearer ${token}`
+          console.info('[study-plan/chat] send', {
+            mode: 'chip',
+            stage: chatStage,
+            subject: selectedSubject,
+            framework: selectedFramework,
+            option,
+          })
           const response = await fetch('/api/backend/study-plan/chat', {
             method: 'POST',
             headers,
@@ -374,10 +397,20 @@ export default function StudyPlanPage() {
             }),
           })
           const data = await readJsonOrThrow(response)
+          console.info('[study-plan/chat] response', {
+            mode: 'chip',
+            stage: data?.stage ?? chatStage,
+            source: data?.response_source ?? 'unknown',
+            hasPlan: Boolean(data?.proposed_plan),
+          })
           try {
             track(
               'study_plan_chat_rtt',
-              { phase: typeof data?.stage === 'string' ? data.stage : chatStage, source: 'chip' },
+              {
+                phase: typeof data?.stage === 'string' ? data.stage : chatStage,
+                source: data?.response_source ?? 'unknown',
+                mode: 'chip',
+              },
               { latency_ms: Date.now() - chipStartedAt },
             )
           } catch {

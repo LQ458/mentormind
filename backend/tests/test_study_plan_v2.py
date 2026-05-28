@@ -235,6 +235,7 @@ def test_T20c_backwards_compat_get_ap_catalog():
 
 def test_T20d_response_dataclass_has_options_field():
     r = PlanResponse(stage=PlanStage.DIAGNOSTIC, content="hi")
+    assert r.response_source == "unknown"
     assert hasattr(r, "options")
     assert hasattr(r, "allow_free_text")
     assert r.allow_free_text is True
@@ -287,3 +288,24 @@ def test_T23_preselected_clears_stale_ap_course_id():
     # Curriculum note should be IB-flavoured, not AP
     note = _build_curriculum_note(detection)
     assert "OFFICIAL AP CURRICULUM" not in note
+
+
+def test_T24_preselected_ap_chip_flow_marks_deterministic_sources():
+    agent = StudyPlanAgent()
+    history = [{"role": "user", "content": "数学 AP (美国大学预修)"}]
+
+    course = asyncio.run(
+        agent.get_next_response(history, PlanStage.DIAGNOSTIC, "zh", "math", "ap")
+    )
+    assert course.response_source == "deterministic_course_options"
+    assert course.options == ["微积分AB", "微积分BC", "统计学"]
+
+    history += [
+        {"role": "assistant", "content": course.content},
+        {"role": "user", "content": "微积分BC"},
+    ]
+    timeline = asyncio.run(
+        agent.get_next_response(history, PlanStage.DIAGNOSTIC, "zh", "math", "ap")
+    )
+    assert timeline.response_source == "deterministic_timeline"
+    assert "考试或目标时间" in timeline.content

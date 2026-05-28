@@ -27,6 +27,7 @@ class PlanStage(Enum):
 class PlanResponse:
     stage: PlanStage
     content: str
+    response_source: str = "unknown"
     thinking_process: Optional[str] = None
     proposed_plan: Optional[Dict[str, Any]] = None
     diagnostic_question: Optional[str] = None
@@ -311,7 +312,11 @@ class StudyPlanAgent:
         elif current_stage == PlanStage.LOCKED:
             return await self._handle_co_creation(history, language, lang_instruction)
 
-        return PlanResponse(stage=PlanStage.OPENING, content="Ready to build your study plan?")
+        return PlanResponse(
+            stage=PlanStage.OPENING,
+            content="Ready to build your study plan?",
+            response_source="fallback_opening",
+        )
 
     async def _handle_opening(
         self,
@@ -338,7 +343,7 @@ class StudyPlanAgent:
             if language == "en" else
             "你在备考哪个科目和考试框架？（例如：AP Calculus、A Level Physics、高考数学、IB Math AA HL）"
         )
-        return PlanResponse(stage=PlanStage.OPENING, content=content)
+        return PlanResponse(stage=PlanStage.OPENING, content=content, response_source="opening")
 
     async def _handle_diagnostic(
         self,
@@ -363,13 +368,14 @@ class StudyPlanAgent:
             options = _course_options(preselected_framework, preselected_subject, language)
             if options:
                 content = (
-                    "Got it. Which exact course should this plan follow?"
+                    "Got it. Choose the exact course first, then I’ll build the plan."
                     if language == "en"
-                    else "明白了。这个计划具体要按哪门课程来安排？"
+                    else "先选具体课程，我再生成计划。"
                 )
                 return PlanResponse(
                     stage=PlanStage.DIAGNOSTIC,
                     content=content,
+                    response_source="deterministic_course_options",
                     diagnostic_question=content,
                     options=options,
                     allow_free_text=True,
@@ -379,9 +385,9 @@ class StudyPlanAgent:
         user_text = " ".join(m["content"] for m in history if m["role"] == "user")
         if detection and detection.course_id and not _has_timeline_signal(user_text):
             content = (
-                f"Great, I’ll anchor the plan to {detection.course_name}. When is your exam or target deadline?"
+                f"Great, I’ll use {detection.course_name}. When is your exam or deadline?"
                 if language == "en"
-                else f"好的，我会按 {detection.course_name} 来规划。你的考试或目标完成时间大概是什么时候？"
+                else f"好的，按 {detection.course_name} 来做。考试或目标时间是什么时候？"
             )
             options = (
                 ["Within 4 weeks", "1-3 months", "3+ months", "Not sure"]
@@ -391,6 +397,7 @@ class StudyPlanAgent:
             return PlanResponse(
                 stage=PlanStage.DIAGNOSTIC,
                 content=content,
+                response_source="deterministic_timeline",
                 diagnostic_question=content,
                 options=options,
                 allow_free_text=True,
@@ -399,9 +406,9 @@ class StudyPlanAgent:
 
         if detection and detection.course_id and _has_timeline_signal(user_text) and not _has_level_signal(user_text):
             content = (
-                f"Got it. What is your current level in {detection.course_name}, and what score or outcome are you aiming for?"
+                f"Got it. What is your current level in {detection.course_name}, and what result do you want?"
                 if language == "en"
-                else f"明白。你现在学 {detection.course_name} 的基础大概怎样？目标分数或目标结果是什么？"
+                else f"明白。你现在基础怎样？目标是什么？"
             )
             options = (
                 ["Weak foundation", "Average", "Strong", "Top score"]
@@ -411,6 +418,7 @@ class StudyPlanAgent:
             return PlanResponse(
                 stage=PlanStage.DIAGNOSTIC,
                 content=content,
+                response_source="deterministic_level",
                 diagnostic_question=content,
                 options=options,
                 allow_free_text=True,
@@ -471,6 +479,7 @@ Keep total response ≤ 60 words excluding the ask_user block.
         return PlanResponse(
             stage=PlanStage.DIAGNOSTIC,
             content=clean_content,
+            response_source="llm_diagnostic",
             diagnostic_question=ask["question"] if ask else clean_content,
             options=ask["options"] if ask else None,
             allow_free_text=ask["allow_free_text"] if ask else True,
@@ -596,6 +605,7 @@ Output format — text first, then the JSON block:
         return PlanResponse(
             stage=PlanStage.PLAN_REVIEW,
             content=summary,
+            response_source="llm_plan_review_fast" if fast else "llm_plan_review",
             thinking_process=thinking_process,
             proposed_plan=proposed_plan,
             next_action_label="Looks good, let's go!" if language == "en" else "看起来不错，开始吧！",
@@ -616,5 +626,6 @@ Output format — text first, then the JSON block:
                     if language == "en"
                     else "好的——正在保存你的学习计划……"
                 ),
+                response_source="locked_save",
             )
         return await self._handle_plan_review(history, language, lang_instr)

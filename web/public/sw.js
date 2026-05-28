@@ -1,6 +1,5 @@
-const CACHE_VERSION = 'mentormind-pwa-v1'
+const CACHE_VERSION = 'mentormind-pwa-v2'
 const STATIC_CACHE = `${CACHE_VERSION}:static`
-const PAGE_CACHE = `${CACHE_VERSION}:pages`
 const OFFLINE_URL = '/offline.html'
 
 const STATIC_ASSETS = [
@@ -63,16 +62,9 @@ async function cacheFirst(request) {
 }
 
 async function navigationNetworkFirst(request) {
-  const cache = await caches.open(PAGE_CACHE)
   try {
-    const response = await fetch(request)
-    if (response && response.ok) {
-      cache.put(request, response.clone())
-    }
-    return response
+    return await fetch(request)
   } catch {
-    const cached = await cache.match(request)
-    if (cached) return cached
     return caches.match(OFFLINE_URL)
   }
 }
