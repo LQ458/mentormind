@@ -34,3 +34,30 @@ export async function GET(
     );
   }
 }
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const id = params.id;
+    const authHeader = request.headers.get('Authorization');
+    const headers: Record<string, string> = {};
+    if (authHeader) {
+      headers.Authorization = authHeader;
+    }
+
+    const backendResponse = await fetch(`${BACKEND_URL}/study-plan/${id}`, {
+      method: 'DELETE',
+      headers,
+    });
+    const data = await backendResponse.json();
+    return NextResponse.json(data, { status: backendResponse.status });
+  } catch (error) {
+    console.error('API proxy error:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete study plan', details: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
+}

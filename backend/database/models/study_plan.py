@@ -72,6 +72,8 @@ class StudyPlan(Base):
     # Status and progress
     status = Column(String(20), default=PlanStatus.DRAFT.value)
     progress_percentage = Column(Float, default=0.0)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    purge_after = Column(DateTime(timezone=True), nullable=True)
 
     # AI metadata
     ai_metadata = Column(JSON, default=dict)
@@ -100,6 +102,7 @@ class StudyPlan(Base):
         Index('idx_study_plans_subject', 'subject'),
         Index('idx_study_plans_status', 'status'),
         Index('idx_study_plans_created_at', 'created_at'),
+        Index('idx_study_plans_purge_after', 'purge_after'),
     )
 
     def to_dict(self, include_units: bool = True, include_relationships: bool = True) -> Dict[str, Any]:
@@ -119,6 +122,8 @@ class StudyPlan(Base):
             "diagnostic_context": self.diagnostic_context,
             "status": self.status,
             "progress_percentage": self.progress_percentage,
+            "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
+            "purge_after": self.purge_after.isoformat() if self.purge_after else None,
             "ai_metadata": self.ai_metadata,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

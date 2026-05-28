@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import DOMPurify from 'dompurify'
-import { Mic, ImagePlus, X } from 'lucide-react'
+import { Mic, ImagePlus, X, Trash2 } from 'lucide-react'
 import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '../components/AuthContext'
 import { PageHead, Section } from '../components/design/primitives'
@@ -197,6 +197,7 @@ export default function StudyPlanPage() {
     created_at: string | null; updated_at: string | null;
   }[]>([])
   const [plansLoading, setPlansLoading] = useState(true)
+  const [deletingPlanIds, setDeletingPlanIds] = useState<Set<string>>(new Set())
 
   // Fetch existing study plans
   useEffect(() => {
@@ -219,6 +220,32 @@ export default function StudyPlanPage() {
     }
     fetchPlans()
   }, [getToken, createdPlanId])
+
+  const deleteExistingPlan = useCallback(async (planId: string) => {
+    const ok = window.confirm(
+      uiLanguage === 'zh'
+        ? '删除这个学习计划？30天后会自动清空。'
+        : 'Delete this study plan? It will be cleared after 30 days.'
+    )
+    if (!ok) return
+    setDeletingPlanIds((prev) => new Set(prev).add(planId))
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = {}
+      if (token) headers.Authorization = `Bearer ${token}`
+      const response = await fetch(`/api/backend/study-plan/${planId}`, { method: 'DELETE', headers })
+      if (!response.ok) throw new Error(`Delete failed (${response.status})`)
+      setMyPlans((prev) => prev.filter((plan) => plan.id !== planId))
+    } catch {
+      setError(uiLanguage === 'zh' ? '删除失败，请重试。' : 'Delete failed. Please try again.')
+    } finally {
+      setDeletingPlanIds((prev) => {
+        const next = new Set(prev)
+        next.delete(planId)
+        return next
+      })
+    }
+  }, [getToken, uiLanguage])
 
   const clearStudyPlanDraft = useCallback(() => {
     if (typeof window === 'undefined') return
@@ -839,10 +866,15 @@ export default function StudyPlanPage() {
               const subjectObj = SUBJECTS.find(s => s.id === p.subject)
               const frameworkObj = FRAMEWORKS.find(f => f.id === p.framework)
               return (
-                <button
+                <div
                   key={p.id}
                   onClick={() => router.push(`/study-plan/${p.id}`)}
-                  className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 text-left hover:border-blue-300 hover:shadow-md transition-all group"
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') router.push(`/study-plan/${p.id}`)
+                  }}
+                  className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 text-left hover:border-blue-300 hover:shadow-md transition-all group cursor-pointer"
                 >
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="flex items-center gap-2 min-w-0">
@@ -864,6 +896,18 @@ export default function StudyPlanPage() {
                         ? uiLanguage === 'zh' ? '进行中' : 'Active'
                         : p.status}
                     </span>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void deleteExistingPlan(p.id)
+                      }}
+                      disabled={deletingPlanIds.has(p.id)}
+                      className="rounded-lg border border-gray-200 p-1.5 text-gray-400 hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+                      title={uiLanguage === 'zh' ? '删除' : 'Delete'}
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
                     <span>{uiLanguage === 'zh' ? subjectObj?.labelZh : subjectObj?.label}</span>
@@ -884,7 +928,7 @@ export default function StudyPlanPage() {
                       />
                     </div>
                   </div>
-                </button>
+                </div>
               )
             })}
           </div>

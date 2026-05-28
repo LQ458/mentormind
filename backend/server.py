@@ -9,7 +9,7 @@ import logging
 import os
 import sys
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Request, WebSocket, WebSocketDisconnect
@@ -3134,6 +3134,38 @@ from core.board.storage import (
 )
 
 study_plan_agent = StudyPlanAgent()
+STUDY_PLAN_DELETE_RETENTION_DAYS = 30
+
+
+def _active_study_plan_query(db: Session, user_id: str):
+    return (
+        db.query(StudyPlan)
+        .filter(StudyPlan.user_id == user_id)
+        .filter(StudyPlan.status.notin_(["archived", "deleted"]))
+    )
+
+
+def _purge_expired_deleted_study_plans(db: Session) -> int:
+    now = datetime.utcnow()
+    deleted = (
+        db.query(StudyPlan)
+        .filter(StudyPlan.status == "deleted")
+        .filter(StudyPlan.purge_after.isnot(None))
+        .filter(StudyPlan.purge_after <= now)
+        .delete(synchronize_session=False)
+    )
+    if deleted:
+        db.commit()
+    return int(deleted or 0)
+
+
+def _soft_delete_study_plan(plan: StudyPlan) -> None:
+    now = datetime.utcnow()
+    plan.status = "deleted"
+    plan.deleted_at = now
+    plan.purge_after = now + timedelta(days=STUDY_PLAN_DELETE_RETENTION_DAYS)
+
+
 subject_detector = SubjectDetector()
 gaokao_tutor = GaokaoTutor()
 
@@ -3168,6 +3200,11 @@ class StudyPlanCreateRequest(BaseModel):
     plan_data: Dict[str, Any]
     language: str = "zh"
     request_id: Optional[str] = None
+
+
+class StudyPlanBulkDeleteRequest(BaseModel):
+    plan_ids: List[str] = Field(default_factory=list)
+    delete_all: bool = False
 
 
 class UnitGenerateRequest(BaseModel):
@@ -3751,10 +3788,9 @@ async def get_my_study_plans(
 ):
     """Get all study plans for the current user."""
     try:
+        _purge_expired_deleted_study_plans(db)
         plans = (
-            db.query(StudyPlan)
-            .filter(StudyPlan.user_id == current_user.id)
-            .filter(StudyPlan.status != "archived")
+            _active_study_plan_query(db, current_user.id)
             .order_by(StudyPlan.created_at.desc())
             .all()
         )
@@ -3777,10 +3813,9 @@ async def get_study_plan_library(
     """Return the user's study plans grouped with their units and most-recent
     saved board session id (if any) per unit. Skips archived plans."""
     try:
+        _purge_expired_deleted_study_plans(db)
         plans = (
-            db.query(StudyPlan)
-            .filter(StudyPlan.user_id == current_user.id)
-            .filter(StudyPlan.status != "archived")
+            _active_study_plan_query(db, current_user.id)
             .order_by(StudyPlan.created_at.desc())
             .all()
         )
@@ -3822,6 +3857,8 @@ async def get_study_plan_library(
                 "status": plan.status,
                 "progress_percentage": plan.progress_percentage,
                 "language": plan.language,
+                "deleted_at": plan.deleted_at.isoformat() if plan.deleted_at else None,
+                "purge_after": plan.purge_after.isoformat() if plan.purge_after else None,
                 "units": units_payload,
             })
 
@@ -3830,6 +3867,72 @@ async def get_study_plan_library(
         raise
     except Exception as e:
         logger.error(f"Failed to fetch study plan library: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/study-plan/{plan_id}")
+async def delete_study_plan(
+    plan_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Soft delete one study plan. Deleted plans are purged after 30 days."""
+    try:
+        _purge_expired_deleted_study_plans(db)
+        plan = (
+            _active_study_plan_query(db, current_user.id)
+            .filter(StudyPlan.id == plan_id)
+            .first()
+        )
+        if not plan:
+            raise HTTPException(status_code=404, detail="Study plan not found")
+        _soft_delete_study_plan(plan)
+        db.commit()
+        return {
+            "success": True,
+            "deleted": 1,
+            "plan_id": plan_id,
+            "status": plan.status,
+            "deleted_at": plan.deleted_at.isoformat() if plan.deleted_at else None,
+            "purge_after": plan.purge_after.isoformat() if plan.purge_after else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to delete study plan: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/study-plan/delete")
+async def delete_study_plans(
+    req: StudyPlanBulkDeleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Soft delete selected plans, or all active plans when delete_all is true."""
+    try:
+        _purge_expired_deleted_study_plans(db)
+        query = _active_study_plan_query(db, current_user.id)
+        if not req.delete_all:
+            plan_ids = [pid for pid in req.plan_ids if isinstance(pid, str) and pid]
+            if not plan_ids:
+                return {"success": True, "deleted": 0, "plan_ids": []}
+            query = query.filter(StudyPlan.id.in_(plan_ids))
+
+        plans = query.all()
+        for plan in plans:
+            _soft_delete_study_plan(plan)
+        db.commit()
+        return {
+            "success": True,
+            "deleted": len(plans),
+            "plan_ids": [str(plan.id) for plan in plans],
+            "retention_days": STUDY_PLAN_DELETE_RETENTION_DAYS,
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to bulk delete study plans: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -3842,8 +3945,8 @@ async def get_study_plan(
     """Get a study plan with all its units."""
     try:
         plan = (
-            db.query(StudyPlan)
-            .filter(StudyPlan.id == plan_id, StudyPlan.user_id == current_user.id)
+            _active_study_plan_query(db, current_user.id)
+            .filter(StudyPlan.id == plan_id)
             .first()
         )
         if not plan:

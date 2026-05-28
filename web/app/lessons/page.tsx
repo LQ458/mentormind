@@ -5,7 +5,18 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '../components/AuthContext'
-import { ArrowRight, CheckCircle2, Clock } from 'lucide-react'
+import {
+  ArrowRight,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ChevronsDown,
+  ChevronsUp,
+  Clock,
+  Square,
+  CheckSquare,
+  Trash2,
+} from 'lucide-react'
 import { PageHead, Progress, Chip } from '../components/design/primitives'
 import { Skeleton } from '../components/Skeleton'
 
@@ -36,6 +47,8 @@ interface StudyPlan {
   status: string
   progress_percentage: number
   language: string
+  deleted_at?: string | null
+  purge_after?: string | null
   units: PlanUnit[]
 }
 
@@ -166,16 +179,53 @@ function UnitCard({ unit, plan }: { unit: PlanUnit; plan: StudyPlan }) {
 
 // ---- Plan Section --------------------------------------------------------
 
-function PlanSection({ plan }: { plan: StudyPlan }) {
+function PlanSection({
+  plan,
+  collapsed,
+  selected,
+  deleting,
+  onToggle,
+  onSelect,
+  onDelete,
+}: {
+  plan: StudyPlan
+  collapsed: boolean
+  selected: boolean
+  deleting: boolean
+  onToggle: (planId: string) => void
+  onSelect: (planId: string) => void
+  onDelete: (planId: string) => void
+}) {
   const { language } = useLanguage()
   const lang: 'en' | 'zh' = language === 'zh' ? 'zh' : 'en'
+  const completedUnits = plan.units.filter((unit) => unit.is_completed).length
 
   return (
-    <div style={{ marginBottom: 40 }}>
+    <div className="card-new" style={{ marginBottom: 16, padding: 18 }}>
       {/* Section header */}
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>{plan.title}</h2>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn-sm btn-secondary"
+            onClick={() => onToggle(plan.id)}
+            aria-label={collapsed ? (lang === 'zh' ? '展开' : 'Expand') : (lang === 'zh' ? '收起' : 'Collapse')}
+            style={{ padding: '7px 9px' }}
+          >
+            {collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+          </button>
+          <button
+            type="button"
+            onClick={() => onSelect(plan.id)}
+            className="btn btn-sm btn-secondary"
+            aria-label={selected ? (lang === 'zh' ? '取消选择' : 'Unselect') : (lang === 'zh' ? '选择' : 'Select')}
+            style={{ padding: '7px 9px' }}
+          >
+            {selected ? <CheckSquare size={15} /> : <Square size={15} />}
+          </button>
+          <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, minWidth: 0, flex: '1 1 220px' }}>
+            {plan.title}
+          </h2>
           <span className="chip" style={{ fontSize: 11 }}>
             {plan.subject}
           </span>
@@ -184,9 +234,22 @@ function PlanSection({ plan }: { plan: StudyPlan }) {
               {plan.framework}
             </span>
           )}
-          <span className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>
-            {plan.progress_percentage}%
+          <span className="muted" style={{ fontSize: 12 }}>
+            {completedUnits}/{plan.units.length}
           </span>
+          <span className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>
+            {Math.round(plan.progress_percentage)}%
+          </span>
+          <button
+            type="button"
+            className="btn btn-sm btn-secondary"
+            onClick={() => onDelete(plan.id)}
+            disabled={deleting}
+            style={{ color: 'var(--color-danger, #dc2626)' }}
+          >
+            <Trash2 size={14} />
+            {lang === 'zh' ? '删除' : 'Delete'}
+          </button>
         </div>
         <div style={{ marginTop: 8 }}>
           <Progress value={plan.progress_percentage / 100} thin />
@@ -194,11 +257,13 @@ function PlanSection({ plan }: { plan: StudyPlan }) {
       </div>
 
       {/* Units grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {plan.units.map((unit) => (
-          <UnitCard key={unit.id} unit={unit} plan={plan} />
-        ))}
-      </div>
+      {!collapsed && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" style={{ marginTop: 16 }}>
+          {plan.units.map((unit) => (
+            <UnitCard key={unit.id} unit={unit} plan={plan} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -238,17 +303,16 @@ export default function LessonsPage() {
   const [loading, setLoading] = useState(true)
   const [unauthenticated, setUnauthenticated] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [collapsedPlans, setCollapsedPlans] = useState<Set<string>>(new Set())
+  const [selectedPlans, setSelectedPlans] = useState<Set<string>>(new Set())
+  const [deleting, setDeleting] = useState(false)
 
-  useEffect(() => {
-    if (!isLoaded) return
-    let cancelled = false
-
-    const fetchLibrary = async () => {
+  const fetchLibrary = useCallback(async (cancelledRef?: { current: boolean }) => {
       setLoading(true)
       try {
         const token = await getToken()
         if (!token) {
-          if (!cancelled) setUnauthenticated(true)
+          if (!cancelledRef?.current) setUnauthenticated(true)
           return
         }
         const res = await fetch('/api/backend/study-plan/library', {
@@ -256,12 +320,13 @@ export default function LessonsPage() {
           cache: 'no-store',
         })
         if (res.status === 401) {
-          if (!cancelled) setUnauthenticated(true)
+          if (!cancelledRef?.current) setUnauthenticated(true)
           return
         }
         const data: LibraryResponse = await res.json()
-        if (!cancelled) {
+        if (!cancelledRef?.current) {
           setPlans(Array.isArray(data?.plans) ? data.plans : [])
+          setSelectedPlans(new Set())
           if (!res.ok) {
             setError(
               lang === 'zh'
@@ -271,7 +336,7 @@ export default function LessonsPage() {
           }
         }
       } catch (err: any) {
-        if (!cancelled) {
+        if (!cancelledRef?.current) {
           setError(
             lang === 'zh'
               ? '无法连接到服务器，请检查网络后重试'
@@ -279,13 +344,93 @@ export default function LessonsPage() {
           )
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelledRef?.current) setLoading(false)
       }
-    }
+  }, [getToken, lang])
 
-    void fetchLibrary()
-    return () => { cancelled = true }
-  }, [isLoaded, isSignedIn, getToken])
+  useEffect(() => {
+    if (!isLoaded) return
+    const cancelledRef = { current: false }
+    void fetchLibrary(cancelledRef)
+    return () => { cancelledRef.current = true }
+  }, [isLoaded, isSignedIn, fetchLibrary])
+
+  const togglePlan = useCallback((planId: string) => {
+    setCollapsedPlans((prev) => {
+      const next = new Set(prev)
+      if (next.has(planId)) next.delete(planId)
+      else next.add(planId)
+      return next
+    })
+  }, [])
+
+  const toggleSelectedPlan = useCallback((planId: string) => {
+    setSelectedPlans((prev) => {
+      const next = new Set(prev)
+      if (next.has(planId)) next.delete(planId)
+      else next.add(planId)
+      return next
+    })
+  }, [])
+
+  const deleteOnePlan = useCallback(async (planId: string) => {
+    const ok = window.confirm(lang === 'zh' ? '删除这个学习计划？30天后会自动清空。' : 'Delete this study plan? It will be cleared after 30 days.')
+    if (!ok) return
+    setDeleting(true)
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = {}
+      if (token) headers.Authorization = `Bearer ${token}`
+      const res = await fetch(`/api/backend/study-plan/${planId}`, { method: 'DELETE', headers })
+      if (!res.ok) throw new Error(`Delete failed (${res.status})`)
+      setPlans((prev) => prev.filter((plan) => plan.id !== planId))
+      setSelectedPlans((prev) => {
+        const next = new Set(prev)
+        next.delete(planId)
+        return next
+      })
+    } catch (err: any) {
+      setError(lang === 'zh' ? '删除失败，请重试。' : 'Delete failed. Please try again.')
+    } finally {
+      setDeleting(false)
+    }
+  }, [getToken, lang])
+
+  const bulkDeletePlans = useCallback(async (deleteAll: boolean) => {
+    const ids = deleteAll ? [] : Array.from(selectedPlans)
+    const count = deleteAll ? plans.length : ids.length
+    if (count === 0) return
+    const ok = window.confirm(
+      lang === 'zh'
+        ? `删除 ${count} 个学习计划？30天后会自动清空。`
+        : `Delete ${count} study plan${count === 1 ? '' : 's'}? They will be cleared after 30 days.`
+    )
+    if (!ok) return
+    setDeleting(true)
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers.Authorization = `Bearer ${token}`
+      const res = await fetch('/api/backend/study-plan/delete', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ plan_ids: ids, delete_all: deleteAll }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.detail || `Delete failed (${res.status})`)
+      const deletedIds = new Set<string>(Array.isArray(data?.plan_ids) ? data.plan_ids : ids)
+      setPlans((prev) => deleteAll ? [] : prev.filter((plan) => !deletedIds.has(plan.id)))
+      setSelectedPlans(new Set())
+    } catch {
+      setError(lang === 'zh' ? '删除失败，请重试。' : 'Delete failed. Please try again.')
+    } finally {
+      setDeleting(false)
+    }
+  }, [getToken, lang, plans.length, selectedPlans])
+
+  const selectedCount = selectedPlans.size
+  const allSelected = plans.length > 0 && selectedCount === plans.length
+  const allCollapsed = plans.length > 0 && plans.every((plan) => collapsedPlans.has(plan.id))
 
   if (!isLoaded || loading) return <LibrarySkeleton />
 
@@ -347,6 +492,15 @@ export default function LessonsPage() {
         }
       />
 
+      {error && (
+        <div
+          className="card-new"
+          style={{ padding: 12, marginBottom: 16, color: 'var(--color-danger, #dc2626)' }}
+        >
+          {error}
+        </div>
+      )}
+
       {plans.length === 0 ? (
         <div className="card-new" style={{ padding: 40, textAlign: 'center' }}>
           <div style={{ fontSize: 16, marginBottom: 8 }}>
@@ -363,7 +517,76 @@ export default function LessonsPage() {
           </Link>
         </div>
       ) : (
-        plans.map((plan) => <PlanSection key={plan.id} plan={plan} />)
+        <>
+          <div
+            className="card-new"
+            style={{
+              padding: 12,
+              marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              flexWrap: 'wrap',
+            }}
+          >
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={() => {
+                setSelectedPlans(allSelected ? new Set() : new Set(plans.map((plan) => plan.id)))
+              }}
+            >
+              {allSelected ? <CheckSquare size={14} /> : <Square size={14} />}
+              {allSelected ? (lang === 'zh' ? '取消全选' : 'Unselect all') : (lang === 'zh' ? '全选' : 'Select all')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={() => {
+                setCollapsedPlans(allCollapsed ? new Set() : new Set(plans.map((plan) => plan.id)))
+              }}
+            >
+              {allCollapsed ? <ChevronsDown size={14} /> : <ChevronsUp size={14} />}
+              {allCollapsed ? (lang === 'zh' ? '全部展开' : 'Expand all') : (lang === 'zh' ? '全部收起' : 'Collapse all')}
+            </button>
+            <span className="muted" style={{ fontSize: 12, marginLeft: 'auto' }}>
+              {lang === 'zh' ? `${plans.length} 个计划` : `${plans.length} plans`}
+            </span>
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={() => bulkDeletePlans(false)}
+              disabled={selectedCount === 0 || deleting}
+              style={{ color: selectedCount ? 'var(--color-danger, #dc2626)' : undefined }}
+            >
+              <Trash2 size={14} />
+              {lang === 'zh' ? `删除所选${selectedCount ? `(${selectedCount})` : ''}` : `Delete selected${selectedCount ? ` (${selectedCount})` : ''}`}
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={() => bulkDeletePlans(true)}
+              disabled={plans.length === 0 || deleting}
+              style={{ color: 'var(--color-danger, #dc2626)' }}
+            >
+              <Trash2 size={14} />
+              {lang === 'zh' ? '全部删除' : 'Delete all'}
+            </button>
+          </div>
+
+          {plans.map((plan) => (
+            <PlanSection
+              key={plan.id}
+              plan={plan}
+              collapsed={collapsedPlans.has(plan.id)}
+              selected={selectedPlans.has(plan.id)}
+              deleting={deleting}
+              onToggle={togglePlan}
+              onSelect={toggleSelectedPlan}
+              onDelete={deleteOnePlan}
+            />
+          ))}
+        </>
       )}
     </div>
   )

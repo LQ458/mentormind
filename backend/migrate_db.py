@@ -214,6 +214,10 @@ def migrate():
             "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS generation_cache_key VARCHAR(128)",
             "CREATE INDEX IF NOT EXISTS idx_study_plan_units_generation_task_id ON study_plan_units(generation_task_id)",
             "CREATE INDEX IF NOT EXISTS idx_study_plan_units_generation_cache_key ON study_plan_units(generation_cache_key)",
+            # Study-plan soft delete lifecycle
+            "ALTER TABLE study_plans ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+            "ALTER TABLE study_plans ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ",
+            "CREATE INDEX IF NOT EXISTS idx_study_plans_purge_after ON study_plans(purge_after)",
             # Telemetry events
             """CREATE TABLE IF NOT EXISTS telemetry_events (
                 id VARCHAR(36) PRIMARY KEY,

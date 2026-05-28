@@ -204,3 +204,4 @@ class PlanStatus(str, Enum):
     ACTIVE = "active"
     COMPLETED = "completed"
     ARCHIVED = "archived"
+    DELETED = "deleted"
