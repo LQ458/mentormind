@@ -30,16 +30,16 @@ def test_deepseek_thinking_force_env_is_ignored(monkeypatch):
     assert DeepSeekClient()._thinking_payload() == {"type": "disabled"}
 
 
-def test_deepseek_model_selection_only_allows_v4_flash_or_pro(monkeypatch):
+def test_deepseek_model_selection_only_allows_v4_flash(monkeypatch):
     monkeypatch.delenv("DEEPSEEK_FLASH_MODEL", raising=False)
     monkeypatch.delenv("DEEPSEEK_PRO_MODEL", raising=False)
     client = DeepSeekClient()
 
     assert client._select_model("deepseek-v4-flash", 4000) == "deepseek-v4-flash"
-    assert client._select_model("deepseek-v4-pro", 200) == "deepseek-v4-pro"
-    assert client._select_model("deepseek-reasoner", 4000) == "deepseek-v4-pro"
+    assert client._select_model("deepseek-v4-pro", 200) == "deepseek-v4-flash"
+    assert client._select_model("deepseek-reasoner", 4000) == "deepseek-v4-flash"
     assert client._select_model("deepseek-r1", 200) == "deepseek-v4-flash"
-    assert client._select_model("deepseek-v4-pro-thinking", 4000) == "deepseek-v4-pro"
+    assert client._select_model("deepseek-v4-pro-thinking", 4000) == "deepseek-v4-flash"
 
 
 def test_deepseek_model_env_rejects_non_approved_models(monkeypatch):
@@ -48,7 +48,7 @@ def test_deepseek_model_env_rejects_non_approved_models(monkeypatch):
     client = DeepSeekClient()
 
     assert client._select_model(None, 200) == "deepseek-v4-flash"
-    assert client._select_model(None, 4000) == "deepseek-v4-pro"
+    assert client._select_model(None, 4000) == "deepseek-v4-flash"
 
 
 def test_deepseek_messages_drop_provider_thinking_fields():
@@ -67,3 +67,26 @@ def test_deepseek_messages_drop_provider_thinking_fields():
     )
 
     assert messages == [{"role": "assistant", "content": "ok"}]
+
+
+def test_deepseek_tool_messages_get_empty_reasoning_content_for_provider_compat():
+    client = DeepSeekClient()
+
+    messages = client._sanitize_messages(
+        [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "board_create", "arguments": "{}"},
+                    }
+                ],
+                "reasoning_content": "hidden chain",
+            }
+        ]
+    )
+
+    assert messages[0]["reasoning_content"] == ""

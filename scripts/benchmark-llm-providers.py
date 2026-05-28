@@ -73,12 +73,6 @@ def configured_providers() -> list[tuple[str, str, str, str]]:
                     os.environ["DEEPSEEK_API_KEY"],
                     os.getenv("BENCH_DEEPSEEK_FLASH_MODEL", "deepseek-v4-flash"),
                 ),
-                (
-                    "deepseek-v4-pro",
-                    os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-                    os.environ["DEEPSEEK_API_KEY"],
-                    os.getenv("BENCH_DEEPSEEK_PRO_MODEL", "deepseek-v4-pro"),
-                ),
             ]
         )
     return providers

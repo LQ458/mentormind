@@ -93,7 +93,7 @@ class StreamingLessonGenerator:
         llm_client: Optional[DeepSeekClient] = None,
         board_server: Optional[BoardMCPServer] = None,
         agent_tools_server: Optional[AgentToolsServer] = None,
-        model: str = "deepseek-v4-pro",
+        model: str = "deepseek-v4-flash",
         follow_up_timeout_s: float = 60.0,
     ) -> None:
         self.llm_client = llm_client or DeepSeekClient()
