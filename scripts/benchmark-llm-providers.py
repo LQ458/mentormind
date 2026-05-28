@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Benchmark configured LLM providers from the deployment host.
 
-Run on the VPS after exporting the API keys you want to compare:
+Run on the VPS after exporting the domestic API keys you want to compare:
   python scripts/benchmark-llm-providers.py --runs 5
 
 This measures full non-streaming response latency from the server's network.
@@ -91,13 +91,13 @@ def configured_providers() -> list[tuple[str, str, str, str]]:
                 os.getenv("BENCH_SILICONFLOW_MODEL", "Pro/zai-org/GLM-5.1"),
             )
         )
-    if os.getenv("OPENAI_API_KEY"):
+    if os.getenv("DASHSCOPE_API_KEY"):
         providers.append(
             (
-                "openai-current",
-                os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-                os.environ["OPENAI_API_KEY"],
-                os.getenv("BENCH_OPENAI_MODEL", "gpt-5.4-nano"),
+                "dashscope-qwen",
+                os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+                os.environ["DASHSCOPE_API_KEY"],
+                os.getenv("BENCH_DASHSCOPE_MODEL", "qwen-turbo"),
             )
         )
     return providers
@@ -119,7 +119,7 @@ def main() -> int:
 
     providers = configured_providers()
     if not providers:
-        print("No API keys found. Set DEEPSEEK_API_KEY, SILICONFLOW_API_KEY, or OPENAI_API_KEY.")
+        print("No API keys found. Set DEEPSEEK_API_KEY, SILICONFLOW_API_KEY, or DASHSCOPE_API_KEY.")
         return 2
 
     print(f"Running {args.runs} calls per provider from this host...\n")
