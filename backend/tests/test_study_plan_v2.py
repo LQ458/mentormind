@@ -40,6 +40,8 @@ from core.agents.study_plan_agent import (
     PlanResponse,
     PlanStage,
     MAX_DIAGNOSTIC_TURNS,
+    _has_level_signal,
+    _has_timeline_signal,
     _parse_ask_user_block,
     _strip_ask_user_block,
     _build_curriculum_note,
@@ -309,3 +311,13 @@ def test_T24_preselected_ap_chip_flow_marks_deterministic_sources():
     )
     assert timeline.response_source == "deterministic_timeline"
     assert "考试或目标时间" in timeline.content
+
+
+@pytest.mark.parametrize("text", ["4周内", "1-3个月", "3个月以上", "within 4 weeks", "1-3 months"])
+def test_T25_timeline_chip_labels_are_detected(text):
+    assert _has_timeline_signal(text)
+
+
+@pytest.mark.parametrize("text", ["基础薄弱", "中等水平", "基础较好", "冲高分", "top score"])
+def test_T26_level_chip_labels_are_detected(text):
+    assert _has_level_signal(text)

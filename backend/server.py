@@ -39,6 +39,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def _log_study_plan_chat(message: str, *args) -> None:
+    rendered = message % args if args else message
+    logger.info(rendered)
+    print(f"🧭 {rendered}", flush=True)
+
 # Add current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -3255,7 +3261,7 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
         "",
     )
     try:
-        logger.info(
+        _log_study_plan_chat(
             "study_plan_chat start request_id=%s user=%s stage=%s subject=%s framework=%s history_len=%s last_user=%r",
             req.request_id,
             current_user.id,
@@ -3278,7 +3284,7 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
             timeout=float(os.getenv("STUDY_PLAN_CHAT_BACKEND_TIMEOUT_SECONDS", "45")),
         )
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
-        logger.info(
+        _log_study_plan_chat(
             "study_plan_chat done request_id=%s user=%s stage=%s response_stage=%s source=%s elapsed_ms=%s options=%s proposed_plan=%s",
             req.request_id,
             current_user.id,

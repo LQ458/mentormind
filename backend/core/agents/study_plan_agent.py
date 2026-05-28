@@ -185,15 +185,18 @@ def _course_options(framework: Optional[str], subject: Optional[str], language: 
 
 def _has_timeline_signal(text: str) -> bool:
     t = text.lower()
-    return any(
+    if any(
         token in t
         for token in [
             "exam", "test", "deadline", "before", " by ", "may", "june",
             "july", "august", "september", "october", "november", "december",
-            "not sure", "unsure", "unknown", "no idea",
+            "week", "weeks", "month", "months", "not sure", "unsure", "unknown", "no idea",
             "考试", "截止", "考前", "之前", "几号", "时间", "还不确定", "不确定", "不知道",
+            "周内", "周后", "个月", "月内", "月后", "以上",
         ]
-    )
+    ):
+        return True
+    return bool(re.search(r"\d+\s*[-到至~]?\s*\d*\s*(周|星期|个月|月|weeks?|months?)", t))
 
 
 def _has_level_signal(text: str) -> bool:
@@ -203,6 +206,7 @@ def _has_level_signal(text: str) -> bool:
         for token in [
             "beginner", "intermediate", "advanced", "weak", "strong", "score",
             "target", "基础", "零基础", "初学", "一般", "中等", "熟悉", "薄弱", "目标", "分数", "目标分",
+            "基础薄弱", "中等水平", "基础较好", "冲高分", "高分",
         ]
     )
 
