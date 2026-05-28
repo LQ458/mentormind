@@ -226,7 +226,7 @@ asyncio.run(teach_student())
 | Component | Technology | Provider | Why This Choice |
 |-----------|------------|----------|-----------------|
 | Main LLM | DeepSeek-V3 | DeepSeek | 1/10th cost of GPT-4o; excels in Chinese |
-| Reasoning | DeepSeek-R1 | DeepSeek | Specialized for diagnosing student logic errors |
+| Planning / generation | DeepSeek-V4-Pro | DeepSeek | Higher-quality structured lesson and study-plan generation |
 | ASR | FunASR (Paraformer) | Alibaba DAMO | State-of-the-art Chinese recognition |
 | OCR | PaddleOCR | Baidu | Best for complex Chinese textbooks |
 | Knowledge Graph | NetworkX → NebulaGraph | Open Source | Graph analysis + distributed storage |
@@ -258,7 +258,7 @@ asyncio.run(teach_student())
 - [ ] Implement pedagogical tagging
 
 ### Week 4: Teaching Agent
-- [ ] Integrate DeepSeek-R1 for lesson planning
+- [ ] Integrate DeepSeek-V4-Pro for lesson planning
 - [ ] Implement quality critic
 - [ ] Add regeneration with feedback
 

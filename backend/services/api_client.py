@@ -47,7 +47,7 @@ class APIResponse:
 @dataclass
 class StreamChunk:
     """A chunk from a streaming LLM response"""
-    chunk_type: str  # "content_delta", "reasoning_delta", "tool_call_delta", "tool_call_complete", "done", "error"
+    chunk_type: str  # "content_delta", "tool_call_delta", "tool_call_complete", "done", "error"
     content: str = ""
     tool_call_index: int = 0
     tool_call_id: str = ""
@@ -135,6 +135,11 @@ class DeepSeekClient:
     - short/medium calls -> deepseek-v4-flash
     - long generation calls -> deepseek-v4-pro
     """
+
+    SAFE_FLASH_MODEL = "deepseek-v4-flash"
+    SAFE_PRO_MODEL = "deepseek-v4-pro"
+    SAFE_MODELS = {SAFE_FLASH_MODEL, SAFE_PRO_MODEL}
+    FORBIDDEN_MESSAGE_KEYS = {"reasoning_content", "reasoning", "thinking"}
     
     def __init__(self):
         self.provider = "deepseek_official"
@@ -161,23 +166,43 @@ class DeepSeekClient:
         self.logger = logging.getLogger(__name__)
 
     def _select_model(self, requested_model: Optional[str], max_tokens: int) -> str:
-        flash_model = os.getenv("DEEPSEEK_FLASH_MODEL", "deepseek-v4-flash")
-        pro_model = os.getenv("DEEPSEEK_PRO_MODEL", "deepseek-v4-pro")
-        if requested_model and requested_model.startswith("deepseek-v4-"):
-            return requested_model
+        flash_model = self._safe_model_from_env("DEEPSEEK_FLASH_MODEL", self.SAFE_FLASH_MODEL)
+        pro_model = self._safe_model_from_env("DEEPSEEK_PRO_MODEL", self.SAFE_PRO_MODEL)
+        if requested_model:
+            model = requested_model.strip()
+            if model in self.SAFE_MODELS:
+                return model
+            self.logger.warning("Ignoring non-approved DeepSeek model: %s", requested_model)
 
         # Legacy callers pass SiliconFlow model ids. Map them to V4 instead of
         # leaking provider-specific ids into the official DeepSeek endpoint.
         return pro_model if max_tokens >= 1800 else flash_model
 
+    def _safe_model_from_env(self, env_name: str, fallback: str) -> str:
+        model = os.getenv(env_name, fallback).strip()
+        if model in self.SAFE_MODELS:
+            return model
+        self.logger.warning("Ignoring non-approved %s=%s; using %s", env_name, model, fallback)
+        return fallback
+
     def _thinking_payload(self) -> Optional[Dict[str, str]]:
-        # DeepSeek's thinking mode requires reasoning_content continuity across
-        # multi-turn requests. The app does not persist that provider-specific
-        # field, so the safest default is to omit the thinking parameter
-        # entirely for both flash and pro models.
-        if os.getenv("DEEPSEEK_THINKING", "disabled").strip().lower() == "force_enabled":
-            return {"type": "enabled"}
+        # Chain-of-thought provider mode is globally disabled. Do not send a
+        # special provider payload even if an environment variable exists.
         return None
+
+    def _sanitize_messages(self, messages: list) -> list:
+        sanitized = []
+        for message in messages or []:
+            if not isinstance(message, dict):
+                continue
+            sanitized.append(
+                {
+                    key: value
+                    for key, value in message.items()
+                    if key not in self.FORBIDDEN_MESSAGE_KEYS
+                }
+            )
+        return sanitized
     
     async def chat_completion(
         self,
@@ -197,7 +222,6 @@ class DeepSeekClient:
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                thinking=self._thinking_payload(),
             )
         except Exception as e:
             # Convert circuit breaker exceptions to APIResponse
@@ -221,7 +245,6 @@ class DeepSeekClient:
         model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 2000,
-        thinking: Optional[Dict[str, str]] = None,
     ) -> APIResponse:
         """
         Chat completion with retry logic (called by circuit breaker)
@@ -232,7 +255,6 @@ class DeepSeekClient:
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            thinking=thinking,
         )
     
     async def _chat_completion_raw(
@@ -241,7 +263,6 @@ class DeepSeekClient:
         model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 2000,
-        thinking: Optional[Dict[str, str]] = None,
     ) -> APIResponse:
         """
         Raw chat completion call without retry logic
@@ -257,13 +278,11 @@ class DeepSeekClient:
         selected_model = self._select_model(model, max_tokens)
         payload = {
             "model": selected_model,
-            "messages": messages,
+            "messages": self._sanitize_messages(messages),
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False
         }
-        if thinking:
-            payload["thinking"] = thinking
         
         try:
             connector = aiohttp.TCPConnector(verify_ssl=config.VERIFY_SSL)
@@ -343,14 +362,11 @@ class DeepSeekClient:
         selected_model = self._select_model(model, max_tokens)
         payload = {
             "model": selected_model,
-            "messages": messages,
+            "messages": self._sanitize_messages(messages),
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
         }
-        thinking = self._thinking_payload()
-        if thinking:
-            payload["thinking"] = thinking
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
@@ -414,20 +430,6 @@ class DeepSeekClient:
                             yield StreamChunk(
                                 chunk_type="content_delta",
                                 content=delta["content"],
-                            )
-
-                        # Some DeepSeek thinking-mode responses include
-                        # reasoning_content even when the request did not
-                        # explicitly ask for it. If the assistant turn also
-                        # contains tool calls, DeepSeek expects that
-                        # reasoning_content to be passed back in the next
-                        # request. Surface it so orchestrators can preserve
-                        # the provider-required field without showing it to
-                        # users.
-                        if "reasoning_content" in delta and delta["reasoning_content"]:
-                            yield StreamChunk(
-                                chunk_type="reasoning_delta",
-                                content=delta["reasoning_content"],
                             )
 
                         # Tool call deltas
@@ -523,7 +525,7 @@ class DeepSeekClient:
         time_limit: int = 30
     ) -> APIResponse:
         """
-        Plan a lesson using DeepSeek-R1 reasoning
+        Plan a lesson using the approved DeepSeek V4 Pro model.
         """
         prompt = f"""
         请为{student_level}水平的学生创建一个{time_limit}分钟的教学计划。

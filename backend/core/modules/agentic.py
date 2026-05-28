@@ -99,7 +99,7 @@ class QualityAssessment:
 
 
 class LessonPlanner:
-    """Plans lessons using DeepSeek-R1 reasoning"""
+    """Plans lessons using the approved DeepSeek V4 Pro model."""
     
     def __init__(self):
         self.model_config = config.get_models()["deepseek_r1"]
@@ -257,7 +257,7 @@ class LessonPlanner:
         student_level: str,
         time_limit_minutes: float
     ) -> str:
-        """Create prompt for DeepSeek-R1"""
+        """Create the lesson planning prompt."""
         graph_summary = self._summarize_knowledge_graph(knowledge_graph)
         
         return f"""

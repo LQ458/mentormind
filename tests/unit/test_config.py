@@ -9,7 +9,7 @@ Tests cover:
   • get_databases() expected keys
   • get_cheapest_model() routing per task type
   • get_model_cost_summary() completeness
-  • validate_config() warning when SILICONFLOW_API_KEY is absent
+  • validate_config() warning when DEEPSEEK_API_KEY is absent
 """
 
 from __future__ import annotations
@@ -261,10 +261,10 @@ class TestGetDatabases:
 
 class TestGetCheapestModel:
 
-    def test_reasoning_returns_deepseek_r1(self):
+    def test_reasoning_returns_deepseek_v4_pro(self):
         from config.config import MentorMindConfig
         model = MentorMindConfig.get_cheapest_model("reasoning")
-        assert model.name == "DeepSeek-R1"
+        assert model.name == "DeepSeek-V4-Pro"
 
     def test_asr_returns_funasr(self):
         from config.config import MentorMindConfig
@@ -339,30 +339,34 @@ class TestValidateConfig:
         result = MentorMindConfig.validate_config()
         assert isinstance(result, list)
 
-    def test_warns_when_siliconflow_api_key_missing(self):
+    def test_warns_when_deepseek_api_key_missing(self):
         from config.config import MentorMindConfig
-        saved = os.environ.pop("SILICONFLOW_API_KEY", None)
+        saved = os.environ.pop("DEEPSEEK_API_KEY", None)
         try:
             warnings = MentorMindConfig.validate_config()
             messages = " ".join(warnings)
-            assert "SILICONFLOW_API_KEY" in messages, (
-                f"Expected SILICONFLOW_API_KEY warning, got: {warnings}"
+            assert "DEEPSEEK_API_KEY" in messages, (
+                f"Expected DEEPSEEK_API_KEY warning, got: {warnings}"
             )
         finally:
             if saved is not None:
-                os.environ["SILICONFLOW_API_KEY"] = saved
+                os.environ["DEEPSEEK_API_KEY"] = saved
 
-    def test_no_siliconflow_warning_when_key_present(self):
+    def test_no_deepseek_warning_when_key_present(self):
         from config.config import MentorMindConfig
-        os.environ["SILICONFLOW_API_KEY"] = "sk-test-key"
+        saved = os.environ.get("DEEPSEEK_API_KEY")
+        os.environ["DEEPSEEK_API_KEY"] = "sk-test-key"
         try:
             warnings = MentorMindConfig.validate_config()
-            siliconflow_warnings = [w for w in warnings if "SILICONFLOW_API_KEY" in w]
-            assert siliconflow_warnings == [], (
-                f"Unexpected SILICONFLOW_API_KEY warning when key is set: {siliconflow_warnings}"
+            deepseek_warnings = [w for w in warnings if "DEEPSEEK_API_KEY" in w]
+            assert deepseek_warnings == [], (
+                f"Unexpected DEEPSEEK_API_KEY warning when key is set: {deepseek_warnings}"
             )
         finally:
-            del os.environ["SILICONFLOW_API_KEY"]
+            if saved is None:
+                os.environ.pop("DEEPSEEK_API_KEY", None)
+            else:
+                os.environ["DEEPSEEK_API_KEY"] = saved
 
     def test_each_warning_is_string(self):
         from config.config import MentorMindConfig

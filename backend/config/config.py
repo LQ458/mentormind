@@ -111,8 +111,8 @@ class MentorMindConfig:
                 api_key=os.getenv("DEEPSEEK_API_KEY"),
                 endpoint=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com") + "/chat/completions",
                 max_tokens=4096,
-                temperature=0.1,  # Lower temp for reasoning
-                cost_per_1k_tokens=0.002  # Slightly more expensive for reasoning
+                temperature=0.1,  # Lower temp for structured generation
+                cost_per_1k_tokens=0.002  # Slightly more expensive for pro generation
             ),
             "funasr": ModelConfig(
                 name="FunASR-Paraformer",

@@ -34,9 +34,6 @@ def post_chat(base_url: str, api_key: str, model: str, timeout: int) -> tuple[bo
         "max_tokens": 80,
         "stream": False,
     }
-    if "deepseek.com" in base_url:
-        payload["thinking"] = {"type": "disabled"}
-
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),

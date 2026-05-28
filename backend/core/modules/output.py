@@ -590,7 +590,7 @@ class AvatarGenerator:
 class ProgrammaticVideoGenerator:
     """
     Code-to-Video Generator
-    Orchestrates DeepSeek-R1 scripting, TTS sync, and Manim/Remotion rendering
+    Orchestrates DeepSeek V4 Pro scripting, TTS sync, and Manim/Remotion rendering
     """
     
     def __init__(self):
