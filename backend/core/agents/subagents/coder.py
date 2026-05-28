@@ -11,7 +11,7 @@ from services.api_client import DeepSeekClient, get_language_instruction
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "Pro/deepseek-ai/DeepSeek-V3"
+DEFAULT_MODEL = "deepseek-v4-pro"
 
 
 async def run(task: str, context: Dict[str, Any], language: str) -> Dict[str, Any]:

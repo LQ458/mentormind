@@ -82,24 +82,6 @@ def configured_providers() -> list[tuple[str, str, str, str]]:
                 ),
             ]
         )
-    if os.getenv("SILICONFLOW_API_KEY"):
-        providers.append(
-            (
-                "siliconflow-current",
-                "https://api.siliconflow.cn/v1",
-                os.environ["SILICONFLOW_API_KEY"],
-                os.getenv("BENCH_SILICONFLOW_MODEL", "Pro/zai-org/GLM-5.1"),
-            )
-        )
-    if os.getenv("DASHSCOPE_API_KEY"):
-        providers.append(
-            (
-                "dashscope-qwen",
-                os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-                os.environ["DASHSCOPE_API_KEY"],
-                os.getenv("BENCH_DASHSCOPE_MODEL", "qwen-turbo"),
-            )
-        )
     return providers
 
 
@@ -119,7 +101,7 @@ def main() -> int:
 
     providers = configured_providers()
     if not providers:
-        print("No API keys found. Set DEEPSEEK_API_KEY, SILICONFLOW_API_KEY, or DASHSCOPE_API_KEY.")
+        print("No API keys found. Set DEEPSEEK_API_KEY.")
         return 2
 
     print(f"Running {args.runs} calls per provider from this host...\n")

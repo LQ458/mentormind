@@ -134,9 +134,6 @@ class DeepSeekClient:
     Production defaults to DeepSeek official V4:
     - short/medium calls -> deepseek-v4-flash
     - long generation calls -> deepseek-v4-pro
-
-    If DEEPSEEK_API_KEY is missing, it falls back to the legacy SiliconFlow
-    key/path so local legacy environments do not crash before envs are updated.
     """
     
     def __init__(self):
@@ -144,16 +141,8 @@ class DeepSeekClient:
         self.api_key = os.getenv("DEEPSEEK_API_KEY")
         self.base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
 
-        if not self.api_key:
-            self.provider = "siliconflow_legacy"
-            self.api_key = os.getenv("SILICONFLOW_API_KEY")
-            self.base_url = "https://api.siliconflow.cn/v1"
-
-        if not self.api_key:
-            raise ValueError("DEEPSEEK_API_KEY not set in environment variables")
-
         self.headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {self.api_key}" if self.api_key else "",
             "Content-Type": "application/json"
         }
         
@@ -172,9 +161,6 @@ class DeepSeekClient:
         self.logger = logging.getLogger(__name__)
 
     def _select_model(self, requested_model: Optional[str], max_tokens: int) -> str:
-        if self.provider != "deepseek_official":
-            return requested_model or os.getenv("SILICONFLOW_DEFAULT_MODEL", "Pro/zai-org/GLM-5.1")
-
         flash_model = os.getenv("DEEPSEEK_FLASH_MODEL", "deepseek-v4-flash")
         pro_model = os.getenv("DEEPSEEK_PRO_MODEL", "deepseek-v4-pro")
         if requested_model and requested_model.startswith("deepseek-v4-"):
@@ -185,8 +171,6 @@ class DeepSeekClient:
         return pro_model if max_tokens >= 1800 else flash_model
 
     def _thinking_payload(self) -> Optional[Dict[str, str]]:
-        if self.provider != "deepseek_official":
-            return None
         mode = os.getenv("DEEPSEEK_THINKING", "disabled").strip().lower()
         if mode in {"enabled", "disabled"}:
             return {"type": mode}
@@ -259,6 +243,12 @@ class DeepSeekClient:
         """
         Raw chat completion call without retry logic
         """
+        if not self.api_key:
+            return APIResponse(
+                success=False,
+                error="DEEPSEEK_API_KEY not set in environment variables",
+                status_code=500,
+            )
         url = f"{self.base_url}/chat/completions"
         
         selected_model = self._select_model(model, max_tokens)
@@ -342,6 +332,10 @@ class DeepSeekClient:
         Accumulates fragmented tool call arguments and emits a
         tool_call_complete chunk when the full tool call is assembled.
         """
+        if not self.api_key:
+            yield StreamChunk(chunk_type="error", content="DEEPSEEK_API_KEY not set in environment variables")
+            return
+
         url = f"{self.base_url}/chat/completions"
         selected_model = self._select_model(model, max_tokens)
         payload = {
@@ -499,7 +493,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="Pro/zai-org/GLM-5.1",
+            model="deepseek-v4-pro",
             temperature=0.3,
             max_tokens=4000
         )
@@ -548,7 +542,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="Pro/zai-org/GLM-5.1",
+            model="deepseek-v4-pro",
             temperature=0.3,
             max_tokens=2000
         )
@@ -595,7 +589,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="Pro/zai-org/GLM-5.1",
+            model="deepseek-v4-pro",
             temperature=0.7,
             max_tokens=4000
         )
@@ -693,7 +687,7 @@ class DeepSeekClient:
             
             response = await self.chat_completion(
                 messages=messages,
-                model="Pro/zai-org/GLM-5.1",
+                model="deepseek-v4-pro",
                 temperature=0.7,
                 max_tokens=4000
             )
@@ -784,7 +778,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="Pro/zai-org/GLM-5.1",
+            model="deepseek-v4-pro",
             temperature=0.3,
             max_tokens=2000
         )
@@ -821,7 +815,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="Pro/zai-org/GLM-5.1",
+            model="deepseek-v4-pro",
             temperature=0.3,
             max_tokens=2000
         )
@@ -909,65 +903,10 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="Pro/zai-org/GLM-5.1",
+            model="deepseek-v4-pro",
             temperature=0.3,
             max_tokens=2000
         )
-
-
-class DeepSeekDirectClient:
-    """Lightweight fallback client that calls the real DeepSeek API (api.deepseek.com)."""
-
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
-        self.headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-
-    async def chat_completion(
-        self,
-        messages: list,
-        model: str = "deepseek-v4-flash",
-        temperature: float = 0.7,
-        max_tokens: int = 2000,
-        thinking: Optional[Dict[str, str]] = None,
-        reasoning_effort: Optional[str] = None,
-    ) -> APIResponse:
-        url = f"{self.base_url}/chat/completions"
-        payload = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": False,
-        }
-        if thinking:
-            payload["thinking"] = thinking
-        if reasoning_effort:
-            payload["reasoning_effort"] = reasoning_effort
-        try:
-            connector = aiohttp.TCPConnector(verify_ssl=config.VERIFY_SSL)
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.post(
-                    url,
-                    headers=self.headers,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=None, connect=10, sock_read=300),
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return APIResponse(success=True, data=data, status_code=200)
-                    else:
-                        error_text = await response.text()
-                        return APIResponse(
-                            success=False,
-                            error=f"DeepSeek API error {response.status}: {error_text}",
-                            status_code=response.status,
-                        )
-        except Exception as e:
-            return APIResponse(success=False, error=str(e), status_code=500)
 
 
 class FunASRClient:
@@ -1025,13 +964,6 @@ class APIClient:
         self.funasr = FunASRClient()
         self.paddle_ocr = PaddleOCRClient()
         self.logger = logging.getLogger(__name__)
-        # Real DeepSeek API fallback (uses DEEPSEEK_API_KEY + api.deepseek.com)
-        deepseek_key = os.getenv("DEEPSEEK_API_KEY")
-        if deepseek_key:
-            try:
-                self.deepseek_direct = DeepSeekDirectClient(deepseek_key)
-            except Exception:
-                self.logger.warning("Failed to init DeepSeek direct client")
 
     async def study_plan_chat_completion(
         self,
@@ -1066,7 +998,7 @@ class APIClient:
         format_type: str = "analysis"
     ) -> APIResponse:
         """
-        Process student query using DeepSeek AI with fallback to direct DeepSeek API
+        Process student query using the official DeepSeek API
         """
         result = await self.deepseek.process_query(
             topic=topic,
@@ -1081,17 +1013,6 @@ class APIClient:
             difficulty_level=difficulty_level,
             format_type=format_type
         )
-        # Fallback to direct DeepSeek API if SiliconFlow fails
-        if not result.success and hasattr(self, 'deepseek_direct'):
-            self.logger.info("SiliconFlow failed, trying DeepSeek direct API...")
-            result = await self.deepseek_direct.chat_completion(
-                messages=[
-                    {"role": "system", "content": "You are an expert educational content creator. Return valid JSON."},
-                    {"role": "user", "content": f"Create a detailed lesson plan for '{topic}' at {student_level} level, {duration_minutes} minutes. Format: JSON with keys: title, description, lesson_plan (with chapters array), learning_objectives, prerequisites."},
-                ],
-                temperature=0.3,
-                max_tokens=4000,
-            )
         return result
     
     async def translate_to_chinese(self, text: str, context: str = "") -> APIResponse:

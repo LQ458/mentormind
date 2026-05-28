@@ -14,6 +14,12 @@ from dataclasses import dataclass, field
 from config import config
 from services.api_client import api_client, get_language_instruction
 from core.agents.subject_detector import SubjectDetector, SubjectDetection, _get_catalog
+from core.agents.study_plan_diagnostics import (
+    build_diagnostic_guidance,
+    has_level_signal as _has_level_signal,
+    has_timeline_signal as _has_timeline_signal,
+    next_course_diagnostic_question,
+)
 
 
 class PlanStage(Enum):
@@ -76,6 +82,22 @@ def _parse_ask_user_block(content: str) -> Optional[Dict[str, Any]]:
 
 def _strip_ask_user_block(content: str) -> str:
     return _ASK_USER_BLOCK_RE.sub("", content or "").strip()
+
+
+def _chat_completion_content(response: Any) -> str:
+    if not response or not getattr(response, "success", False) or not getattr(response, "data", None):
+        return ""
+    return response.data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
+
+
+def _temporary_ai_error(language: str, plan_generation: bool = False) -> str:
+    if language == "en":
+        return (
+            "The AI reply did not come through. Please retry, or add one more goal detail first."
+            if not plan_generation
+            else "Plan generation did not come through. Please retry in a moment."
+        )
+    return "AI 回复暂时没有返回。可以重试，或先补充一个目标细节。" if not plan_generation else "计划暂时生成失败，请稍后重试。"
 
 
 def _build_curriculum_note(detection: SubjectDetection) -> str:
@@ -181,34 +203,6 @@ def _course_options(framework: Optional[str], subject: Optional[str], language: 
         if course.get("subject") == subject
     ]
     return [option for option in options if option][:4]
-
-
-def _has_timeline_signal(text: str) -> bool:
-    t = text.lower()
-    if any(
-        token in t
-        for token in [
-            "exam", "test", "deadline", "before", " by ", "may", "june",
-            "july", "august", "september", "october", "november", "december",
-            "week", "weeks", "month", "months", "not sure", "unsure", "unknown", "no idea",
-            "考试", "截止", "考前", "之前", "几号", "时间", "还不确定", "不确定", "不知道",
-            "周内", "周后", "个月", "月内", "月后", "以上",
-        ]
-    ):
-        return True
-    return bool(re.search(r"\d+\s*[-到至~]?\s*\d*\s*(周|星期|个月|月|weeks?|months?)", t))
-
-
-def _has_level_signal(text: str) -> bool:
-    t = text.lower()
-    return any(
-        token in t
-        for token in [
-            "beginner", "intermediate", "advanced", "weak", "strong", "score",
-            "target", "基础", "零基础", "初学", "一般", "中等", "熟悉", "薄弱", "目标", "分数", "目标分",
-            "基础薄弱", "中等水平", "基础较好", "冲高分", "高分",
-        ]
-    )
 
 
 class StudyPlanAgent:
@@ -386,45 +380,15 @@ class StudyPlanAgent:
                     detected_subject=_detection_to_dict(detection),
                 )
 
-        user_text = " ".join(m["content"] for m in history if m["role"] == "user")
-        if detection and detection.course_id and not _has_timeline_signal(user_text):
-            content = (
-                f"Great, I’ll use {detection.course_name}. When is your exam or deadline?"
-                if language == "en"
-                else f"好的，按 {detection.course_name} 来做。考试或目标时间是什么时候？"
-            )
-            options = (
-                ["Within 4 weeks", "1-3 months", "3+ months", "Not sure"]
-                if language == "en"
-                else ["4周内", "1-3个月", "3个月以上", "还不确定"]
-            )
+        next_question = next_course_diagnostic_question(detection, history, language)
+        if next_question:
+            content = next_question.content(language)
             return PlanResponse(
                 stage=PlanStage.DIAGNOSTIC,
                 content=content,
-                response_source="deterministic_timeline",
+                response_source=next_question.source,
                 diagnostic_question=content,
-                options=options,
-                allow_free_text=True,
-                detected_subject=_detection_to_dict(detection),
-            )
-
-        if detection and detection.course_id and _has_timeline_signal(user_text) and not _has_level_signal(user_text):
-            content = (
-                f"Got it. What is your current level in {detection.course_name}, and what result do you want?"
-                if language == "en"
-                else f"明白。你现在基础怎样？目标是什么？"
-            )
-            options = (
-                ["Weak foundation", "Average", "Strong", "Top score"]
-                if language == "en"
-                else ["基础薄弱", "中等水平", "基础较好", "冲高分"]
-            )
-            return PlanResponse(
-                stage=PlanStage.DIAGNOSTIC,
-                content=content,
-                response_source="deterministic_level",
-                diagnostic_question=content,
-                options=options,
+                options=next_question.options(language),
                 allow_free_text=True,
                 detected_subject=_detection_to_dict(detection),
             )
@@ -448,6 +412,7 @@ You are an expert academic coach building a full-course study plan via a smart c
 {subject_ctx}
 Recent conversation:
 {history_summary}
+{build_diagnostic_guidance(detection)}
 
 Diagnostic turn {diagnostic_turns + 1} of max {MAX_DIAGNOSTIC_TURNS}.
 
@@ -473,7 +438,18 @@ Keep total response ≤ 60 words excluding the ask_user block.
             temperature=0.6,
             max_tokens=800,
         )
-        content = response.data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
+        content = _chat_completion_content(response)
+        if not content:
+            error_content = _temporary_ai_error(language)
+            return PlanResponse(
+                stage=PlanStage.DIAGNOSTIC,
+                content=error_content,
+                response_source="llm_diagnostic_error",
+                diagnostic_question=error_content,
+                options=["Retry", "Generate now"] if language == "en" else ["重试", "直接生成"],
+                allow_free_text=True,
+                detected_subject=_detection_to_dict(detection) if detection else None,
+            )
 
         # Model signaled it has enough info → jump to plan review
         if "READY_TO_GENERATE" in content.upper():
@@ -580,7 +556,18 @@ Output format — text first, then the JSON block:
             temperature=0.4,
             max_tokens=3000,
         )
-        full_content = response.data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        full_content = _chat_completion_content(response)
+        if not full_content:
+            error_content = _temporary_ai_error(language, plan_generation=True)
+            return PlanResponse(
+                stage=PlanStage.DIAGNOSTIC,
+                content=error_content,
+                response_source="llm_plan_review_error",
+                diagnostic_question=error_content,
+                options=["Retry", "Add details"] if language == "en" else ["重试", "补充信息"],
+                allow_free_text=True,
+                detected_subject=_detection_to_dict(detection) if detection else None,
+            )
 
         thinking_process = ""
         proposed_plan = None

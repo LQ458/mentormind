@@ -3180,6 +3180,21 @@ EXPENSIVE_ACTION_LIMITS = {
     "board_lesson": (30, 24 * 3600),
 }
 
+STUDY_PLAN_HISTORY_MAX_MESSAGES = int(os.getenv("STUDY_PLAN_HISTORY_MAX_MESSAGES", "24"))
+STUDY_PLAN_HISTORY_MAX_CONTENT_CHARS = int(os.getenv("STUDY_PLAN_HISTORY_MAX_CONTENT_CHARS", "2000"))
+
+
+def _sanitize_study_plan_history(history: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    sanitized: List[Dict[str, str]] = []
+    for message in (history or [])[-STUDY_PLAN_HISTORY_MAX_MESSAGES:]:
+        role = message.get("role")
+        if role not in {"user", "assistant", "system"}:
+            continue
+        content = str(message.get("content", ""))[:STUDY_PLAN_HISTORY_MAX_CONTENT_CHARS].strip()
+        if content:
+            sanitized.append({"role": role, "content": content})
+    return sanitized
+
 
 def _redis_for_limits():
     try:
@@ -3256,8 +3271,9 @@ async def detect_subject(req: DetectSubjectRequest, current_user: User = Depends
 async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depends(get_current_user)):
     """Conversational study plan creation (diagnostic → plan review → locked)."""
     started_at = time.perf_counter()
+    sanitized_history = _sanitize_study_plan_history(req.history)
     last_user = next(
-        (m.get("content", "") for m in reversed(req.history or []) if m.get("role") == "user"),
+        (m.get("content", "") for m in reversed(sanitized_history) if m.get("role") == "user"),
         "",
     )
     try:
@@ -3268,14 +3284,14 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
             req.stage,
             req.subject,
             req.framework,
-            len(req.history or []),
+            len(sanitized_history),
             last_user[:120],
         )
         _enforce_quota(current_user, "study_plan_chat")
         current_stage = PlanStage(req.stage)
         response = await asyncio.wait_for(
             study_plan_agent.get_next_response(
-                history=req.history,
+                history=sanitized_history,
                 current_stage=current_stage,
                 language=req.language,
                 preselected_subject=req.subject,

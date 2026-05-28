@@ -12,7 +12,7 @@ from services.api_client import DeepSeekClient, get_language_instruction
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "Pro/deepseek-ai/DeepSeek-V3"
+DEFAULT_MODEL = "deepseek-v4-pro"
 
 _CONTENT_TRUNC = 300  # chars per element when building the compact digest
 _MAX_NARRATIONS = 40   # cap narrations fed to the summarizer (and fallback)

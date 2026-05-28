@@ -319,7 +319,7 @@ class QualityCritic:
     
     async def assess_lesson_plan(self, lesson_plan: LessonPlan) -> QualityAssessment:
         """
-        Assess quality of a lesson plan using DeepSeek-V3
+        Assess quality of a lesson plan using the configured DeepSeek model.
         """
         try:
             # Call real API for assessment

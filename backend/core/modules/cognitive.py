@@ -91,7 +91,7 @@ class KnowledgeExtractor:
     
     async def extract_from_text(self, text: str, context: Optional[str] = None) -> Tuple[List[KnowledgeEntity], List[KnowledgeRelationship]]:
         """
-        Extract entities and relationships from text using DeepSeek-V3
+        Extract entities and relationships from text using the configured DeepSeek model.
         Uses real API connection
         """
         print(f"Extracting knowledge from text: {text[:100]}...")

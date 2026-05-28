@@ -89,7 +89,7 @@ function ScreenCreate({ setCurrent }) {
       </Section>
 
       <div style={{display:'flex', gap: 10, marginTop: 24, justifyContent:'space-between', alignItems:'center'}}>
-        <div className="muted small">Generates in ~2 min · Uses GLM-5.1</div>
+        <div className="muted small">Generates in ~2 min · Uses DeepSeek v4</div>
         <div style={{display:'flex', gap: 10}}>
           <button className="btn">Save draft</button>
           <button className="btn btn-primary btn-lg" onClick={() => setCurrent('lesson')}>

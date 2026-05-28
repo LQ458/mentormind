@@ -271,13 +271,11 @@ class RobustVideoGenerationPipeline:
             
         prompt = render_prompt(prompt_name, **variables)
         
-        # Multi-provider fallback chain (SiliconFlow → real DeepSeek API)
+        # Board generation uses the single official DeepSeek client so model,
+        # retry, timeout and circuit-breaker behavior stay consistent.
         providers = [
-            ("GLM-5.1", self.api_client.deepseek.chat_completion),
+            ("deepseek-v4-pro", self.api_client.deepseek.chat_completion),
         ]
-        # Add real DeepSeek API as fallback if key is available
-        if hasattr(self.api_client, 'deepseek_direct'):
-            providers.append(("DeepSeek-Direct", self.api_client.deepseek_direct.chat_completion))
         
         for provider_name, provider_func in providers:
             try:

@@ -309,8 +309,8 @@ def test_T24_preselected_ap_chip_flow_marks_deterministic_sources():
     timeline = asyncio.run(
         agent.get_next_response(history, PlanStage.DIAGNOSTIC, "zh", "math", "ap")
     )
-    assert timeline.response_source == "deterministic_timeline"
-    assert "考试或目标时间" in timeline.content
+    assert timeline.response_source == "diagnostic_timeline"
+    assert "什么时候" in timeline.content or "准备好" in timeline.content
 
 
 @pytest.mark.parametrize("text", ["4周内", "1-3个月", "3个月以上", "within 4 weeks", "1-3 months"])
@@ -321,3 +321,51 @@ def test_T25_timeline_chip_labels_are_detected(text):
 @pytest.mark.parametrize("text", ["基础薄弱", "中等水平", "基础较好", "冲高分", "top score"])
 def test_T26_level_chip_labels_are_detected(text):
     assert _has_level_signal(text)
+
+
+def test_T27_ap_history_asks_source_skill_after_core_info():
+    agent = StudyPlanAgent()
+    history = [
+        {"role": "user", "content": "AP US History"},
+        {"role": "assistant", "content": "When do you need to be ready?"},
+        {"role": "user", "content": "1-3 months"},
+        {"role": "assistant", "content": "What is your current level?"},
+        {"role": "user", "content": "Average, aiming for 5"},
+    ]
+    response = asyncio.run(
+        agent.get_next_response(history, PlanStage.DIAGNOSTIC, "en", "history", "ap")
+    )
+    assert response.response_source == "diagnostic_history_focus"
+    assert response.options == ["DBQ", "LEQ", "SAQ", "MCQ/source analysis"]
+
+
+def test_T28_ib_science_asks_coursework_component_after_core_info():
+    agent = StudyPlanAgent()
+    history = [
+        {"role": "user", "content": "IB Biology HL"},
+        {"role": "assistant", "content": "When do you need to be ready?"},
+        {"role": "user", "content": "3+ months"},
+        {"role": "assistant", "content": "What is your current level?"},
+        {"role": "user", "content": "Strong, target 7"},
+    ]
+    response = asyncio.run(
+        agent.get_next_response(history, PlanStage.DIAGNOSTIC, "en", "biology", "ib")
+    )
+    assert response.response_source == "diagnostic_ib_coursework"
+    assert "IA" in " ".join(response.options or []) or "Internal" in response.content
+
+
+def test_T29_a_level_asks_paper_focus_after_core_info():
+    agent = StudyPlanAgent()
+    history = [
+        {"role": "user", "content": "A Level Economics 9708"},
+        {"role": "assistant", "content": "When do you need to be ready?"},
+        {"role": "user", "content": "within 4 weeks"},
+        {"role": "assistant", "content": "What is your current level?"},
+        {"role": "user", "content": "Weak foundation"},
+    ]
+    response = asyncio.run(
+        agent.get_next_response(history, PlanStage.DIAGNOSTIC, "en", "economics", "a_level")
+    )
+    assert response.response_source == "diagnostic_a_level_papers"
+    assert response.options == ["AS papers", "A2 papers", "Practical/coursework", "Full A Level"]

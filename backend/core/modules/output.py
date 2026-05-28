@@ -98,7 +98,7 @@ class ScriptGenerator:
         # Prepare prompt for script generation
         prompt = self._create_script_prompt(lesson_plan)
         
-        # Mock API call to DeepSeek-V3
+        # Mock API call to the configured DeepSeek model.
         await asyncio.sleep(0.1)
         
         # Generate script
