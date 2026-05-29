@@ -142,22 +142,6 @@ function UnitCard({
             {Math.round(unit.score)}%
           </span>
         )}
-        <button
-          type="button"
-          className="btn btn-sm btn-secondary"
-          onClick={() => onDelete(plan.id, unit.id)}
-          disabled={deleting || starting}
-          aria-label={lang === 'zh' ? '删除课程' : 'Delete lesson'}
-          title={lang === 'zh' ? '删除课程' : 'Delete lesson'}
-          style={{
-            marginLeft: unit.is_completed || unit.score !== null ? 0 : 'auto',
-            padding: '6px 8px',
-            color: 'var(--color-danger, #dc2626)',
-          }}
-        >
-          <Trash2 size={13} />
-          {lang === 'zh' ? '删除' : 'Delete'}
-        </button>
       </div>
 
       {/* Title */}
