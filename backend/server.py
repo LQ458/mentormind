@@ -18,6 +18,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 import uvicorn
 from dotenv import load_dotenv
@@ -3141,6 +3142,7 @@ def _active_study_plan_query(db: Session, user_id: str):
     return (
         db.query(StudyPlan)
         .filter(StudyPlan.user_id == user_id)
+        .filter(StudyPlan.deleted_at.is_(None))
         .filter(StudyPlan.status.notin_(["archived", "deleted"]))
     )
 
@@ -3149,7 +3151,7 @@ def _purge_expired_deleted_study_plans(db: Session) -> int:
     now = datetime.utcnow()
     deleted = (
         db.query(StudyPlan)
-        .filter(StudyPlan.status == "deleted")
+        .filter(or_(StudyPlan.status == "deleted", StudyPlan.deleted_at.isnot(None)))
         .filter(StudyPlan.purge_after.isnot(None))
         .filter(StudyPlan.purge_after <= now)
         .delete(synchronize_session=False)
@@ -3163,7 +3165,7 @@ def _purge_expired_deleted_study_plan_units(db: Session) -> int:
     now = datetime.utcnow()
     deleted = (
         db.query(StudyPlanUnit)
-        .filter(StudyPlanUnit.content_status == "deleted")
+        .filter(or_(StudyPlanUnit.content_status == "deleted", StudyPlanUnit.deleted_at.isnot(None)))
         .filter(StudyPlanUnit.purge_after.isnot(None))
         .filter(StudyPlanUnit.purge_after <= now)
         .delete(synchronize_session=False)
@@ -3191,6 +3193,7 @@ def _active_study_plan_unit_query(db: Session, plan_id: str):
     return (
         db.query(StudyPlanUnit)
         .filter(StudyPlanUnit.plan_id == plan_id)
+        .filter(StudyPlanUnit.deleted_at.is_(None))
         .filter(StudyPlanUnit.content_status != "deleted")
     )
 
@@ -3881,9 +3884,11 @@ async def get_study_plan_library(
 
         result = []
         for plan in plans:
+            if plan.deleted_at is not None:
+                continue
             units_payload = []
             for unit in plan.units:
-                if unit.content_status == "deleted":
+                if unit.deleted_at is not None or unit.content_status == "deleted":
                     continue
                 key = f"{plan.id}:{unit.id}"
                 units_payload.append({

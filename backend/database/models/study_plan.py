@@ -133,7 +133,7 @@ class StudyPlan(Base):
             result["units"] = [
                 unit.to_dict()
                 for unit in self.units
-                if unit.content_status != UnitStatus.DELETED.value
+                if unit.deleted_at is None and unit.content_status != UnitStatus.DELETED.value
             ]
 
         if include_relationships and self.framework == "gaokao":
