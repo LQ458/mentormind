@@ -3381,7 +3381,7 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
                 preselected_subject=req.subject,
                 preselected_framework=req.framework,
             ),
-            timeout=float(os.getenv("STUDY_PLAN_CHAT_BACKEND_TIMEOUT_SECONDS", "45")),
+            timeout=float(os.getenv("STUDY_PLAN_CHAT_BACKEND_TIMEOUT_SECONDS", "105")),
         )
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         _log_study_plan_chat(

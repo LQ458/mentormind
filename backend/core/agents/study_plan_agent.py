@@ -49,7 +49,8 @@ class PlanResponse:
 
 # Diagnostic turn cap (was 3, raised to 6 for the dynamic flow)
 MAX_DIAGNOSTIC_TURNS = 6
-PLAN_REVIEW_LLM_TIMEOUT_SECONDS = 35
+PLAN_REVIEW_LLM_TIMEOUT_SECONDS = 60
+PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS = 35
 
 
 _ASK_USER_BLOCK_RE = re.compile(r"```ask_user\s*(\{.*?\})\s*```", re.DOTALL)
@@ -90,6 +91,46 @@ def _chat_completion_content(response: Any) -> str:
     if not response or not getattr(response, "success", False) or not getattr(response, "data", None):
         return ""
     return response.data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
+
+
+def _parse_plan_json(full_content: str) -> tuple[str, Optional[Dict[str, Any]]]:
+    thinking_process = ""
+    proposed_plan = None
+
+    if "```json" in full_content:
+        parts = full_content.split("```json")
+        thinking_process = parts[0].strip()
+        json_str = parts[1].split("```")[0].strip()
+        try:
+            proposed_plan = json.loads(json_str)
+        except Exception:
+            proposed_plan = None
+    elif "```" in full_content:
+        parts = full_content.split("```")
+        thinking_process = parts[0].strip()
+        try:
+            proposed_plan = json.loads(parts[1].strip())
+        except Exception:
+            proposed_plan = None
+    else:
+        thinking_process = full_content
+        try:
+            proposed_plan = json.loads(full_content.strip())
+        except Exception:
+            proposed_plan = None
+
+    return thinking_process, proposed_plan
+
+
+def _source_name(base: str, fast: bool = False, retry: bool = False, after_retry: bool = False) -> str:
+    suffix = ""
+    if after_retry:
+        suffix += "_after_retry"
+    elif retry:
+        suffix += "_retry"
+    if fast:
+        suffix += "_fast"
+    return f"{base}{suffix}"
 
 
 def _temporary_ai_error(language: str, plan_generation: bool = False) -> str:
@@ -573,56 +614,74 @@ Output format — text first, then the JSON block:
 }}
 ```
 """
-        try:
-            response = await asyncio.wait_for(
-                api_client.study_plan_chat_completion(
-                    messages=[{"role": "user", "content": prompt}],
-                    phase="plan_review",
-                    temperature=0.4,
-                    max_tokens=1800,
-                ),
-                timeout=PLAN_REVIEW_LLM_TIMEOUT_SECONDS,
-            )
-        except asyncio.TimeoutError:
-            return _plan_generation_error_response(
-                language,
-                "llm_plan_review_timeout_fast" if fast else "llm_plan_review_timeout",
-                detection,
-            )
+        retry_prompt = f"""{lang_instr}
 
-        full_content = _chat_completion_content(response)
-        if not full_content:
-            return _plan_generation_error_response(
-                language,
-                "llm_plan_review_error_fast" if fast else "llm_plan_review_error",
-                detection,
-            )
+Return ONLY valid JSON. No markdown, no explanation.
+{subject_ctx}
+Student input: {subject_input}
+Diagnostic answers: {diagnostic_summary}
+{curriculum_note}
+{bilingual_terminology_hint}
 
+Create a compact full-course study plan with 6-10 units. Use the official curriculum units when provided.
+Schema:
+{{
+  "title": "Course plan title",
+  "subject": "{detection.subject if detection else 'general'}",
+  "framework": "{detection.framework if detection and detection.framework else ''}",
+  "course_name": "{detection.course_name if detection and detection.course_name else 'Full course name'}",
+  "estimated_hours": 40,
+  "units": [
+    {{
+      "title": "Unit title",
+      "description": "Brief description",
+      "topics": ["topic1", "topic2", "topic3"],
+      "learning_objectives": ["Objective 1", "Objective 2"],
+      "estimated_minutes": 300
+    }}
+  ]
+}}
+"""
+
+        attempts = [
+            (prompt, 1800, PLAN_REVIEW_LLM_TIMEOUT_SECONDS, 0.4, False),
+            (retry_prompt, 1400, PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS, 0.2, True),
+        ]
+        last_error_source = "llm_plan_review_error"
         thinking_process = ""
         proposed_plan = None
+        used_retry = False
 
-        if "```json" in full_content:
-            parts = full_content.split("```json")
-            thinking_process = parts[0].strip()
-            json_str = parts[1].split("```")[0].strip()
+        for attempt_prompt, max_tokens, timeout_seconds, temperature, is_retry in attempts:
+            used_retry = is_retry
             try:
-                proposed_plan = json.loads(json_str)
-            except Exception:
-                proposed_plan = None
-        elif "```" in full_content:
-            parts = full_content.split("```")
-            thinking_process = parts[0].strip()
-            try:
-                proposed_plan = json.loads(parts[1].strip())
-            except Exception:
-                proposed_plan = None
-        else:
-            thinking_process = full_content
+                response = await asyncio.wait_for(
+                    api_client.study_plan_chat_completion(
+                        messages=[{"role": "user", "content": attempt_prompt}],
+                        phase="plan_review",
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    ),
+                    timeout=timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                last_error_source = "llm_plan_review_timeout"
+                continue
+
+            full_content = _chat_completion_content(response)
+            if not full_content:
+                last_error_source = "llm_plan_review_error"
+                continue
+
+            thinking_process, proposed_plan = _parse_plan_json(full_content)
+            if proposed_plan:
+                break
+            last_error_source = "llm_plan_review_parse_error"
 
         if not proposed_plan:
             return _plan_generation_error_response(
                 language,
-                "llm_plan_review_parse_error_fast" if fast else "llm_plan_review_parse_error",
+                _source_name(last_error_source, fast=fast, after_retry=True),
                 detection,
             )
 
@@ -635,7 +694,7 @@ Output format — text first, then the JSON block:
         return PlanResponse(
             stage=PlanStage.PLAN_REVIEW,
             content=summary,
-            response_source="llm_plan_review_fast" if fast else "llm_plan_review",
+            response_source=_source_name("llm_plan_review", fast=fast, retry=used_retry),
             thinking_process=thinking_process,
             proposed_plan=proposed_plan,
             next_action_label="Looks good, let's go!" if language == "en" else "看起来不错，开始吧！",
