@@ -1036,10 +1036,11 @@ class APIClient:
         temperature: float = 0.4,
         max_tokens: int = 2000,
     ) -> APIResponse:
-        is_plan = phase == "plan_review"
+        # Study-plan chat must stay responsive. Even plan review is structured
+        # JSON generation, so use Flash/non-thinking instead of Pro thinking.
         return await self.deepseek.chat_completion(
             messages=messages,
-            model="deepseek-v4-pro" if is_plan else "deepseek-v4-flash",
+            model="deepseek-v4-flash",
             temperature=temperature,
             max_tokens=max_tokens,
         )

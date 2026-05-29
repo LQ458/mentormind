@@ -49,8 +49,8 @@ class PlanResponse:
 
 # Diagnostic turn cap (was 3, raised to 6 for the dynamic flow)
 MAX_DIAGNOSTIC_TURNS = 6
-PLAN_REVIEW_LLM_TIMEOUT_SECONDS = 60
-PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS = 35
+PLAN_REVIEW_LLM_TIMEOUT_SECONDS = 25
+PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS = 20
 
 
 _ASK_USER_BLOCK_RE = re.compile(r"```ask_user\s*(\{.*?\})\s*```", re.DOTALL)
@@ -557,12 +557,6 @@ Keep total response ≤ 60 words excluding the ask_user block.
             )
             curriculum_note = _build_curriculum_note(detection)
 
-        fast_note = (
-            "The student said 'just start' — skip lengthy preamble. "
-            "One sentence of acknowledgement, then the JSON."
-            if fast else ""
-        )
-
         # Note (2026-05-03): the previous code forced output_language="zh" for
         # gaokao but never actually used the variable — `lang_instr` (from the
         # frontend-supplied `language` arg) drove the prompt. We now respect the
@@ -579,23 +573,18 @@ Keep total response ≤ 60 words excluding the ask_user block.
 
         prompt = f"""{lang_instr}
 
-You are an expert academic coach.
+Return ONLY valid JSON. No markdown, no code fence, no explanatory text.
+You are an expert academic coach creating a full-course study plan.
 {subject_ctx}
 Student's subject/framework input: {subject_input}
 Diagnostic answers: {diagnostic_summary}
 {curriculum_note}
 {bilingual_terminology_hint}
-{fast_note}
 
-Your task:
-1. In 1-2 sentences, briefly explain your plan rationale — friendly and encouraging.
-2. Generate a compact full-course study plan with 6-10 units covering the complete syllabus.
+Generate a compact full-course study plan with 6-10 units covering the complete syllabus.
+Keep descriptions and objectives short. Prefer official curriculum unit names when provided.
 
-Output format — text first, then the JSON block:
-
-[1-2 sentence rationale here]
-
-```json
+Required JSON schema:
 {{
     "title": "Course plan title (e.g. 'AP Calculus BC Mastery')",
     "subject": "{detection.subject if detection else 'general'}",
@@ -608,11 +597,11 @@ Output format — text first, then the JSON block:
             "description": "Brief description of what this unit covers",
             "topics": ["topic1", "topic2", "topic3"],
             "learning_objectives": ["Objective 1", "Objective 2"],
+            "estimated_hours": <integer>,
             "estimated_minutes": <integer>
         }}
     ]
 }}
-```
 """
         retry_prompt = f"""{lang_instr}
 
@@ -637,6 +626,7 @@ Schema:
       "description": "Brief description",
       "topics": ["topic1", "topic2", "topic3"],
       "learning_objectives": ["Objective 1", "Objective 2"],
+      "estimated_hours": 5,
       "estimated_minutes": 300
     }}
   ]
@@ -644,8 +634,8 @@ Schema:
 """
 
         attempts = [
-            (prompt, 1800, PLAN_REVIEW_LLM_TIMEOUT_SECONDS, 0.4, False),
-            (retry_prompt, 1400, PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS, 0.2, True),
+            (prompt, 1200, PLAN_REVIEW_LLM_TIMEOUT_SECONDS, 0.2, False),
+            (retry_prompt, 1000, PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS, 0.1, True),
         ]
         last_error_source = "llm_plan_review_error"
         thinking_process = ""
