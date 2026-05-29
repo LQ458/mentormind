@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "concept": { "type": "string", "maxLength": 200 },
+    "audience_level": {
+      "type": "string",
+      "enum": ["beginner", "intermediate", "advanced"],
+      "default": "intermediate"
+    },
+    "target_length": {
+      "type": "integer",
+      "minimum": 20,
+      "maximum": 300,
+      "default": 100
+    }
+  },
+  "required": ["concept"],
+  "additionalProperties": false
+}

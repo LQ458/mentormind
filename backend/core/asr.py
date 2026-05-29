@@ -59,7 +59,7 @@ def _get_paddleocr():
         try:
             from paddleocr import PaddleOCR
             print("⏳ Loading PaddleOCR model...")
-            _paddleocr_model = PaddleOCR(use_angle_cls=True, lang="ch", use_gpu=False, show_log=False)
+            _paddleocr_model = PaddleOCR(use_angle_cls=True, lang="ch", use_gpu=False)
             print("✅ PaddleOCR model loaded")
         except ImportError:
             raise RuntimeError("paddleocr not installed. Run: pip install paddleocr paddlepaddle")

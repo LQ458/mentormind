@@ -1,14 +1,20 @@
 # MentorMind Backend Dependencies
 # Core dependencies
 fastapi>=0.104.0
-uvicorn>=0.24.0
+uvicorn[standard]>=0.24.0
+websockets>=12.0
 python-dotenv>=1.0.0
 aiohttp>=3.9.0
+jsonschema>=4.20.0
 
 # Auth
 PyJWT>=2.8.0
 cryptography>=41.0.0
+bcrypt>=4.0.0
 requests>=2.31.0
+
+# Rate limiting (per-IP cap on no-auth POSTs)
+slowapi>=0.1.9
 
 # Database
 sqlalchemy>=2.0.0
@@ -28,8 +34,14 @@ scikit-image>=0.22.0
 # Development
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
+pytest-playwright>=0.5.0
+playwright>=1.48.0
 black>=23.0.0
 flake8>=6.0.0
+
+# Test utilities
+psutil>=6.0.0
+websockets>=14.0
 
 # Cloud & Queues
 boto3==1.34.0
@@ -59,3 +71,6 @@ structlog>=23.0.0
 pydub>=0.25.1
 librosa>=0.10.0
 moviepy>=1.0.3
+jsonschema>=4.21.0
+locust>=2.31.0
+locust-plugins>=4.3.0

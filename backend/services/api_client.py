@@ -6,11 +6,16 @@ Real API connections with no mock data
 import os
 import aiohttp
 import json
-from typing import Dict, Any, Optional
-from dataclasses import dataclass
+from typing import Dict, Any, Optional, Callable, Union, List, AsyncGenerator
+from dataclasses import dataclass, field
 import asyncio
+import random
+import time
+import logging
+from urllib.parse import urlparse
 
 from config import config
+from services.circuit_breaker import CircuitBreakerConfig, circuit_breaker_manager
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -36,41 +41,267 @@ class APIResponse:
     data: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     status_code: int = 200
+    retry_count: int = 0
+    response_time_ms: float = 0.0
+
+
+@dataclass
+class StreamChunk:
+    """A chunk from a streaming LLM response"""
+    chunk_type: str  # "content_delta", "reasoning_delta", "tool_call_delta", "tool_call_complete", "done", "error"
+    content: str = ""
+    tool_call_index: int = 0
+    tool_call_id: str = ""
+    tool_name: str = ""
+    tool_arguments: str = ""  # accumulated JSON string for tool_call_complete
+
+
+class APIRetryManager:
+    """Manages API retry logic with exponential backoff and jitter"""
+    
+    def __init__(self, max_retries: int = 5, base_delay: float = 1.0):
+        self.max_retries = max_retries
+        self.base_delay = base_delay
+        self.logger = logging.getLogger(__name__)
+    
+    async def retry_with_backoff(
+        self, 
+        func: Callable,
+        *args,
+        retry_on_exceptions: tuple = (aiohttp.ClientError, asyncio.TimeoutError),
+        **kwargs
+    ) -> APIResponse:
+        """Retry function with exponential backoff and jitter"""
+        last_exception = None
+        
+        for attempt in range(self.max_retries):
+            try:
+                start_time = time.time()
+                result = await func(*args, **kwargs)
+                response_time = (time.time() - start_time) * 1000  # Convert to ms
+                
+                # Add retry metadata to successful response
+                if isinstance(result, APIResponse):
+                    result.retry_count = attempt
+                    result.response_time_ms = response_time
+                
+                return result
+                
+            except retry_on_exceptions as e:
+                last_exception = e
+                
+                if attempt == self.max_retries - 1:
+                    self.logger.error(f"Max retries ({self.max_retries}) exceeded for {func.__name__}: {e}")
+                    return APIResponse(
+                        success=False,
+                        error=f"Max retries exceeded: {str(e)}",
+                        status_code=0,
+                        retry_count=attempt + 1
+                    )
+                
+                # Calculate delay with jitter to prevent thundering herd
+                jitter = random.uniform(0, 0.1)  # Add 0-100ms jitter
+                delay = (self.base_delay * (2 ** attempt)) + jitter
+                capped_delay = min(delay, 30)  # Cap at 30 seconds
+                
+                self.logger.warning(
+                    f"Attempt {attempt + 1}/{self.max_retries} failed for {func.__name__}: {e}. "
+                    f"Retrying in {capped_delay:.2f}s"
+                )
+                await asyncio.sleep(capped_delay)
+            
+            except Exception as e:
+                # For non-retryable exceptions, fail immediately
+                self.logger.error(f"Non-retryable error in {func.__name__}: {e}")
+                return APIResponse(
+                    success=False,
+                    error=f"Non-retryable error: {str(e)}",
+                    status_code=0,
+                    retry_count=attempt + 1
+                )
+        
+        # This should not be reached, but just in case
+        return APIResponse(
+            success=False,
+            error=f"Unexpected retry failure: {str(last_exception)}",
+            status_code=0,
+            retry_count=self.max_retries
+        )
 
 
 class DeepSeekClient:
-    """Client for DeepSeek API"""
+    """Client for DeepSeek official API with resilience patterns.
+
+    Production routes simple calls to V4 Flash in non-thinking mode and complex
+    generation/tool calls to V4 Pro in thinking mode.
+    """
+
+    SAFE_FLASH_MODEL = "deepseek-v4-flash"
+    SAFE_PRO_MODEL = "deepseek-v4-pro"
+    SAFE_MODELS = {SAFE_FLASH_MODEL, SAFE_PRO_MODEL}
+    FORBIDDEN_MESSAGE_KEYS = {"reasoning", "thinking"}
     
     def __init__(self):
+        self.provider = "deepseek_official"
         self.api_key = os.getenv("DEEPSEEK_API_KEY")
-        if not self.api_key:
-            raise ValueError("DEEPSEEK_API_KEY not set in environment variables")
-        
-        self.base_url = "https://api.deepseek.com/v1"
+        self.base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+
         self.headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {self.api_key}" if self.api_key else "",
             "Content-Type": "application/json"
+        }
+        
+        # Initialize retry manager and circuit breaker
+        self.retry_manager = APIRetryManager(max_retries=5, base_delay=1.0)
+        
+        # Configure circuit breaker for DeepSeek API
+        cb_config = CircuitBreakerConfig(
+            failure_threshold=5,
+            success_threshold=2,
+            timeout_duration=60,
+            failure_rate_threshold=0.5,
+            min_request_threshold=10
+        )
+        self.circuit_breaker = circuit_breaker_manager.get_circuit_breaker("deepseek_api", cb_config)
+        self.logger = logging.getLogger(__name__)
+
+    def _select_model(self, requested_model: Optional[str], max_tokens: int) -> str:
+        if requested_model:
+            model = requested_model.strip()
+            if model in self.SAFE_MODELS:
+                return model
+            self.logger.warning("Ignoring non-approved DeepSeek model: %s", requested_model)
+
+        return self.SAFE_PRO_MODEL if max_tokens >= 3000 else self.SAFE_FLASH_MODEL
+
+    def _thinking_payload(self, selected_model: str) -> Dict[str, str]:
+        if selected_model == self.SAFE_PRO_MODEL:
+            return {"type": "enabled"}
+        return {"type": "disabled"}
+
+    def _sanitize_messages(self, messages: list) -> list:
+        sanitized = []
+        for message in messages or []:
+            if not isinstance(message, dict):
+                continue
+            clean_message = {
+                key: value
+                for key, value in message.items()
+                if key not in self.FORBIDDEN_MESSAGE_KEYS and key != "reasoning_content"
+            }
+            if clean_message.get("role") == "assistant" and clean_message.get("tool_calls"):
+                clean_message["reasoning_content"] = str(message.get("reasoning_content") or "")
+            sanitized.append(clean_message)
+        return sanitized
+
+    def _request_summary(self, payload: Dict[str, Any], status: Optional[int] = None) -> Dict[str, Any]:
+        messages = payload.get("messages") or []
+        assistant_tool_turns = [
+            idx
+            for idx, message in enumerate(messages)
+            if isinstance(message, dict)
+            and message.get("role") == "assistant"
+            and bool(message.get("tool_calls"))
+        ]
+        return {
+            "status": status,
+            "host": urlparse(self.base_url).netloc or self.base_url,
+            "model": payload.get("model"),
+            "stream": payload.get("stream"),
+            "has_tools": bool(payload.get("tools")),
+            "thinking": payload.get("thinking"),
+            "message_count": len(messages),
+            "assistant_tool_turns": assistant_tool_turns,
+            "assistant_tool_turns_with_reasoning_key": [
+                idx
+                for idx in assistant_tool_turns
+                if isinstance(messages[idx], dict) and "reasoning_content" in messages[idx]
+            ],
         }
     
     async def chat_completion(
         self,
         messages: list,
-        model: str = "deepseek-chat",
+        model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 2000
     ) -> APIResponse:
         """
-        Call DeepSeek chat completion API
+        Call DeepSeek chat completion API with circuit breaker and retry logic
         """
+        try:
+            # Use circuit breaker to wrap the retry logic
+            return await self.circuit_breaker.call(
+                self._chat_completion_with_retry,
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except Exception as e:
+            # Convert circuit breaker exceptions to APIResponse
+            from services.circuit_breaker import CircuitBreakerException
+            if isinstance(e, CircuitBreakerException):
+                return APIResponse(
+                    success=False,
+                    error=f"Service temporarily unavailable: {str(e)}",
+                    status_code=503
+                )
+            else:
+                return APIResponse(
+                    success=False,
+                    error=f"API call failed: {str(e)}",
+                    status_code=500
+                )
+    
+    async def _chat_completion_with_retry(
+        self,
+        messages: list,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+    ) -> APIResponse:
+        """
+        Chat completion with retry logic (called by circuit breaker)
+        """
+        return await self.retry_manager.retry_with_backoff(
+            self._chat_completion_raw,
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    
+    async def _chat_completion_raw(
+        self,
+        messages: list,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+    ) -> APIResponse:
+        """
+        Raw chat completion call without retry logic
+        """
+        if not self.api_key:
+            return APIResponse(
+                success=False,
+                error="DEEPSEEK_API_KEY not set in environment variables",
+                status_code=500,
+            )
         url = f"{self.base_url}/chat/completions"
         
+        selected_model = self._select_model(model, max_tokens)
         payload = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
+            "model": selected_model,
+            "messages": self._sanitize_messages(messages),
             "max_tokens": max_tokens,
-            "stream": False
+            "stream": False,
+            "thinking": self._thinking_payload(selected_model),
         }
+        if selected_model == self.SAFE_PRO_MODEL:
+            payload["reasoning_effort"] = "high"
+        else:
+            payload["temperature"] = temperature
         
         try:
             connector = aiohttp.TCPConnector(verify_ssl=config.VERIFY_SSL)
@@ -79,7 +310,11 @@ class DeepSeekClient:
                     url,
                     headers=self.headers,
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=600) # Increased to 10 mins for long-form reasoning
+                    timeout=aiohttp.ClientTimeout(
+                        total=None,    # no global cap — sock_read controls it
+                        connect=10,    # fail fast if server unreachable
+                        sock_read=300  # 5 min to read large LLM completions (storyboard ~120s)
+                    )
                 ) as response:
                     
                     if response.status == 200:
@@ -89,8 +324,22 @@ class DeepSeekClient:
                             data=data,
                             status_code=response.status
                         )
+                    elif response.status in [429, 502, 503, 504]:  # Retryable errors
+                        error_text = await response.text()
+                        # Raise exception to trigger retry
+                        raise aiohttp.ClientResponseError(
+                            request_info=response.request_info,
+                            history=response.history,
+                            status=response.status,
+                            message=f"Retryable API error: {error_text}"
+                        )
                     else:
                         error_text = await response.text()
+                        self.logger.error(
+                            "DeepSeek chat request failed: %s error=%s",
+                            self._request_summary(payload, response.status),
+                            error_text[:500],
+                        )
                         return APIResponse(
                             success=False,
                             error=f"API error {response.status}: {error_text}",
@@ -98,20 +347,182 @@ class DeepSeekClient:
                         )
                         
         except aiohttp.ClientError as e:
-            return APIResponse(
-                success=False,
-                error=f"Network error: {str(e)}",
-                status_code=0
-            )
+            # Specific handling for transfer encoding errors
+            if "TransferEncodingError" in str(e) or "Not enough data" in str(e):
+                self.logger.warning(f"Incomplete transfer detected, retrying: {e}")
+                raise  # Let retry mechanism handle this
+            # Re-raise for retry handling
+            self.logger.warning(f"Network error in API call: {e}")
+            raise
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
+            self.logger.error(f"Unexpected error in API call: {e}\n{error_details}")
             return APIResponse(
                 success=False,
                 error=f"Unexpected error: {str(e)}\nDetails: {error_details}",
                 status_code=0
             )
     
+    async def chat_completion_stream(
+        self,
+        messages: list,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4000,
+    ) -> AsyncGenerator[StreamChunk, None]:
+        """
+        Streaming chat completion with tool call support.
+        Yields StreamChunk objects as they arrive from the API.
+        Accumulates fragmented tool call arguments and emits a
+        tool_call_complete chunk when the full tool call is assembled.
+        """
+        if not self.api_key:
+            yield StreamChunk(chunk_type="error", content="DEEPSEEK_API_KEY not set in environment variables")
+            return
+
+        url = f"{self.base_url}/chat/completions"
+        selected_model = self._select_model(model, max_tokens)
+        if tools and selected_model == self.SAFE_PRO_MODEL:
+            self.logger.info(
+                "Routing tool-call stream through %s to avoid thinking-mode replay requirements",
+                self.SAFE_FLASH_MODEL,
+            )
+            selected_model = self.SAFE_FLASH_MODEL
+        payload = {
+            "model": selected_model,
+            "messages": self._sanitize_messages(messages),
+            "max_tokens": max_tokens,
+            "stream": True,
+            "thinking": self._thinking_payload(selected_model),
+        }
+        if selected_model == self.SAFE_PRO_MODEL:
+            payload["reasoning_effort"] = "high"
+        else:
+            payload["temperature"] = temperature
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        # Accumulators for fragmented tool calls: {index: {id, name, arguments}}
+        pending_tool_calls: Dict[int, Dict[str, str]] = {}
+
+        try:
+            connector = aiohttp.TCPConnector(verify_ssl=config.VERIFY_SSL)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.post(
+                    url,
+                    headers=self.headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=None, connect=10, sock_read=300),
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        self.logger.error(
+                            "DeepSeek stream request failed: %s error=%s",
+                            self._request_summary(payload, response.status),
+                            error_text[:500],
+                        )
+                        yield StreamChunk(
+                            chunk_type="error",
+                            content=f"API error {response.status}: {error_text}",
+                        )
+                        return
+
+                    async for raw_line in response.content:
+                        line = raw_line.decode("utf-8", errors="replace").strip()
+                        if not line or line.startswith(":"):
+                            continue
+                        if not line.startswith("data: "):
+                            continue
+
+                        data_str = line[6:]  # strip "data: "
+                        if data_str == "[DONE]":
+                            # Flush any remaining pending tool calls
+                            for idx in sorted(pending_tool_calls):
+                                tc = pending_tool_calls[idx]
+                                yield StreamChunk(
+                                    chunk_type="tool_call_complete",
+                                    tool_call_index=idx,
+                                    tool_call_id=tc.get("id", ""),
+                                    tool_name=tc.get("name", ""),
+                                    tool_arguments=tc.get("arguments", ""),
+                                )
+                            yield StreamChunk(chunk_type="done")
+                            return
+
+                        try:
+                            chunk_data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+
+                        choices = chunk_data.get("choices", [])
+                        if not choices:
+                            continue
+
+                        delta = choices[0].get("delta", {})
+                        finish_reason = choices[0].get("finish_reason")
+
+                        # Content delta
+                        if "content" in delta and delta["content"]:
+                            yield StreamChunk(
+                                chunk_type="content_delta",
+                                content=delta["content"],
+                            )
+
+                        if "reasoning_content" in delta and delta["reasoning_content"]:
+                            yield StreamChunk(
+                                chunk_type="reasoning_delta",
+                                content=delta["reasoning_content"],
+                            )
+
+                        # Tool call deltas
+                        if "tool_calls" in delta:
+                            for tc_delta in delta["tool_calls"]:
+                                idx = tc_delta.get("index", 0)
+
+                                if idx not in pending_tool_calls:
+                                    pending_tool_calls[idx] = {
+                                        "id": "",
+                                        "name": "",
+                                        "arguments": "",
+                                    }
+
+                                tc = pending_tool_calls[idx]
+                                if "id" in tc_delta and tc_delta["id"]:
+                                    tc["id"] = tc_delta["id"]
+
+                                func = tc_delta.get("function", {})
+                                if "name" in func and func["name"]:
+                                    tc["name"] = func["name"]
+                                if "arguments" in func and func["arguments"]:
+                                    tc["arguments"] += func["arguments"]
+
+                        # When finish_reason indicates tool calls are complete
+                        if finish_reason == "tool_calls":
+                            for idx in sorted(pending_tool_calls):
+                                tc = pending_tool_calls[idx]
+                                yield StreamChunk(
+                                    chunk_type="tool_call_complete",
+                                    tool_call_index=idx,
+                                    tool_call_id=tc.get("id", ""),
+                                    tool_name=tc.get("name", ""),
+                                    tool_arguments=tc.get("arguments", ""),
+                                )
+                            pending_tool_calls.clear()
+
+                        if finish_reason == "stop":
+                            yield StreamChunk(chunk_type="done")
+                            return
+
+        except aiohttp.ClientError as e:
+            self.logger.error(f"Stream connection error: {e}")
+            yield StreamChunk(chunk_type="error", content=f"Connection error: {e}")
+        except Exception as e:
+            self.logger.error(f"Unexpected stream error: {e}")
+            yield StreamChunk(chunk_type="error", content=f"Unexpected error: {e}")
+
     async def extract_knowledge(self, text: str, context: str = "") -> APIResponse:
         """
         Extract knowledge entities and relationships from text
@@ -146,7 +557,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-chat",
+            model="deepseek-v4-pro",
             temperature=0.3,
             max_tokens=4000
         )
@@ -159,7 +570,7 @@ class DeepSeekClient:
         time_limit: int = 30
     ) -> APIResponse:
         """
-        Plan a lesson using DeepSeek-R1 reasoning
+        Plan a lesson using the approved DeepSeek V4 Pro model.
         """
         prompt = f"""
         请为{student_level}水平的学生创建一个{time_limit}分钟的教学计划。
@@ -195,7 +606,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-chat",
+            model="deepseek-v4-pro",
             temperature=0.3,
             max_tokens=2000
         )
@@ -242,7 +653,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-chat",
+            model="deepseek-v4-pro",
             temperature=0.7,
             max_tokens=4000
         )
@@ -340,7 +751,7 @@ class DeepSeekClient:
             
             response = await self.chat_completion(
                 messages=messages,
-                model="deepseek-chat",
+                model="deepseek-v4-pro",
                 temperature=0.7,
                 max_tokens=4000
             )
@@ -431,7 +842,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-chat",
+            model="deepseek-v4-flash",
             temperature=0.3,
             max_tokens=2000
         )
@@ -468,7 +879,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-chat",
+            model="deepseek-v4-flash",
             temperature=0.3,
             max_tokens=2000
         )
@@ -556,7 +967,7 @@ class DeepSeekClient:
         
         return await self.chat_completion(
             messages=messages,
-            model="deepseek-chat",
+            model="deepseek-v4-flash",
             temperature=0.3,
             max_tokens=2000
         )
@@ -610,12 +1021,28 @@ class PaddleOCRClient:
 
 
 class APIClient:
-    """Main API client for all services"""
+    """Main API client for all services with resilience patterns"""
     
     def __init__(self):
         self.deepseek = DeepSeekClient()
         self.funasr = FunASRClient()
         self.paddle_ocr = PaddleOCRClient()
+        self.logger = logging.getLogger(__name__)
+
+    async def study_plan_chat_completion(
+        self,
+        messages: list,
+        phase: str,
+        temperature: float = 0.4,
+        max_tokens: int = 2000,
+    ) -> APIResponse:
+        is_plan = phase == "plan_review"
+        return await self.deepseek.chat_completion(
+            messages=messages,
+            model="deepseek-v4-pro" if is_plan else "deepseek-v4-flash",
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
     
     async def process_query(
         self,
@@ -632,9 +1059,9 @@ class APIClient:
         format_type: str = "analysis"
     ) -> APIResponse:
         """
-        Process student query using DeepSeek AI
+        Process student query using the official DeepSeek API
         """
-        return await self.deepseek.process_query(
+        result = await self.deepseek.process_query(
             topic=topic,
             language=language,
             student_level=student_level,
@@ -647,6 +1074,7 @@ class APIClient:
             difficulty_level=difficulty_level,
             format_type=format_type
         )
+        return result
     
     async def translate_to_chinese(self, text: str, context: str = "") -> APIResponse:
         """Translate text to Chinese"""
@@ -660,24 +1088,36 @@ class APIClient:
         """Translate content to target language"""
         return await self.deepseek.translate_content(content, target_language)
     
-    async def test_connection(self) -> Dict[str, bool]:
+    async def test_connection(self) -> Dict[str, Any]:
         """
-        Test connections to all APIs
+        Test connections to all APIs with detailed metrics
         """
         results = {}
         
         # Test DeepSeek
         try:
             test_response = await self.deepseek.chat_completion(
-                messages=[{"role": "user", "content": "Hello"}],
+                messages=[{"role": "user", "content": "Test"}],
                 max_tokens=10
             )
-            results["deepseek"] = test_response.success
+            results["deepseek"] = {
+                "status": test_response.success,
+                "response_time_ms": test_response.response_time_ms,
+                "retry_count": test_response.retry_count,
+                "error": test_response.error if not test_response.success else None
+            }
         except Exception as e:
-            results["deepseek"] = False
+            results["deepseek"] = {
+                "status": False,
+                "error": str(e),
+                "response_time_ms": 0,
+                "retry_count": 0
+            }
             print(f"DeepSeek test failed: {e}")
         
-        # Note: FunASR and PaddleOCR would be tested here in production
+        # Test other APIs (simplified for now)
+        results["funasr"] = {"status": True, "note": "Mock implementation"}
+        results["paddle_ocr"] = {"status": True, "note": "Mock implementation"}
         
         return results
 

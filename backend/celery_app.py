@@ -1,10 +1,16 @@
 import os
+
+# Fork-safety: prevent PyTorch/OpenMP SIGSEGV in forked Celery workers
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES")
+
 import json
 import asyncio
 import textwrap
 import redis
 from celery import Celery
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Import Mentormind dependencies
 from core.create_classes import ClassCreator, ClassCreationRequest, Language
@@ -13,6 +19,9 @@ from database.base import SessionLocal
 from database.models.user import User
 from core.asr import transcribe_with_local_model_result
 from core.summarize import summarize_extracted_content
+from core.rendering.layout_manager import ContentType
+from config import config
+import redis
 
 # Initialize Celery app
 # In production, broker and backend should come from environment variables.
@@ -27,8 +36,20 @@ celery_app = Celery(
     backend=REDIS_URL,
 )
 
-# Optional celery configurations
+# Configure Celery settings
 celery_app.conf.update(
+    broker_connection_retry_on_startup=True,
+    broker_connection_retry=True,
+    broker_connection_max_retries=10,
+    broker_connection_timeout=30,
+    broker_pool_limit=10,
+    redis_max_connections=20,
+    redis_socket_connect_timeout=15,
+    redis_socket_timeout=120,
+    redis_retry_on_timeout=True,
+    result_backend_transport_options={
+        "retry_policy": {"max_retries": 5, "interval_start": 0.2, "interval_step": 0.5, "interval_max": 3},
+    },
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
@@ -37,6 +58,11 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=1800,  # 30 minutes hard limit for long-form rendering and retries
     task_soft_time_limit=1500, # 25 minutes soft limit
+    task_acks_late=True,  # Acknowledge after execution, not on receipt — prevents message loss on crash
+    task_reject_on_worker_lost=True,  # Requeue tasks when worker dies unexpectedly
+    worker_prefetch_multiplier=1,  # Only prefetch 1 task at a time — prevents losing buffered tasks
+    worker_lost_wait=30,  # Wait before marking lost worker tasks as failed
+    worker_pool="solo",  # Avoid fork — PyTorch/Whisper SIGSEGV in forked processes
     
     # --- RESOURCE ISOLATION QUEUES ---
     task_queues={
@@ -52,8 +78,24 @@ celery_app.conf.update(
         "mentormind.render_manim_scene": {"queue": "rendering"},
         "mentormind.transcribe_audio": {"queue": "heavy_ml"},
         "mentormind.ocr_image": {"queue": "heavy_ml"},
+        "mentormind.generate_unit_content": {"queue": "orchestration"},
+        "mentormind.regenerate_board_segment": {"queue": "orchestration"},
+        "mentormind.rollup_proficiency": {"queue": "orchestration"},
     },
 )
+
+# --- Celery beat schedule (skill-adaptive F5 nightly proficiency rollup) ---
+from datetime import timedelta as _timedelta
+celery_app.conf.beat_schedule = {
+    "rollup_proficiency_daily": {
+        "task": "mentormind.rollup_proficiency",
+        "schedule": _timedelta(hours=24),
+    },
+    "prune_telemetry_daily": {
+        "task": "mentormind.prune_telemetry",
+        "schedule": _timedelta(hours=24),
+    },
+}
 
 
 @celery_app.task(bind=True, name="mentormind.sync_proactive_notifications")
@@ -90,12 +132,21 @@ def create_class_video_task(self, request_data: dict, job_id: str):
     Celery task that executes the heavy AI video reasoning pipeline.
     This runs asynchronously so the FastAPI web server isn't blocked.
     """
+    import asyncio
     print(f"[{job_id}] Received celery task to generate video for topic: {request_data.get('topic')}")
     
     # We must run the async ClassCreator inside a synchronous wrapper
     async def _run_pipeline():
         creator = ClassCreator()
-        
+
+        def _progress(stage: str, percent: int, label: str):
+            self.update_state(state='PROGRESS', meta={
+                'stage': stage,
+                'percent': percent,
+                'label': label,
+            })
+            print(f"[{job_id}] PROGRESS {percent}% — {stage}: {label}")
+
         language = request_data.get("language", "zh")
         class_request = ClassCreationRequest(
             topic=request_data.get("topic", ""),
@@ -115,20 +166,20 @@ def create_class_video_task(self, request_data: dict, job_id: str):
         
         # Execute the pipeline
         if language == "en":
-            result = await creator.create_class_english(class_request)
+            result = await creator.create_class_english(class_request, progress_callback=_progress)
         else:
-            result = await creator.create_class_chinese(class_request)
+            result = await creator.create_class_chinese(class_request, progress_callback=_progress)
             
         return result
 
-    # Run the event loop
+    # Run the event loop — always create a fresh loop for Celery workers
+    # (asyncio.get_event_loop() is unreliable in forked worker processes)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-    result = loop.run_until_complete(_run_pipeline())
+        result = loop.run_until_complete(_run_pipeline())
+    finally:
+        loop.close()
     
     # Extract title and description from nested lesson plan if missing
     plan_dict = result.lesson_plan if isinstance(result.lesson_plan, dict) else {}
@@ -138,6 +189,48 @@ def create_class_video_task(self, request_data: dict, job_id: str):
     # video_url / audio_url are already clean relative paths (e.g. 'videos/manim/.../LessonScene.mp4')
     # produced by output.py → create_classes.py. No further transformation needed.
     print(f"[{job_id}] 🔍 Pipeline result: video_url={result.video_url!r}  audio_url={result.audio_url!r}  success={result.success}")
+
+    # AI Quality Evaluation of Generated Content
+    quality_evaluation = None
+    try:
+        print(f"[{job_id}] 🔍 Running AI quality evaluation...")
+        from core.agents.video_quality_agent import VideoQualityAgent
+
+        # Resolve absolute paths for file-level checks
+        video_abs = None
+        audio_abs = None
+        if result.video_url:
+            candidate = os.path.join(config.DATA_DIR, result.video_url) if not os.path.isabs(result.video_url) else result.video_url
+            if os.path.isfile(candidate):
+                video_abs = candidate
+        if result.audio_url:
+            candidate = os.path.join(config.DATA_DIR, result.audio_url) if not os.path.isabs(result.audio_url) else result.audio_url
+            if os.path.isfile(candidate):
+                audio_abs = candidate
+
+        agent = VideoQualityAgent()
+        quality_evaluation = agent.evaluate_final_output(
+            result=result,
+            request_data=request_data,
+            video_absolute_path=video_abs,
+            audio_absolute_path=audio_abs,
+        )
+
+        grade = quality_evaluation.get('grade', '?')
+        score = quality_evaluation.get('overall_score', 0)
+        print(f"[{job_id}] ✅ Quality evaluation complete: {score}/10 (Grade: {grade})")
+        if grade == "D":
+            print(f"[{job_id}] ⚠️ LOW QUALITY WARNING: Grade D ({score}/10). Issues: {quality_evaluation.get('improvement_areas', [])}")
+        elif grade == "C":
+            print(f"[{job_id}] ℹ️ Moderate quality: Grade C ({score}/10). Consider regeneration for better results.")
+
+    except Exception as e:
+        print(f"[{job_id}] ⚠️ Quality evaluation failed: {e}")
+        quality_evaluation = {
+            "overall_score": 0.0,
+            "error": str(e),
+            "assessment_quality": "unavailable"
+        }
 
     # Return serializable dict for Celery Task result
     render_failed = request_data.get("include_video", True) and not result.video_url
@@ -152,10 +245,13 @@ def create_class_video_task(self, request_data: dict, job_id: str):
         "ai_insights": result.ai_insights,
         "audio_url": result.audio_url,
         "video_url": result.video_url,
+        "quality_evaluation": quality_evaluation,  # New: AI quality assessment
         "timestamp": datetime.now().isoformat()
     }
     if render_failed:
-        response["error"] = "Video rendering failed before a final media file was produced."
+        ai_error = (result.ai_insights or {}).get("error") if hasattr(result, 'ai_insights') else None
+        response["error"] = ai_error or "Video rendering failed before a final media file was produced."
+        response["error_message"] = response["error"]
     
     # Save the lesson to PostgreSQL database directly in the worker
     if response["success"]:
@@ -172,6 +268,21 @@ def create_class_video_task(self, request_data: dict, job_id: str):
             saved_info = lesson_storage.save_lesson(save_payload)
             response["lesson_id"] = saved_info["id"]
             print(f"[{job_id}] ✅ Successfully saved lesson to DB: {saved_info['id']}")
+            # Best-effort knowledge-graph extraction (never blocks the lesson)
+            try:
+                from core.knowledge import extract_for_lesson_sync
+                kg_stats = extract_for_lesson_sync(
+                    user_id=request_data.get("user_id"),
+                    lesson_id=saved_info["id"],
+                    title=response.get("title") or save_payload.get("title"),
+                    objectives=response.get("objectives") or [],
+                    content=(response.get("description") or response.get("topic") or ""),
+                    language=request_data.get("language", "en"),
+                    subject=response.get("subject"),
+                )
+                print(f"[{job_id}] 📊 KG: {kg_stats}")
+            except Exception as kg_exc:
+                print(f"[{job_id}] ⚠️ KG extraction skipped: {kg_exc}")
         except Exception as e:
             print(f"[{job_id}] ⚠️ Failed to save lesson to DB: {e}")
     else:
@@ -411,13 +522,12 @@ def transcript_to_lesson_task(self, transcript_or_file: str, request_data: dict,
             "timestamp": datetime.now().isoformat(),
         }
 
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    response = loop.run_until_complete(_run())
+        response = loop.run_until_complete(_run())
+    finally:
+        loop.close()
     
     # Save the lesson to PostgreSQL database directly in the worker
     try:
@@ -432,6 +542,20 @@ def transcript_to_lesson_task(self, transcript_or_file: str, request_data: dict,
         saved_info = lesson_storage.save_lesson(save_payload)
         response["lesson_id"] = saved_info["id"]
         print(f"[{job_id}] ✅ Successfully saved transcript lesson to DB: {saved_info['id']}")
+        try:
+            from core.knowledge import extract_for_lesson_sync
+            kg_stats = extract_for_lesson_sync(
+                user_id=request_data.get("user_id"),
+                lesson_id=saved_info["id"],
+                title=response.get("title") or save_payload.get("title"),
+                objectives=response.get("objectives") or [],
+                content=(response.get("description") or response.get("topic") or ""),
+                language=request_data.get("language", "en"),
+                subject=response.get("subject"),
+            )
+            print(f"[{job_id}] 📊 KG: {kg_stats}")
+        except Exception as kg_exc:
+            print(f"[{job_id}] ⚠️ KG extraction skipped: {kg_exc}")
     except Exception as e:
         print(f"[{job_id}] ⚠️ Failed to save transcript lesson to DB: {e}")
     
@@ -478,18 +602,17 @@ def transcribe_audio_task(self, file_path: str, language: str, job_id: str, targ
             "timestamp": datetime.now().isoformat()
         }
 
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
+    # Always create a fresh loop for Celery workers
+    # (asyncio.get_event_loop() is unreliable in forked worker processes)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
         response = loop.run_until_complete(_run())
     except Exception as e:
         print(f"[{job_id}] ❌ Transcription task failed: {e}")
         response = {"success": False, "error": str(e)}
     finally:
+        loop.close()
         # Clean up temp file in worker
         if os.path.exists(file_path):
             os.unlink(file_path)
@@ -512,21 +635,21 @@ def ocr_image_task(self, file_path: str, language: str, job_id: str, target_lang
     Celery task: extract text from image using PaddleOCR and provide summary.
     """
     print(f"[{job_id}] Received OCR task for file: {file_path}")
-    
+
     async def _run():
         from core.asr import extract_text_with_paddleocr
         # 1. OCR directly (extract_text_with_paddleocr is synchronous inside executor)
         ocr = await asyncio.get_event_loop().run_in_executor(None, extract_text_with_paddleocr, file_path)
         full_text = ocr.get("text", "")
         print(f"[{job_id}] OCR complete: {len(full_text)} chars")
-        
+
         # 2. Summarize
         summary = await summarize_extracted_content(
             full_text,
             "image",
             target_language=target_language,
         )
-        
+
         return {
             "success": True,
             "text": full_text,
@@ -535,18 +658,15 @@ def ocr_image_task(self, file_path: str, language: str, job_id: str, target_lang
             "timestamp": datetime.now().isoformat()
         }
 
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
         response = loop.run_until_complete(_run())
     except Exception as e:
         print(f"[{job_id}] ❌ OCR task failed: {e}")
         response = {"success": False, "error": str(e)}
     finally:
+        loop.close()
         # Clean up temp file in worker
         if os.path.exists(file_path):
             os.unlink(file_path)
@@ -560,5 +680,202 @@ def ocr_image_task(self, file_path: str, language: str, job_id: str, target_lang
         )
     except Exception as e:
         print(f"[{job_id}] ⚠️ Failed to store result in Redis: {e}")
-        
+
     return response
+
+
+# ── Study Plan: Unit Content Generation ─────────────────────────────────────
+
+@celery_app.task(bind=True, name="mentormind.generate_unit_content", time_limit=600,
+                 max_retries=2, default_retry_delay=10)
+def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: dict,
+                                content_types: list, language: str = "zh", cache_key: str = None):
+    """
+    Celery task: generate study content (guides, quizzes, flashcards, etc.) for a study plan unit.
+    """
+    print(f"[unit:{unit_id}] Generating content types: {content_types}")
+
+    async def _run():
+        from core.content.unit_generator import UnitContentGenerator
+        generator = UnitContentGenerator()
+        return await generator.generate(
+            unit_data=unit_data,
+            plan_data=plan_data,
+            content_types=content_types,
+            language=language,
+        )
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        result = loop.run_until_complete(_run())
+    except Exception as e:
+        print(f"[unit:{unit_id}] ❌ Content generation failed: {e}")
+        result = {"error": str(e)}
+    finally:
+        loop.close()
+
+    # Store result in Redis for polling
+    try:
+        _redis_client.setex(
+            f"unit_content:{unit_id}",
+            7200,  # 2 hour TTL
+            json.dumps(result, default=str)
+        )
+    except Exception as e:
+        print(f"[unit:{unit_id}] ⚠️ Failed to store result in Redis: {e}")
+
+    # Update the unit in the database
+    # Mark as failed if there's an explicit error OR if any requested content type is None
+    has_error = bool(result.get("error"))
+    has_missing = any(ct in result and result[ct] is None for ct in content_types)
+    if has_missing and not has_error:
+        missing = [ct for ct in content_types if ct in result and result[ct] is None]
+        print(f"[unit:{unit_id}] ⚠️ Content types returned None (parse failure): {missing}")
+    status_to_set = "ready" if (not has_error and not has_missing) else "failed"
+    if cache_key and status_to_set == "ready":
+        try:
+            _redis_client.setex(
+                f"unit_content_cache:{cache_key}",
+                7 * 24 * 3600,
+                json.dumps(result, default=str)
+            )
+            print(f"[unit:{unit_id}] ✅ Cached generated content: {cache_key[:12]}")
+        except Exception as e:
+            print(f"[unit:{unit_id}] ⚠️ Failed to cache generated content: {e}")
+    for attempt in range(2):
+        try:
+            init_database()
+            session = SessionLocal()
+            try:
+                from database.models.study_plan import StudyPlanUnit
+                unit = session.query(StudyPlanUnit).filter(StudyPlanUnit.id == unit_id).first()
+                if unit:
+                    if status_to_set == "ready":
+                        for ct in content_types:
+                            if ct in result and result[ct] is not None:
+                                setattr(unit, ct, result[ct])
+                    unit.content_status = status_to_set
+                    unit.generation_cache_key = cache_key or unit.generation_cache_key
+                    unit.updated_at = datetime.now(timezone.utc)
+                    session.commit()
+                    print(f"[unit:{unit_id}] ✅ Updated unit content in DB (status={status_to_set})")
+                    break
+            except Exception:
+                session.rollback()
+                raise
+            finally:
+                session.close()
+        except Exception as e:
+            print(f"[unit:{unit_id}] ⚠️ DB update attempt {attempt+1} failed: {e}")
+            if attempt == 1:
+                print(f"[unit:{unit_id}] ❌ Could not update DB after 2 attempts")
+
+
+# --- Skill-adaptive learning task stubs (bodies filled in T10/T11) ---
+
+@celery_app.task(bind=True, name="mentormind.regenerate_board_segment", soft_time_limit=60)
+def regenerate_board_segment_task(self, session_id: str, segment_index: int, style_hint: str):
+    """
+    F2/F4 — regenerate a board segment with a different style hint.
+
+    style_hint ∈ {"visual", "analogy", "rigorous", "simpler"}.
+
+    Debounce (T13):
+      Redis SETNX with a 15s TTL and an owner-token. TTL is the crash-safety
+      fallback; the `finally` block is the primary release. Owner-token prevents
+      a requeued task from deleting a lock held by a fresh concurrent call.
+
+    NOTE: the actual segment-regeneration body requires integration with
+    StreamingLessonGenerator and is intentionally deferred — this task wires
+    the queue + lock so the endpoint and UI can ship; follow-up PR plugs the
+    streaming body into the `# TODO(F4-regen)` marker below.
+    """
+    from core.board.regen_lock import acquire_regen_lock, release_regen_lock
+    handle = acquire_regen_lock(session_id, _redis_client)
+    if not handle.acquired:
+        return {
+            "status": "debounced",
+            "session_id": session_id,
+            "segment_index": segment_index,
+            "style_hint": style_hint,
+        }
+    try:
+        # TODO(F4-regen): integrate StreamingLessonGenerator to regenerate
+        # the segment at segment_index with the chosen style_hint and emit
+        # replacement events via BoardStateManager. For now we acknowledge
+        # so the endpoint, lock semantics, and queue routing can be verified.
+        return {
+            "status": "accepted",
+            "session_id": session_id,
+            "segment_index": segment_index,
+            "style_hint": style_hint,
+        }
+    finally:
+        release_regen_lock(handle, _redis_client)
+
+
+@celery_app.task(bind=True, name="mentormind.rollup_proficiency")
+def rollup_proficiency_task(self, user_id: str = None, subject: str = None):
+    """
+    F5 — Roll StudentPerformance samples into SubjectProficiency.
+
+    Two modes:
+    - Beat-triggered (no args): scans all distinct (user_id, subject) pairs
+      in StudentPerformance and rolls each up.
+    - Incremental (user_id + subject given): rolls up a single pair. Kept
+      available so the /users/me/diagnostic and checkpoint endpoints can
+      enqueue incremental refreshes in a follow-up PR.
+    """
+    from core.proficiency_rollup import rollup_user_subject
+    from database.models.user import StudentPerformance
+
+    init_database()
+    session = SessionLocal()
+    processed = 0
+    try:
+        if user_id and subject:
+            pairs = [(user_id, subject)]
+        else:
+            rows = (
+                session.query(StudentPerformance.user_id, StudentPerformance.subject)
+                .filter(StudentPerformance.subject.isnot(None))
+                .distinct()
+                .all()
+            )
+            pairs = [(r.user_id, r.subject) for r in rows]
+
+        for uid, subj in pairs:
+            try:
+                rollup_user_subject(uid, subj, session)
+                processed += 1
+            except Exception as exc:
+                print(f"[rollup] ⚠️ failed for user={uid} subject={subj}: {exc}")
+                session.rollback()
+    finally:
+        session.close()
+
+    return {"status": "ok", "processed": processed}
+
+
+@celery_app.task(bind=True, name="mentormind.prune_telemetry")
+def prune_telemetry_task(self, retention_days: int = 90):
+    """Delete telemetry_events older than retention_days. Run nightly via beat."""
+    from sqlalchemy import text as _text
+    init_database()
+    session = SessionLocal()
+    try:
+        result = session.execute(
+            _text("DELETE FROM telemetry_events WHERE created_at < NOW() - (:days || ' days')::interval"),
+            {"days": retention_days},
+        )
+        session.commit()
+        deleted = getattr(result, "rowcount", 0) or 0
+        print(f"🧹 prune_telemetry: deleted {deleted} rows older than {retention_days}d")
+        return {"status": "ok", "deleted": int(deleted), "retention_days": retention_days}
+    except Exception as exc:
+        session.rollback()
+        print(f"⚠️ prune_telemetry failed: {exc}")
+        return {"status": "error", "error": str(exc)}
+    finally:
+        session.close()

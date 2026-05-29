@@ -1,310 +1,688 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useLanguage } from '../components/LanguageContext'
-import { useAuth } from '@clerk/nextjs'
+import { useAuth } from '../components/AuthContext'
+import {
+  ArrowRight,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ChevronsDown,
+  ChevronsUp,
+  Clock,
+  Square,
+  CheckSquare,
+  Trash2,
+} from 'lucide-react'
+import { PageHead, Progress, Chip } from '../components/design/primitives'
+import { Skeleton } from '../components/Skeleton'
 
-interface Lesson {
+// ---- Types ---------------------------------------------------------------
+
+interface UnitTopic {
   id: string
-  timestamp: string
-  query: string
-  lesson_title: string
-  quality_score: number
-  cost_usd: number
+  title: string
 }
 
+interface PlanUnit {
+  id: string
+  order_index: number
+  title: string
+  topics: UnitTopic[]
+  estimated_minutes: number
+  content_status: string
+  is_completed: boolean
+  score: number | null
+  board_session_id: string | null
+}
+
+interface StudyPlan {
+  id: string
+  title: string
+  subject: string
+  framework: string
+  status: string
+  progress_percentage: number
+  language: string
+  deleted_at?: string | null
+  purge_after?: string | null
+  units: PlanUnit[]
+}
+
+interface LibraryResponse {
+  success: boolean
+  plans: StudyPlan[]
+}
+
+// ---- Helpers -------------------------------------------------------------
+
+function statusKind(status: string): 'ok' | 'accent' | 'warn' | '' {
+  if (status === 'completed') return 'ok'
+  if (status === 'in_progress') return 'accent'
+  return ''
+}
+
+function statusLabel(status: string, lang: 'en' | 'zh'): string {
+  if (lang === 'zh') {
+    if (status === 'completed') return '已完成'
+    if (status === 'in_progress') return '进行中'
+    if (status === 'not_started') return '未开始'
+    return status
+  }
+  if (status === 'completed') return 'Completed'
+  if (status === 'in_progress') return 'In progress'
+  if (status === 'not_started') return 'Not started'
+  return status
+}
+
+// ---- Unit Card -----------------------------------------------------------
+
+function UnitCard({
+  unit,
+  plan,
+  deleting,
+  onDelete,
+}: {
+  unit: PlanUnit
+  plan: StudyPlan
+  deleting: boolean
+  onDelete: (planId: string, unitId: string) => void
+}) {
+  const { language } = useLanguage()
+  const { getToken } = useAuth()
+  const router = useRouter()
+  const lang: 'en' | 'zh' = language === 'zh' ? 'zh' : 'en'
+  const [starting, setStarting] = useState(false)
+
+  const handleStart = useCallback(async () => {
+    setStarting(true)
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers.Authorization = `Bearer ${token}`
+      const res = await fetch(
+        `/api/backend/study-plan/${plan.id}/unit/${unit.id}/board-lesson`,
+        { method: 'POST', headers, body: JSON.stringify({}) },
+      )
+      const data = await res.json()
+      if (data?.session_id) {
+        router.push(`/board/${data.session_id}`)
+      }
+    } catch {
+      // navigation failed — just reset
+    } finally {
+      setStarting(false)
+    }
+  }, [plan.id, unit.id, getToken, router])
+
+  const kind = statusKind(unit.content_status)
+  const label = statusLabel(unit.content_status, lang)
+
+  return (
+    <div
+      className="card-new"
+      style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}
+    >
+      {/* Top row: status chip + completion */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Chip kind={kind} dot>
+          {label}
+        </Chip>
+        {unit.is_completed && (
+          <CheckCircle2 size={15} style={{ marginLeft: 'auto', color: 'var(--ok, #22c55e)' }} />
+        )}
+        {unit.score !== null && !unit.is_completed && (
+          <span
+            className="muted"
+            style={{ marginLeft: 'auto', fontSize: 11 }}
+          >
+            {Math.round(unit.score)}%
+          </span>
+        )}
+        <button
+          type="button"
+          className="btn btn-sm btn-secondary"
+          onClick={() => onDelete(plan.id, unit.id)}
+          disabled={deleting || starting}
+          aria-label={lang === 'zh' ? '删除课程' : 'Delete lesson'}
+          title={lang === 'zh' ? '删除课程' : 'Delete lesson'}
+          style={{
+            marginLeft: unit.is_completed || unit.score !== null ? 0 : 'auto',
+            padding: '6px 8px',
+            color: 'var(--color-danger, #dc2626)',
+          }}
+        >
+          <Trash2 size={13} />
+          {lang === 'zh' ? '删除' : 'Delete'}
+        </button>
+      </div>
+
+      {/* Title */}
+      <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.35 }}>{unit.title}</div>
+
+      {/* Parent plan name */}
+      <div className="muted" style={{ fontSize: 11 }}>
+        {plan.title}
+      </div>
+
+      {/* Meta row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Clock size={12} style={{ color: 'var(--ink-muted)' }} />
+        <span className="muted" style={{ fontSize: 11 }}>
+          {unit.estimated_minutes} {lang === 'zh' ? '分钟' : 'min'}
+        </span>
+      </div>
+
+      {/* CTA */}
+      <div style={{ marginTop: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+        {unit.board_session_id ? (
+          <Link
+            href={`/board/${unit.board_session_id}`}
+            className="btn btn-sm btn-primary"
+            style={{ flex: 1, justifyContent: 'center', textAlign: 'center' }}
+          >
+            {lang === 'zh' ? '继续学习' : 'Resume'} <ArrowRight size={13} />
+          </Link>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-sm btn-primary"
+            style={{ flex: 1, justifyContent: 'center' }}
+            onClick={handleStart}
+            disabled={starting}
+          >
+            {starting
+              ? lang === 'zh' ? '准备中…' : 'Starting…'
+              : lang === 'zh' ? '开始学习' : 'Start lesson'}
+            {!starting && <ArrowRight size={13} />}
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={() => onDelete(plan.id, unit.id)}
+          disabled={deleting || starting}
+          aria-label={lang === 'zh' ? '删除课程' : 'Delete lesson'}
+          title={lang === 'zh' ? '删除课程' : 'Delete lesson'}
+          style={{
+            color: 'var(--color-danger, #dc2626)',
+            borderColor: 'color-mix(in oklch, var(--color-danger, #dc2626) 35%, var(--line))',
+          }}
+        >
+          <Trash2 size={13} />
+          {lang === 'zh' ? '删除' : 'Delete'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---- Plan Section --------------------------------------------------------
+
+function PlanSection({
+  plan,
+  collapsed,
+  selected,
+  deleting,
+  deletingUnitIds,
+  onToggle,
+  onSelect,
+  onDelete,
+  onDeleteUnit,
+}: {
+  plan: StudyPlan
+  collapsed: boolean
+  selected: boolean
+  deleting: boolean
+  deletingUnitIds: Set<string>
+  onToggle: (planId: string) => void
+  onSelect: (planId: string) => void
+  onDelete: (planId: string) => void
+  onDeleteUnit: (planId: string, unitId: string) => void
+}) {
+  const { language } = useLanguage()
+  const lang: 'en' | 'zh' = language === 'zh' ? 'zh' : 'en'
+  const completedUnits = plan.units.filter((unit) => unit.is_completed).length
+
+  return (
+    <div className="card-new" style={{ marginBottom: 16, padding: 18 }}>
+      {/* Section header */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn-sm btn-secondary"
+            onClick={() => onToggle(plan.id)}
+            aria-label={collapsed ? (lang === 'zh' ? '展开' : 'Expand') : (lang === 'zh' ? '收起' : 'Collapse')}
+            style={{ padding: '7px 9px' }}
+          >
+            {collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+          </button>
+          <button
+            type="button"
+            onClick={() => onSelect(plan.id)}
+            className="btn btn-sm btn-secondary"
+            aria-label={selected ? (lang === 'zh' ? '取消选择' : 'Unselect') : (lang === 'zh' ? '选择' : 'Select')}
+            style={{ padding: '7px 9px' }}
+          >
+            {selected ? <CheckSquare size={15} /> : <Square size={15} />}
+          </button>
+          <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, minWidth: 0, flex: '1 1 220px' }}>
+            {plan.title}
+          </h2>
+          <span className="chip" style={{ fontSize: 11 }}>
+            {plan.subject}
+          </span>
+          {plan.framework && (
+            <span className="chip" style={{ fontSize: 11 }}>
+              {plan.framework}
+            </span>
+          )}
+          <span className="muted" style={{ fontSize: 12 }}>
+            {completedUnits}/{plan.units.length}
+          </span>
+          <span className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>
+            {Math.round(plan.progress_percentage)}%
+          </span>
+          <button
+            type="button"
+            className="btn btn-sm btn-secondary"
+            onClick={() => onDelete(plan.id)}
+            disabled={deleting}
+            style={{ color: 'var(--color-danger, #dc2626)' }}
+          >
+            <Trash2 size={14} />
+            {lang === 'zh' ? '删除' : 'Delete'}
+          </button>
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <Progress value={plan.progress_percentage / 100} thin />
+        </div>
+      </div>
+
+      {/* Units grid */}
+      {!collapsed && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" style={{ marginTop: 16 }}>
+          {plan.units.length > 0 ? (
+            plan.units.map((unit) => (
+              <UnitCard
+                key={unit.id}
+                unit={unit}
+                plan={plan}
+                deleting={deletingUnitIds.has(unit.id)}
+                onDelete={onDeleteUnit}
+              />
+            ))
+          ) : (
+            <div className="muted" style={{ fontSize: 13, padding: 12 }}>
+              {lang === 'zh' ? '这个计划下暂无课程。' : 'No lessons in this plan.'}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---- Loading skeleton ----------------------------------------------------
+
+function LibrarySkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <Skeleton className="h-3 w-16" />
+        <Skeleton className="h-8 w-1/2" />
+        <Skeleton className="h-4 w-2/3" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="card-new p-4 flex flex-col gap-3">
+            <Skeleton className="h-5 w-24" />
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-1/2" />
+            <Skeleton className="h-8 w-full" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ---- Page ----------------------------------------------------------------
+
 export default function LessonsPage() {
-  const { language, t } = useLanguage()
-  const { getToken, isSignedIn } = useAuth()
-  const [lessons, setLessons] = useState<Lesson[]>([])
+  const { language } = useLanguage()
+  const { getToken, isSignedIn, isLoaded } = useAuth()
+  const lang: 'en' | 'zh' = language === 'zh' ? 'zh' : 'en'
+
+  const [plans, setPlans] = useState<StudyPlan[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null)
+  const [unauthenticated, setUnauthenticated] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [collapsedPlans, setCollapsedPlans] = useState<Set<string>>(new Set())
+  const [selectedPlans, setSelectedPlans] = useState<Set<string>>(new Set())
+  const [deleting, setDeleting] = useState(false)
+  const [deletingUnitIds, setDeletingUnitIds] = useState<Set<string>>(new Set())
+
+  const fetchLibrary = useCallback(async (cancelledRef?: { current: boolean }) => {
+      setLoading(true)
+      try {
+        const token = await getToken()
+        if (!token) {
+          if (!cancelledRef?.current) setUnauthenticated(true)
+          return
+        }
+        const res = await fetch('/api/backend/study-plan/library', {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        })
+        if (res.status === 401) {
+          if (!cancelledRef?.current) setUnauthenticated(true)
+          return
+        }
+        const data: LibraryResponse = await res.json()
+        if (!cancelledRef?.current) {
+          setPlans(Array.isArray(data?.plans) ? data.plans : [])
+          setSelectedPlans(new Set())
+          if (!res.ok) {
+            setError(
+              lang === 'zh'
+                ? `加载失败 (${res.status}): ${(data as any)?.detail || '请稍后重试'}`
+                : `Failed to load library (${res.status}): ${(data as any)?.detail || 'Please try again later'}`
+            )
+          }
+        }
+      } catch (err: any) {
+        if (!cancelledRef?.current) {
+          setError(
+            lang === 'zh'
+              ? '无法连接到服务器，请检查网络后重试'
+              : 'Could not connect to server. Please check your connection and try again.'
+          )
+        }
+      } finally {
+        if (!cancelledRef?.current) setLoading(false)
+      }
+  }, [getToken, lang])
 
   useEffect(() => {
-    fetchLessons()
+    if (!isLoaded) return
+    const cancelledRef = { current: false }
+    void fetchLibrary(cancelledRef)
+    return () => { cancelledRef.current = true }
+  }, [isLoaded, isSignedIn, fetchLibrary])
+
+  const togglePlan = useCallback((planId: string) => {
+    setCollapsedPlans((prev) => {
+      const next = new Set(prev)
+      if (next.has(planId)) next.delete(planId)
+      else next.add(planId)
+      return next
+    })
   }, [])
 
-  const fetchLessons = async () => {
+  const toggleSelectedPlan = useCallback((planId: string) => {
+    setSelectedPlans((prev) => {
+      const next = new Set(prev)
+      if (next.has(planId)) next.delete(planId)
+      else next.add(planId)
+      return next
+    })
+  }, [])
+
+  const deleteOnePlan = useCallback(async (planId: string) => {
+    const ok = window.confirm(lang === 'zh' ? '删除这个学习计划？30天后会自动清空。' : 'Delete this study plan? It will be cleared after 30 days.')
+    if (!ok) return
+    setDeleting(true)
     try {
-      const endpoint = isSignedIn ? '/api/backend/users/me/lessons' : '/api/backend/results'
       const token = await getToken()
       const headers: Record<string, string> = {}
-      if (token) {
-        headers.Authorization = `Bearer ${token}`
-      }
-      const response = await fetch(endpoint, { headers })
-      const data = await response.json()
-      const rawLessons = Array.isArray(data) ? data : (data.results || [])
-      setLessons(rawLessons.map((lesson: any) => ({
-        id: lesson.id,
-        timestamp: lesson.timestamp || lesson.created_at,
-        query: lesson.query || lesson.topic,
-        lesson_title: lesson.lesson_title || lesson.title,
-        quality_score: lesson.quality_score || 0,
-        cost_usd: lesson.cost_usd || 0,
-      })))
-    } catch (error) {
-      console.error('Failed to fetch lessons:', error)
+      if (token) headers.Authorization = `Bearer ${token}`
+      const res = await fetch(`/api/backend/study-plan/${planId}`, { method: 'DELETE', headers })
+      if (!res.ok) throw new Error(`Delete failed (${res.status})`)
+      setPlans((prev) => prev.filter((plan) => plan.id !== planId))
+      setSelectedPlans((prev) => {
+        const next = new Set(prev)
+        next.delete(planId)
+        return next
+      })
+    } catch (err: any) {
+      setError(lang === 'zh' ? '删除失败，请重试。' : 'Delete failed. Please try again.')
     } finally {
-      setLoading(false)
+      setDeleting(false)
     }
-  }
+  }, [getToken, lang])
 
-  const deleteLesson = async (id: string) => {
-    if (!confirm(t('lessons.deleteConfirm'))) return
+  const bulkDeletePlans = useCallback(async (deleteAll: boolean) => {
+    const ids = deleteAll ? [] : Array.from(selectedPlans)
+    const count = deleteAll ? plans.length : ids.length
+    if (count === 0) return
+    const ok = window.confirm(
+      lang === 'zh'
+        ? `删除 ${count} 个学习计划？30天后会自动清空。`
+        : `Delete ${count} study plan${count === 1 ? '' : 's'}? They will be cleared after 30 days.`
+    )
+    if (!ok) return
+    setDeleting(true)
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers.Authorization = `Bearer ${token}`
+      const res = await fetch('/api/backend/study-plan/delete', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ plan_ids: ids, delete_all: deleteAll }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.detail || `Delete failed (${res.status})`)
+      const deletedIds = new Set<string>(Array.isArray(data?.plan_ids) ? data.plan_ids : ids)
+      setPlans((prev) => deleteAll ? [] : prev.filter((plan) => !deletedIds.has(plan.id)))
+      setSelectedPlans(new Set())
+    } catch {
+      setError(lang === 'zh' ? '删除失败，请重试。' : 'Delete failed. Please try again.')
+    } finally {
+      setDeleting(false)
+    }
+  }, [getToken, lang, plans.length, selectedPlans])
 
+  const deleteOneUnit = useCallback(async (planId: string, unitId: string) => {
+    const ok = window.confirm(lang === 'zh' ? '删除这个课程？30天后会自动清空。' : 'Delete this lesson? It will be cleared after 30 days.')
+    if (!ok) return
+    setDeletingUnitIds((prev) => new Set(prev).add(unitId))
     try {
       const token = await getToken()
       const headers: Record<string, string> = {}
-      if (token) {
-        headers.Authorization = `Bearer ${token}`
-      }
-      const response = await fetch(`/api/backend/lessons/${id}`, { method: 'DELETE', headers })
-      if (response.ok) {
-        setLessons(lessons.filter(lesson => lesson.id !== id))
-      } else {
-        const data = await response.json()
-        alert(`${t('lessons.deleteFailed')}: ${data.details || ''}`)
-      }
-    } catch (error) {
-      console.error('Failed to delete lesson:', error)
-      alert(t('lessons.deleteFailed'))
+      if (token) headers.Authorization = `Bearer ${token}`
+      const res = await fetch(`/api/backend/study-plan/${planId}/unit/${unitId}`, { method: 'DELETE', headers })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.detail || `Delete failed (${res.status})`)
+      setPlans((prev) => prev.map((plan) => {
+        if (plan.id !== planId) return plan
+        const units = plan.units.filter((unit) => unit.id !== unitId)
+        return {
+          ...plan,
+          units,
+          progress_percentage: typeof data?.plan?.progress_percentage === 'number'
+            ? data.plan.progress_percentage
+            : plan.progress_percentage,
+          status: typeof data?.plan?.status === 'string' ? data.plan.status : plan.status,
+        }
+      }))
+    } catch {
+      setError(lang === 'zh' ? '课程删除失败，请重试。' : 'Lesson delete failed. Please try again.')
+    } finally {
+      setDeletingUnitIds((prev) => {
+        const next = new Set(prev)
+        next.delete(unitId)
+        return next
+      })
     }
-  }
+  }, [getToken, lang])
 
-  const deleteAllLessons = async () => {
-    if (!confirm(t('lessons.deleteAllConfirm1'))) return
-    if (!confirm(t('lessons.deleteAllConfirm2'))) return
+  const selectedCount = selectedPlans.size
+  const allSelected = plans.length > 0 && selectedCount === plans.length
+  const allCollapsed = plans.length > 0 && plans.every((plan) => collapsedPlans.has(plan.id))
 
-    try {
-      const token = await getToken()
-      const headers: Record<string, string> = {}
-      if (token) {
-        headers.Authorization = `Bearer ${token}`
-      }
-      const response = await fetch('/api/backend/lessons', { method: 'DELETE', headers })
-      if (response.ok) {
-        setLessons([])
-        alert(t('lessons.deletedSuccess'))
-      } else {
-        const data = await response.json()
-        alert(`${t('lessons.deleteAllFailed')}: ${data.details || ''}`)
-      }
-    } catch (error) {
-      console.error('Failed to delete all lessons:', error)
-      alert(t('lessons.deleteAllFailed'))
-    }
-  }
+  if (!isLoaded || loading) return <LibrarySkeleton />
 
-  if (loading) {
+  if (unauthenticated) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-gray-500">{t('lessons.loading')}</div>
+      <div>
+        <PageHead
+          eyebrow={lang === 'zh' ? '文库' : 'Library'}
+          title={lang === 'zh' ? '你的学习库' : 'Your learning library'}
+        />
+        <div className="card-new" style={{ padding: 40, textAlign: 'center' }}>
+          <div style={{ fontSize: 16, marginBottom: 8 }}>
+            {lang === 'zh' ? '请登录查看你的学习库' : 'Sign in to see your library'}
+          </div>
+          <div className="muted" style={{ fontSize: 13, marginBottom: 16 }}>
+            {lang === 'zh'
+              ? '登录后即可查看你所有的学习计划和课程。'
+              : 'Sign in to access all your study plans and lessons.'}
+          </div>
+          <Link href="/auth/login" className="btn btn-primary">
+            {lang === 'zh' ? '登录' : 'Sign in'} <ArrowRight size={14} />
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  if (error && plans.length === 0) {
+    return (
+      <div>
+        <PageHead
+          eyebrow={lang === 'zh' ? '文库' : 'Library'}
+          title={lang === 'zh' ? '你的学习库' : 'Your learning library'}
+        />
+        <div className="card-new" style={{ padding: 40, textAlign: 'center' }}>
+          <div style={{ fontSize: 16, marginBottom: 8, color: 'var(--color-danger, #dc2626)' }}>
+            {error}
+          </div>
+          <button
+            className="btn btn-secondary"
+            onClick={() => { setError(null); setLoading(true); window.location.reload() }}
+          >
+            {lang === 'zh' ? '重试' : 'Retry'}
+          </button>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">{t('lessons.pageTitle')}</h1>
-          <p className="text-gray-600 mt-1">{t('lessons.pageSubtitle')}</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-sm text-gray-500">{t('lessons.totalCount', { n: lessons.length })}</div>
-          {lessons.length > 0 && (
-            <button
-              onClick={deleteAllLessons}
-              className="px-3 py-1 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200 transition-colors"
-            >
-              {t('lessons.deleteAll')}
-            </button>
-          )}
-        </div>
-      </div>
+    <div>
+      <PageHead
+        eyebrow={lang === 'zh' ? '文库' : 'Library'}
+        title={lang === 'zh' ? '你学过的一切' : "Everything you've learned"}
+        kicker={
+          lang === 'zh'
+            ? '按学习计划整理的课程单元。可随时继续。'
+            : 'Lesson units organised by study plan. Pick up where you left off.'
+        }
+      />
 
-      {/* Quick Actions */}
-      <div className="grid md:grid-cols-3 gap-6">
-        <a
-          href="/create"
-          className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:border-blue-500 hover:shadow-md transition-all group"
+      {error && (
+        <div
+          className="card-new"
+          style={{ padding: 12, marginBottom: 16, color: 'var(--color-danger, #dc2626)' }}
         >
-          <div className="flex items-center mb-4">
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mr-4">
-              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">{t('lessons.createNew')}</h3>
-              <p className="text-sm text-gray-500 mt-1">{t('lessons.createNewDesc')}</p>
-            </div>
-          </div>
-          <div className="text-blue-600 font-medium group-hover:text-blue-700">{t('lessons.startCreating')}</div>
-        </a>
-
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center mb-4">
-            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mr-4">
-              <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">{t('lessons.batchImport')}</h3>
-              <p className="text-sm text-gray-500 mt-1">{t('lessons.batchImportDesc')}</p>
-            </div>
-          </div>
-          <button className="text-gray-600 font-medium hover:text-gray-800">{t('lessons.uploadFile')}</button>
+          {error}
         </div>
+      )}
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center mb-4">
-            <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mr-4">
-              <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">{t('lessons.exportLessons')}</h3>
-              <p className="text-sm text-gray-500 mt-1">{t('lessons.exportLessonsDesc')}</p>
-            </div>
+      {plans.length === 0 ? (
+        <div className="card-new" style={{ padding: 40, textAlign: 'center' }}>
+          <div style={{ fontSize: 16, marginBottom: 8 }}>
+            {lang === 'zh' ? '还没有学习计划' : 'No active study plans yet'}
           </div>
-          <button className="text-gray-600 font-medium hover:text-gray-800">{t('lessons.selectLesson')}</button>
-        </div>
-      </div>
-
-      {/* Lesson List */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">{t('lessons.allLessonsHeader')}</h2>
-        </div>
-
-        {lessons.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('lessons.dateTimeHeader')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('lessons.studentQueryHeader')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('lessons.lessonTitleHeader')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('lessons.qualityHeader')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('lessons.costHeader')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('lessons.actionsHeader')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {lessons.map((lesson) => (
-                  <tr key={lesson.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(lesson.timestamp).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US')}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900 max-w-xs">
-                      <div className="truncate" title={lesson.query}>{lesson.query}</div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{lesson.lesson_title}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="w-24 bg-gray-200 rounded-full h-2 mr-3">
-                          <div className="bg-green-500 h-2 rounded-full" style={{ width: `${lesson.quality_score * 100}%` }} />
-                        </div>
-                        <span className="text-sm font-medium">{(lesson.quality_score * 100).toFixed(0)}%</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${lesson.cost_usd?.toFixed(4) || '0.0000'}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <Link href={`/lessons/${lesson.id}`} className="text-blue-600 hover:text-blue-900 mr-4">
-                        {t('lessons.viewAction')}
-                      </Link>
-                      <button onClick={() => deleteLesson(lesson.id)} className="text-red-600 hover:text-red-900">
-                        {t('lessons.deleteAction')}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="muted" style={{ fontSize: 13, marginBottom: 16 }}>
+            {lang === 'zh'
+              ? '创建你的第一个学习计划，开始结构化学习。'
+              : 'Create your first plan to start structured learning.'}
           </div>
-        ) : (
-          <div className="text-center py-12">
-            <div className="text-gray-400 mb-4">
-              <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">{t('lessons.noLessonsTitle')}</h3>
-            <p className="text-gray-500 mb-6">{t('lessons.noLessonsDesc')}</p>
-            <Link
-              href="/create"
-              className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          <Link href="/study-plan" className="btn btn-primary">
+            {lang === 'zh' ? '创建第一个学习计划' : 'Create your first plan'}{' '}
+            <ArrowRight size={14} />
+          </Link>
+        </div>
+      ) : (
+        <>
+          <div
+            className="card-new"
+            style={{
+              padding: 12,
+              marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              flexWrap: 'wrap',
+            }}
+          >
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={() => {
+                setSelectedPlans(allSelected ? new Set() : new Set(plans.map((plan) => plan.id)))
+              }}
             >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              {t('lessons.createLessonButton')}
-            </Link>
+              {allSelected ? <CheckSquare size={14} /> : <Square size={14} />}
+              {allSelected ? (lang === 'zh' ? '取消全选' : 'Unselect all') : (lang === 'zh' ? '全选' : 'Select all')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={() => {
+                setCollapsedPlans(allCollapsed ? new Set() : new Set(plans.map((plan) => plan.id)))
+              }}
+            >
+              {allCollapsed ? <ChevronsDown size={14} /> : <ChevronsUp size={14} />}
+              {allCollapsed ? (lang === 'zh' ? '全部展开' : 'Expand all') : (lang === 'zh' ? '全部收起' : 'Collapse all')}
+            </button>
+            <span className="muted" style={{ fontSize: 12, marginLeft: 'auto' }}>
+              {lang === 'zh' ? `${plans.length} 个计划` : `${plans.length} plans`}
+            </span>
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={() => bulkDeletePlans(false)}
+              disabled={selectedCount === 0 || deleting}
+              style={{ color: selectedCount ? 'var(--color-danger, #dc2626)' : undefined }}
+            >
+              <Trash2 size={14} />
+              {lang === 'zh' ? `删除所选${selectedCount ? `(${selectedCount})` : ''}` : `Delete selected${selectedCount ? ` (${selectedCount})` : ''}`}
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={() => bulkDeletePlans(true)}
+              disabled={plans.length === 0 || deleting}
+              style={{ color: 'var(--color-danger, #dc2626)' }}
+            >
+              <Trash2 size={14} />
+              {lang === 'zh' ? '全部删除' : 'Delete all'}
+            </button>
           </div>
-        )}
-      </div>
 
-      {/* Lesson Details Modal */}
-      {selectedLesson && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-lg font-semibold text-gray-900">{t('lessons.detailsTitle')}</h3>
-              <button onClick={() => setSelectedLesson(null)} className="text-gray-400 hover:text-gray-600">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <h4 className="text-sm font-medium text-gray-500">{t('lessons.studentQueryLabel')}</h4>
-                <p className="mt-1 text-gray-900">{selectedLesson.query}</p>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-gray-500">{t('lessons.lessonTitleLabel')}</h4>
-                <p className="mt-1 text-gray-900">{selectedLesson.lesson_title}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <h4 className="text-sm font-medium text-gray-500">{t('lessons.generatedLabel')}</h4>
-                  <p className="mt-1 text-gray-900">{new Date(selectedLesson.timestamp).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US')}</p>
-                </div>
-                <div>
-                  <h4 className="text-sm font-medium text-gray-500">{t('lessons.qualityScoreLabel')}</h4>
-                  <p className="mt-1 text-gray-900">{(selectedLesson.quality_score * 100).toFixed(0)}%</p>
-                </div>
-                <div>
-                  <h4 className="text-sm font-medium text-gray-500">{t('lessons.costLabel')}</h4>
-                  <p className="mt-1 text-gray-900">${selectedLesson.cost_usd?.toFixed(4) || '0.0000'}</p>
-                </div>
-                <div>
-                  <h4 className="text-sm font-medium text-gray-500">{t('lessons.lessonIdLabel')}</h4>
-                  <p className="mt-1 text-gray-900 font-mono text-sm">{selectedLesson.id}</p>
-                </div>
-              </div>
-              <div className="pt-4 border-t border-gray-200">
-                <div className="flex justify-end gap-3">
-                  <button onClick={() => setSelectedLesson(null)} className="px-4 py-2 text-gray-700 hover:text-gray-900">
-                    {t('lessons.closeButton')}
-                  </button>
-                  <button
-                    onClick={() => alert(t('common.loading'))}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
-                    {t('lessons.downloadButton')}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+          {plans.map((plan) => (
+            <PlanSection
+              key={plan.id}
+              plan={plan}
+              collapsed={collapsedPlans.has(plan.id)}
+              selected={selectedPlans.has(plan.id)}
+              deleting={deleting}
+              deletingUnitIds={deletingUnitIds}
+              onToggle={togglePlan}
+              onSelect={toggleSelectedPlan}
+              onDelete={deleteOnePlan}
+              onDeleteUnit={deleteOneUnit}
+            />
+          ))}
+        </>
       )}
     </div>
   )

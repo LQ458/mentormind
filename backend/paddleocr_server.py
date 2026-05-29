@@ -36,7 +36,6 @@ async def load_model():
             use_angle_cls=True,
             lang="ch",
             use_gpu=False,
-            show_log=False,
         )
         print("✅ PaddleOCR model loaded")
     except ImportError:

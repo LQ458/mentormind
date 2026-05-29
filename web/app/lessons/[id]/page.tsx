@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useLanguage } from '../../components/LanguageContext'
-import { useAuth } from '@clerk/nextjs'
+import { useAuth } from '../../components/AuthContext'
+import { toast } from 'sonner'
 
 type LessonTab = 'content' | 'seminar' | 'practice' | 'script' | 'video'
 
@@ -100,6 +101,42 @@ export default function LessonDetailPage() {
   const [activeTab, setActiveTab] = useState<LessonTab>('seminar')
   const [savingProgress, setSavingProgress] = useState(false)
   const [recordingAssessment, setRecordingAssessment] = useState<string | null>(null)
+
+  // F: Video engagement tracking
+  const lastReportedCheckpointRef = useRef<number>(-1)
+
+  const reportVideoEngagement = useCallback(async (watchPct: number, quizDone = false) => {
+    if (!params?.id || !isSignedIn) return
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers.Authorization = `Bearer ${token}`
+      await fetch(`/api/backend/users/me/lessons/${params.id}/video-engagement`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ watch_percentage: watchPct, quiz_completed: quizDone }),
+      })
+    } catch (err) {
+      // non-critical — swallow silently
+    }
+  }, [params?.id, isSignedIn, getToken])
+
+  const handleVideoTimeUpdate = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = e.currentTarget
+    if (!video.duration) return
+    const pct = Math.floor((video.currentTime / video.duration) * 100)
+    const checkpoint = Math.floor(pct / 10) * 10  // snap to nearest 10%
+    if (checkpoint > lastReportedCheckpointRef.current && checkpoint >= 10) {
+      lastReportedCheckpointRef.current = checkpoint
+      void reportVideoEngagement(checkpoint)
+    }
+  }, [reportVideoEngagement])
+
+  const handleVideoEnded = useCallback(() => {
+    lastReportedCheckpointRef.current = 100
+    void reportVideoEngagement(100, false)
+  }, [reportVideoEngagement])
+
   const [seminarPrompt, setSeminarPrompt] = useState('')
   const [seminarLoading, setSeminarLoading] = useState(false)
   const [seminarTurn, setSeminarTurn] = useState<SeminarTurnResult | null>(null)
@@ -143,7 +180,7 @@ export default function LessonDetailPage() {
       setLesson(data.lesson)
     } catch (error) {
       console.error('Error fetching lesson:', error)
-      alert(t('common.error'))
+      toast.error(t('common.error'))
       router.push('/lessons')
     } finally {
       setLoading(false)
@@ -667,47 +704,50 @@ export default function LessonDetailPage() {
     : null
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-12">
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-                  <Link href="/lessons" className="text-gray-500 hover:text-gray-900 mr-4 transition-colors">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-              </Link>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900 truncate max-w-lg">
-                  {lesson.title || lesson.class_title}
-                </h1>
-                <p className="text-sm text-gray-500">
-                  {new Date(lesson.created_at || lesson.timestamp).toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US')} • {lesson.duration_minutes} {t('common.minutes')} • {lesson.student_level}
-                </p>
-              </div>
+    <div className="pb-12">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <Link href="/lessons" className="btn btn-ghost btn-sm">← {language === 'zh' ? '返回' : 'Back'}</Link>
+          <div style={{ minWidth: 0 }}>
+            <div className="eyebrow" style={{ color: 'var(--accent)', fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 500, marginBottom: 4 }}>
+              {language === 'zh' ? '课程' : 'Lesson'}
             </div>
-            <div className="flex space-x-3">
-              <button
-                onClick={() => setActiveTab('practice')}
-                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
-              >
-                {language === 'zh' ? '练习任务' : 'Practice Mission'}
-              </button>
-              <button
-                onClick={() => updateLessonProgress(100, true)}
-                disabled={!isSignedIn || savingProgress}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50"
-              >
-                {savingProgress
-                  ? (language === 'zh' ? '保存中...' : 'Saving...')
-                  : (language === 'zh' ? '完成并安排复习' : 'Complete & Schedule Review')}
-              </button>
-            </div>
+            <h1 style={{
+              fontFamily: 'var(--display)',
+              fontSize: 24,
+              fontWeight: 400,
+              margin: 0,
+              letterSpacing: '-0.01em',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: 520,
+            }}>
+              {lesson.title || lesson.class_title}
+            </h1>
+            <p className="muted" style={{ fontSize: 12, margin: '2px 0 0' }}>
+              {new Date(lesson.created_at || lesson.timestamp).toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US')} · {lesson.duration_minutes} {t('common.minutes')} · {lesson.student_level}
+            </p>
           </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setActiveTab('practice')} className="btn btn-sm" type="button">
+            {language === 'zh' ? '练习任务' : 'Practice Mission'}
+          </button>
+          <button
+            onClick={() => updateLessonProgress(100, true)}
+            disabled={!isSignedIn || savingProgress}
+            className="btn btn-sm btn-primary"
+            type="button"
+          >
+            {savingProgress
+              ? (language === 'zh' ? '保存中...' : 'Saving...')
+              : (language === 'zh' ? '完成并安排复习' : 'Complete & Review')}
+          </button>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-black rounded-2xl overflow-hidden shadow-lg aspect-video relative group">
@@ -718,6 +758,8 @@ export default function LessonDetailPage() {
                   className="w-full h-full object-contain"
                   poster={lesson.ai_insights?.avatar_image || "/placeholder-video.jpg"}
                   preload="metadata"
+                  onTimeUpdate={handleVideoTimeUpdate}
+                  onEnded={handleVideoEnded}
                 >
                   <source src={videoUrl} type="video/mp4" />
                   {t('lessonDetail.browserNoVideo')}

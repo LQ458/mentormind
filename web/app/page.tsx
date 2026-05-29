@@ -1,171 +1,248 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useAuth } from './components/AuthContext'
 import { useLanguage } from './components/LanguageContext'
 
-interface ServiceStatus {
-  backendOnline: boolean
-  deepseekConnected: boolean
-  funasrStatus: 'online' | 'offline' | 'checking'
-  paddleOcrStatus: 'online' | 'offline' | 'checking'
+function detectBrowserLang(): 'zh' | 'en' {
+  if (typeof window === 'undefined') return 'zh'
+  const nav = window.navigator.language || ''
+  return nav.startsWith('zh') ? 'zh' : 'en'
 }
 
 export default function HomePage() {
-  const { language, t } = useLanguage()
-  const [services, setServices] = useState<ServiceStatus>({
-    backendOnline: false,
-    deepseekConnected: false,
-    funasrStatus: 'checking',
-    paddleOcrStatus: 'checking',
-  })
+  const { isLoaded, isSignedIn, loginWithInvite } = useAuth()
+  const { language, setLanguage } = useLanguage()
+  const router = useRouter()
+  const [inviteCode, setInviteCode] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const res = await fetch('/api/backend')
-        if (!res.ok) throw new Error('backend down')
-        const data = await res.json()
-        setServices({
-          backendOnline: data.status === 'running' || data.status === 'online',
-          deepseekConnected: data.services?.deepseek === 'configured' || data.services?.ai_lessons === 'active',
-          funasrStatus: data.services?.funasr === 'online' ? 'online' : 'offline',
-          paddleOcrStatus: data.services?.paddle_ocr === 'online' ? 'online' : 'offline',
-        })
-      } catch {
-        setServices({
-          backendOnline: false,
-          deepseekConnected: false,
-          funasrStatus: 'offline',
-          paddleOcrStatus: 'offline',
-        })
-      }
+    const browserLang = detectBrowserLang()
+    if (language !== browserLang) {
+      setLanguage(browserLang)
     }
-    fetchStatus()
-  }, [])
+    setReady(true)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const statusDot = (status: 'online' | 'offline' | 'checking') => {
-    if (status === 'online') return 'bg-green-500'
-    if (status === 'offline') return 'bg-red-500'
-    return 'bg-yellow-400 animate-pulse'
+  // Redirect signed-in users to study plan
+  useEffect(() => {
+    if (isLoaded && isSignedIn) {
+      router.replace('/study-plan')
+    }
+  }, [isLoaded, isSignedIn, router])
+
+  const isRegister = inviteCode.trim().length > 0
+  const canSubmit = username.trim().length >= 2 && password.trim().length >= 4 && (!isRegister || inviteCode.trim().length > 0)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const uname = username.trim()
+    const pwd = password.trim()
+    const code = inviteCode.trim()
+
+    if (uname.length < 2) {
+      setError(language === 'zh' ? '用户名至少2个字符' : 'Username must be at least 2 characters')
+      return
+    }
+    if (pwd.length < 4) {
+      setError(language === 'zh' ? '密码至少4个字符' : 'Password must be at least 4 characters')
+      return
+    }
+
+    setError('')
+    setSubmitting(true)
+    try {
+      await loginWithInvite(code || undefined, uname, pwd, language)
+      router.push('/study-plan')
+    } catch (err: any) {
+      const msg = err?.message || ''
+      if (msg.includes('403') || msg.includes('Invalid invite')) {
+        setError(language === 'zh' ? '邀请码无效' : 'Invalid invite code')
+      } else if (msg.includes('limit')) {
+        setError(language === 'zh' ? '邀请码已达使用上限' : 'Invite code has reached its usage limit')
+      } else if (msg.includes('409') || msg.includes('taken')) {
+        setError(language === 'zh' ? '用户名已被占用' : 'Username already taken')
+      } else if (msg.includes('401') || msg.includes('not found') || msg.includes('Incorrect')) {
+        setError(language === 'zh' ? '用户名或密码错误' : 'Incorrect username or password')
+      } else if (msg.includes('429') || msg.includes('rate')) {
+        setError(language === 'zh' ? '请求太频繁，请稍后再试' : 'Too many attempts. Please wait a moment.')
+      } else {
+        setError(language === 'zh' ? '连接失败，请检查网络' : 'Connection failed. Check your network.')
+      }
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  const statusLabel = (status: 'online' | 'offline' | 'checking') => {
-    if (status === 'online') return { text: t('home.online'), cls: 'text-green-600' }
-    if (status === 'offline') return { text: t('home.offline'), cls: 'text-red-500' }
-    return { text: '...', cls: 'text-yellow-600' }
-  }
+  if (!isLoaded || !ready) return null
 
   return (
-    <div className="space-y-8">
-      {/* Hero Section */}
-      <div className="text-center py-12">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          {t('home.heroTitle')}
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: '80vh',
+      padding: '24px',
+    }}>
+      {/* Language toggle */}
+      <div style={{ position: 'absolute', top: 80, right: 24 }}>
+        <button
+          onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}
+          style={{
+            padding: '4px 12px',
+            border: '1px solid #e5e7eb',
+            borderRadius: 6,
+            background: '#fff',
+            fontSize: 13,
+            cursor: 'pointer',
+            color: '#6b7280',
+          }}
+        >
+          {language === 'zh' ? 'EN' : '中文'}
+        </button>
+      </div>
+
+      <div style={{ maxWidth: 400, width: '100%', textAlign: 'center' }}>
+        <h1 style={{ fontSize: 32, fontWeight: 700, margin: '0 0 8px', letterSpacing: '-0.5px' }}>
+          MentorMind
         </h1>
-        <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-          {t('home.heroSubtitle')}
+        <p style={{ fontSize: 14, color: '#6b7280', margin: '0 0 32px' }}>
+          {language === 'zh'
+            ? 'AI 驱动的个性化学习平台'
+            : 'AI-powered personalized learning'}
         </p>
-        <div className="mt-8 flex gap-4 justify-center">
-          <Link
-            href="/create"
-            className="inline-flex items-center px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
+
+        <form onSubmit={handleSubmit}>
+          {/* Username */}
+          <input
+            type="text"
+            value={username}
+            onChange={(e) => { setUsername(e.target.value); setError('') }}
+            placeholder={language === 'zh' ? '用户名' : 'Username'}
+            autoFocus
+            disabled={submitting}
+            style={{
+              width: '100%',
+              padding: '14px 16px',
+              fontSize: 16,
+              border: `1.5px solid ${error ? '#ef4444' : '#d1d5db'}`,
+              borderRadius: 8,
+              outline: 'none',
+              boxSizing: 'border-box',
+              transition: 'border-color 0.15s',
+            }}
+            onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
+            onBlur={(e) => (e.target.style.borderColor = error ? '#ef4444' : '#d1d5db')}
+          />
+
+          {/* Password */}
+          <div style={{ position: 'relative', marginTop: 12 }}>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => { setPassword(e.target.value); setError('') }}
+              placeholder={language === 'zh' ? '密码' : 'Password'}
+              disabled={submitting}
+              style={{
+                width: '100%',
+                padding: '14px 44px 14px 16px',
+                fontSize: 16,
+                border: `1.5px solid ${error ? '#ef4444' : '#d1d5db'}`,
+                borderRadius: 8,
+                outline: 'none',
+                boxSizing: 'border-box',
+                transition: 'border-color 0.15s',
+              }}
+              onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
+              onBlur={(e) => (e.target.style.borderColor = error ? '#ef4444' : '#d1d5db')}
+            />
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={() => setShowPassword(!showPassword)}
+              style={{
+                position: 'absolute',
+                right: 12,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 4,
+                fontSize: 14,
+                color: '#9ca3af',
+              }}
+            >
+              {showPassword ? '🙈' : '👁'}
+            </button>
+          </div>
+
+          {/* Invite code (optional) */}
+          <input
+            type="text"
+            value={inviteCode}
+            onChange={(e) => { setInviteCode(e.target.value); setError('') }}
+            placeholder={language === 'zh' ? '邀请码（首次注册必填）' : 'Invite code (required for registration)'}
+            disabled={submitting}
+            style={{
+              width: '100%',
+              marginTop: 12,
+              padding: '14px 16px',
+              fontSize: 16,
+              border: `1.5px solid ${error ? '#ef4444' : '#d1d5db'}`,
+              borderRadius: 8,
+              outline: 'none',
+              boxSizing: 'border-box',
+              transition: 'border-color 0.15s',
+            }}
+            onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
+            onBlur={(e) => (e.target.style.borderColor = error ? '#ef4444' : '#d1d5db')}
+          />
+
+          {error && (
+            <p style={{ color: '#ef4444', fontSize: 13, marginTop: 8, textAlign: 'left' }}>
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={submitting || !canSubmit}
+            style={{
+              width: '100%',
+              marginTop: 16,
+              padding: '14px 0',
+              fontSize: 16,
+              fontWeight: 600,
+              border: 'none',
+              borderRadius: 8,
+              background: submitting || !canSubmit ? '#93c5fd' : '#3b82f6',
+              color: '#fff',
+              cursor: submitting || !canSubmit ? 'not-allowed' : 'pointer',
+              transition: 'background 0.15s',
+            }}
           >
-            {t('home.startCreating')}
-          </Link>
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center px-6 py-3 bg-white text-gray-700 border border-gray-300 font-medium rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            {t('home.viewDashboard')}
-          </Link>
-        </div>
-      </div>
+            {submitting
+              ? (language === 'zh' ? '处理中...' : 'Processing...')
+              : isRegister
+                ? (language === 'zh' ? '注册并开始学习' : 'Register & Start')
+                : (language === 'zh' ? '登录' : 'Login')}
+          </button>
+        </form>
 
-      {/* Features Grid */}
-      <div className="grid md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('home.feature1Title')}</h3>
-          <p className="text-gray-600">{t('home.feature1Desc')}</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('home.feature2Title')}</h3>
-          <p className="text-gray-600">{t('home.feature2Desc')}</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('home.feature3Title')}</h3>
-          <p className="text-gray-600">{t('home.feature3Desc')}</p>
-        </div>
-      </div>
-
-      {/* Quick Links */}
-      <div className="bg-gray-50 rounded-xl p-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">{t('home.quickAccessTitle')}</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Link href="/create" className="bg-white rounded-lg p-4 text-center border border-gray-200 hover:border-blue-500 hover:shadow-sm transition-all">
-            <div className="text-blue-600 font-medium">{t('home.createLesson')}</div>
-            <div className="text-sm text-gray-500 mt-1">{t('home.createLessonDesc')}</div>
-          </Link>
-          <Link href="/lessons" className="bg-white rounded-lg p-4 text-center border border-gray-200 hover:border-blue-500 hover:shadow-sm transition-all">
-            <div className="text-blue-600 font-medium">{t('home.lessonManagement')}</div>
-            <div className="text-sm text-gray-500 mt-1">{t('home.lessonManagementDesc')}</div>
-          </Link>
-          <Link href="/analytics" className="bg-white rounded-lg p-4 text-center border border-gray-200 hover:border-blue-500 hover:shadow-sm transition-all">
-            <div className="text-blue-600 font-medium">{t('home.analyticsLink')}</div>
-            <div className="text-sm text-gray-500 mt-1">{t('home.analyticsLinkDesc')}</div>
-          </Link>
-          <Link href="/settings" className="bg-white rounded-lg p-4 text-center border border-gray-200 hover:border-blue-500 hover:shadow-sm transition-all">
-            <div className="text-blue-600 font-medium">{t('home.settingsLink')}</div>
-            <div className="text-sm text-gray-500 mt-1">{t('home.settingsLinkDesc')}</div>
-          </Link>
-        </div>
-      </div>
-
-      {/* System Status — dynamic */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">{t('home.systemStatusTitle')}</h2>
-        <div className="space-y-4">
-          {/* Backend */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <div className={`w-3 h-3 rounded-full mr-3 ${services.backendOnline ? 'bg-green-500' : 'bg-red-500'}`}></div>
-              <span className="font-medium">Backend API</span>
-            </div>
-            <span className={`font-medium ${services.backendOnline ? 'text-green-600' : 'text-red-500'}`}>
-              {services.backendOnline ? t('home.online') : t('home.offline')}
-            </span>
-          </div>
-          {/* DeepSeek */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <div className={`w-3 h-3 rounded-full mr-3 ${services.deepseekConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-              <span className="font-medium">DeepSeek API</span>
-            </div>
-            <span className={`font-medium ${services.deepseekConnected ? 'text-green-600' : 'text-red-500'}`}>
-              {services.deepseekConnected ? t('home.connected') : t('home.offline')}
-            </span>
-          </div>
-          {/* FunASR */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <div className={`w-3 h-3 rounded-full mr-3 ${statusDot(services.funasrStatus)}`}></div>
-              <span className="font-medium">FunASR</span>
-            </div>
-            <span className={`font-medium ${statusLabel(services.funasrStatus).cls}`}>
-              {statusLabel(services.funasrStatus).text}
-            </span>
-          </div>
-          {/* PaddleOCR */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <div className={`w-3 h-3 rounded-full mr-3 ${statusDot(services.paddleOcrStatus)}`}></div>
-              <span className="font-medium">PaddleOCR</span>
-            </div>
-            <span className={`font-medium ${statusLabel(services.paddleOcrStatus).cls}`}>
-              {statusLabel(services.paddleOcrStatus).text}
-            </span>
-          </div>
-        </div>
+        <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 24 }}>
+          {language === 'zh'
+            ? '内测阶段，需邀请码注册'
+            : 'Internal testing — invite code required for registration'}
+        </p>
       </div>
     </div>
   )

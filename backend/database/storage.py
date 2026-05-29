@@ -15,6 +15,16 @@ from .models.enums import Language, StudentLevel, DifficultyLevel, ResourceType,
 from .models.user import User, UserLesson, StudentPerformance, MemoryReview, AgentInteractionTurn, ProactiveNotification
 from .models.analytics import AnalyticsEvent, AnalyticsEventType, DailyMetrics, APILog
 
+# Clerk ID → UUID conversion (deterministic, matches auth.py)
+_CLERK_NAMESPACE = uuid.UUID('6ba7b810-9dad-11d1-80b4-00c04fd430c8')
+
+def _to_user_uuid(user_id: str) -> uuid.UUID:
+    """Convert a Clerk user ID string to a deterministic UUID."""
+    try:
+        return uuid.UUID(user_id)  # Already a valid UUID
+    except (ValueError, AttributeError):
+        return uuid.uuid5(_CLERK_NAMESPACE, user_id)
+
 
 class LessonStorageSQL:
     """PostgreSQL-based storage for lessons with advanced querying"""
@@ -27,6 +37,19 @@ class LessonStorageSQL:
         if self._session:
             return self._session
         return self.SessionLocal()
+
+    def _ensure_user_exists(self, session: Session, user_id: uuid.UUID, raw_user_id: str) -> None:
+        """Create a minimal user record if one doesn't exist, preventing FK violations."""
+        existing = session.query(User).filter(User.id == str(user_id)).first()
+        if not existing:
+            user = User(
+                id=str(user_id),
+                email=f"{raw_user_id}@placeholder.mentormind",
+                username=raw_user_id[:100],
+                hashed_password="better_auth_managed",
+            )
+            session.add(user)
+            session.flush()
 
     def save_lesson(self, lesson_data: Dict[str, Any], session: Optional[Session] = None) -> Dict[str, Any]:
         """
@@ -66,9 +89,14 @@ class LessonStorageSQL:
                 ai_insights["lesson_plan"] = lesson_data.get("lesson_plan")
                 ai_insights["class_description"] = description
             
-            # Optional user ownership
-            user_id = lesson_data.get("user_id")
-            
+            # Optional user ownership — convert Clerk ID strings to UUID
+            raw_user_id = lesson_data.get("user_id")
+            user_id = _to_user_uuid(raw_user_id) if raw_user_id else None
+
+            # Ensure user exists before FK insert
+            if user_id:
+                self._ensure_user_exists(local_session, user_id, raw_user_id)
+
             # Create lesson record
             lesson = Lesson(
                 title=title,
@@ -82,7 +110,7 @@ class LessonStorageSQL:
                 cost_usd=cost_usd,
                 ai_insights=ai_insights,
                 status=LessonStatus.PUBLISHED.value,
-                user_id=user_id if user_id else None,
+                user_id=user_id,
             )
             
             # Add learning objectives

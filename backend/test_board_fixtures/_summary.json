@@ -1,0 +1,82 @@
+[
+  {
+    "topic": "Derivatives and rates of change",
+    "events": 24,
+    "elements": 20,
+    "destructive_clear": false,
+    "step_list": true,
+    "elapsed_s": 114.1
+  },
+  {
+    "topic": "The Pythagorean theorem",
+    "events": 33,
+    "elements": 29,
+    "destructive_clear": false,
+    "step_list": true,
+    "elapsed_s": 156.5
+  },
+  {
+    "topic": "Photosynthesis",
+    "events": 20,
+    "elements": 14,
+    "destructive_clear": false,
+    "step_list": true,
+    "elapsed_s": 94.6
+  },
+  {
+    "topic": "Ohm's law",
+    "events": 32,
+    "elements": 28,
+    "destructive_clear": false,
+    "step_list": true,
+    "elapsed_s": 149.7
+  },
+  {
+    "topic": "\u725b\u987f\u7b2c\u4e8c\u5b9a\u5f8b",
+    "events": 21,
+    "elements": 17,
+    "destructive_clear": false,
+    "step_list": true,
+    "elapsed_s": 85.8
+  },
+  {
+    "topic": "\u52fe\u80a1\u5b9a\u7406",
+    "events": 37,
+    "elements": 30,
+    "destructive_clear": false,
+    "step_list": true,
+    "elapsed_s": 176.0
+  },
+  {
+    "topic": "Basic probability",
+    "events": 33,
+    "elements": 29,
+    "destructive_clear": false,
+    "step_list": true,
+    "elapsed_s": 144.6
+  },
+  {
+    "topic": "Supply and demand",
+    "events": 32,
+    "elements": 29,
+    "destructive_clear": false,
+    "step_list": true,
+    "elapsed_s": 138.9
+  },
+  {
+    "topic": "Linear equations",
+    "events": 35,
+    "elements": 30,
+    "destructive_clear": false,
+    "step_list": true,
+    "elapsed_s": 163.3
+  },
+  {
+    "topic": "DNA replication",
+    "events": 27,
+    "elements": 24,
+    "destructive_clear": false,
+    "step_list": true,
+    "elapsed_s": 130.3
+  }
+]

@@ -54,7 +54,7 @@ class AnalyticsEvent(Base):
     
     # Event information
     event_type = Column(String(50), nullable=False, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     lesson_id = Column(UUID(as_uuid=True), ForeignKey("lessons.id", ondelete="SET NULL"), nullable=True)
     
     # Client information
@@ -212,7 +212,7 @@ class APILog(Base):
     endpoint = Column(String(255), nullable=False, index=True)
     method = Column(String(10), nullable=False)
     status_code = Column(Integer, nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_id = Column(String(255), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     
     # Request/response data
     request_body = Column(JSON)

@@ -3,10 +3,12 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '../components/LanguageContext'
-import { useAuth } from '@clerk/nextjs'
+import { useAuth } from '../components/AuthContext'
 import { translations } from '../lib/translations'
 import SessionContextCard from '../components/Chat/SessionContextCard'
 import InterestProfileQuiz, { UserInterestProfile } from '../components/InterestProfileQuiz'
+import { PageHead } from '../components/design/primitives'
+import { toast } from 'sonner'
 
 // ── Lightweight MD + LaTeX renderer ─────────────────────────────────────────
 function MentorMessage({ content }: { content: string }) {
@@ -96,6 +98,8 @@ interface LessonDesignSettings {
   enableOralDefense: boolean
   addDeliberateError: boolean
   personalAnchor: string
+  // F3 narration verbosity — "compact" | "standard" | "thorough"
+  verbosity: 'compact' | 'standard' | 'thorough'
 }
 
 interface LessonDesignOption {
@@ -110,6 +114,8 @@ export default function CreateLessonPage() {
   const { language: uiLanguage, contentLanguage, t } = useLanguage()
   const { getToken, isLoaded: authLoaded, isSignedIn } = useAuth()
   const [workflowPhase, setWorkflowPhase] = useState<'chatting' | 'roadmap' | 'generating' | 'preview'>('chatting')
+  const [dragOver, setDragOver] = useState(false)
+  const dragCounter = useRef(0)
   const [mentorStage, setMentorStage] = useState<'opening' | 'diagnostic' | 'roadmap' | 'co_creation' | 'locked'>('opening')
   const [streamingContent, setStreamingContent] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -117,6 +123,13 @@ export default function CreateLessonPage() {
   const [interestProfile, setInterestProfile] = useState<UserInterestProfile | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileSaving, setProfileSaving] = useState(false)
+
+  // E: Diagnostic onboarding state
+  const [diagnosticTurn, setDiagnosticTurn] = useState(0)  // 0 = not started, 1-3 = in progress
+  const [diagnosticTopic, setDiagnosticTopic] = useState('')
+  const [diagnosticHistory, setDiagnosticHistory] = useState<Array<{role: string; content: string}>>([])
+  const [diagnosticRunning, setDiagnosticRunning] = useState(false)
+  const [aiTestingMode, setAiTestingMode] = useState(false)  // AI testing toggle
 
   // Auto-scroll chat to bottom on new messages or streaming updates
   useEffect(() => {
@@ -167,12 +180,80 @@ export default function CreateLessonPage() {
     enableOralDefense: false,
     addDeliberateError: false,
     personalAnchor: '',
+    verbosity: 'standard',
   })
 
   // Audio/Image upload state
   const [isUploadingAudio, setIsUploadingAudio] = useState(false)
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const [sessionContext, setSessionContext] = useState<LearningContext[]>([])
+
+  // ── Autosave: persist chat draft + lesson design to localStorage ────────────
+  const DRAFT_KEY = 'create-page-draft-v1'
+  const DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000 // 24 h
+  const draftHydratedRef = useRef(false)
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // On mount, try to restore a recent draft.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (draftHydratedRef.current) return
+    draftHydratedRef.current = true
+    try {
+      const raw = window.localStorage.getItem(DRAFT_KEY)
+      if (!raw) return
+      const env = JSON.parse(raw) as { savedAt: number; chatMessages: ChatMessage[]; lessonDesign: LessonDesignSettings }
+      if (!env || typeof env.savedAt !== 'number') return
+      const age = Date.now() - env.savedAt
+      if (age > DRAFT_MAX_AGE_MS) {
+        window.localStorage.removeItem(DRAFT_KEY)
+        return
+      }
+      if (!Array.isArray(env.chatMessages) || env.chatMessages.length === 0) return
+      const accept = window.confirm(
+        uiLanguage === 'zh'
+          ? `检测到 ${Math.round(age / 60000)} 分钟前的未完成会话，是否恢复？`
+          : `Found an unfinished session from ${Math.round(age / 60000)} min ago. Restore?`
+      )
+      if (accept) {
+        const restored = env.chatMessages.map((m) => ({ ...m, timestamp: new Date(m.timestamp) }))
+        setChatMessages(restored)
+        if (env.lessonDesign) setLessonDesign(env.lessonDesign)
+        toast.success(uiLanguage === 'zh' ? '已恢复上次会话' : 'Previous session restored')
+      } else {
+        window.localStorage.removeItem(DRAFT_KEY)
+      }
+    } catch (err) {
+      console.warn('[autosave] restore failed', err)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Persist chat + design with 1.5s debounce.
+  useEffect(() => {
+    if (!draftHydratedRef.current) return
+    if (typeof window === 'undefined') return
+    if (chatMessages.length === 0) return
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current)
+    draftSaveTimerRef.current = setTimeout(() => {
+      try {
+        window.localStorage.setItem(
+          DRAFT_KEY,
+          JSON.stringify({ savedAt: Date.now(), chatMessages, lessonDesign })
+        )
+      } catch (err) {
+        console.warn('[autosave] save failed', err)
+      }
+    }, 1500)
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current)
+    }
+  }, [chatMessages, lessonDesign])
+
+  const clearDraft = useCallback(() => {
+    if (typeof window === 'undefined') return
+    try { window.localStorage.removeItem(DRAFT_KEY) } catch {}
+  }, [])
   const [preferredVoice, setPreferredVoice] = useState('anna')
   
   const audioInputRef = useRef<HTMLInputElement>(null)
@@ -229,11 +310,18 @@ export default function CreateLessonPage() {
         professional: 'Professional',
         'lifelong-learner': 'Independent Learner',
         mathematics: 'Mathematics',
-        'computer-science': 'Computer Science',
         physics: 'Physics',
         chemistry: 'Chemistry',
         biology: 'Biology',
+        'computer-science': 'Computer Science',
+        'environmental-science': 'Environmental Science',
+        history: 'History',
         english: 'English',
+        economics: 'Economics',
+        psychology: 'Psychology',
+        government: 'Government & Politics',
+        'world-languages': 'World Languages',
+        art: 'Art',
         visual: 'Visual Explanations',
         'practice-first': 'Practice First',
         'concept-first': 'Concept First',
@@ -339,13 +427,79 @@ export default function CreateLessonPage() {
       })
     } catch (error) {
       console.error('Failed to save interest profile:', error)
-      alert(uiLanguage === 'zh' ? '学习画像保存失败，请重试。' : 'Failed to save your learner profile. Please try again.')
+      toast.error(uiLanguage === 'zh' ? '学习画像保存失败，请重试。' : 'Failed to save your learner profile. Please try again.')
       throw error
     } finally {
       setProfileSaving(false)
     }
   }
 
+
+  // E: Run one diagnostic turn
+  const runDiagnosticTurn = async (topic: string, turn: number, studentResponse: string, history: Array<{role: string; content: string}>) => {
+    setDiagnosticRunning(true)
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers.Authorization = `Bearer ${token}`
+
+      const res = await fetch('/api/backend/users/me/diagnostic', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          topic,
+          turn,
+          student_response: studentResponse,
+          history,
+          language: uiLanguage === 'zh' ? 'zh' : 'en',
+          ai_testing: aiTestingMode,
+        }),
+      })
+      const data = await res.json()
+
+      const question = data.question || ''
+      const newHistory = [
+        ...history,
+        ...(studentResponse ? [{ role: 'user', content: studentResponse }] : []),
+        { role: 'assistant', content: question },
+      ]
+      setDiagnosticHistory(newHistory)
+
+      if (question) {
+        setChatMessages(prev => [...prev, {
+          id: `diag_${Date.now()}`,
+          role: 'assistant',
+          content: question,
+          timestamp: new Date(),
+        }])
+      }
+
+      if (data.stage === 'complete') {
+        const level = data.inferred_level
+        if (level === 'beginner' || level === 'intermediate' || level === 'advanced') {
+          setForm(prev => ({ ...prev, studentLevel: level }))
+          setChatMessages(prev => [...prev, {
+            id: `diag_done_${Date.now()}`,
+            role: 'assistant',
+            content: uiLanguage === 'zh'
+              ? `✅ 已根据你的回答推断出你的基础水平：**${level === 'beginner' ? '入门' : level === 'intermediate' ? '中级' : '进阶'}**。接下来我会基于这个级别为你定制课程路线。`
+              : `✅ Based on your answers, I've set your level to **${level}**. I'll tailor the lesson roadmap accordingly.`,
+            timestamp: new Date(),
+          }])
+        }
+        setMentorStage('roadmap')
+        setDiagnosticTurn(0)
+      } else {
+        setDiagnosticTurn(turn + 1)
+      }
+    } catch (err) {
+      console.error('Diagnostic turn failed:', err)
+      setMentorStage('roadmap')
+      setDiagnosticTurn(0)
+    } finally {
+      setDiagnosticRunning(false)
+    }
+  }
 
   // Polling helper for background tasks (transcription, OCR)
   const pollIngestStatus = async (jobId: string, type: 'audio' | 'image') => {
@@ -425,11 +579,11 @@ export default function CreateLessonPage() {
           timestamp: new Date()
         }])
       } else {
-        alert(uiLanguage === 'zh' ? '音频转录失败，请重试' : 'Audio transcription failed, please try again')
+        toast.error(uiLanguage === 'zh' ? '音频转录失败，请重试' : 'Audio transcription failed, please try again')
       }
     } catch (err) {
       console.error('Audio upload error:', err)
-      alert(uiLanguage === 'zh' ? '音频上传失败' : 'Audio upload failed')
+      toast.error(uiLanguage === 'zh' ? '音频上传失败' : 'Audio upload failed')
     } finally {
       setIsUploadingAudio(false)
     }
@@ -485,11 +639,11 @@ export default function CreateLessonPage() {
           timestamp: new Date()
         }])
       } else {
-        alert(uiLanguage === 'zh' ? '图片文字识别失败，请重试' : 'Image OCR failed, please try again')
+        toast.error(uiLanguage === 'zh' ? '图片文字识别失败，请重试' : 'Image OCR failed, please try again')
       }
     } catch (err) {
       console.error('Image upload error:', err)
-      alert(uiLanguage === 'zh' ? '图片上传失败' : 'Image upload failed')
+      toast.error(uiLanguage === 'zh' ? '图片上传失败' : 'Image upload failed')
     } finally {
       setIsUploadingImage(false)
     }
@@ -521,6 +675,16 @@ export default function CreateLessonPage() {
     stepDescription: string
     progress: number
   } | null>(null)
+  const [failedStage, setFailedStage] = useState<string | null>(null)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [pipelineStages, setPipelineStages] = useState<Array<{key: string, label: string, labelZh: string, status: 'pending' | 'active' | 'done' | 'failed'}>>([
+    { key: 'syllabus', label: 'Syllabus', labelZh: '大纲', status: 'pending' },
+    { key: 'script',   label: 'Script',   labelZh: '脚本', status: 'pending' },
+    { key: 'audio',    label: 'Audio',    labelZh: '音频', status: 'pending' },
+    { key: 'render',   label: 'Render',   labelZh: '渲染', status: 'pending' },
+    { key: 'done',     label: 'Done',     labelZh: '完成', status: 'pending' },
+  ])
+  const realProgressRef = useRef(0)
 
   const suggestedTopics = useMemo(() => {
     const interestSeeds = interestProfile?.subject_interests || []
@@ -555,54 +719,55 @@ export default function CreateLessonPage() {
     },
   ]), [uiLanguage, workflowPhase])
 
-  // Simulated progress effect
+  // Real SSE-driven progress with smooth animation between milestones
   useEffect(() => {
     if (!generating) return
 
-    const steps = [
-      { name: uiLanguage === 'zh' ? '分析需求' : 'Analyzing Request', desc: uiLanguage === 'zh' ? '理解您的学习目标...' : 'Understanding your learning goals...' },
-      { name: uiLanguage === 'zh' ? '构建知识图谱' : 'Building Knowledge Graph', desc: uiLanguage === 'zh' ? '连接相关概念...' : 'Connecting related concepts...' },
-      { name: uiLanguage === 'zh' ? '编写脚本' : 'Drafting Script', desc: uiLanguage === 'zh' ? '生成教学大纲和脚本...' : 'Generating syllabus and script...' },
-      { name: uiLanguage === 'zh' ? '合成语音' : 'Synthesizing Audio', desc: uiLanguage === 'zh' ? '生成AI教师语音...' : 'Generating AI teacher voice...' },
-      { name: uiLanguage === 'zh' ? '渲染视频' : 'Rendering Video', desc: uiLanguage === 'zh' ? '生成动态教学视频 (可能需要1-2分钟)...' : 'Generating dynamic teaching video (may take 1-2 mins)...' },
-    ]
+    const startTime = Date.now()
+    realProgressRef.current = 0
 
-    let stepIndex = 0
-    let progressValue = 10
-
-    // Initial state
+    // Reset stages and counters on new generation
+    setPipelineStages(prev => prev.map(s => ({ ...s, status: 'pending' as const })))
+    setFailedStage(null)
+    setElapsedSeconds(0)
     setPipelineProgress({
       currentStep: 1,
-      totalSteps: steps.length,
-      stepName: steps[0].name,
-      stepDescription: steps[0].desc,
-      progress: progressValue
+      totalSteps: 5,
+      stepName: uiLanguage === 'zh' ? '正在准备...' : 'Preparing...',
+      stepDescription: uiLanguage === 'zh' ? 'AI正在思考最佳教学方案...' : 'AI is thinking about the best teaching plan...',
+      progress: 0
     })
 
-    const interval = setInterval(() => {
-      progressValue += (99 - progressValue) * 0.02
-      const estimatedStep = Math.floor((progressValue / 100) * steps.length)
-      if (estimatedStep > stepIndex && estimatedStep < steps.length) {
-        stepIndex = estimatedStep
-      }
+    // Elapsed timer
+    const timerInterval = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000))
+    }, 1000)
 
-      setPipelineProgress({
-        currentStep: stepIndex + 1,
-        totalSteps: steps.length,
-        stepName: steps[stepIndex].name,
-        stepDescription: steps[stepIndex].desc,
-        progress: Math.floor(progressValue)
+    // Smooth animation: approach real SSE percent, never exceed it
+    const smoothInterval = setInterval(() => {
+      const real = realProgressRef.current
+      setPipelineProgress(prev => {
+        if (!prev) return prev
+        const current = prev.progress
+        if (current < real) {
+          const next = Math.min(real, current + Math.max(0.5, (real - current) * 0.1))
+          return { ...prev, progress: Math.floor(next) }
+        }
+        return prev
       })
-    }, 500)
+    }, 300)
 
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(timerInterval)
+      clearInterval(smoothInterval)
+    }
   }, [generating, uiLanguage])
 
   const handleGenerate = async (topicOverride?: string) => {
     const rawTopic = topicOverride || form.studentQuery
 
     if (!rawTopic.trim()) {
-      alert(t('create.enterLearningQuestion'))
+      toast.warning(t('create.enterLearningQuestion'))
       return
     }
 
@@ -680,16 +845,46 @@ export default function CreateLessonPage() {
           setPipelineProgress(null)
           setWorkflowPhase('chatting')
           setGenerating(false)
-          alert(uiLanguage === 'zh'
-            ? `课程生成失败：${result.error_message || result.error || '未知错误，请重试。'}`
-            : `Lesson creation failed: ${result.error_message || result.error || 'Unknown error. Please try again.'}`
+          
+          // More specific error messages based on error type
+          let errorMessage = result.error_message || result.error || ''
+          if (errorMessage.includes('Cannot connect to host api.deepseek.com') ||
+              errorMessage.includes('Network error') ||
+              errorMessage.includes('DEEPSEEK_API_KEY')) {
+            errorMessage = uiLanguage === 'zh' 
+              ? '网络连接失败或API密钥配置问题。请检查网络连接或联系管理员。'
+              : 'Network connection failed or API key configuration issue. Please check your network connection or contact administrator.'
+          } else if (errorMessage.includes('numpy.dtype size changed') ||
+                     errorMessage.includes('binary incompatibility')) {
+            errorMessage = uiLanguage === 'zh'
+              ? '视频渲染环境配置问题。请联系技术支持。'
+              : 'Video rendering environment configuration issue. Please contact technical support.'
+          } else if (!errorMessage) {
+            errorMessage = uiLanguage === 'zh' ? '未知错误，请重试。' : 'Unknown error. Please try again.'
+          }
+          
+          toast.error(uiLanguage === 'zh'
+            ? `课程生成失败：${errorMessage}`
+            : `Lesson creation failed: ${errorMessage}`
           )
           return
         }
 
         if (result?.lesson_id) {
+          clearDraft()
           router.push(`/lessons/${result.lesson_id}`)
           return
+        }
+
+        // Warn user if video was requested but not produced
+        if (!result?.video_url && !result?.audio_url) {
+          const warning = result?.error_message || result?.error || result?.ai_insights?.error
+          if (warning) {
+            toast.warning(uiLanguage === 'zh'
+              ? `课程已创建，但视频/音频生成失败：${warning}`
+              : `Course created, but video/audio generation failed: ${warning}`
+            )
+          }
         }
 
         setPreview(result)
@@ -711,6 +906,7 @@ export default function CreateLessonPage() {
           voice_id: preferredVoice,
           custom_requirements: thinkingProcess || buildGenerationRequirements(rawTopic),
           syllabus: proposedSyllabus, // Pass the locked syllabus
+          verbosity: lessonDesign.verbosity, // F3 narration verbosity
         }),
       })
 
@@ -760,8 +956,13 @@ export default function CreateLessonPage() {
                 return
               }
               settled = true
+              
+              // Only show success alert if generation actually succeeded
+              if (finalResult?.success !== false) {
+                toast.success(t('create.courseCreatedSuccess'))
+              }
+              
               void finalizeGeneration(finalResult)
-              alert(t('create.courseCreatedSuccess'))
               resolve(true)
             } catch (pollError) {
               if (!settled) {
@@ -771,9 +972,52 @@ export default function CreateLessonPage() {
             }
           }
 
+          const SSE_STAGE_ORDER = ['syllabus', 'script', 'audio', 'render', 'done']
+          const SSE_STAGE_KEYS: Record<string, string> = {
+            syllabus_complete: 'syllabus',
+            script_complete:   'script',
+            audio_complete:    'audio',
+            render_complete:   'render',
+            done:              'done',
+          }
+          const SSE_STAGE_LABELS: Record<string, {en: string, zh: string}> = {
+            syllabus_complete: { en: 'Syllabus Ready', zh: '大纲已完成' },
+            script_complete:   { en: 'Script Ready', zh: '脚本已完成' },
+            audio_complete:    { en: 'Audio Ready', zh: '音频已完成' },
+            render_complete:   { en: 'Rendering Complete', zh: '渲染完成' },
+          }
+
           eventSource.onmessage = (event) => {
             try {
               const statusData = JSON.parse(event.data);
+
+              // Real progress milestone from Celery
+              if (statusData.status === 'progress') {
+                const percent = statusData.percent ?? 0
+                const stage = statusData.stage ?? ''
+                const completedKey = SSE_STAGE_KEYS[stage] ?? null
+                realProgressRef.current = percent
+                const labelInfo = SSE_STAGE_LABELS[stage]
+                setPipelineProgress(prev => prev ? {
+                  ...prev,
+                  progress: percent,
+                  stepName: labelInfo ? (uiLanguage === 'zh' ? labelInfo.zh : labelInfo.en) : prev.stepName,
+                  stepDescription: statusData.label ?? prev.stepDescription,
+                } : null)
+                if (completedKey) {
+                  setPipelineStages(prev => {
+                    const cIdx = SSE_STAGE_ORDER.indexOf(completedKey)
+                    return prev.map((s, i) => {
+                      if (i < cIdx) return { ...s, status: 'done' as const }
+                      if (s.key === completedKey) return { ...s, status: 'done' as const }
+                      if (i === cIdx + 1) return { ...s, status: 'active' as const }
+                      return s
+                    })
+                  })
+                }
+                return
+              }
+
               const completedResult =
                 statusData.status === 'completed'
                   ? statusData.result
@@ -781,12 +1025,23 @@ export default function CreateLessonPage() {
 
               if (completedResult) {
                 settled = true
+                setPipelineStages(prev => prev.map(s => ({ ...s, status: 'done' as const })))
+                realProgressRef.current = 100
+                setPipelineProgress(prev => prev ? { ...prev, progress: 100 } : null)
                 void finalizeGeneration(completedResult);
-                alert(t('create.courseCreatedSuccess'));
+                toast.success(t('create.courseCreatedSuccess'))
                 eventSource.close();
                 resolve(true);
-              } else if (statusData.status === 'failed') {
+              } else if (statusData.status === 'failed' || statusData.status === 'failure') {
                 settled = true
+                const stage = statusData.stage ?? null
+                setFailedStage(stage)
+                if (stage) {
+                  const failKey = SSE_STAGE_KEYS[stage] ?? stage
+                  setPipelineStages(prev => prev.map(s =>
+                    s.key === failKey ? { ...s, status: 'failed' as const } : s
+                  ))
+                }
                 eventSource.close();
                 reject(new Error(statusData.error || 'Job failed on the server.'));
               }
@@ -812,17 +1067,17 @@ export default function CreateLessonPage() {
         });
       } else if (data.success) {
         await finalizeGeneration(data)
-        alert(t('create.courseCreatedSuccess'))
+        toast.success(t('create.courseCreatedSuccess'))
       } else {
         setPipelineProgress(null)
-        alert(t('create.creationFailed') + (data.error_message || t('create.unknownError')))
+        toast.error(t('create.creationFailed') + (data.error_message || t('create.unknownError')))
       }
     } catch (error) {
       console.error('Create failed:', error)
       setPipelineProgress(null)
       setWorkflowPhase('chatting')
       setGenerating(false)
-      alert(uiLanguage === 'zh'
+      toast.error(uiLanguage === 'zh'
         ? `课程生成失败：${error instanceof Error ? error.message : '未知错误，请重试。'}`
         : `Lesson creation failed: ${error instanceof Error ? error.message : 'Unknown error. Please try again.'}`
       )
@@ -844,6 +1099,21 @@ export default function CreateLessonPage() {
     setChatMessages(prev => [...prev, userMessage])
     const currentInput = userInput
     setUserInput('')
+
+    // AI Testing Mode: Skip all diagnostic and go straight to generation
+    if (aiTestingMode && mentorStage === 'opening') {
+      setForm(prev => ({ ...prev, studentLevel: 'beginner', studentQuery: currentInput }))
+      setWorkflowPhase('generating')
+      handleGenerate(currentInput)
+      return
+    }
+
+    // E: If we are in the middle of a diagnostic, route to the diagnostic handler
+    if (mentorStage === 'diagnostic' && diagnosticTurn >= 1) {
+      await runDiagnosticTurn(diagnosticTopic, diagnosticTurn, currentInput, diagnosticHistory)
+      return
+    }
+
     setIsTyping(true)
 
     try {
@@ -881,7 +1151,19 @@ export default function CreateLessonPage() {
         }
         setChatMessages(prev => [...prev, aiResponse])
 
-        if (data.stage === 'roadmap' || data.stage === 'co_creation') {
+        // E: After the user's first message in 'opening', start the diagnostic
+        // if they have not completed onboarding yet
+        const nextStage = data.stage
+        if (nextStage === 'diagnostic' || (mentorStage === 'opening' && !interestProfile?.onboarding_completed && currentInput.trim().length >= 5)) {
+          const topic = currentInput.trim()
+          setDiagnosticTopic(topic)
+          setMentorStage('diagnostic')
+          // Kick off turn 1 immediately (no student response yet)
+          await runDiagnosticTurn(topic, 1, '', [{ role: 'user', content: topic }])
+          return
+        }
+
+        if (nextStage === 'roadmap' || nextStage === 'co_creation') {
           setProposedSyllabus(data.proposed_syllabus)
           setThinkingProcess(data.thinking_process)
           setNextActionLabel(data.next_action_label)
@@ -890,9 +1172,9 @@ export default function CreateLessonPage() {
             setPreferredVoice(data.preferred_voice)
           }
           setWorkflowPhase('roadmap')
-        } else if (data.stage === 'diagnostic') {
+        } else if (nextStage === 'diagnostic') {
           setDiagnosticQuestion(data.diagnostic_question)
-        } else if (data.stage === 'locked') {
+        } else if (nextStage === 'locked') {
           setWorkflowPhase('generating')
           handleGenerate(proposedSyllabus?.title || currentInput)
         }
@@ -906,21 +1188,72 @@ export default function CreateLessonPage() {
 
   // Remove options-related functions as we no longer use them
 
+  const onDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    if (!e.dataTransfer?.types?.includes('Files')) return
+    dragCounter.current += 1
+    setDragOver(true)
+  }
+  const onDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    dragCounter.current = Math.max(0, dragCounter.current - 1)
+    if (dragCounter.current === 0) setDragOver(false)
+  }
+  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+  }
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    dragCounter.current = 0
+    setDragOver(false)
+    const files = Array.from(e.dataTransfer?.files || [])
+    if (files.length === 0) return
+    for (const file of files) {
+      if (file.type.startsWith('audio/')) {
+        void handleAudioUpload(file)
+      } else if (file.type.startsWith('image/')) {
+        void handleImageUpload(file)
+      } else {
+        toast.error(uiLanguage === 'zh'
+          ? `不支持的文件类型：${file.name}`
+          : `Unsupported file type: ${file.name}`)
+      }
+    }
+  }
+
   return (
-    <div className="max-w-6xl mx-auto px-4 py-4 space-y-8">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">
-            {t('nav.create')}
-          </h1>
-          <p className="text-gray-600 mt-1">
-            {uiLanguage === 'zh' ? '更少输入，更清晰的课程生成流程。' : 'Less friction, clearer lesson generation.'}
-          </p>
-        </div>
-        <div className="flex items-center space-x-4">
-          <div className="text-sm text-gray-500">
-            {t('common.remainingLessons', { count: 958 })}
+    <div
+      className="space-y-8 relative"
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
+      {dragOver && (
+        <div className="fixed inset-0 z-50 bg-indigo-900/40 backdrop-blur-sm border-4 border-dashed border-indigo-300 pointer-events-none flex items-center justify-center">
+          <div className="bg-white/95 rounded-2xl px-8 py-6 shadow-2xl text-center">
+            <div className="text-5xl mb-3" aria-hidden>📥</div>
+            <div className="text-xl font-semibold text-indigo-900 mb-1">
+              {uiLanguage === 'zh' ? '松开上传文件' : 'Drop to upload'}
+            </div>
+            <div className="text-sm text-indigo-700">
+              {uiLanguage === 'zh' ? '支持音频和图片（自动识别类型）' : 'Audio and images supported (auto-detected)'}
+            </div>
           </div>
+        </div>
+      )}
+      <PageHead
+        eyebrow={uiLanguage === 'zh' ? '创建' : 'Create'}
+        title={uiLanguage === 'zh' ? '今天想学什么？' : 'What should we learn today?'}
+        kicker={
+          uiLanguage === 'zh'
+            ? '描述你不太懂的地方。一节课会出现 — 为你、为你的薄弱点、为你的节奏量身定做。'
+            : "Describe what's unclear. A lesson appears — tailored to you, your gaps, your pace."
+        }
+      />
+      <div className="flex justify-end items-center">
+        <div className="muted" style={{ fontSize: 12 }}>
+          {t('common.remainingLessons', { count: 958 })}
         </div>
       </div>
 
@@ -969,10 +1302,24 @@ export default function CreateLessonPage() {
                         <button
                           key={topic}
                           type="button"
-                          onClick={() => setUserInput(topic)}
-                          className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:border-blue-300 hover:text-blue-700"
+                          onClick={() => {
+                            if (aiTestingMode) {
+                              // Direct generation mode - skip diagnostic
+                              setForm(prev => ({ ...prev, studentLevel: 'beginner', studentQuery: topic }))
+                              setWorkflowPhase('generating')
+                              handleGenerate(topic)
+                            } else {
+                              // Normal mode - set input for chat
+                              setUserInput(topic)
+                            }
+                          }}
+                          className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                            aiTestingMode 
+                              ? 'border-yellow-300 bg-yellow-50 text-yellow-700 hover:border-yellow-400 hover:bg-yellow-100' 
+                              : 'border-slate-300 bg-white text-slate-700 hover:border-blue-300 hover:text-blue-700'
+                          }`}
                         >
-                          {topic}
+                          {aiTestingMode && '⚡ '}{topic}
                         </button>
                       ))}
                     </div>
@@ -1017,6 +1364,62 @@ export default function CreateLessonPage() {
                         </div>
                       </div>
                     )}
+
+                    {/* AI Testing Mode Toggle */}
+                    {(mentorStage === 'opening' || mentorStage === 'diagnostic') && (
+                      <div className="flex justify-center py-2">
+                        <div className="flex items-center gap-3 bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-2">
+                          <span className="text-xs font-medium text-yellow-700">
+                            {uiLanguage === 'zh' ? 'AI测试模式' : 'AI Testing Mode'}
+                          </span>
+                          <button
+                            onClick={() => setAiTestingMode(!aiTestingMode)}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                              aiTestingMode ? 'bg-yellow-500' : 'bg-gray-200'
+                            }`}
+                          >
+                            <span className="sr-only">
+                              {uiLanguage === 'zh' ? 'AI测试模式' : 'AI Testing Mode'}
+                            </span>
+                            <span
+                              className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${
+                                aiTestingMode ? 'translate-x-5' : 'translate-x-1'
+                              }`}
+                            />
+                          </button>
+                          <span className="text-xs text-yellow-600">
+                            {aiTestingMode 
+                              ? (uiLanguage === 'zh' ? '⚡ 点击直接生成课程' : '⚡ Click topics to generate instantly')
+                              : (uiLanguage === 'zh' ? '正常诊断流程' : 'Normal diagnostic flow')
+                            }
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* E: Diagnostic progress indicator */}
+                    {mentorStage === 'diagnostic' && diagnosticTurn >= 1 && (
+                      <div className="flex justify-center py-2">
+                        <div className="flex items-center gap-2 text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-full px-3 py-1.5">
+                          {diagnosticRunning
+                            ? <span className="animate-pulse">{uiLanguage === 'zh' ? '正在评估...' : 'Diagnosing...'}</span>
+                            : (
+                              <>
+                                <span>{uiLanguage === 'zh' ? '基础诊断' : 'Level check'}</span>
+                                {[1, 2, 3].map(n => (
+                                  <div
+                                    key={n}
+                                    className={`w-2 h-2 rounded-full ${diagnosticTurn > n ? 'bg-blue-500' : diagnosticTurn === n ? 'bg-blue-300 animate-pulse' : 'bg-gray-200'}`}
+                                  />
+                                ))}
+                                <span className="text-blue-600">{diagnosticTurn}/3</span>
+                              </>
+                            )
+                          }
+                        </div>
+                      </div>
+                    )}
+
                     <div ref={chatEndRef} />
                   </div>
 
@@ -1155,22 +1558,144 @@ export default function CreateLessonPage() {
             {(workflowPhase === 'generating' || workflowPhase === 'preview') && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 {generating ? (
-                  <div className="py-12 text-center space-y-8">
-                    <div className="relative w-32 h-32 mx-auto">
-                      <div className="absolute inset-0 rounded-full border-4 border-gray-100"></div>
-                      <div className="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin"></div>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-xl font-bold text-blue-600">{pipelineProgress?.progress || 0}%</span>
+                  <div className="py-8 max-w-md mx-auto">
+                    {failedStage ? (
+                      /* ── Error state ── */
+                      <div className="text-center">
+                        <div className="text-4xl mb-3">⚠️</div>
+                        <div className="text-lg font-semibold text-red-600 mb-2">
+                          {uiLanguage === 'zh' ? '生成失败' : 'Generation Failed'}
+                        </div>
+                        <div className="text-sm text-gray-500 mb-4 leading-relaxed">
+                          {uiLanguage === 'zh'
+                            ? <>在 <strong>{pipelineStages.find(s => s.key === (failedStage?.replace('_complete','') ?? failedStage))?.labelZh ?? failedStage}</strong> 阶段出错，请重试。</>
+                            : <>Something went wrong during <strong>{pipelineStages.find(s => s.key === (failedStage?.replace('_complete','') ?? failedStage))?.label ?? failedStage}</strong>. Please try again.</>
+                          }
+                        </div>
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-5 text-sm text-center text-red-900">
+                          {uiLanguage === 'zh' ? '该阶段失败，请重试。' : 'This stage failed. Please try again.'}
+                        </div>
+                        {/* Stage pipeline showing failure point */}
+                        <div className="flex justify-between items-start mb-5 text-xs">
+                          {pipelineStages.map((stage, i) => (
+                            <div key={stage.key} className="flex items-start" style={{flex: 1}}>
+                              <div className="flex flex-col items-center w-full">
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold mb-1
+                                  ${stage.status === 'done'   ? 'bg-green-500 text-white' : ''}
+                                  ${stage.status === 'failed' ? 'bg-red-600 text-white' : ''}
+                                  ${stage.status === 'pending'? 'bg-gray-200 text-gray-400' : ''}
+                                `}>
+                                  {stage.status === 'done'    ? '✓' : stage.status === 'failed' ? '✗' : String(i + 1)}
+                                </div>
+                                <div className={stage.status === 'failed' ? 'text-red-600 font-semibold' : 'text-gray-400'}>
+                                  {uiLanguage === 'zh' ? stage.labelZh : stage.label}
+                                </div>
+                              </div>
+                              {i < pipelineStages.length - 1 && (
+                                <div className="flex items-center pb-5 flex-1">
+                                  <div className={`h-0.5 w-full ${pipelineStages[i].status === 'done' ? 'bg-green-500' : 'bg-gray-200'}`} />
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex gap-3">
+                          <button
+                            className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg font-semibold text-sm hover:bg-blue-700 transition-colors"
+                            onClick={() => {
+                              setFailedStage(null)
+                              setPipelineStages(prev => prev.map(s => ({ ...s, status: 'pending' as const })))
+                              setPipelineProgress(null)
+                              setElapsedSeconds(0)
+                              handleGenerate(form.studentQuery)
+                            }}
+                          >
+                            {uiLanguage === 'zh' ? '🔄 重试' : '🔄 Try Again'}
+                          </button>
+                          <button
+                            className="px-4 py-2.5 bg-white text-gray-500 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+                            onClick={() => {
+                              setFailedStage(null)
+                              setGenerating(false)
+                              setPipelineStages(prev => prev.map(s => ({ ...s, status: 'pending' as const })))
+                              setPipelineProgress(null)
+                            }}
+                          >
+                            {uiLanguage === 'zh' ? '取消' : 'Cancel'}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                    <div className="max-w-md mx-auto">
-                      <h3 className="text-xl font-bold text-gray-900 mb-2">
-                        {pipelineProgress?.stepName || (uiLanguage === 'zh' ? '正在准备...' : 'Preparing...')}
-                      </h3>
-                      <p className="text-gray-500 animate-pulse">
-                        {pipelineProgress?.stepDescription || (uiLanguage === 'zh' ? 'AI正在思考最佳教学方案...' : 'AI is thinking about the best teaching plan...')}
-                      </p>
-                    </div>
+                    ) : (
+                      /* ── In-progress state ── */
+                      <div>
+                        <div className="text-center mb-5">
+                          <div className="text-xs text-gray-400 uppercase tracking-widest mb-1">
+                            {uiLanguage === 'zh' ? '正在生成课程' : 'GENERATING YOUR LESSON'}
+                          </div>
+                          <div className="text-4xl font-bold text-blue-600">{pipelineProgress?.progress || 0}%</div>
+                          <div className="text-sm font-medium text-gray-700 mt-1">
+                            {pipelineProgress?.stepName || (uiLanguage === 'zh' ? '正在准备...' : 'Preparing...')}
+                          </div>
+                          <div className="text-xs text-gray-400 mt-1">
+                            {pipelineProgress?.stepDescription || (uiLanguage === 'zh' ? 'AI正在思考最佳教学方案...' : 'AI is thinking about the best teaching plan...')}
+                          </div>
+                        </div>
+                        {/* Progress bar */}
+                        <div className="bg-gray-200 rounded-lg h-2.5 my-4 overflow-hidden">
+                          <div
+                            className="bg-gradient-to-r from-blue-500 to-indigo-500 h-full rounded-lg transition-all duration-300"
+                            style={{ width: `${pipelineProgress?.progress || 0}%` }}
+                          />
+                        </div>
+                        {/* Stage pipeline */}
+                        <div className="flex justify-between items-start my-4 text-xs">
+                          {pipelineStages.map((stage, i) => (
+                            <div key={stage.key} className="flex items-start" style={{flex: 1}}>
+                              <div className="flex flex-col items-center w-full">
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold mb-1
+                                  ${stage.status === 'done'   ? 'bg-green-500 text-white' : ''}
+                                  ${stage.status === 'active' ? 'bg-blue-500 text-white animate-pulse' : ''}
+                                  ${stage.status === 'failed' ? 'bg-red-600 text-white' : ''}
+                                  ${stage.status === 'pending'? 'bg-gray-200 text-gray-400' : ''}
+                                `}>
+                                  {stage.status === 'done'    ? '✓' : ''}
+                                  {stage.status === 'active'  ? '⟳' : ''}
+                                  {stage.status === 'failed'  ? '✗' : ''}
+                                  {stage.status === 'pending' ? String(i + 1) : ''}
+                                </div>
+                                <div className={`text-center
+                                  ${stage.status === 'active'  ? 'text-blue-500 font-semibold' : ''}
+                                  ${stage.status === 'failed'  ? 'text-red-600 font-semibold' : ''}
+                                  ${stage.status !== 'active' && stage.status !== 'failed' ? 'text-gray-400' : ''}
+                                `}>
+                                  {uiLanguage === 'zh' ? stage.labelZh : stage.label}
+                                </div>
+                              </div>
+                              {i < pipelineStages.length - 1 && (
+                                <div className="flex items-center pb-5 flex-1">
+                                  <div className={`h-0.5 w-full
+                                    ${pipelineStages[i].status === 'done'   ? 'bg-green-500' : ''}
+                                    ${pipelineStages[i].status === 'active' ? 'bg-blue-400' : ''}
+                                    ${pipelineStages[i].status !== 'done' && pipelineStages[i].status !== 'active' ? 'bg-gray-200' : ''}
+                                  `} />
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {/* Elapsed timer */}
+                        <div className="flex justify-between text-xs text-gray-400 mt-4 pt-3 border-t border-gray-100">
+                          <span>
+                            ⏱ {uiLanguage === 'zh' ? '已运行' : 'Running for'}{' '}
+                            <strong>{Math.floor(elapsedSeconds / 60)}m {elapsedSeconds % 60}s</strong>
+                          </span>
+                          <span>
+                            {uiLanguage === 'zh' ? '预计还需' : 'Est. remaining:'}{' '}
+                            <strong>~{Math.max(0, Math.round((215 - elapsedSeconds) / 60))}m</strong>
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : preview ? (
                   <div className="space-y-8">

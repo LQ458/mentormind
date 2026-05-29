@@ -1,0 +1,757 @@
+{
+  "topic": "Supply and demand",
+  "language": "en",
+  "elapsed_s": 138.9,
+  "event_count": 32,
+  "tool_counts": {
+    "agent_start": 1,
+    "agent_result": 1,
+    "board_created": 1,
+    "element_added": 29
+  },
+  "element_count": 29,
+  "destructive_clear": false,
+  "step_list_present": true,
+  "events": [
+    {
+      "event_type": "agent_start",
+      "timestamp": 1776690357.364662,
+      "element_id": null,
+      "data": {
+        "agent": "researcher",
+        "task": "Supply and demand: key concepts, laws, equilibrium, shifts vs movements, determinants of supply and demand, price floors"
+      }
+    },
+    {
+      "event_type": "agent_result",
+      "timestamp": 1776690374.796486,
+      "element_id": null,
+      "data": {
+        "agent": "researcher",
+        "result": {
+          "facts": [
+            "The law of demand states that, all else being equal, as the price of a good increases, the quantity demanded decreases.",
+            "The law of supply states that, all else being equal, as the price of a good increases, the quantity supplied increases.",
+            "Market equilibrium occurs where the quantity demanded equals the quantity supplied, resulting in an equilibrium price and quantity.",
+            "A shift in the demand or supply curve occurs due to changes in non-price determinants, while a movement along the curve is caused by price changes.",
+            "Price floors (minimum prices) and ceilings (maximum prices) are government-imposed limits that can lead to surpluses or shortages in the market.",
+            "Consumer surplus is the difference between what consumers are willing to pay and what they actually pay, while producer surplus is the difference between the market price and the minimum price producers are willing to accept."
+          ],
+          "key_terms": [
+            "Law of Demand",
+            "Law of Supply",
+            "Equilibrium",
+            "Shifts vs Movements",
+            "Determinants of Supply and Demand",
+            "Price Floor",
+            "Price Ceiling",
+            "Consumer Surplus",
+            "Producer Surplus"
+          ],
+          "source_hints": [
+            "Microeconomics textbooks: Supply and Demand chapters",
+            "Online resources: Khan Academy's Supply and Demand module",
+            "Economic journals: Articles on market equilibrium and price controls",
+            "Lecture notes: Intermediate Microeconomics courses"
+          ]
+        }
+      }
+    },
+    {
+      "event_type": "board_created",
+      "timestamp": 1776690378.895176,
+      "element_id": null,
+      "data": {
+        "board_id": "27e4043c-4914-40fc-b244-77e1a272d03f",
+        "title": "Supply and Demand",
+        "layout": "full_canvas",
+        "background": "dark_board",
+        "topic": "Supply and Demand"
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690385.924803,
+      "element_id": "56280e9c-e42f-4e24-86ff-fb1182093dda",
+      "data": {
+        "element_type": "title",
+        "content": "Supply and Demand",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "xlarge",
+          "animation": "write"
+        },
+        "narration": "Welcome! Today we're diving into one of the most fundamental concepts in all of economics: supply and demand.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690389.2247932,
+      "element_id": "f7b089da-0a1c-42f6-af27-db01c9112b4e",
+      "data": {
+        "element_type": "text_block",
+        "content": "Have you ever wondered why concert tickets cost more for popular artists? Or why strawberries are cheaper in summer? The answer lies in supply and demand — the invisible forces that determine prices in every market.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Have you ever wondered why concert tickets cost more for popular artists? Or why strawberries are cheaper in summer? The answer lies in supply and demand — the invisible forces shaping every market.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690393.576483,
+      "element_id": "cc8f7472-9fdf-4a0c-89d3-c145a59bcbd0",
+      "data": {
+        "element_type": "step_list",
+        "content": "Today we'll cover five key topics",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "accent",
+          "size": "medium",
+          "animation": "slide_in"
+        },
+        "narration": "We'll build this lesson in five steps: the law of demand, the law of supply, market equilibrium, shifts versus movements, and finally price controls and surplus.",
+        "metadata": {
+          "steps": [
+            "The Law of Demand",
+            "The Law of Supply",
+            "Market Equilibrium",
+            "Shifts vs. Movements Along the Curve",
+            "Price Controls & Surplus"
+          ]
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690396.066557,
+      "element_id": "774eb9d5-177e-44ee-9b19-a0609c6d5c1a",
+      "data": {
+        "element_type": "title",
+        "content": "1. The Law of Demand",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "write"
+        },
+        "narration": "Let's start with the law of demand — the first pillar of market analysis.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690399.6774201,
+      "element_id": "9bf25aed-6aa2-42eb-a6cc-8ca5c86c1fac",
+      "data": {
+        "element_type": "text_block",
+        "content": "Imagine a coffee shop raises its price from $3 to $5. What happens? Fewer people buy coffee. Some switch to tea, others make it at home. This everyday observation captures the essence of the law of demand.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Imagine a coffee shop raises its price from $3 to $5. Fewer people buy coffee — some switch to tea, others make it at home. This captures the essence of the law of demand.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690402.784728,
+      "element_id": "ce05aaec-08d8-49c7-a9b7-b127c6590bc7",
+      "data": {
+        "element_type": "definition_box",
+        "content": "Law of Demand: All else being equal, as the price of a good increases, the quantity demanded decreases — and as the price decreases, the quantity demanded increases.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "accent",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "Formally: all else being equal, as the price of a good increases, the quantity demanded decreases, and vice versa. This inverse relationship is the law of demand.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690406.5950909,
+      "element_id": "107d9936-0eed-4eb5-8ed6-b3964355ab2e",
+      "data": {
+        "element_type": "graph",
+        "content": "Demand Curve: Q_d = 100 - 2P",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "mauve",
+          "size": "medium",
+          "animation": "slide_in"
+        },
+        "narration": "On a graph, the demand curve slopes downward from left to right — reflecting that inverse relationship between price and quantity demanded.",
+        "metadata": {
+          "expression": "100 - 2*x",
+          "x_range": [
+            0,
+            50
+          ],
+          "y_range": [
+            0,
+            100
+          ],
+          "x_label": "Price ($)",
+          "y_label": "Quantity Demanded"
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690409.1359,
+      "element_id": "275666e3-48fc-4555-b8b9-9c24f2e638c9",
+      "data": {
+        "element_type": "title",
+        "content": "2. The Law of Supply",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "write"
+        },
+        "narration": "Now let's flip to the other side of the market — the sellers. This is the law of supply.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690412.8950028,
+      "element_id": "bf616c1d-c0e4-4ea1-8a90-6187ccb6b1a6",
+      "data": {
+        "element_type": "text_block",
+        "content": "Think about a farmer growing strawberries. If the market price is $2 per box, she might produce 100 boxes. But if the price jumps to $6? She'll plant more fields and hire extra workers — producing 500 boxes. Higher prices incentivize more production.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Think about a farmer growing strawberries. At $2 per box, she produces 100. At $6? She'll plant more and hire help — producing 500. Higher prices incentivize more production.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690416.955782,
+      "element_id": "85cc8a48-1368-4401-a92a-9595a17e5671",
+      "data": {
+        "element_type": "definition_box",
+        "content": "Law of Supply: All else being equal, as the price of a good increases, the quantity supplied increases — and as the price decreases, the quantity supplied decreases.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "green",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "Formally: all else being equal, as price increases, quantity supplied increases, and vice versa. This positive relationship is the law of supply.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690420.835291,
+      "element_id": "d0ae098a-675b-4440-8835-a91ab04d7d91",
+      "data": {
+        "element_type": "graph",
+        "content": "Supply Curve: Q_s = 2P",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "green",
+          "size": "medium",
+          "animation": "slide_in"
+        },
+        "narration": "The supply curve slopes upward — higher price means more quantity supplied. Notice how it mirrors the demand curve in the opposite direction.",
+        "metadata": {
+          "expression": "2*x",
+          "x_range": [
+            0,
+            50
+          ],
+          "y_range": [
+            0,
+            100
+          ],
+          "x_label": "Price ($)",
+          "y_label": "Quantity Supplied"
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690423.3570828,
+      "element_id": "5cd24b3e-1536-4fa2-8871-62cd8d7228a7",
+      "data": {
+        "element_type": "title",
+        "content": "3. Market Equilibrium",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "write"
+        },
+        "narration": "Now the magic happens — we bring supply and demand together. Where they meet is called market equilibrium.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690427.2154398,
+      "element_id": "14422496-f553-4283-8321-4c996c6a90e4",
+      "data": {
+        "element_type": "graph",
+        "content": "Equilibrium: Supply and Demand Combined",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "accent",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "When we overlay both curves on the same graph, they cross at a single point — that's the equilibrium, where quantity demanded equals quantity supplied.",
+        "metadata": {
+          "expression": "2*x",
+          "x_range": [
+            0,
+            50
+          ],
+          "y_range": [
+            0,
+            100
+          ],
+          "x_label": "Price ($)",
+          "y_label": "Quantity",
+          "second_expression": "100 - 2*x"
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690430.3747,
+      "element_id": "959cf473-1c11-46fc-a040-10e8beba1daf",
+      "data": {
+        "element_type": "definition_box",
+        "content": "Market Equilibrium: The point at which quantity demanded equals quantity supplied (Q_d = Q_s). The corresponding price is the equilibrium price, and the quantity is the equilibrium quantity.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "yellow",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "Market equilibrium is where quantity demanded equals quantity supplied. The corresponding price is the equilibrium price, and the quantity is the equilibrium quantity.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690434.066051,
+      "element_id": "913118dc-82b5-41de-9f40-b96718279ab5",
+      "data": {
+        "element_type": "transform",
+        "content": "Finding Equilibrium: Set Q_d = Q_s",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "accent",
+          "size": "medium",
+          "animation": "write"
+        },
+        "narration": "Let's solve for equilibrium. Setting demand equal to supply: 100 minus 2P equals 2P. Solving gives us P-star equals 25, and Q-star equals 50.",
+        "metadata": {
+          "from": "100 - 2P = 2P",
+          "to": "P* = 25,  Q* = 50"
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690438.424472,
+      "element_id": "a4ad4d9d-e9ce-4ca5-bf1a-0c27684ccfaa",
+      "data": {
+        "element_type": "text_block",
+        "content": "What if the price is NOT at equilibrium? Two scenarios arise:\n\n• Surplus (Excess Supply): When price is above equilibrium, quantity supplied exceeds quantity demanded. Sellers have unsold goods and tend to lower prices.\n\n• Shortage (Excess Demand): When price is below equilibrium, quantity demanded exceeds quantity supplied. Buyers compete for limited goods, pushing prices up.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "If the price isn't at equilibrium, we get imbalances. Above equilibrium: a surplus — too much supply, prices fall. Below equilibrium: a shortage — too much demand, prices rise. The market naturally gravitates back to equilibrium.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690441.294559,
+      "element_id": "c38c6eab-0660-4654-a514-d7510cf462e0",
+      "data": {
+        "element_type": "title",
+        "content": "4. Shifts vs. Movements Along the Curve",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "write"
+        },
+        "narration": "This is where students often get tripped up. A change in price causes a movement along the curve — but a change in other factors causes the entire curve to shift.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690445.65452,
+      "element_id": "0bf50887-0c4b-4adf-ba25-f9b74715cd2b",
+      "data": {
+        "element_type": "table",
+        "content": "Determinants that SHIFT the curves",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "slide_in"
+        },
+        "narration": "These are the non-price factors that shift the entire curve. For demand: income, related goods, tastes, buyers, and expectations. For supply: input costs, technology, number of sellers, government policy, and expectations.",
+        "metadata": {
+          "headers": [
+            "Demand Shifters",
+            "Supply Shifters"
+          ],
+          "rows": [
+            [
+              "Income changes",
+              "Input costs (labor, materials)"
+            ],
+            [
+              "Prices of related goods",
+              "Technology improvements"
+            ],
+            [
+              "Tastes and preferences",
+              "Number of sellers"
+            ],
+            [
+              "Number of buyers",
+              "Government policies (taxes/subsidies)"
+            ],
+            [
+              "Expectations about future",
+              "Expectations about future prices"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690448.965167,
+      "element_id": "7b08a082-893c-4567-9655-dd37429468ac",
+      "data": {
+        "element_type": "theorem_box",
+        "content": "Key Principle: A change in the good's own price → Movement along the curve. A change in any non-price determinant → Entire curve shifts.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "red",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "Here's the critical distinction: a change in the good's own price causes a movement along the curve. A change in any non-price determinant shifts the entire curve. Don't confuse these!",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690452.774445,
+      "element_id": "4a67d5bf-21d0-49aa-815a-afea502a9de5",
+      "data": {
+        "element_type": "text_block",
+        "content": "Example: If a health report shows coffee reduces heart disease risk, demand shifts right (D → D'). At the original price, there's now a shortage, pushing the price up until a new, higher equilibrium is reached.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "mauve",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Here's an example: if a health report shows coffee reduces heart disease risk, demand shifts right. At the original price, a shortage pushes the price up until a new, higher equilibrium is reached.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690455.265895,
+      "element_id": "8cce0cc4-b47d-48f6-8fa2-fbcf5bd0481e",
+      "data": {
+        "element_type": "title",
+        "content": "5. Price Controls & Surplus",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "write"
+        },
+        "narration": "Finally, what happens when governments intervene? Price controls can prevent markets from reaching equilibrium, creating important consequences.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690458.374627,
+      "element_id": "ae148d60-7eab-4be9-9957-e2237d949dae",
+      "data": {
+        "element_type": "definition_box",
+        "content": "Price Ceiling: A legal maximum price set below the equilibrium price. Result: shortage (quantity demanded > quantity supplied). Example: Rent control.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "red",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "A price ceiling is a legal maximum price, set below equilibrium. The result? A shortage — more people want the good than can get it. Rent control is a classic example.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690461.744512,
+      "element_id": "9bf77932-ad21-4d8a-a610-605f8d2b40c1",
+      "data": {
+        "element_type": "definition_box",
+        "content": "Price Floor: A legal minimum price set above the equilibrium price. Result: surplus (quantity supplied > quantity demanded). Example: Minimum wage.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "green",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "A price floor is a legal minimum price, set above equilibrium. The result? A surplus — more goods are produced than people want to buy. The minimum wage is a classic example.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690465.0644438,
+      "element_id": "6393d142-0097-4311-b085-43be46601a8f",
+      "data": {
+        "element_type": "definition_box",
+        "content": "Consumer Surplus: The difference between what consumers are willing to pay and what they actually pay. It's the area below the demand curve and above the equilibrium price.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "mauve",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "Consumer surplus is the difference between what buyers are willing to pay and what they actually pay — the area below the demand curve and above the price. It's the benefit consumers gain from market exchange.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690469.834317,
+      "element_id": "edd90d33-2d77-4568-a3de-8d2cc9d48ef4",
+      "data": {
+        "element_type": "definition_box",
+        "content": "Producer Surplus: The difference between the market price and the minimum price producers are willing to accept. It's the area above the supply curve and below the equilibrium price.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "green",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "Producer surplus is the difference between the market price and the minimum sellers would accept — the area above the supply curve and below the price. It's the benefit producers gain.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690473.7945971,
+      "element_id": "a343de5a-7017-4001-bd92-41527893c5d3",
+      "data": {
+        "element_type": "equation",
+        "content": "\\text{Total Surplus} = \\text{Consumer Surplus} + \\text{Producer Surplus}",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "yellow",
+          "size": "large",
+          "animation": "write"
+        },
+        "narration": "Total surplus — the sum of consumer and producer surplus — measures the total welfare generated by the market. At equilibrium, total surplus is maximized.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690476.174438,
+      "element_id": "d1e9333d-310a-4d04-bcee-6b6ef9aad04e",
+      "data": {
+        "element_type": "title",
+        "content": "Lesson Recap",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "write"
+        },
+        "narration": "Let's wrap up with a quick recap of everything we've covered.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690482.465389,
+      "element_id": "b6345fdc-4ff0-4e77-88bc-bc8d2a47ff79",
+      "data": {
+        "element_type": "text_block",
+        "content": "🔑 Key Takeaways:\n\n1. Law of Demand — Price ↑, Quantity Demanded ↓ (downward-sloping curve)\n2. Law of Supply — Price ↑, Quantity Supplied ↑ (upward-sloping curve)\n3. Market Equilibrium — Where Q_d = Q_s; surpluses push prices down, shortages push them up\n4. Shifts vs. Movements — Price changes cause movements; non-price factors cause shifts\n5. Price Controls — Ceilings create shortages; floors create surpluses\n6. Surplus — Consumer + Producer surplus = total welfare, maximized at equilibrium\n\nRemember: supply and demand isn't just theory — it's the engine behind every price you see, from groceries to housing to tech stocks.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "accent",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Here are your key takeaways. Demand slopes down, supply slopes up. Equilibrium is where they meet. Price changes cause movements along curves; other factors shift the whole curve. Price ceilings create shortages, floors create surpluses. And total surplus is maximized at equilibrium. Supply and demand isn't just theory — it's the engine behind every price you see.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690486.1644218,
+      "element_id": "c924c3cd-7433-47d2-9e18-73546953eadc",
+      "data": {
+        "element_type": "text_block",
+        "content": "💡 Think About It: Next time you see a surge in ride-share prices during rush hour, ask yourself — did demand shift right, or did supply shift left? You now have the tools to analyze it!",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "yellow",
+          "size": "medium",
+          "animation": "slide_in"
+        },
+        "narration": "Next time you see surge pricing on a ride-share app, ask yourself: did demand shift right, or did supply shift left? You now have the tools to figure it out. Thanks for learning!",
+        "metadata": {}
+      }
+    }
+  ]
+}

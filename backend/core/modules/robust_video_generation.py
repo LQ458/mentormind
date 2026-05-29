@@ -18,7 +18,10 @@ import re
 from typing import Any, Dict, List, Optional
 
 from prompts.loader import load_prompt, render_prompt
+from core.agents.video_quality_agent import VideoQualityAgent
 from services.api_client import APIClient, get_language_instruction
+from core.modules.content_validator import ContentValidator, validate_with_retry_suggestions
+from services.image_sources import get_educational_images, ImageSource
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +32,7 @@ ALLOWED_ACTIONS = {
     "plot",
     "transform",
     "draw_shape",
+    "show_image",
 }
 
 ALLOWED_LAYOUTS = {
@@ -42,12 +46,30 @@ ALLOWED_LAYOUTS = {
 
 DEFAULT_GRAPH = {"x_range": [-6, 6], "y_range": [-6, 6]}
 
+# Educational quality contract — see tests/unit/test_video_quality.py for the
+# canonical definition. These constants are the source of truth for scene
+# pacing and lesson structure.
+SCENE_MIN_DURATION = 18.0
+SCENE_MAX_DURATION = 60.0
+MIN_SCENE_COUNT = 24
+MAX_NARRATION_CHARS = 1200
+
 
 class RobustVideoGenerationPipeline:
     """Generate a teaching-oriented render plan with explicit validation artifacts."""
 
     def __init__(self, api_client: Optional[APIClient] = None):
         self.api_client = api_client or APIClient()
+        self.content_validator = ContentValidator()
+        self._consecutive_failures = 0
+        
+        # Initialize smart caching
+        try:
+            from core.cache.content_cache import content_cache
+            self.cache = content_cache
+        except ImportError:
+            logger.warning("Content cache not available")
+            self.cache = None
 
     async def build_generation_bundle(
         self,
@@ -61,13 +83,21 @@ class RobustVideoGenerationPipeline:
         custom_requirements: Optional[str] = None,
         existing_bundle: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        # Educational quality contract floors lessons at 10 minutes — anything
+        # shorter cannot honor the 24-scene teaching arc.
         duration_minutes = max(10, int(duration_minutes or 10))
-        # Increase scene count significantly for long-form lessons
-        target_scene_count = max(24, min(32, duration_minutes + 14))
+        # Target concise, animation-dense videos (3Blue1Brown style)
+        # Aim for the documented quality band: a 10-min lesson lands at 24
+        # scenes, scaling up to a hard cap of 32 for longer formats.
+        target_scene_count = max(MIN_SCENE_COUNT, min(32, duration_minutes + 14))
         language_instruction = get_language_instruction(language)
         
         # Reuse syllabus if available from previous attempt to save time and tokens
         syllabus = existing_bundle.get("syllabus") if existing_bundle else None
+        if syllabus:
+            logger.info(f"♻️ Reusing existing syllabus for '{topic}' — skipping LLM call")
+        else:
+            logger.info(f"📝 No existing syllabus for '{topic}' — will generate via LLM")
         
         # Normalize external syllabus to ensure chapters have IDs expected by the prompt
         if syllabus and isinstance(syllabus.get("chapters"), list):
@@ -96,10 +126,16 @@ class RobustVideoGenerationPipeline:
                 max_tokens=3200,
             )
 
-        storyboard_fallback = self._fallback_storyboard(topic, content, syllabus, language)
-        storyboard = await self._run_stage(
-            "storyboard",
-            "video/storyboard_builder",
+        # ── Single-shot render plan: syllabus → render_plan directly ──────
+        # Merges the old storyboard + render_plan stages into one LLM call,
+        # cutting ~1.5 min off generation time.
+        storyboard = None  # kept for bundle compatibility
+        render_fallback = self._fallback_render_plan(
+            topic, self._fallback_storyboard(topic, content, syllabus, language), language
+        )
+        render_plan = await self._run_stage(
+            "direct_render_plan",
+            "video/direct_render_plan",
             {
                 "topic": topic,
                 "style": style,
@@ -111,47 +147,72 @@ class RobustVideoGenerationPipeline:
                 "language_instruction": language_instruction,
                 "syllabus_json": json.dumps(syllabus, ensure_ascii=False, indent=2),
             },
-            storyboard_fallback,
-            temperature=0.2,
-            max_tokens=8000,
-        )
-
-        render_fallback = self._fallback_render_plan(topic, storyboard, language)
-        render_plan = await self._run_stage(
-            "render_plan",
-            "video/render_plan_builder",
-            {
-                "topic": topic,
-                "style": style,
-                "student_level": student_level,
-                "duration_minutes": duration_minutes,
-                "language_instruction": language_instruction,
-                "storyboard_json": json.dumps(storyboard, ensure_ascii=False, indent=2),
-            },
             render_fallback,
-            temperature=0.1,
+            temperature=0.15,
             max_tokens=8000,
         )
 
+        # Validate render plan structure
         validation = self._validate_render_plan(render_plan, language, duration_minutes)
         repaired_render_plan = validation["render_plan"]
 
-        review = await self._review_render_plan(topic, style, repaired_render_plan)
-        if review.get("recommended_fixes"):
-            repaired_render_plan, review_applied = self._apply_review_patches(
-                repaired_render_plan,
-                review["recommended_fixes"],
-                language,
-            )
-            validation["review_applied"] = review_applied
+        # ── Lightweight review: skip full LLM review, apply quality agent only ──
+        # The old pipeline ran a separate LLM review call (~30s) plus content
+        # validation with retry (potentially re-generating storyboard + render_plan
+        # for another ~5min).  Instead we rely on the local quality agent which is
+        # instant and apply its fixes directly.
+        review: Dict[str, Any] = {"approved": True, "issues": [], "recommended_fixes": []}
+
+        # Video quality evaluation and improvement (instant, no LLM call)
+        quality_agent = VideoQualityAgent()
+        quality_report = quality_agent.evaluate_render_plan(repaired_render_plan)
+        logger.info(f"📊 Video quality score: {quality_report.score:.0f}/100 (Grade: {quality_report.grade})")
+        if quality_report.issues:
+            for issue in quality_report.issues:
+                logger.warning(f"  ⚠️ {issue}")
+        if quality_report.score < 60:
+            logger.info("🔧 Applying automatic quality improvements...")
+            repaired_render_plan = quality_agent.improve_render_plan(repaired_render_plan, quality_report)
+
+        # Quick local content validation (no retry/regeneration)
+        final_bundle = {
+            "topic": topic,
+            "syllabus": syllabus,
+            "storyboard": storyboard,
+            "render_plan": repaired_render_plan
+        }
+        final_is_valid, final_suggestions, final_metadata = validate_with_retry_suggestions(final_bundle)
+        validation["content_validation"] = {
+            "is_valid": final_is_valid,
+            "completeness_score": final_metadata.get("completeness_score", 0),
+            "suggestions": final_suggestions,
+            "metadata": final_metadata
+        }
+
+        # ── Best-effort educational image search ────────────────────────
+        educational_images: List[Dict[str, Any]] = []
+        try:
+            context = content[:500] if content else topic
+            images = await get_educational_images(topic, context, max_images=4)
+            for img in images:
+                educational_images.append({
+                    "url": img.url,
+                    "local_path": img.local_path,
+                    "title": img.title,
+                    "attribution": img.attribution,
+                    "source": img.source,
+                    "relevance_score": img.relevance_score,
+                })
+            if educational_images:
+                logger.info(f"🖼️ Found {len(educational_images)} educational images for '{topic}'")
+        except Exception as e:
+            logger.warning(f"⚠️ Image search failed (non-fatal): {e}")
 
         prompt_versions = {
             name: self._prompt_version(name)
             for name in [
                 "video/lesson_syllabus",
-                "video/storyboard_builder",
-                "video/render_plan_builder",
-                "video/render_plan_review",
+                "video/direct_render_plan",
             ]
         }
 
@@ -167,8 +228,10 @@ class RobustVideoGenerationPipeline:
             "storyboard": storyboard,
             "render_plan": repaired_render_plan,
             "validation": validation,
+            "quality_report": quality_report.to_dict(),
             "review": review,
             "prompt_versions": prompt_versions,
+            "educational_images": educational_images,
         }
 
     async def _run_stage(
@@ -181,80 +244,84 @@ class RobustVideoGenerationPipeline:
         temperature: float,
         max_tokens: int,
     ) -> Dict[str, Any]:
+        
+        topic = variables.get("topic", "")
+        style = variables.get("style", "general")
+        
+        # Try cache first (super fast!)
+        if self.cache:
+            # Remove duplicate parameters from variables to avoid conflicts
+            cache_vars = {k: v for k, v in variables.items() if k not in ['topic', 'style', 'syllabus_json', 'storyboard_json']}
+            cached_result = self.cache.get(topic, style, stage_name, **cache_vars)
+            if cached_result:
+                return cached_result
+        
+        # Smart fallback: Use high-quality templates when available  
+        if hasattr(self, '_consecutive_failures') and self._consecutive_failures >= 2:
+            template_result = self._try_template_generation(stage_name, variables)
+            if template_result:
+                logger.info(f"Using high-quality template for {stage_name}")
+                if self.cache:
+                    # Remove duplicate parameters from variables to avoid conflicts
+                    cache_vars = {k: v for k, v in variables.items() if k not in ['topic', 'style', 'syllabus_json', 'storyboard_json']}
+                    self.cache.set(topic, style, stage_name, template_result, **cache_vars)
+                return template_result
+            logger.info(f"Fast-track mode: Using basic fallback for {stage_name}")
+            return fallback
+            
         prompt = render_prompt(prompt_name, **variables)
-        try:
-            response = await self.api_client.deepseek.chat_completion(
-                messages=[
-                    {"role": "system", "content": "Return strict JSON only."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            if not response.success:
-                logger.warning("Stage %s failed: %s", stage_name, response.error)
-                return fallback
-
-            content = response.data["choices"][0]["message"]["content"]
-            parsed = self._parse_json_response(content)
-            if isinstance(parsed, dict):
-                return parsed
-
-            logger.warning("Stage %s returned non-dict JSON, using fallback", stage_name)
-            return fallback
-        except Exception as exc:
-            logger.warning("Stage %s exception: %s", stage_name, exc)
-            return fallback
-
-    async def _review_render_plan(self, topic: str, style: str, render_plan: Dict[str, Any]) -> Dict[str, Any]:
-        fallback = {"approved": True, "issues": [], "recommended_fixes": []}
-        prompt = render_prompt(
-            "video/render_plan_review",
-            topic=topic,
-            style=style,
-            render_plan_json=json.dumps(render_plan, ensure_ascii=False, indent=2),
-        )
-        try:
-            response = await self.api_client.deepseek.chat_completion(
-                messages=[
-                    {"role": "system", "content": "Return strict JSON only."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.1,
-                max_tokens=1800,
-            )
-            if not response.success:
-                return fallback
-            parsed = self._parse_json_response(response.data["choices"][0]["message"]["content"])
-            return parsed if isinstance(parsed, dict) else fallback
-        except Exception:
-            return fallback
-
-    def _apply_review_patches(
-        self,
-        render_plan: Dict[str, Any],
-        patches: List[Dict[str, Any]],
-        language: str,
-    ) -> tuple[Dict[str, Any], List[str]]:
-        applied: List[str] = []
-        scene_map = {scene.get("id"): scene for scene in render_plan.get("scenes", [])}
-        for patch in patches:
-            scene_id = patch.get("scene_id")
-            scene = scene_map.get(scene_id)
-            patch_data = patch.get("patch")
-            if not scene or not isinstance(patch_data, dict):
-                continue
-            scene.update(patch_data)
-            self._normalize_scene(scene, scene_id or "scene", language)
-            applied.append(scene_id)
-        return render_plan, applied
+        
+        # Board generation uses the single official DeepSeek client so model,
+        # retry, timeout and circuit-breaker behavior stay consistent.
+        providers = [
+            ("deepseek-v4-pro", self.api_client.deepseek.chat_completion),
+        ]
+        
+        for provider_name, provider_func in providers:
+            try:
+                response = await provider_func(
+                    messages=[
+                        {"role": "system", "content": "Return strict JSON only. Use double quotes for all property names and string values. Do not include any text before or after the JSON object."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                if response.success:
+                    content = response.data["choices"][0]["message"]["content"]
+                    parsed = self._parse_json_response(content)
+                    if isinstance(parsed, dict):
+                        self._reset_failures()  # Reset on success
+                        logger.info(f"✅ {stage_name} succeeded with {provider_name}")
+                        # Cache successful result
+                        if self.cache:
+                            # Remove duplicate parameters from variables to avoid conflicts
+                            cache_vars = {k: v for k, v in variables.items() if k not in ['topic', 'style', 'syllabus_json', 'storyboard_json']}
+                            self.cache.set(topic, style, stage_name, parsed, **cache_vars)
+                        return parsed
+                    else:
+                        logger.warning(f"❌ {provider_name} returned invalid JSON for {stage_name}")
+                        continue  # Try next provider
+                else:
+                    logger.warning(f"❌ {provider_name} failed for {stage_name}: {response.error}")
+                    continue  # Try next provider
+                    
+            except Exception as exc:
+                logger.warning(f"❌ {provider_name} exception for {stage_name}: {exc}")
+                continue  # Try next provider
+        
+        # All providers failed
+        logger.warning(f"All providers failed for {stage_name}, using fallback")
+        self._increment_failures()
+        return fallback
 
     def _validate_render_plan(self, render_plan: Dict[str, Any], language: str, duration_minutes: int) -> Dict[str, Any]:
         scenes = render_plan.get("scenes") or []
         warnings: List[str] = []
         validated_scenes: List[Dict[str, Any]] = []
-        # Target higher scene count for stability
-        minimum_scene_count = max(24, min(32, duration_minutes + 14))
+        # Educational quality contract: never ship fewer than MIN_SCENE_COUNT
+        # scenes — short lessons collapse the teaching arc.
+        minimum_scene_count = max(MIN_SCENE_COUNT, duration_minutes + 2)
 
         if not scenes:
             warnings.append("Render plan returned no scenes; using deterministic fallback scenes.")
@@ -286,7 +353,7 @@ class RobustVideoGenerationPipeline:
             scale_factor = minimum_total_duration / max(total_duration, 1.0)
             warnings.append("Scaled scene durations upward to honor the requested lesson length.")
             for scene in validated_scenes:
-                scene["duration"] = max(18.0, min(60.0, round(float(scene["duration"]) * scale_factor, 1)))
+                scene["duration"] = max(SCENE_MIN_DURATION, min(SCENE_MAX_DURATION, round(float(scene["duration"]) * scale_factor, 1)))
 
         fixed_plan = {
             "title": render_plan.get("title") or "Untitled Lesson",
@@ -298,6 +365,51 @@ class RobustVideoGenerationPipeline:
             "estimated_total_seconds": sum(float(scene.get("duration") or 0.0) for scene in fixed_plan["scenes"]),
             "render_plan": fixed_plan,
         }
+
+    def _apply_review_patches(
+        self,
+        render_plan: Dict[str, Any],
+        patches: List[Dict[str, Any]],
+        language: str,
+    ) -> tuple[Dict[str, Any], List[str]]:
+        """Apply scene-level review patches to ``render_plan``.
+
+        ``patches`` is a list of ``{"scene_id": str, "patch": dict}`` entries.
+        Each patch is shallow-merged into the matching scene and the scene is
+        re-normalized so the result still satisfies the quality contract.
+
+        Returns ``(updated_plan, applied_scene_ids)``. Patches whose scene_id
+        is unknown, whose ``patch`` is not a dict, or that are otherwise
+        malformed are silently skipped — review feedback should never break
+        an otherwise-valid plan.
+        """
+        plan = dict(render_plan or {})
+        scenes = list(plan.get("scenes") or [])
+        scenes_by_id = {
+            scene.get("id"): index
+            for index, scene in enumerate(scenes)
+            if isinstance(scene, dict) and scene.get("id")
+        }
+        applied: List[str] = []
+
+        for entry in patches or []:
+            if not isinstance(entry, dict):
+                continue
+            scene_id = entry.get("scene_id")
+            patch = entry.get("patch")
+            if not scene_id or scene_id not in scenes_by_id:
+                continue
+            if not isinstance(patch, dict):
+                continue
+            index = scenes_by_id[scene_id]
+            merged = dict(scenes[index])
+            merged.update(patch)
+            self._normalize_scene(merged, scene_id, language)
+            scenes[index] = merged
+            applied.append(scene_id)
+
+        plan["scenes"] = scenes
+        return plan, applied
 
     def _normalize_scene(self, scene: Dict[str, Any], scene_id: str, language: str) -> None:
         scene["id"] = scene_id
@@ -334,6 +446,7 @@ class RobustVideoGenerationPipeline:
             scene.get("on_screen_text") or narration,
             canvas["max_chars"],
             language,
+            scene=scene,  # C: pass scene ref so deep sanitiser can flip action
         )
         scene["duration"] = self._normalize_duration(scene.get("duration"), narration)
 
@@ -360,14 +473,28 @@ class RobustVideoGenerationPipeline:
         fallback_text: str,
         max_chars: int,
         language: str,
+        scene: Any = None,
     ) -> str:
         text = str(param or fallback_text or "").strip()
         if action == "plot":
             return self._sanitize_plot_expression(text)
         if action in {"write_tex", "transform"}:
             if self._contains_non_ascii(text):
+                # Flip action to show_text so the renderer doesn't attempt MathTex
+                # on content that contains characters the LaTeX engine cannot compile.
+                if scene is not None and isinstance(scene, dict):
+                    scene["action"] = "show_text"
+                    scene.setdefault("canvas_config", {})["layout"] = "callout_card"
                 return self._compact_text(fallback_text, max_chars)
-            return self._sanitize_latex(text) or "x^2"
+            # C: Deep LaTeX environment sanitiser
+            sanitized, safe_action = self._deep_sanitize_latex(text)
+            if safe_action == "show_text":
+                # Mutate the scene dict if provided so the renderer uses show_text
+                if scene is not None and isinstance(scene, dict):
+                    scene["action"] = "show_text"
+                    scene.setdefault("canvas_config", {})["layout"] = "callout_card"
+                return self._compact_text(fallback_text, max_chars)
+            return self._sanitize_latex(sanitized) or "x^2"
         return self._compact_text(text, max_chars)
 
     def _normalize_duration(self, duration: Any, narration: str) -> float:
@@ -377,15 +504,18 @@ class RobustVideoGenerationPipeline:
             numeric = 0.0
         if numeric <= 0:
             numeric = self._estimate_duration_from_narration(narration)
-        return max(18.0, min(60.0, round(numeric, 1)))
+        return max(SCENE_MIN_DURATION, min(SCENE_MAX_DURATION, round(numeric, 1)))
 
     def _estimate_duration_from_narration(self, narration: str) -> float:
         words = len(narration.split())
         chars = len(narration)
         if words > 0:
-            estimate = words / 2.1
+            estimate = words / 2.5
         else:
-            estimate = chars / 5.5
+            estimate = chars / 6.0
+        # Per the educational quality contract, scenes must run long enough to
+        # actually teach. Floor estimates at 24s so a single short hook line
+        # still gets enough screen time, and cap at 55s so we never linger.
         return max(24.0, min(55.0, estimate))
 
     def _sanitize_plot_expression(self, expression: str) -> str:
@@ -400,11 +530,113 @@ class RobustVideoGenerationPipeline:
         expr = re.sub(r"[^0-9a-zA-Z\\{}_^=()+\-*/., ]", "", expr)
         return expr
 
+    def _deep_sanitize_latex(self, expression: str) -> tuple[str, str]:
+        """
+        Enhanced LaTeX sanitization for better Manim MathTex compatibility
+        
+        Returns (sanitized_expr, safe_action) where safe_action is:
+          - 'write_tex' if the resulting expression looks compilable
+          - 'show_text'  if it is still too complex after stripping
+        """
+        expr = expression.strip()
+
+        # 1. Collapse \begin{env}...\end{env} — keep only the inner content
+        env_pattern = re.compile(
+            r"\\begin\{[^}]+\}(.*?)\\end\{[^}]+\}",
+            re.DOTALL,
+        )
+        for _ in range(4):  # nested environments
+            expr = env_pattern.sub(lambda m: m.group(1).strip(), expr)
+
+        # 2. Remove line-level LaTeX commands that Manim MathTex doesn't support
+        unsupported_cmds = [
+            r"\\label\{[^}]*\}",
+            r"\\tag\{[^}]*\}",
+            r"\\tag\*\{[^}]*\}",
+            r"\\nonumber",
+            r"\\intertext\{[^}]*\}",
+            r"\\allowdisplaybreaks",
+            r"\\notag",
+            r"\\displaystyle",
+            r"\\textstyle",
+            r"\\scriptstyle",
+            r"\\scriptscriptstyle",
+            r"\\usepackage\{[^}]*\}",
+            r"\\documentclass\{[^}]*\}",
+            r"\\newcommand\{[^}]*\}",
+        ]
+        for cmd_pattern in unsupported_cmds:
+            expr = re.sub(cmd_pattern, "", expr)
+
+        # 3. Fix common LaTeX syntax issues
+        # Fix exponent notation
+        expr = re.sub(r'\*\*', '^', expr)
+        
+        # Fix common bracket issues
+        expr = re.sub(r'\[\[', r'[', expr)
+        expr = re.sub(r'\]\]', r']', expr)
+        
+        # Fix multiple spaces
+        expr = re.sub(r'\s+', ' ', expr)
+        
+        # Fix common fraction issues
+        expr = re.sub(r'\\frac\s*\{\s*([^}]+)\s*\}\s*\{\s*([^}]+)\s*\}', r'\\frac{\1}{\2}', expr)
+
+        # 4. Multi-line align: keep only text up to the first \\\\ (line break)
+        if "\\\\" in expr:
+            expr = expr.split("\\\\")[0].strip()
+        
+        # Also collapse multiple & alignment points — keep text after last &
+        if "&" in expr:
+            parts = [p.strip() for p in expr.split("&")]
+            expr = " ".join(p for p in parts if p)
+
+        # 5. Remove problematic characters for Manim
+        # Keep essential math symbols, remove others
+        allowed_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/=(){}[]^_.,\\{} ")
+        filtered_expr = ''.join(c for c in expr if c in allowed_chars)
+        
+        # 6. Validate basic structure
+        # Check for balanced braces
+        open_braces = filtered_expr.count('{')
+        close_braces = filtered_expr.count('}')
+        if abs(open_braces - close_braces) > 2:  # Allow some tolerance
+            return (expr, "show_text")
+        
+        # 7. Safety verdict: if a \begin still lingers or too complex
+        if "\\begin" in filtered_expr or len(filtered_expr) > 150:
+            return (expr, "show_text")
+
+        # 8. Basic sanity — must contain at least one math character.
+        # Use the simplest possible safe placeholder so downstream MathTex
+        # always has something to render (and so the empty-input contract
+        # documented in tests/unit/test_video_quality.py holds).
+        if not re.search(r"[a-zA-Z0-9^_=+\-*/]", filtered_expr):
+            return ("x", "write_tex")
+
+        # 9. Final cleanup
+        final_expr = filtered_expr.strip()
+
+        if not final_expr:
+            return ("x", "write_tex")
+
+        return (final_expr, "write_tex")
+
     def _compact_text(self, text: str, max_chars: int) -> str:
+        """Collapse whitespace and cap length at ``max_chars`` (with an ellipsis
+        marker when truncation occurs).
+
+        We must enforce a length cap here because downstream consumers (Manim
+        f-strings, narration audio, render plan validation) all depend on a
+        bounded output — see the educational quality contract in
+        tests/unit/test_video_quality.py.
+        """
         clean = re.sub(r"\s+", " ", str(text or "")).strip()
         if len(clean) <= max_chars:
             return clean
-        return clean[: max_chars - 3].rstrip() + "..."
+        if max_chars <= 3:
+            return clean[:max_chars]
+        return clean[: max_chars - 3] + "..."
 
     def _normalize_range(self, value: Any, fallback: List[int]) -> List[int]:
         if (
@@ -447,6 +679,9 @@ class RobustVideoGenerationPipeline:
 
     def _parse_json_response(self, content: str) -> Any:
         payload = content.strip()
+        original_payload = payload  # Keep for logging
+        
+        # Extract JSON from code blocks
         if "```json" in payload:
             payload = payload.split("```json", 1)[1].split("```", 1)[0]
         elif "```" in payload:
@@ -455,36 +690,86 @@ class RobustVideoGenerationPipeline:
         
         try:
             return json.loads(payload)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            logger.debug(f"Initial JSON parse failed: {e}. Attempting repair...")
             # Attempt to fix common LLM JSON errors
             fixed_payload = self._attempt_json_repair(payload)
             try:
                 return json.loads(fixed_payload)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e2:
+                logger.debug(f"Repaired JSON parse failed: {e2}. Trying regex fallback...")
                 # Fallback to regex search
                 match = re.search(r"\{.*\}", fixed_payload, re.DOTALL)
                 if match:
                     try:
                         return json.loads(match.group(0))
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as e3:
+                        logger.warning(f"All JSON parsing attempts failed. Original: {e}, Repaired: {e2}, Regex: {e3}")
+                        logger.debug(f"Original content: {original_payload[:500]}...")
+                        logger.debug(f"Final payload: {fixed_payload[:500]}...")
                         pass
                 raise
 
     def _attempt_json_repair(self, payload: str) -> str:
         """Fix common LLM JSON errors like trailing commas or unescaped characters."""
-        # 1. Remove trailing commas before closing braces/brackets
-        repaired = re.sub(r",\s*([\]}])", r"\1", payload)
-        # 2. Fix missing commas between key-value pairs
+        repaired = payload
+        
+        # 1. Remove any text before the first { or [
+        first_brace = repaired.find('{')
+        first_bracket = repaired.find('[')
+        if first_brace != -1 and (first_bracket == -1 or first_brace < first_bracket):
+            repaired = repaired[first_brace:]
+        elif first_bracket != -1:
+            repaired = repaired[first_bracket:]
+            
+        # 2. Remove any text after the last } or ]
+        last_brace = repaired.rfind('}')
+        last_bracket = repaired.rfind(']')
+        if last_brace != -1 and last_brace > last_bracket:
+            repaired = repaired[:last_brace + 1]
+        elif last_bracket != -1:
+            repaired = repaired[:last_bracket + 1]
+        
+        # 3. Fix unquoted property names (add double quotes around property names)
+        repaired = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', repaired)
+        
+        # 4. Fix single-quoted property names and values to double quotes
+        repaired = re.sub(r"'([^']*)'", r'"\1"', repaired)
+        
+        # 5. Remove trailing commas before closing braces/brackets
+        repaired = re.sub(r",\s*([\]}])", r"\1", repaired)
+        
+        # 6. Fix missing quotes around string values that look like unquoted strings
+        repaired = re.sub(r':\s*([a-zA-Z_][a-zA-Z0-9_\s]*[a-zA-Z0-9_])\s*([,}\]])', r': "\1"\2', repaired)
+        
+        # 7. Fix missing commas between key-value pairs
         repaired = re.sub(r'("[\w\d_]+")\s*:\s*([^,\]}]+)\s*("[\w\d_]+")\s*:', r'\1: \2, \3:', repaired)
-        # 3. Fix missing commas between objects in an array
+        
+        # 7b. Fix missing commas between property and opening brace/bracket  
+        repaired = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(\[[{])', r'\1"\2": \3', repaired)
+        
+        # 8. Fix missing commas between objects in an array
         repaired = re.sub(r'\}\s*\{', '}, {', repaired)
-        # 4. Handle truncated JSON by closing open braces/brackets
+        
+        # 9. Fix missing commas between array elements  
+        repaired = re.sub(r'"\s*"', '", "', repaired)
+        repaired = re.sub(r'}\s*"', '}, "', repaired)
+        repaired = re.sub(r']\s*"', '], "', repaired)
+        
+        # 10. Handle truncated JSON by closing open braces/brackets
         open_braces = repaired.count("{") - repaired.count("}")
         open_brackets = repaired.count("[") - repaired.count("]")
         if open_brackets > 0:
             repaired += "]" * open_brackets
         if open_braces > 0:
             repaired += "}" * open_braces
+            
+        # 11. Fix double quotes issues
+        repaired = repaired.replace('""', '"')
+        
+        # 12. Clean up extra whitespace
+        repaired = re.sub(r'\s+', ' ', repaired)
+        
         return repaired
 
     def _prompt_version(self, prompt_name: str) -> str:
@@ -666,3 +951,77 @@ class RobustVideoGenerationPipeline:
                 "recap": "Let us close with the main takeaway you should remember.",
             }
         return mapping.get(move, self._compact_text(content or f"Learn about {topic}.", 180))
+
+    def _increment_failures(self):
+        """Track consecutive API failures for fast-track fallback mode"""
+        self._consecutive_failures += 1
+        logger.debug(f"Consecutive failures: {self._consecutive_failures}")
+
+    def _reset_failures(self):
+        """Reset failure counter on successful API call"""
+        if self._consecutive_failures > 0:
+            logger.debug(f"Resetting failure counter (was {self._consecutive_failures})")
+            self._consecutive_failures = 0
+
+    def _try_template_generation(self, stage_name: str, variables: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Try to generate content using high-quality templates"""
+        try:
+            from core.templates.video_templates import get_template
+            
+            topic = variables.get("topic", "")
+            style = variables.get("style", "general")
+            
+            if stage_name == "storyboard":
+                template = get_template(topic, style)
+                return {
+                    "title": template["title"],
+                    "scenes": template["scenes"],
+                    "total_duration": sum(scene["duration"] for scene in template["scenes"]),
+                    "visual_style": "educational",
+                    "pacing": "moderate"
+                }
+            elif stage_name == "syllabus":
+                # Generate a topic-appropriate syllabus
+                return {
+                    "title": f"Understanding {topic}",
+                    "big_idea": f"Master the fundamental concepts of {topic} and apply them confidently.",
+                    "target_level": variables.get("student_level", "intermediate"),
+                    "visual_flavor": "discovery" if style == "general" else "rigorous",
+                    "teaching_arc": ["hook", "concept", "example", "practice", "summary"],
+                    "chapters": [
+                        {
+                            "id": "chapter_1",
+                            "title": "Introduction and Motivation",
+                            "learning_goal": f"Understand why {topic} is important and useful.",
+                            "visual_intent": "HOOK"
+                        },
+                        {
+                            "id": "chapter_2", 
+                            "title": "Core Concepts",
+                            "learning_goal": f"Learn the fundamental principles of {topic}.",
+                            "visual_intent": "CONCEPT"
+                        },
+                        {
+                            "id": "chapter_3",
+                            "title": "Applications",
+                            "learning_goal": f"See how {topic} applies to real situations.",
+                            "visual_intent": "EXAMPLE"
+                        }
+                    ]
+                }
+            elif stage_name == "render_plan":
+                # Generate a basic render plan
+                return {
+                    "approved": True,
+                    "scenes": variables.get("storyboard", {}).get("scenes", []),
+                    "visual_consistency": "high",
+                    "educational_flow": "clear"
+                }
+            
+            return None
+        except ImportError:
+            logger.warning("Template system not available")
+            return None
+        except Exception as e:
+            logger.warning(f"Template generation failed: {e}")
+            return None

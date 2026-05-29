@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { toast } from 'sonner'
 
 export default function SimplePage() {
   const [query, setQuery] = useState('我想学习Python编程')
@@ -15,7 +16,7 @@ export default function SimplePage() {
     })
     
     const data = await response.json()
-    alert(`Lesson generated: ${data.lesson_plan?.title}`)
+    toast.success(`Lesson generated: ${data.lesson_plan?.title}`)
   }
   
   return (

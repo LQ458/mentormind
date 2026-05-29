@@ -98,7 +98,7 @@ class ScriptGenerator:
         # Prepare prompt for script generation
         prompt = self._create_script_prompt(lesson_plan)
         
-        # Mock API call to DeepSeek-V3
+        # Mock API call to the configured DeepSeek model.
         await asyncio.sleep(0.1)
         
         # Generate script
@@ -245,7 +245,7 @@ class ScriptGenerator:
 
 
 class TTSSynthesizer:
-    """Text-to-speech synthesis using real TTS service"""
+    """Text-to-speech synthesis using Volcengine TTS service"""
     
     def __init__(self):
         self.voice = config.TTS_VOICE
@@ -255,7 +255,7 @@ class TTSSynthesizer:
     
     async def synthesize(self, text: str, script_id: str, voice: str = "female") -> Tuple[str, float]:
         """
-        Synthesize speech using SiliconFlow Cloud TTS
+        Synthesize speech using Volcengine Cloud TTS
         Returns: (audio_file_path, duration_seconds)
         """
         logger.info(f"Synthesizing speech for script: {script_id} (Voice: {voice})")
@@ -265,55 +265,81 @@ class TTSSynthesizer:
             audio_path = os.path.join(self.output_dir, f"{script_id}_{timestamp}.mp3")
             
             if self.sf_tts:
-                # Map generic voice names to specific models/presets if needed
-                # For SiliconFlow, we might pass the voice name directly if it matches their API
-                # Or map "male" -> "alex", "female" -> "anna" etc.
+                # Map generic/named voices to Volcengine voice_type IDs
                 voice_map = {
-                    "female": "FunAudioLLM/CosyVoice2-0.5B:anna",
-                    "male": "FunAudioLLM/CosyVoice2-0.5B:caleb", # Example mapping
-                    "young_female": "FunAudioLLM/CosyVoice2-0.5B:sara",
-                    "young_male": "FunAudioLLM/CosyVoice2-0.5B:ben"
+                    "female": "BV700_V2_streaming",      # 灿灿 2.0 (flagship female)
+                    "male": "BV701_streaming",            # 擎苍 (flagship male)
+                    "young_female": "BV700_V2_streaming",
+                    "young_male": "BV705_streaming",      # 炀炀
+                    "anna": "BV700_V2_streaming",
+                    "caleb": "BV701_streaming",
+                    "sara": "BV700_V2_streaming",
+                    "ben": "BV705_streaming",
+                    "chris": "BV701_streaming",
                 }
-                
-                # If voice is a key in map, use the mapped value, otherwise use as is
-                # But wait, SiliconFlowTTSService takes voice and voice_label separately or formatted.
-                # Let's check siliconflow_tts.py again. 
-                # It takes `voice` (model) and `voice_label` (speaker).
-                
-                # Simplified: Expect voice to be "anna", "caleb" etc. and let service handle it
-                # Or better: let's update SiliconFlowTTSService to handle the "voice:label" format
-                
-                # strictly passing the "label" (e.g. "anna") as the voice argument to the service wrapper
-                # referencing backend/services/siliconflow_tts.py: 
-                # payload["voice"] = f"{voice}:{voice_label}" where voice is model.
-                
-                # So we just need to pass the label "anna", "caleb" to the service's voice_label param?
-                # The service method signature is: text_to_speech(self, text, voice, voice_label, ...)
-                
-                target_label = voice if voice in ["anna", "ben", "caleb", "sara"] else "anna"
-                if voice == "male": target_label = "caleb"
-                if voice == "female": target_label = "anna"
-                
+                target_voice_type = voice_map.get(voice, "BV700_V2_streaming")
+
                 result = await self.sf_tts.text_to_speech(
                     text=text,
-                    voice_label=target_label, # We need to update the call to pass this
+                    voice_label=target_voice_type,
                     output_path=audio_path
                 )
                 return result.audio_path, result.duration
             else:
-                raise Exception("SiliconFlow TTS service unavailable")
+                raise Exception("Volcengine TTS service unavailable")
             
         except Exception as e:
-            logger.error(f"Error synthesizing speech for script {script_id}: {e}")
-            raise
+            logger.warning(f"Volcengine TTS failed for {script_id}: {e}")
+            logger.info(f"Falling back to edge-tts for {script_id}")
+            return await self._edge_tts_fallback(text, script_id, voice)
+
+    async def _edge_tts_fallback(self, text: str, script_id: str, voice: str = "anna") -> Tuple[str, float]:
+        """Fallback TTS using free Microsoft edge-tts."""
+        import edge_tts
+
+        voice_map = {
+            "anna": "en-US-AriaNeural",
+            "female": "en-US-AriaNeural",
+            "caleb": "en-US-GuyNeural",
+            "male": "en-US-GuyNeural",
+            "sara": "en-US-JennyNeural",
+            "ben": "en-US-ChristopherNeural",
+        }
+        # Detect Chinese text
+        has_chinese = any('\u4e00' <= c <= '\u9fff' for c in text)
+        if has_chinese:
+            edge_voice = "zh-CN-XiaoxiaoNeural" if voice in ("anna", "female", "sara") else "zh-CN-YunxiNeural"
+        else:
+            edge_voice = voice_map.get(voice, "en-US-AriaNeural")
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        audio_path = os.path.join(self.output_dir, f"{script_id}_{timestamp}.mp3")
+
+        communicate = edge_tts.Communicate(text, edge_voice)
+        await communicate.save(audio_path)
+
+        # Get duration via ffprobe (available in Docker image)
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+                capture_output=True, text=True, timeout=10,
+            )
+            duration = float(result.stdout.strip())
+        except Exception:
+            duration = max(2.0, len(text) * 0.06)
+
+        logger.info(f"Generated TTS audio (edge-tts fallback): {audio_path}")
+        return audio_path, duration
     
     def get_available_voices(self) -> List[Dict[str, str]]:
-        """Get available TTS voices"""
+        """Get available TTS voices (Volcengine 豆包语音)"""
         return [
-            {"id": "anna", "name": "Female (Standard)", "gender": "female"},
-            {"id": "caleb", "name": "Male (Standard)", "gender": "male"},
-            {"id": "sara", "name": "Young Female", "gender": "female"},
-            {"id": "ben", "name": "Young Male", "gender": "male"}
+            {"id": "anna", "name": "灿灿 2.0 (Female, Flagship)", "gender": "female", "voice_type": "BV700_V2_streaming"},
+            {"id": "bella", "name": "温柔淑女 (Female, Soft)", "gender": "female", "voice_type": "BV104_streaming"},
+            {"id": "chris", "name": "擎苍 (Male, Flagship)", "gender": "male", "voice_type": "BV701_streaming"},
+            {"id": "caleb", "name": "炀炀 (Male, General)", "gender": "male", "voice_type": "BV705_streaming"},
         ]
     
     async def synthesize_with_emotion(self, text: str, emotion: str = "neutral") -> str:
@@ -564,7 +590,7 @@ class AvatarGenerator:
 class ProgrammaticVideoGenerator:
     """
     Code-to-Video Generator
-    Orchestrates DeepSeek-R1 scripting, TTS sync, and Manim/Remotion rendering
+    Orchestrates DeepSeek V4 Pro scripting, TTS sync, and Manim/Remotion rendering
     """
     
     def __init__(self):
@@ -584,6 +610,7 @@ class ProgrammaticVideoGenerator:
         duration_minutes: int = 10,
         custom_requirements: Optional[str] = None,
         existing_bundle: Optional[Dict[str, Any]] = None,
+        progress_callback=None,
     ) -> Dict:
         """
         Generate a programmatic video from content
@@ -607,7 +634,11 @@ class ProgrammaticVideoGenerator:
                 custom_requirements=expanded_requirements,
                 existing_bundle=last_bundle,
             )
-            
+
+            # Milestone: script/render plan is ready
+            if progress_callback:
+                progress_callback('script_complete', 45, 'Script ready')
+
             # Save the bundle for the next attempt if this one fails length validation
             last_bundle = video_script.debug_artifacts
 
@@ -632,15 +663,19 @@ class ProgrammaticVideoGenerator:
             tasks = [process_scene_audio(scene) for scene in video_script.scenes]
             audio_durations = await asyncio.gather(*tasks)
 
+            # Milestone: all TTS audio synthesized
+            if progress_callback:
+                progress_callback('audio_complete', 60, 'Audio ready')
+
             total_audio_duration = sum(audio_durations)
             video_script.total_duration = total_audio_duration
 
-            # Preferred length: > 6 minutes (360s). 
-            # We no longer fail hard, but we'll use this to trigger a better retry if attempt == 1.
-            preferred_duration_seconds = 360
-            
+            # Accept videos >= 60s.  Retrying the full pipeline for length
+            # doubles generation time for marginal improvement.
+            preferred_duration_seconds = 60
+
             if total_audio_duration < preferred_duration_seconds and attempt == 1:
-                logger.info(f"Lesson length {total_audio_duration:.1f}s is below preferred {preferred_duration_seconds}s. Triggering enhanced retry.")
+                logger.info(f"Lesson length {total_audio_duration:.1f}s is below minimum {preferred_duration_seconds}s. Triggering enhanced retry.")
                 raise ValueError("preferred_length_not_met")
             
             # On attempt 2+, we accept whatever length we got, as long as it's not empty.
@@ -649,6 +684,11 @@ class ProgrammaticVideoGenerator:
 
             logger.info(f"Rendering with engine: Manim (style={style})")
             video_path = await self.manim_service.render_script(video_script)
+
+            # Milestone: Manim rendering complete
+            if progress_callback:
+                progress_callback('render_complete', 90, 'Rendering complete')
+
             video_probe = await asyncio.to_thread(self._probe_rendered_video, video_path)
             if video_probe.get("has_audio_stream") is False:
                 raise ValueError(f"Rendered video is missing an audio stream: {video_path}")
@@ -661,6 +701,7 @@ class ProgrammaticVideoGenerator:
                 "debug": {
                     "generation_pipeline": video_script.debug_artifacts,
                     "video_probe": video_probe,
+                    "render_stats": self.manim_service.last_render_stats,
                     "duration_target_seconds": required_duration_seconds,
                     "generation_attempt": attempt,
                     "scene_audio": [
@@ -680,12 +721,10 @@ class ProgrammaticVideoGenerator:
             for part in [
                 custom_requirements or "",
                 (
-                    f"CRITICAL RETRY REQUIREMENT: The previous attempt was too short. "
-                    f"The final lesson MUST run for at least 10 full minutes. "
-                    "Each scene narration MUST be at least 150 words long. "
-                    "Use a slow, pedagogical pace. Add more detailed explanations, "
-                    "repeat key concepts for emphasis, and add 'Let's pause and think about this' transitions. "
-                    "Expand every mathematical step with verbal reasoning."
+                    "RETRY REQUIREMENT: The previous attempt was too short. "
+                    "Add more worked examples with step-by-step visual animations. "
+                    "Each scene should demonstrate a concept visually, not just describe it in words. "
+                    "Use more transform, plot, and draw_shape actions. Keep narration concise but add more scenes."
                 ),
             ]
             if part
@@ -910,7 +949,8 @@ class OutputPipeline:
         target_audience: str = "students",
         duration_minutes: int = 10,
         custom_requirements: Optional[str] = None,
-        syllabus: Optional[Dict[str, Any]] = None, # Accept locked syllabus
+        syllabus: Optional[Dict[str, Any]] = None,  # Accept locked syllabus
+        progress_callback=None,
     ) -> Dict:
         """
         Generate quick explanation with audio and real video
@@ -968,7 +1008,8 @@ class OutputPipeline:
             target_audience=target_audience,
             duration_minutes=duration_minutes,
             custom_requirements=custom_requirements or context,
-            existing_bundle={"syllabus": syllabus} if syllabus else None, # Pass syllabus
+            existing_bundle={"syllabus": syllabus} if syllabus else None,  # Pass syllabus
+            progress_callback=progress_callback,
         )
         video_local_path = video_result['video_path']
         audio_local_path = video_result['script'].scenes[0].audio_path if video_result['script'].scenes else ""

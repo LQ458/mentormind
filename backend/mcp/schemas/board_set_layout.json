@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "layout": { "type": "string", "enum": ["full_canvas", "split_left_right", "split_top_bottom", "focus_center"] },
+    "transition": { "type": "string", "enum": ["smooth", "instant"] }
+  },
+  "required": ["layout"],
+  "additionalProperties": false
+}

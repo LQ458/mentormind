@@ -1,15 +1,55 @@
 """
 Real TTS (Text-to-Speech) Service Implementation
+Uses Volcengine (豆包语音) for natural, high-quality speech synthesis.
 """
 
 import asyncio
+import base64
 import os
+import uuid
 import aiohttp
 import logging
 from typing import Optional, Tuple
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+# Volcengine voice mappings (basic voices, no per-voice grant required)
+_VOICE_MAP = {
+    "female": "BV001_streaming",
+    "male": "BV002_streaming",
+    "female_zh": "BV001_streaming",
+    "male_zh": "BV002_streaming",
+    "female_en": "BV001_streaming",
+    "male_en": "BV002_streaming",
+}
+
+_NAMED_VOICE_MAP = {
+    "anna": "BV001_streaming",
+    "bella": "BV001_streaming",
+    "david": "BV002_streaming",
+    "benjamin": "BV002_streaming",
+    "charles": "BV002_streaming",
+    "claire": "BV001_streaming",
+    "alex": "BV002_streaming",
+    "diana": "BV001_streaming",
+    "caleb": "BV002_streaming",
+    "sara": "BV001_streaming",
+    "ben": "BV002_streaming",
+    "chris": "BV002_streaming",
+}
+
+VOLCENGINE_TTS_URL = "https://openspeech.bytedance.com/api/v1/tts"
+VOLCENGINE_CLUSTER = "volcano_tts"
+
+# edge-tts voice names for fallback when Volcengine is unavailable/ungranted.
+# Provides free, high-quality synthesis without an API key.
+_EDGE_VOICE_MAP = {
+    ("female", "zh"): "zh-CN-XiaoxiaoNeural",
+    ("male", "zh"): "zh-CN-YunxiNeural",
+    ("female", "en"): "en-US-AriaNeural",
+    ("male", "en"): "en-US-GuyNeural",
+}
 
 
 @dataclass
@@ -22,20 +62,80 @@ class TTSResult:
 
 
 class TTSService:
-    """Real TTS service for text-to-speech conversion"""
-    
-    def __init__(self, api_url: Optional[str] = None, api_key: Optional[str] = None):
+    """TTS service using Volcengine (豆包语音) for natural speech synthesis."""
+
+    def __init__(self, app_id: Optional[str] = None, token: Optional[str] = None):
+        self.app_id = app_id or os.getenv("VOLC_TTS_APPID", "")
+        self.token = token or os.getenv("VOLC_TTS_TOKEN", "")
+        self.timeout = 120  # 2 minute timeout for long text
+
+    def _resolve_voice(self, voice: str, language: str) -> str:
+        """Resolve a voice name to a Volcengine voice_type."""
+        # Check named voice aliases first
+        if voice in _NAMED_VOICE_MAP:
+            return _NAMED_VOICE_MAP[voice]
+
+        # Map generic voice + language to a specific voice
+        lang_prefix = "zh" if language.startswith("zh") else "en"
+        key = f"{voice}_{lang_prefix}"
+        return _VOICE_MAP.get(key, _VOICE_MAP.get(voice, "BV001_streaming"))
+
+    def _resolve_edge_voice(self, voice: str, language: str) -> str:
+        """Resolve a voice name to an edge-tts neural voice."""
+        lang_prefix = "zh" if language.startswith("zh") else "en"
+        # Normalize named voices to gender category
+        male_names = {"david", "benjamin", "charles", "alex", "caleb", "ben", "chris", "male"}
+        gender = "male" if voice in male_names else "female"
+        return _EDGE_VOICE_MAP.get((gender, lang_prefix), "zh-CN-XiaoxiaoNeural")
+
+    async def _edge_tts_fallback(
+        self,
+        text: str,
+        language: str,
+        voice: str,
+        speed: float,
+        pitch: float,
+        output_format: str,
+        output_path: Optional[str],
+    ) -> TTSResult:
+        """Synthesize speech via edge-tts (free, no credentials).
+
+        Used when Volcengine returns a grant/auth error so lessons still get
+        narration audio.
         """
-        Initialize TTS service
-        
-        Args:
-            api_url: TTS API endpoint URL
-            api_key: API key for authentication
-        """
-        self.api_url = api_url or os.getenv("TTS_API_URL", "http://localhost:8890")
-        self.api_key = api_key or os.getenv("TTS_API_KEY", "")
-        self.timeout = 60  # 1 minute timeout
-        
+        import edge_tts
+
+        edge_voice = self._resolve_edge_voice(voice, language)
+
+        # edge-tts expects rate/pitch as signed percentage strings (e.g. "+0%", "-10%")
+        rate_pct = int(round((speed - 1.0) * 100))
+        pitch_hz = int(round((pitch - 1.0) * 50))  # rough mapping to Hz
+        rate_str = f"{rate_pct:+d}%"
+        pitch_str = f"{pitch_hz:+d}Hz"
+
+        if output_path is None:
+            import tempfile
+            ext = output_format if "." not in output_format else output_format.split(".")[-1]
+            with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp_file:
+                output_path = tmp_file.name
+
+        communicate = edge_tts.Communicate(text, edge_voice, rate=rate_str, pitch=pitch_str)
+        await communicate.save(output_path)
+
+        # edge-tts doesn't return duration; estimate from file size at ~32kbps MP3
+        try:
+            file_size = os.path.getsize(output_path)
+        except OSError:
+            file_size = 0
+        duration = max(0.1, (file_size * 8) / 32000) if file_size else 1.0
+
+        return TTSResult(
+            audio_path=output_path,
+            duration=duration,
+            sample_rate=24000,
+            format=output_format,
+        )
+
     async def text_to_speech(
         self,
         text: str,
@@ -43,142 +143,169 @@ class TTSService:
         voice: str = "female",
         speed: float = 1.0,
         pitch: float = 1.0,
-        output_format: str = "wav",
+        output_format: str = "mp3",
         output_path: Optional[str] = None
     ) -> TTSResult:
         """
-        Convert text to speech
-        
+        Convert text to speech via Volcengine TTS.
+
         Args:
-            text: Text to convert to speech
+            text: Text to convert (max ~300 chars per request, auto-chunked)
             language: Language code (zh-CN, en-US, etc.)
-            voice: Voice type (female, male, etc.)
-            speed: Speech speed (0.5 to 2.0)
-            pitch: Speech pitch (0.5 to 2.0)
-            output_format: Audio format (wav, mp3, etc.)
+            voice: Voice name or type (female, male, or specific voice name)
+            speed: Speech speed (0.2 to 3.0)
+            pitch: Pitch ratio (0.1 to 3.0)
+            output_format: Audio format (mp3, wav, ogg_opus, pcm)
             output_path: Optional output path for audio file
-            
+
         Returns:
             TTSResult with audio file information
         """
         if not text.strip():
             raise ValueError("Text cannot be empty")
-        
+
+        # If Volcengine credentials are missing, skip straight to edge-tts.
+        if not self.app_id or not self.token:
+            return await self._edge_tts_fallback(
+                text, language, voice, speed, pitch, output_format, output_path
+            )
+
+        voice_type = self._resolve_voice(voice, language)
+
+        # Volcengine encoding format mapping
+        encoding_map = {
+            "mp3": "mp3",
+            "wav": "wav",
+            "opus": "ogg_opus",
+            "ogg_opus": "ogg_opus",
+            "pcm": "pcm",
+        }
+        encoding = encoding_map.get(output_format, "mp3")
+
+        # Volcengine sample rate
+        sample_rate = 24000
+
+        payload = {
+            "app": {
+                "appid": self.app_id,
+                "token": self.token,
+                "cluster": VOLCENGINE_CLUSTER,
+            },
+            "user": {
+                "uid": "mentormind_user",
+            },
+            "audio": {
+                "voice_type": voice_type,
+                "encoding": encoding,
+                "rate": sample_rate,
+                "speed_ratio": max(0.2, min(3.0, speed)),
+                "volume_ratio": 1.0,
+                "pitch_ratio": max(0.1, min(3.0, pitch)),
+            },
+            "request": {
+                "reqid": str(uuid.uuid4()),
+                "text": text,
+                "text_type": "plain",
+                "operation": "query",
+            },
+        }
+
+        headers = {
+            "Authorization": f"Bearer;{self.token}",
+            "Content-Type": "application/json",
+        }
+
         try:
-            # Prepare request
-            form_data = aiohttp.FormData()
-            form_data.add_field('text', text)
-            form_data.add_field('language', language)
-            form_data.add_field('voice', voice)
-            form_data.add_field('speed', str(speed))
-            form_data.add_field('pitch', str(pitch))
-            form_data.add_field('format', output_format)
-            
-            if self.api_key:
-                form_data.add_field('api_key', self.api_key)
-            
-            # Send request to TTS API
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout)) as session:
-                async with session.post(f"{self.api_url}/tts", data=form_data) as response:
-                    if response.status == 200:
-                        # Get content type
-                        content_type = response.headers.get('Content-Type', '')
-                        
-                        # Determine output path
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=self.timeout)
+            ) as session:
+                async with session.post(
+                    VOLCENGINE_TTS_URL,
+                    headers=headers,
+                    json=payload,
+                ) as response:
+                    resp_json = await response.json()
+
+                    if resp_json.get("code") == 3000:
                         if output_path is None:
                             import tempfile
-                            ext = output_format if '.' not in output_format else output_format.split('.')[-1]
-                            with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as tmp_file:
+                            ext = output_format if "." not in output_format else output_format.split(".")[-1]
+                            with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp_file:
                                 output_path = tmp_file.name
-                        
-                        # Save audio file
-                        audio_data = await response.read()
-                        with open(output_path, 'wb') as f:
+
+                        audio_data = base64.b64decode(resp_json["data"])
+                        with open(output_path, "wb") as f:
                             f.write(audio_data)
-                        
-                        # Parse metadata from headers
-                        duration = float(response.headers.get('X-Audio-Duration', 0))
-                        sample_rate = int(response.headers.get('X-Audio-Sample-Rate', 16000))
-                        
+
+                        # Get duration from response (in milliseconds)
+                        duration_ms = float(resp_json.get("addition", {}).get("duration", "0"))
+                        duration = duration_ms / 1000.0
+
+                        # Fallback: estimate from file size if duration not provided
+                        if duration <= 0:
+                            bitrate = {"mp3": 128000, "wav": 256000, "ogg_opus": 64000, "pcm": 256000}
+                            duration = (len(audio_data) * 8) / bitrate.get(output_format, 128000)
+
                         return TTSResult(
                             audio_path=output_path,
                             duration=duration,
                             sample_rate=sample_rate,
-                            format=output_format
+                            format=output_format,
                         )
                     else:
-                        error_text = await response.text()
-                        raise Exception(f"TTS API error {response.status}: {error_text}")
-                        
+                        error_msg = resp_json.get("message", "Unknown error")
+                        error_code = resp_json.get("code", "unknown")
+                        # Grant/auth errors (3001 = ungranted voice, 4001 = invalid token)
+                        # mean Volcengine will never succeed for this appid; fall back to
+                        # edge-tts so the lesson still gets audio.
+                        if str(error_code) in ("3001", "4001", "4003"):
+                            logger.warning(
+                                f"Volcengine TTS {error_code} ({error_msg}); falling back to edge-tts"
+                            )
+                            return await self._edge_tts_fallback(
+                                text, language, voice, speed, pitch, output_format, output_path
+                            )
+                        raise Exception(f"Volcengine TTS API error {error_code}: {error_msg}")
+
         except aiohttp.ClientError as e:
-            logger.error(f"Network error calling TTS service: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Error converting text to speech: {e}")
-            raise
-    
+            logger.warning(f"Network error calling Volcengine TTS: {e}; falling back to edge-tts")
+            return await self._edge_tts_fallback(
+                text, language, voice, speed, pitch, output_format, output_path
+            )
+
     async def generate_speech_for_lesson(
         self,
         lesson_text: str,
         language: str = "zh-CN",
         output_dir: str = "./data/audio"
     ) -> Tuple[str, float]:
-        """
-        Generate speech audio for a lesson
-        
-        Args:
-            lesson_text: Lesson text to convert to speech
-            language: Language code
-            output_dir: Output directory for audio files
-            
-        Returns:
-            Tuple of (audio_file_path, duration_seconds)
-        """
-        # Create output directory if it doesn't exist
+        """Generate speech audio for a lesson."""
         os.makedirs(output_dir, exist_ok=True)
-        
-        # Generate filename based on content hash
+
         import hashlib
         content_hash = hashlib.md5(lesson_text.encode()).hexdigest()[:8]
         timestamp = int(asyncio.get_event_loop().time())
-        output_path = os.path.join(output_dir, f"lesson_{content_hash}_{timestamp}.wav")
-        
-        # Convert text to speech
+        output_path = os.path.join(output_dir, f"lesson_{content_hash}_{timestamp}.mp3")
+
         result = await self.text_to_speech(
             text=lesson_text,
             language=language,
-            voice="female",  # Default to female voice for lessons
+            voice="female",
             speed=1.0,
-            pitch=1.0,
-            output_format="wav",
-            output_path=output_path
+            output_format="mp3",
+            output_path=output_path,
         )
-        
+
         return result.audio_path, result.duration
-    
+
     def validate_text(self, text: str) -> Tuple[bool, str]:
-        """
-        Validate text for TTS conversion
-        
-        Args:
-            text: Text to validate
-            
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
+        """Validate text for TTS conversion."""
         if not text or not text.strip():
             return False, "Text cannot be empty"
-        
-        # Check text length (max 5000 characters)
-        if len(text) > 5000:
-            return False, f"Text too long: {len(text)} characters (max 5000)"
-        
-        # Check for invalid characters
-        import re
-        # Allow Chinese characters, English letters, numbers, and common punctuation
-        if not re.match(r'^[\u4e00-\u9fff\w\s\.,;:!?()\[\]{}"\'\-—–/\\+*=@#$%^&|<>~`]+$', text):
-            return False, "Text contains invalid characters"
-        
+
+        if len(text) > 128000:
+            return False, f"Text too long: {len(text)} characters (max 128000)"
+
         return True, ""
 
 

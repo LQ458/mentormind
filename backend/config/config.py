@@ -86,7 +86,10 @@ class MentorMindConfig:
     VERSION: str = "1.0"
     TARGET_MARKET: str = "China"
     DEPLOYMENT_ENV: str = os.getenv("MENTORMIND_ENV", "development")
+    IS_TESTING: bool = os.getenv("MENTORMIND_ENV", "development") == "testing"
     VERIFY_SSL: bool = os.getenv("VERIFY_SSL", "true").lower() == "true"
+    TEST_BYPASS_SECRET: str = os.getenv("TEST_BYPASS_SECRET", "")
+    BETTER_AUTH_SECRET: str = os.getenv("BETTER_AUTH_SECRET", "")
     
     # ===== MODEL CONFIGURATIONS =====
     @classmethod
@@ -94,22 +97,22 @@ class MentorMindConfig:
         """Get model configurations"""
         return {
             "deepseek_v3": ModelConfig(
-                name="DeepSeek-V3",
+                name="DeepSeek-V4-Flash",
                 provider=ModelProvider.DEEPSEEK,
                 api_key=os.getenv("DEEPSEEK_API_KEY"),
-                endpoint="https://api.deepseek.com/v1/chat/completions",
+                endpoint=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com") + "/chat/completions",
                 max_tokens=8192,
                 temperature=0.3,
                 cost_per_1k_tokens=0.001  # $0.001 per 1K tokens
             ),
             "deepseek_r1": ModelConfig(
-                name="DeepSeek-R1",
+                name="DeepSeek-V4-Pro",
                 provider=ModelProvider.DEEPSEEK,
                 api_key=os.getenv("DEEPSEEK_API_KEY"),
-                endpoint="https://api.deepseek.com/v1/chat/completions",
+                endpoint=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com") + "/chat/completions",
                 max_tokens=4096,
-                temperature=0.1,  # Lower temp for reasoning
-                cost_per_1k_tokens=0.002  # Slightly more expensive for reasoning
+                temperature=0.1,  # Lower temp for structured generation
+                cost_per_1k_tokens=0.002  # Slightly more expensive for pro generation
             ),
             "funasr": ModelConfig(
                 name="FunASR-Paraformer",
@@ -190,9 +193,13 @@ class MentorMindConfig:
     
     # Output Generation
     AVATAR_IMAGE_PATH: str = "./assets/teacher_avatar.png"
-    TTS_VOICE: str = "FunAudioLLM/CosyVoice2-0.5B"
-    TTS_VOICE_LABEL: str = "anna"
+    TTS_VOICE: str = "BV700_V2_streaming"  # Volcengine voice_type (灿灿 2.0)
+    TTS_VOICE_LABEL: str = "BV700_V2_streaming"  # Volcengine voice_type
     VIDEO_FPS: int = 25
+
+    # Volcengine TTS Configuration
+    VOLC_TTS_APPID: str = os.getenv("VOLC_TTS_APPID", "")
+    VOLC_TTS_TOKEN: str = os.getenv("VOLC_TTS_TOKEN", "")
     
     # ===== PATHS AND DIRECTORIES =====
     BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -210,7 +217,9 @@ class MentorMindConfig:
         
         # Check required environment variables
         if not os.getenv("DEEPSEEK_API_KEY"):
-            warnings.append("DEEPSEEK_API_KEY not set - DeepSeek models will not work")
+            warnings.append("DEEPSEEK_API_KEY not set - AI models will not work")
+        if not os.getenv("VOLC_TTS_APPID") or not os.getenv("VOLC_TTS_TOKEN"):
+            warnings.append("VOLC_TTS_APPID or VOLC_TTS_TOKEN not set - Volcengine TTS will not work")
         
         # Check cost constraints
         total_estimated_cost = sum(

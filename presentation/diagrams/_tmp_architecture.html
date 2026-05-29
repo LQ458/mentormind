@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true, theme:'dark', themeVariables:{darkMode:true,background:'#0A0F1A',primaryColor:'#3B82F6',primaryTextColor:'#fff',lineColor:'#3B82F6',secondaryColor:'#8B5CF6',tertiaryColor:'#10B981'}});</script>
+<style>body{background:#0A0F1A;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;}</style>
+</head><body>
+<div class="mermaid">
+flowchart LR
+    U[Browser] --> N[Next.js Frontend]
+    N --> F[FastAPI Backend]
+    F --> Q1[Orchestration Queue]
+    F --> Q2[Rendering Queue]
+    F --> Q3[Heavy ML Queue]
+    Q1 --> AI[DeepSeek R1 + V3]
+    Q3 --> ASR[FunASR Speech]
+    Q3 --> OCR[PaddleOCR Text]
+    F --> DB[(PostgreSQL)]
+    F --> R[(Redis)]
+</div>
+</body></html>

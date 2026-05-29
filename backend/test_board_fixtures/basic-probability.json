@@ -1,0 +1,751 @@
+{
+  "topic": "Basic probability",
+  "language": "en",
+  "elapsed_s": 144.6,
+  "event_count": 33,
+  "tool_counts": {
+    "agent_start": 1,
+    "agent_result": 1,
+    "board_created": 1,
+    "element_added": 29,
+    "error": 1
+  },
+  "element_count": 29,
+  "destructive_clear": false,
+  "step_list_present": true,
+  "events": [
+    {
+      "event_type": "agent_start",
+      "timestamp": 1776690216.725971,
+      "element_id": null,
+      "data": {
+        "agent": "researcher",
+        "task": "Provide key facts, definitions, and terminology for a beginner-level lesson on basic probability. Include: definition of"
+      }
+    },
+    {
+      "event_type": "agent_result",
+      "timestamp": 1776690232.447207,
+      "element_id": null,
+      "data": {
+        "agent": "researcher",
+        "result": {
+          "facts": [
+            "Probability measures how likely an event is to occur, ranging from 0 (impossible) to 1 (certain).",
+            "An experiment is any process with uncertain outcomes, like flipping a coin or rolling a die.",
+            "The sample space is the set of all possible outcomes of an experiment, such as {Heads, Tails} for a coin flip.",
+            "An event is a subset of the sample space, like rolling an even number on a die (2, 4, 6).",
+            "The probability of an event is calculated as: P(event) = (Number of favorable outcomes) / (Total possible outcomes).",
+            "Complementary events are two outcomes that cover all possibilities, like 'rolling a 1' and 'not rolling a 1' on a die."
+          ],
+          "key_terms": [
+            "Probability",
+            "Experiment",
+            "Outcome",
+            "Sample space",
+            "Event",
+            "Complementary events",
+            "Mutually exclusive events",
+            "Probability formula"
+          ],
+          "source_hints": [
+            "Introduction to Probability (textbook chapters)",
+            "Basic probability concepts for beginners",
+            "Probability with coins and dice examples",
+            "Sample space and events in probability"
+          ]
+        }
+      }
+    },
+    {
+      "event_type": "board_created",
+      "timestamp": 1776690237.086854,
+      "element_id": null,
+      "data": {
+        "board_id": "aef23073-ddda-496e-a096-a90fd516eeef",
+        "title": "Basic Probability",
+        "layout": "full_canvas",
+        "background": "dark_board",
+        "topic": "Basic probability"
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690239.6259441,
+      "element_id": "855b0dfc-9e50-416a-9af3-178728cb80fb",
+      "data": {
+        "element_type": "title",
+        "content": "Basic Probability",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "xlarge",
+          "animation": "write"
+        },
+        "narration": "Welcome to Basic Probability! Today we'll learn how to measure uncertainty — how likely something is to happen. Let's dive in.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690243.456629,
+      "element_id": "785a7cb6-0730-444e-a0de-01e19509cecd",
+      "data": {
+        "element_type": "text_block",
+        "content": "Have you ever wondered: \"What are the chances it rains tomorrow?\" or \"Will I roll a 6 on this die?\" That's probability — a way to put a number on how likely something is.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Let's start with a question. Have you ever wondered about the chances of rain, or whether you'll roll a 6? That's exactly what probability measures — how likely something is to happen.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690246.285517,
+      "element_id": "96e1e790-eac0-40a9-bde2-199549e412e4",
+      "data": {
+        "element_type": "title",
+        "content": "What We'll Cover",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Here's our roadmap for today. We'll cover five key ideas, one step at a time.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690250.806483,
+      "element_id": "6df5ef40-c893-469f-9430-beb4476985c1",
+      "data": {
+        "element_type": "step_list",
+        "content": "Today's lesson covers these 5 topics",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "We'll start with the building blocks — experiments and sample spaces. Then we'll define events, learn the probability formula, explore complementary events, and finally practice with coins and dice.",
+        "metadata": {
+          "steps": [
+            "1. Experiments, Outcomes & Sample Space",
+            "2. Events",
+            "3. The Probability Formula",
+            "4. Complementary Events",
+            "5. Practice Examples (Coins & Dice)"
+          ]
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690254.6452742,
+      "element_id": "0ba00f00-039b-49f8-b2c9-3e8d615c73fb",
+      "data": {
+        "element_type": "title",
+        "content": "1. Experiments, Outcomes & Sample Space",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Let's start with the basics. Every probability question begins with an experiment.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690258.287615,
+      "element_id": "e879fc96-39d3-4c95-b8b8-f6e20d3ef181",
+      "data": {
+        "element_type": "definition_box",
+        "content": "**Experiment:** A process with an uncertain result (e.g., flipping a coin, rolling a die).\n\n**Outcome:** One possible result of an experiment (e.g., \"Heads\" or \"3\").\n\n**Sample Space (S):** The set of ALL possible outcomes.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "accent",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "An experiment is any process where the result is uncertain — like flipping a coin. Each possible result is called an outcome. And the complete set of all possible outcomes is called the sample space, denoted by S.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690263.0454972,
+      "element_id": "2bebbfd9-621a-4a18-b68e-699a5a17377a",
+      "data": {
+        "element_type": "table",
+        "content": "Sample Space Examples",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Here are some concrete examples. A coin flip has two outcomes — heads or tails. A standard die has six outcomes. Picking a card suit gives us four possibilities. The sample space lists every single one.",
+        "metadata": {
+          "headers": [
+            "Experiment",
+            "Sample Space (S)",
+            "Number of Outcomes"
+          ],
+          "rows": [
+            [
+              "Flip a coin",
+              "{Heads, Tails}",
+              "2"
+            ],
+            [
+              "Roll a 6-sided die",
+              "{1, 2, 3, 4, 5, 6}",
+              "6"
+            ],
+            [
+              "Pick a card suit",
+              "{♥, ♦, ♣, ♠}",
+              "4"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690265.606385,
+      "element_id": "38a076d4-8141-4405-be85-ff06802aa1e8",
+      "data": {
+        "element_type": "title",
+        "content": "2. Events",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Now that we know about sample spaces, let's talk about events — the things we actually want to calculate probabilities for.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690269.8754828,
+      "element_id": "290c1462-fc35-4cc3-a9f2-137363e30fde",
+      "data": {
+        "element_type": "definition_box",
+        "content": "**Event:** A subset of the sample space — a collection of one or more outcomes that we're interested in.\n\nExample: When rolling a die, the event \"rolling an even number\" = {2, 4, 6}.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "accent",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "An event is simply a subset of the sample space. It's the specific collection of outcomes we care about. For instance, if we roll a die and want an even number, the event is the set {2, 4, 6}.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "error",
+      "timestamp": 1776690274.087981,
+      "element_id": null,
+      "data": {
+        "tool_name": "board_add_element",
+        "error": "Validation failed for tool 'board_add_element': 'rectangle_set' is not one of ['circle', 'triangle', 'rectangle', 'arrow', 'line', 'polygon']",
+        "arguments": {
+          "element_type": "shape",
+          "content": "Venn-style view: Sample space {1,2,3,4,5,6} with event {2,4,6} highlighted inside",
+          "metadata": {
+            "shape_type": "rectangle_set",
+            "description": "Outer box = sample space {1,2,3,4,5,6}; inner highlighted region = event {2,4,6}"
+          },
+          "narration": "Think of it visually: the whole rectangle is the sample space, and the highlighted part inside is our event. The event is always a piece of the larger sample space.",
+          "style": {
+            "animation": "grow",
+            "color": "green",
+            "size": "medium"
+          }
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690278.2158358,
+      "element_id": "142bac2a-4c59-4ce0-9c58-a62ac6d71233",
+      "data": {
+        "element_type": "shape",
+        "content": "Sample Space {1, 2, 3, 4, 5, 6} — Event {2, 4, 6} is the highlighted subset",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "green",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "Think of it visually: the whole rectangle is the sample space, and the highlighted part inside is our event. The event is always a piece of the larger sample space.",
+        "metadata": {
+          "shape_type": "rectangle",
+          "description": "Outer rectangle = full sample space; inner region = event"
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690280.6856651,
+      "element_id": "6dc70345-ab2e-4fb2-b55d-7002928f8444",
+      "data": {
+        "element_type": "title",
+        "content": "3. The Probability Formula",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Now for the most important part — how do we actually calculate a probability?",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690283.846805,
+      "element_id": "b8738839-cc9f-4df1-9a54-6b9293bc1ecb",
+      "data": {
+        "element_type": "equation",
+        "content": "P(\\text{event}) = \\frac{\\text{Number of favorable outcomes}}{\\text{Total number of possible outcomes}}",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "write"
+        },
+        "narration": "Here it is — the fundamental probability formula. The probability of an event equals the number of favorable outcomes divided by the total number of possible outcomes. Simple as that!",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690288.025863,
+      "element_id": "8709715c-b91a-472b-8d91-abbe00c84152",
+      "data": {
+        "element_type": "definition_box",
+        "content": "**Key Rules for Probability:**\n\n• Probability is always between **0** and **1**\n• P = 0 → the event is **impossible**\n• P = 1 → the event is **certain**\n• All probabilities in the sample space add up to **1**",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "yellow",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "Three essential rules. Probability is always between 0 and 1. Zero means impossible, one means certain, and the probabilities of all outcomes always sum to 1.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690290.656311,
+      "element_id": "7f9ec703-9ded-4301-9868-506c1993e75c",
+      "data": {
+        "element_type": "title",
+        "content": "4. Complementary Events",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Sometimes it's easier to calculate what WON'T happen. That's where complementary events come in.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690295.505384,
+      "element_id": "a797545b-a9fc-4254-9e17-8b0bd09bc169",
+      "data": {
+        "element_type": "definition_box",
+        "content": "**Complementary Events:** An event A and its complement A' (read \"A prime\") together cover the entire sample space.\n\nIf A happens OR A' happens — one of them MUST occur.",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "accent",
+          "size": "medium",
+          "animation": "grow"
+        },
+        "narration": "The complement of an event A, written A-prime, includes every outcome that is NOT in A. Together, A and A-prime cover the entire sample space — one of them must happen.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690298.337205,
+      "element_id": "97eab774-c1b5-4550-996e-f63b7a370de2",
+      "data": {
+        "element_type": "equation",
+        "content": "P(A') = 1 - P(A)",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "write"
+        },
+        "narration": "And here's the complement rule: the probability of A-prime equals 1 minus the probability of A. This is incredibly useful when it's easier to count what doesn't happen.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690300.717081,
+      "element_id": "ac537cf3-5dbf-4925-9d04-67b8596f818e",
+      "data": {
+        "element_type": "title",
+        "content": "5. Practice Examples",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Time to put it all into practice! Let's work through some classic examples with coins and dice.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690303.4551969,
+      "element_id": "b203a265-991e-4ba9-984d-916315ba7fb7",
+      "data": {
+        "element_type": "text_block",
+        "content": "**Example 1: Flipping a coin — What is P(Heads)?**",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Example one: What's the probability of getting heads when we flip a fair coin?",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690308.526704,
+      "element_id": "b7458f10-d149-4f68-853a-53667d03d64c",
+      "data": {
+        "element_type": "transform",
+        "content": "P(Heads) = favorable outcomes / total outcomes = 1 / 2 = 0.5",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "green",
+          "size": "medium",
+          "animation": "write"
+        },
+        "narration": "There's 1 favorable outcome — heads — and 2 total outcomes. So the probability is 1 over 2, which equals 0.5, or 50 percent.",
+        "metadata": {
+          "from": "P(\\text{Heads}) = \\frac{\\text{favorable outcomes}}{\\text{total outcomes}}",
+          "to": "P(\\text{Heads}) = \\frac{1}{2} = 0.5"
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690311.166309,
+      "element_id": "c14c4be3-1c10-4ef3-b0c5-3f63a4cbea89",
+      "data": {
+        "element_type": "text_block",
+        "content": "**Example 2: Rolling a die — What is P(even number)?**",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Example two: What's the probability of rolling an even number on a standard six-sided die?",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690316.466802,
+      "element_id": "b489e3e1-d3e9-4f03-93d4-eb2d743f3613",
+      "data": {
+        "element_type": "transform",
+        "content": "P(even) = favorable / total = 3 / 6 = 1/2 = 0.5",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "green",
+          "size": "medium",
+          "animation": "write"
+        },
+        "narration": "The even numbers are 2, 4, and 6 — that's 3 favorable outcomes out of 6 total. Simplifying, 3 over 6 equals 1 half, or 0.5. Again, 50 percent!",
+        "metadata": {
+          "from": "P(\\text{even}) = \\frac{\\text{favorable outcomes}}{\\text{total outcomes}}",
+          "to": "P(\\text{even}) = \\frac{3}{6} = \\frac{1}{2} = 0.5"
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690319.5366058,
+      "element_id": "1fc44042-9075-45f2-9f49-bf1a6967b384",
+      "data": {
+        "element_type": "text_block",
+        "content": "**Example 3: Rolling a die — What is P(rolling a 5)?**",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Example three: What's the probability of rolling a 5 on a standard die?",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690324.245096,
+      "element_id": "53691771-fada-4a4e-a53e-e313927da38c",
+      "data": {
+        "element_type": "transform",
+        "content": "P(5) = 1 / 6 ≈ 0.167",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "mauve",
+          "size": "medium",
+          "animation": "write"
+        },
+        "narration": "There's only one way to roll a 5, out of six possible outcomes. So P of 5 equals one-sixth, approximately 0.167, or about 16.7 percent.",
+        "metadata": {
+          "from": "P(5) = \\frac{\\text{favorable outcomes}}{\\text{total outcomes}}",
+          "to": "P(5) = \\frac{1}{6} \\approx 0.167"
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690327.446526,
+      "element_id": "f5a07b9c-596d-4e04-8e16-052c4001fe33",
+      "data": {
+        "element_type": "text_block",
+        "content": "**Example 4: Using the Complement — What is P(NOT rolling a 5)?**",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Example four: What's the probability of NOT rolling a 5? This is where the complement rule shines!",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690332.1664991,
+      "element_id": "bf30d56b-c6e9-4a6a-9b7a-a4c099c410c7",
+      "data": {
+        "element_type": "transform",
+        "content": "P(not 5) = 1 - P(5) = 1 - 1/6 = 5/6 ≈ 0.833",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "green",
+          "size": "medium",
+          "animation": "write"
+        },
+        "narration": "Using the complement rule: P of not-5 equals 1 minus P of 5. That's 1 minus one-sixth, which equals five-sixths, or about 83.3 percent. Much easier than counting all five outcomes individually!",
+        "metadata": {
+          "from": "P(5') = 1 - P(5)",
+          "to": "P(5') = 1 - \\frac{1}{6} = \\frac{5}{6} \\approx 0.833"
+        }
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690335.086547,
+      "element_id": "0f281f9b-5bff-402e-aefb-2e678a12fe0e",
+      "data": {
+        "element_type": "text_block",
+        "content": "**Example 5: Rolling a die — What is P(rolling a 7)?**",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "text",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "One final example: What's the probability of rolling a 7 on a standard die? Think about it for a moment.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690338.3751621,
+      "element_id": "1999350c-4430-4eff-ab96-0e0ba4ac905f",
+      "data": {
+        "element_type": "equation",
+        "content": "P(7) = \\frac{0}{6} = 0 \\quad \\text{(Impossible!)}",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "red",
+          "size": "large",
+          "animation": "write"
+        },
+        "narration": "There are zero favorable outcomes — a die only goes up to 6! So the probability is 0 over 6, which equals 0. This is an impossible event.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690340.815674,
+      "element_id": "6c734215-262f-4952-8289-9c24b57b0d5a",
+      "data": {
+        "element_type": "title",
+        "content": "Lesson Recap",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "heading",
+          "size": "large",
+          "animation": "slide_in"
+        },
+        "narration": "Let's wrap up with a quick summary of everything we've learned today.",
+        "metadata": {}
+      }
+    },
+    {
+      "event_type": "element_added",
+      "timestamp": 1776690346.806602,
+      "element_id": "383dfdea-16cc-43d4-b125-93dfafefe69d",
+      "data": {
+        "element_type": "text_block",
+        "content": "🎓 **Basic Probability — Key Takeaways**\n\n1. **Experiment** → a process with uncertain results (coin flip, die roll)\n2. **Sample Space (S)** → the set of ALL possible outcomes\n3. **Event** → a subset of outcomes we're interested in\n4. **Probability Formula** → P(event) = favorable outcomes ÷ total outcomes\n5. **Probability Range** → always between 0 (impossible) and 1 (certain)\n6. **Complement Rule** → P(A') = 1 − P(A)\n\n**Remember:** Count what's favorable, divide by what's possible. When counting is hard, use the complement!",
+        "position": {
+          "region": "center",
+          "offset_x": 0,
+          "offset_y": 0
+        },
+        "style": {
+          "color": "accent",
+          "size": "medium",
+          "animation": "fade_in"
+        },
+        "narration": "Here are your key takeaways. An experiment has uncertain results. The sample space lists all outcomes. An event is the subset we care about. The probability formula divides favorable by total outcomes. Probability always falls between 0 and 1. And the complement rule lets you find the probability of something NOT happening. Great job today!",
+        "metadata": {}
+      }
+    }
+  ]
+}

@@ -14,14 +14,21 @@ export async function GET(
 
         console.log(`[Media Proxy] Fetching: ${BACKEND_URL}/media/${mediaPath}`);
 
+        // Forward auth token and range headers
+        const authHeader = request.headers.get('Authorization')
+        const rangeHeader = request.headers.get('range') || ''
+        const requestHeaders: Record<string, string> = {
+            'Range': rangeHeader,
+        }
+        if (authHeader) {
+            requestHeaders.Authorization = authHeader
+        }
+
         // Call the FastAPI backend's media streaming endpoint
         // We pass the entire absolute path because the backend handles it that way
         const response = await fetch(`${BACKEND_URL}/media/${mediaPath}`, {
             method: 'GET',
-            headers: {
-                // Forward range headers for video scrubbing support
-                'range': request.headers.get('range') || ''
-            }
+            headers: requestHeaders,
         });
 
         if (!response.ok) {
@@ -30,13 +37,13 @@ export async function GET(
         }
 
         // Forward the response exactly as it came from FastAPI (with all video headers)
-        const headers = new Headers(response.headers);
+        const responseHeaders = new Headers(response.headers);
 
         // Create a streaming response
         return new NextResponse(response.body, {
             status: response.status,
             statusText: response.statusText,
-            headers
+            headers: responseHeaders
         });
 
     } catch (error) {

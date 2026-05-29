@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MentorMind — Design Preview</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,300;8..60,400;8..60,500;8..60,600&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="styles.css">
+
+<script>
+  const SAVED = (() => {
+    try { return JSON.parse(localStorage.getItem('mm:tweaks') || '{}'); }
+    catch (e) { return {}; }
+  })();
+  window.__TWEAKS = Object.assign({
+    palette: 'cloud',
+    accent:  'blue',
+    density: 'comfortable',
+    view:    'desktop'
+  }, SAVED);
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel" src="src/data.jsx"></script>
+<script type="text/babel" src="src/primitives.jsx"></script>
+<script type="text/babel" src="src/chrome.jsx"></script>
+<script type="text/babel" src="src/screen-today.jsx"></script>
+<script type="text/babel" src="src/screen-create.jsx"></script>
+<script type="text/babel" src="src/screen-plan.jsx"></script>
+<script type="text/babel" src="src/screen-lesson.jsx"></script>
+<script type="text/babel" src="src/screen-library.jsx"></script>
+<script type="text/babel" src="src/phone.jsx"></script>
+<script type="text/babel" src="src/app.jsx"></script>
+
+</body>
+</html>

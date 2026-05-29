@@ -31,9 +31,9 @@ echo -e "\nSetting up environment..."
 if [ ! -f ".env.local" ]; then
     cat > .env.local << EOF
 # MentorMind Web Environment Variables
-NEXT_PUBLIC_API_URL=http://localhost:3000/api
-# Uncomment and set your backend URL
-# NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+BACKEND_URL=http://localhost:8000
+# Leave blank to use same-origin WebSockets in production
+NEXT_PUBLIC_BACKEND_WS_URL=
 EOF
     echo "Created .env.local file"
 else

@@ -180,6 +180,10 @@ data/
 *.gif
 *.avi
 *.mov
+!web/public/icon-192.png
+!web/public/icon-512.png
+!web/public/icon-maskable-512.png
+!web/public/apple-touch-icon.png
 
 # Cache files
 .cache/
@@ -441,3 +445,13 @@ cython_debug/
 node_modules/
 .next/
 .next/*
+web/.next/
+web/.next/**
+
+backend/.omc/*
+.superpowers/*
+web/.omc/*
+
+# Track the Next.js JS lib directory even though "lib/" is gitignored above for Python venvs.
+!web/app/lib/
+!web/app/lib/**

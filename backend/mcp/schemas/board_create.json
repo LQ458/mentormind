@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "title": { "type": "string", "maxLength": 100 },
+    "layout": { "type": "string", "enum": ["full_canvas", "split_left_right", "split_top_bottom", "focus_center"] },
+    "background": { "type": "string", "enum": ["dark_board", "light_board", "grid", "plain"], "default": "dark_board" },
+    "topic": { "type": "string" }
+  },
+  "required": ["title", "layout"],
+  "additionalProperties": false
+}

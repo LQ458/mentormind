@@ -177,15 +177,15 @@ class ClassCreator:
             print(f"Error analyzing query: {e}")
             return self._generate_ai_fallback_topics(query)
     
-    async def create_class_chinese(self, request: ClassCreationRequest) -> ClassCreationResult:
+    async def create_class_chinese(self, request: ClassCreationRequest, progress_callback=None) -> ClassCreationResult:
         """Create class in Chinese"""
-        return await self._create_class(request, Language.CHINESE)
-    
-    async def create_class_english(self, request: ClassCreationRequest) -> ClassCreationResult:
+        return await self._create_class(request, Language.CHINESE, progress_callback=progress_callback)
+
+    async def create_class_english(self, request: ClassCreationRequest, progress_callback=None) -> ClassCreationResult:
         """Create class in English"""
-        return await self._create_class(request, Language.ENGLISH)
-    
-    async def _create_class(self, request: ClassCreationRequest, language: Language) -> ClassCreationResult:
+        return await self._create_class(request, Language.ENGLISH, progress_callback=progress_callback)
+
+    async def _create_class(self, request: ClassCreationRequest, language: Language, progress_callback=None) -> ClassCreationResult:
         """Internal method to create class in any language using real AI with translation support"""
         try:
             ai_data = None
@@ -227,12 +227,16 @@ class ClassCreator:
                     return self._create_ai_fallback_class(request, language)
             
             if ai_data:
+                # Milestone 1: syllabus is ready
+                if progress_callback:
+                    progress_callback('syllabus_complete', 20, 'Syllabus ready')
+
                 # Translate AI responses if language is Chinese
                 if language == Language.CHINESE:
                     ai_data = await self._translate_ai_response(ai_data)
-                
+
                 # Extract data from AI response
-                default_title = request.topic if language == Language.ENGLISH else f"{request.topic}课程"
+                default_title = request.topic if language == Language.ENGLISH else f"{request.topic} 课程"
                 default_description = (
                     f"Detailed teaching plan for {request.topic}"
                     if language == Language.ENGLISH
@@ -246,7 +250,8 @@ class ClassCreator:
                 audio_url = None
                 video_url = None
                 multimedia_result = None
-                
+                multimedia_error = None
+
                 if request.include_video:
                     try:
                         print(f"🎥 Generating video content for: {class_title}")
@@ -279,7 +284,8 @@ class ClassCreator:
                             target_audience=request.target_audience,
                             duration_minutes=max(10, request.duration_minutes),
                             custom_requirements=request.custom_requirements,
-                            syllabus=request.syllabus, # Pass locked syllabus to output pipeline
+                            syllabus=request.syllabus,  # Pass locked syllabus to output pipeline
+                            progress_callback=progress_callback,
                         )
                         
                         if multimedia_result:
@@ -295,10 +301,42 @@ class ClassCreator:
                         import traceback
                         print(f"⚠️ Multimedia generation failed: {e}")
                         print(f"⚠️ Full traceback:\n{traceback.format_exc()}")
-                        # Don't fail the whole request, just log error
+                        # Store error for propagation to frontend
+                        multimedia_error = str(e)
                 
                 # Handle different response formats
                 pipeline_success = (not request.include_video) or bool(video_url)
+                error_message = None
+                if not pipeline_success:
+                    error_message = multimedia_error or "Video rendering failed. No video file was produced."
+
+                # Language-aware defaults
+                if language == Language.ENGLISH:
+                    _default_objectives = [
+                        "Understand fundamental concepts",
+                        "Master core skills",
+                        "Apply knowledge in practice",
+                    ]
+                    _default_prerequisites = ["Basic background knowledge"]
+                    _default_methodology = "AI-personalized teaching"
+                    _default_exercises = ["Foundational exercises", "Advanced challenges"]
+                    _default_assessment = "Comprehensive assessment"
+                    _default_resources = ["Course materials", "Reference books"]
+                    _default_duration = f"{request.duration_minutes} minutes"
+                    _default_notes = "AI-generated teaching plan"
+                else:
+                    _default_objectives = [
+                        "理解基本概念",
+                        "掌握核心技能",
+                        "应用所学知识",
+                    ]
+                    _default_prerequisites = ["基本知识背景"]
+                    _default_methodology = "AI个性化教学"
+                    _default_exercises = ["基础练习", "进阶挑战"]
+                    _default_assessment = "综合评估"
+                    _default_resources = ["课程材料", "参考书籍"]
+                    _default_duration = f"{request.duration_minutes}分钟"
+                    _default_notes = "AI生成的教学方案"
 
                 if "raw_response" in ai_data:
                     # AI returned raw text response
@@ -306,21 +344,17 @@ class ClassCreator:
                         success=pipeline_success,
                         class_title=class_title,
                         class_description=class_description,
-                        learning_objectives=[
-                            "理解基本概念",
-                            "掌握核心技能", 
-                            "应用所学知识"
-                        ],
-                        prerequisites=["基本知识背景"],
-                        teaching_methodology="AI个性化教学",
+                        learning_objectives=_default_objectives,
+                        prerequisites=_default_prerequisites,
+                        teaching_methodology=_default_methodology,
                         lesson_plan=normalized_lesson_plan,
-                        exercises=["基础练习", "进阶挑战"],
-                        assessment="综合评估",
-                        resources=["课程材料", "参考书籍"],
-                        estimated_duration=f"{request.duration_minutes}分钟",
+                        exercises=_default_exercises,
+                        assessment=_default_assessment,
+                        resources=_default_resources,
+                        estimated_duration=_default_duration,
                         difficulty_level=request.difficulty_level,
                         target_audience=request.target_audience,
-                        customization_notes="AI生成的教学方案",
+                        customization_notes=_default_notes,
                         ai_insights={
                             "generated": True,
                             "method": "ai_generated",
@@ -328,6 +362,7 @@ class ClassCreator:
                             "raw_ai_response": ai_data["raw_response"][:500] + "...",
                             "video_url": video_url,
                             "audio_url": audio_url,
+                            "error": error_message,
                             "generation_debug": multimedia_result.get("debug") if multimedia_result else None,
                             "lesson_blueprint": multimedia_result.get("lesson_blueprint") if multimedia_result else None,
                             "script": multimedia_result.get("script") if multimedia_result else None,
@@ -345,22 +380,22 @@ class ClassCreator:
                         class_description=class_description,
                         learning_objectives=ai_data.get("objectives") or ai_data.get("learning_objectives") or [],
                         prerequisites=ai_data.get("prerequisites") or [],
-                        teaching_methodology=ai_data.get("methodology") or ai_data.get("teaching_methodology") or "个性化教学",
+                        teaching_methodology=ai_data.get("methodology") or ai_data.get("teaching_methodology") or _default_methodology,
                         lesson_plan=normalized_lesson_plan,
                         exercises=ai_data.get("exercises") or [],
                         assessment=ai_data.get("assessment") or "",
                         resources=ai_data.get("resources") or [],
-                        estimated_duration=ai_data.get("duration") or f"{request.duration_minutes}分钟",
+                        estimated_duration=ai_data.get("duration") or _default_duration,
                         difficulty_level=ai_data.get("difficulty") or request.difficulty_level,
                         target_audience=ai_data.get("audience") or request.target_audience,
-                        customization_notes=ai_data.get("notes") or "AI生成的教学方案",
+                        customization_notes=ai_data.get("notes") or _default_notes,
                         ai_insights={
                             "generated": True,
                             "method": "ai_structured",
-                            "confidence": 0.95,
                             "ai_provider": "DeepSeek",
                             "video_url": video_url,
                             "audio_url": audio_url,
+                            "error": error_message,
                             "generation_debug": multimedia_result.get("debug") if multimedia_result else None,
                             "lesson_blueprint": multimedia_result.get("lesson_blueprint") if multimedia_result else None,
                             "script": multimedia_result.get("script") if multimedia_result else None,
@@ -659,9 +694,9 @@ class ClassCreator:
         else:
             title = f"AI驱动{request.topic}课程"
             description = f"基于AI生成的{request.topic}全面教学方案"
-        
+
         return ClassCreationResult(
-            success=True,
+            success=False,
             class_title=title,
             class_description=description,
             learning_objectives=[
@@ -698,10 +733,13 @@ class ClassCreator:
             ai_insights={
                 "generated": True,
                 "method": "ai_assisted_fallback",
-                "confidence": 0.8,
-                "note": "AI服务暂时不可用，使用智能回退方案",
+                "confidence": 0.0,
+                "note": "AI service temporarily unavailable" if language == Language.ENGLISH else "AI服务暂时不可用",
                 "video_url": None,
-                "audio_url": None
+                "audio_url": None,
+                "error": "AI service failed to generate content. Please try again later."
+                    if language == Language.ENGLISH
+                    else "AI服务无法生成内容，请稍后重试。",
             },
             language_used=language
         )

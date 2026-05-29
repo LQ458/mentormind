@@ -1,21 +1,47 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 
-const isProtectedRoute = createRouteMatcher([
-  '/dashboard(.*)',
-  '/settings(.*)',
-  '/create(.*)',
-  '/lessons(.*)',
-]);
+const PROTECTED_PREFIXES = [
+  '/dashboard',
+  '/settings',
+  '/create',
+  '/lessons',
+  '/study-plan',
+  '/knowledge-graph',
+  '/analytics',
+  '/board',
+  '/admin',
+]
 
-export default clerkMiddleware((auth, req) => {
-  if (isProtectedRoute(req)) auth().protect();
-});
+function getSessionCookie(request: NextRequest): string | null {
+  const token = request.cookies.get('mm_token')
+  if (token?.value) return token.value
+  const cookie = request.cookies.get('better-auth.session_token')
+  if (cookie?.value) return cookie.value
+  const sessionCookie = request.cookies.get('session_token')
+  return sessionCookie?.value ?? null
+}
+
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  const isProtected = PROTECTED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(prefix + '/'),
+  )
+  if (!isProtected) return NextResponse.next()
+
+  const token = getSessionCookie(request)
+  if (!token) {
+    const signInUrl = new URL('/', request.url)
+    signInUrl.searchParams.set('redirect', pathname)
+    return NextResponse.redirect(signInUrl)
+  }
+
+  return NextResponse.next()
+}
 
 export const config = {
   matcher: [
-    // Skip Next.js internals and all static files, unless found in search params
-    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
-    // Always run for API routes
-    '/(api|trpc)(.*)',
+    '/((?!_next|api|static|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
   ],
-};
+}

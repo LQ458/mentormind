@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "content": { "type": "string", "maxLength": 2000 },
+    "rubric": { "type": "string", "maxLength": 500 }
+  },
+  "required": ["content", "rubric"],
+  "additionalProperties": false
+}

@@ -1,91 +1,162 @@
-'use client';
+'use client'
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useCallback,
+  useMemo,
+  useEffect,
+  useState,
+} from 'react'
 
-interface AuthUser {
-  id: string;
-  email: string;
-  username: string;
-  full_name: string;
-  role: string;
-  language_preference: string;
-  subscription_tier: string;
+export interface AuthUser {
+  id: string
+  email: string
+  firstName: string
+  username: string
+  fullName: string
 }
 
-interface AuthContextType {
-  user: AuthUser | null;
-  token: string | null;
-  isAuthenticated: boolean;
-  login: (token: string, user: AuthUser) => void;
-  logout: () => void;
-  updateUser: (updates: Partial<AuthUser>) => void;
+interface AuthContextValue {
+  user: AuthUser | null
+  isLoaded: boolean
+  isSignedIn: boolean
+  getToken: () => Promise<string | null>
+  signOut: () => void
+  loginWithInvite: (inviteCode: string | undefined, username: string, password: string, lang?: string) => Promise<AuthUser>
 }
 
-const AuthContext = createContext<AuthContextType>({
+const AuthCtx = createContext<AuthContextValue>({
   user: null,
-  token: null,
-  isAuthenticated: false,
-  login: () => {},
-  logout: () => {},
-  updateUser: () => {},
-});
+  isLoaded: false,
+  isSignedIn: false,
+  getToken: async () => null,
+  signOut: () => {},
+  loginWithInvite: async () => {
+    throw new Error('AuthContext not mounted')
+  },
+})
+
+const TOKEN_KEY = 'mm_token'
+const USER_KEY = 'mm_user'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [isLoaded, setIsLoaded] = useState(false)
 
-  // Rehydrate from localStorage on mount
   useEffect(() => {
     try {
-      const storedToken = localStorage.getItem('mm_token');
-      const storedUser = localStorage.getItem('mm_user');
-      if (storedToken && storedUser) {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
+      const token = localStorage.getItem(TOKEN_KEY)
+      const savedUser = localStorage.getItem(USER_KEY)
+      if (token && savedUser) {
+        setUser(JSON.parse(savedUser))
       }
     } catch {
-      // Corrupt storage — clear it
-      localStorage.removeItem('mm_token');
-      localStorage.removeItem('mm_user');
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(USER_KEY)
     }
-  }, []);
+    setIsLoaded(true)
+  }, [])
 
-  const login = useCallback((newToken: string, newUser: AuthUser) => {
-    setToken(newToken);
-    setUser(newUser);
-    localStorage.setItem('mm_token', newToken);
-    localStorage.setItem('mm_user', JSON.stringify(newUser));
-  }, []);
+  const loginWithInvite = useCallback(
+    async (inviteCode: string | undefined, username: string, password: string, lang?: string): Promise<AuthUser> => {
+      const body: Record<string, string> = { username, password }
+      if (inviteCode) body.invite_code = inviteCode
 
-  const logout = useCallback(() => {
-    setToken(null);
-    setUser(null);
-    localStorage.removeItem('mm_token');
-    localStorage.removeItem('mm_user');
-  }, []);
+      const res = await fetch('/api/backend/auth/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as any)?.detail || `Auth failed (${res.status})`)
+      }
+      const data = await res.json()
+      if (!data?.success || !data?.token) {
+        throw new Error('Invalid response from server')
+      }
+      const u: AuthUser = {
+        id: data.user?.id || '',
+        username: data.user?.username || '',
+        email: data.user?.username
+          ? `${data.user.username}@mentormind.local`
+          : '',
+        firstName: data.user?.username || '',
+        fullName: data.user?.username || '',
+      }
+      localStorage.setItem(TOKEN_KEY, data.token)
+      localStorage.setItem(USER_KEY, JSON.stringify(u))
+      setUser(u)
+      return u
+    },
+    [],
+  )
 
-  const updateUser = useCallback((updates: Partial<AuthUser>) => {
-    setUser(prev => {
-      if (!prev) return null;
-      const updated = { ...prev, ...updates };
-      localStorage.setItem('mm_user', JSON.stringify(updated));
-      return updated;
-    });
-  }, []);
+  const getToken = useCallback(async (): Promise<string | null> => {
+    try {
+      return localStorage.getItem(TOKEN_KEY)
+    } catch {
+      return null
+    }
+  }, [])
 
-  return (
-    <AuthContext.Provider value={{ user, token, isAuthenticated: !!token, login, logout, updateUser }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  const signOut = useCallback(async () => {
+    try {
+      await fetch('/api/backend/auth/logout', { method: 'POST' })
+    } catch {
+      // ignore
+    }
+    try {
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(USER_KEY)
+    } catch {
+      // ignore
+    }
+    setUser(null)
+  }, [])
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      isLoaded,
+      isSignedIn: !!user,
+      getToken,
+      signOut,
+      loginWithInvite,
+    }),
+    [user, isLoaded, getToken, signOut, loginWithInvite],
+  )
+
+  return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>
 }
 
-export function useAuth() {
-  return useContext(AuthContext);
+export function useAuth(): AuthContextValue {
+  return useContext(AuthCtx)
 }
 
-/** Build an Authorization header object when a token is available. */
+export function useUser(): { user: AuthUser | null; isLoaded: boolean } {
+  const { user, isLoaded } = useAuth()
+  return { user, isLoaded }
+}
+
 export function useAuthHeaders(): Record<string, string> {
-  const { token } = useAuth();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const { isSignedIn, getToken } = useAuth()
+  const [headers, setHeaders] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (!isSignedIn) {
+      setHeaders({})
+      return
+    }
+    let cancelled = false
+    void getToken().then((t) => {
+      if (!cancelled && t) {
+        setHeaders({ Authorization: `Bearer ${t}` })
+      }
+    })
+    return () => { cancelled = true }
+  }, [isSignedIn, getToken])
+
+  return headers
 }
