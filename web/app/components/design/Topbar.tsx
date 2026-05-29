@@ -33,7 +33,7 @@ function getPageMeta(pathname: string): PageMeta {
   return { en: 'MentorMind', zh: '导师' }
 }
 
-export default function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
+export default function Topbar({ onMenuClick, menuOpen = false }: { onMenuClick?: () => void; menuOpen?: boolean }) {
   const pathname = usePathname() || '/'
   const { language, setLanguage } = useLanguage()
   const { user, isLoaded } = useUser()
@@ -48,6 +48,8 @@ export default function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
         type="button"
         className="md:hidden p-1.5 -ml-1 rounded-lg text-[var(--ink-muted)] hover:bg-[var(--surface-2)]"
         aria-label="Open menu"
+        aria-expanded={menuOpen}
+        aria-controls="app-sidebar"
         onClick={onMenuClick}
       >
         <Menu size={20} />

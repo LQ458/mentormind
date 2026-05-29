@@ -18,6 +18,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const openMenu = useCallback(() => setMobileOpen(true), [])
   const closeMenu = useCallback(() => setMobileOpen(false), [])
 
+  React.useEffect(() => {
+    if (!mobileOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu()
+    }
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [mobileOpen, closeMenu])
+
   // Listen for the global open-survey event (fired by Topbar feedback button)
   React.useEffect(() => {
     const handler = () => {
@@ -39,7 +53,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <div className="sidebar-overlay" onClick={closeMenu} aria-hidden="true" />
       )}
       <Sidebar mobileOpen={mobileOpen} onClose={closeMenu} />
-      <Topbar onMenuClick={openMenu} />
+      <Topbar onMenuClick={openMenu} menuOpen={mobileOpen} />
       <div className="main">
         <div className="main-inner">
           <ErrorBoundary>{children}</ErrorBoundary>
