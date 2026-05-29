@@ -454,15 +454,64 @@ body {
 /* ================================================================
    TWEAKS
    ================================================================ */
+.tweaks-float {
+  position: fixed;
+  z-index: 300;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.tweaks-pill,
+.tweaks-mini,
+.tweaks-reveal {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  font-family: var(--sans);
+  cursor: pointer;
+}
+.tweaks-pill {
+  padding: 10px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  touch-action: none;
+}
+.tweaks-mini {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--ink-muted);
+}
+.tweaks-reveal {
+  position: fixed;
+  right: 0;
+  bottom: 88px;
+  z-index: 300;
+  width: 28px;
+  height: 44px;
+  border-right: none;
+  border-radius: 12px 0 0 12px;
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent-ink);
+}
 .tweaks {
   position: fixed;
-  right: 20px; bottom: 20px;
   width: 280px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 18px 18px 16px;
-  z-index: 100;
+  z-index: 300;
   box-shadow: var(--shadow-lg);
 }
 .tweaks h3 {
@@ -472,7 +521,37 @@ body {
   display: flex; justify-content: space-between; align-items: baseline;
   color: var(--ink);
 }
-.tweaks h3 .close { font-size: 11px; color: var(--ink-muted); cursor: pointer; font-family: var(--sans); }
+.tweaks .tweaks-drag {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.tweaks .tweaks-drag:active { cursor: grabbing; }
+.tweaks-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tweaks-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.tweaks h3 .close {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--ink-muted);
+  cursor: pointer;
+  border-radius: 999px;
+  background: transparent;
+  border: none;
+}
+.tweaks h3 .close:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
 .tweaks .desc { color: var(--ink-muted); font-size: 12px; margin: 0 0 14px; }
 .tweaks .tw-group { margin-bottom: 12px; }
 .tweaks .tw-label {
