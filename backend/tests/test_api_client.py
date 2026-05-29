@@ -8,6 +8,7 @@ if BACKEND_ROOT not in sys.path:
     sys.path.insert(0, BACKEND_ROOT)
 
 from services.api_client import DeepSeekClient
+from services.api_client import APIClient
 
 
 def test_deepseek_thinking_mode_is_model_based():
@@ -34,6 +35,29 @@ def test_deepseek_model_selection_ignores_model_env(monkeypatch):
 
     assert client._select_model(None, 200) == "deepseek-v4-flash"
     assert client._select_model(None, 4000) == "deepseek-v4-pro"
+
+
+def test_study_plan_chat_uses_flash_for_plan_review(monkeypatch):
+    api = APIClient()
+    captured = {}
+
+    async def fake_chat_completion(**kwargs):
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr(api.deepseek, "chat_completion", fake_chat_completion)
+
+    import asyncio
+
+    asyncio.run(
+        api.study_plan_chat_completion(
+            messages=[{"role": "user", "content": "generate plan"}],
+            phase="plan_review",
+            max_tokens=1200,
+        )
+    )
+
+    assert captured["model"] == "deepseek-v4-flash"
 
 
 def test_deepseek_messages_drop_provider_thinking_fields():

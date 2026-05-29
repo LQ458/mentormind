@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
-const CHAT_TIMEOUT_MS = Number(process.env.STUDY_PLAN_CHAT_TIMEOUT_MS || 55000)
+const CHAT_TIMEOUT_MS = Number(process.env.STUDY_PLAN_CHAT_TIMEOUT_MS || 75000)
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
