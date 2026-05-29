@@ -159,7 +159,7 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: production
-      BACKEND_URL: ${BACKEND_URL:-http://mentormind-backend:8000}
+      BACKEND_URL: http://mentormind-backend:8000
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
       BETTER_AUTH_DB_URL: postgresql://${POSTGRES_USER:-mentormind}:${POSTGRES_PASSWORD:-mentormind}@postgres:5432/${POSTGRES_DB:-mentormind_metadata}
       ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-}
