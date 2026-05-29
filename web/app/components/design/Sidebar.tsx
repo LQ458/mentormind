@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, Home, Layers, Book, Settings, type LucideIcon } from 'lucide-react'
+import { CalendarDays, Home, Layers, Book, Settings, X, type LucideIcon } from 'lucide-react'
 import { Progress } from './primitives'
 import { useAuth, useUser } from '../AuthContext'
 import { useLanguage } from '../LanguageContext'
@@ -133,8 +133,29 @@ export default function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean;
   }
 
   return (
-    <div className={`sidebar${mobileOpen ? ' sidebar--mobile-open' : ''}`}>
-      <Link href="/dashboard" className="sb-brand">
+    <div
+      id="app-sidebar"
+      className={`sidebar${mobileOpen ? ' sidebar--mobile-open' : ''}`}
+    >
+      <div className="sb-top">
+        <Link href="/dashboard" className="sb-brand" onClick={onClose}>
+          <div className="glyph">M</div>
+          <div className="wordmark">
+            {lang === 'zh' ? '导师' : 'MentorMind'}
+          </div>
+        </Link>
+        <button
+          type="button"
+          className="sb-close"
+          aria-label={lang === 'zh' ? '关闭菜单' : 'Close menu'}
+          onClick={onClose}
+        >
+          <X size={18} />
+        </button>
+      </div>
+
+      {/* Desktop brand spacing is preserved by .sb-top/.sb-brand CSS. */}
+      <Link href="/dashboard" className="sb-brand sb-brand-desktop">
         <div className="glyph">M</div>
         <div className="wordmark">
           {lang === 'zh' ? '导师' : 'MentorMind'}
@@ -151,6 +172,7 @@ export default function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean;
               href={n.href}
               aria-current={active ? 'page' : undefined}
               className={`sb-item ${active ? 'active' : ''}`}
+              onClick={onClose}
             >
               <Icon size={18} strokeWidth={1.6} className="sb-icon" />
               <span>{lang === 'zh' ? n.zh : n.label}</span>
@@ -186,7 +208,7 @@ export default function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean;
         </div>
       )}
 
-      <Link href="/settings" className="sb-user">
+      <Link href="/settings" className="sb-user" onClick={onClose}>
         <div className="avatar">{initial}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
