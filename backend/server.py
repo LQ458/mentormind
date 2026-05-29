@@ -3918,6 +3918,39 @@ async def get_study_plan_library(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/study-plan/delete")
+async def delete_study_plans(
+    req: StudyPlanBulkDeleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Soft delete selected plans, or all active plans when delete_all is true."""
+    try:
+        _purge_expired_deleted_study_plans(db)
+        _purge_expired_deleted_study_plan_units(db)
+        query = _active_study_plan_query(db, current_user.id)
+        if not req.delete_all:
+            plan_ids = [pid for pid in req.plan_ids if isinstance(pid, str) and pid]
+            if not plan_ids:
+                return {"success": True, "deleted": 0, "plan_ids": []}
+            query = query.filter(StudyPlan.id.in_(plan_ids))
+
+        plans = query.all()
+        for plan in plans:
+            _soft_delete_study_plan(plan)
+        db.commit()
+        return {
+            "success": True,
+            "deleted": len(plans),
+            "plan_ids": [str(plan.id) for plan in plans],
+            "retention_days": STUDY_PLAN_DELETE_RETENTION_DAYS,
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to bulk delete study plans: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.delete("/study-plan/{plan_id}")
 async def delete_study_plan(
     plan_id: str,
@@ -3950,39 +3983,6 @@ async def delete_study_plan(
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to delete study plan: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/study-plan/delete")
-async def delete_study_plans(
-    req: StudyPlanBulkDeleteRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Soft delete selected plans, or all active plans when delete_all is true."""
-    try:
-        _purge_expired_deleted_study_plans(db)
-        _purge_expired_deleted_study_plan_units(db)
-        query = _active_study_plan_query(db, current_user.id)
-        if not req.delete_all:
-            plan_ids = [pid for pid in req.plan_ids if isinstance(pid, str) and pid]
-            if not plan_ids:
-                return {"success": True, "deleted": 0, "plan_ids": []}
-            query = query.filter(StudyPlan.id.in_(plan_ids))
-
-        plans = query.all()
-        for plan in plans:
-            _soft_delete_study_plan(plan)
-        db.commit()
-        return {
-            "success": True,
-            "deleted": len(plans),
-            "plan_ids": [str(plan.id) for plan in plans],
-            "retention_days": STUDY_PLAN_DELETE_RETENTION_DAYS,
-        }
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Failed to bulk delete study plans: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
