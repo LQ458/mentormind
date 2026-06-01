@@ -1,0 +1,843 @@
+[
+  {
+    "profile": {
+      "id": "extra-smart",
+      "label": "Extra Smart",
+      "foundation": "Aiming high",
+      "timeline": "May 2026, about 2 months",
+      "target": "AP 5 with margin; wants Olympiad-like challenge if useful",
+      "weekly": "8",
+      "months": "2",
+      "sessionHours": "2",
+      "desiredDays": [
+        "Mon",
+        "Wed",
+        "Fri"
+      ],
+      "baseline": [
+        "Very confident",
+        "Very confident",
+        "Very confident",
+        "Mostly steady",
+        "Very confident"
+      ],
+      "notes": "Already fast with algebra, vectors, and basic mechanics. Needs high-difficulty AP Physics 1 FRQs, experimental design, edge cases, and a fast pace. Gets bored by long basic explanations.",
+      "expectation": "Should compress concept review, prioritize hard FRQs/lab reasoning, use challenge problems, and avoid patronizing basics."
+    },
+    "started_at": "2026-05-30T17:45:54.467Z",
+    "elapsed_ms": 1598,
+    "network": [
+      {
+        "status": 200,
+        "url": "http://localhost:3000/api/backend/study-plan/chat",
+        "ts": 1780163157824
+      }
+    ],
+    "chat_response_status": 200,
+    "chat_json": {
+      "success": true,
+      "stage": "plan_review",
+      "content": "Here's your personalized study plan — review it and hit **Let's go!** when ready.",
+      "response_source": "fallback_plan_review_retry_fast",
+      "thinking_process": "",
+      "proposed_plan": {
+        "title": "AP Physics 1: Algebra-Based: Challenge & FRQ Mastery",
+        "subject": "physics",
+        "framework": "ap",
+        "course_name": "AP Physics 1: Algebra-Based",
+        "learner_tier": "accelerated",
+        "estimated_hours": 60,
+        "units": [
+          {
+            "title": "Fast Diagnostic & Skip List",
+            "description": "baseline traps rubric scan",
+            "topics": [
+              "baseline traps",
+              "rubric scan",
+              "skip/review decisions"
+            ],
+            "learning_objectives": [
+              "Use baseline traps confidently",
+              "Practice skip/review decisions"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Kinematics",
+            "description": "Kinematics common traps",
+            "topics": [
+              "Kinematics",
+              "common traps",
+              "timed challenge",
+              "error upgrade"
+            ],
+            "learning_objectives": [
+              "Use Kinematics confidently",
+              "Practice error upgrade"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Dynamics",
+            "description": "Dynamics common traps",
+            "topics": [
+              "Dynamics",
+              "common traps",
+              "timed challenge",
+              "error upgrade"
+            ],
+            "learning_objectives": [
+              "Use Dynamics confidently",
+              "Practice error upgrade"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Circular Motion and Gravitation",
+            "description": "Circular Motion and Gravitation common traps",
+            "topics": [
+              "Circular Motion and Gravitation",
+              "common traps",
+              "timed challenge",
+              "error upgrade"
+            ],
+            "learning_objectives": [
+              "Use Circular Motion and Gravitation confidently",
+              "Practice error upgrade"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Energy",
+            "description": "Energy common traps",
+            "topics": [
+              "Energy",
+              "common traps",
+              "timed challenge",
+              "error upgrade"
+            ],
+            "learning_objectives": [
+              "Use Energy confidently",
+              "Practice error upgrade"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Cross-Unit Challenge Set",
+            "description": "synthesis problems edge cases",
+            "topics": [
+              "synthesis problems",
+              "edge cases",
+              "error upgrade"
+            ],
+            "learning_objectives": [
+              "Use synthesis problems confidently",
+              "Practice error upgrade"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Full Exam Simulation",
+            "description": "timed exam postmortem",
+            "topics": [
+              "timed exam",
+              "postmortem",
+              "final weak spots"
+            ],
+            "learning_objectives": [
+              "Use timed exam confidently",
+              "Practice final weak spots"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          }
+        ],
+        "ai_metadata": {
+          "fallback": true,
+          "diagnostic_excerpt": "I want to build a study plan.\nFramework: AP (Advanced Placement)\nSubject: Physics\nCourse: AP Physics 1\nCurrent foundation: Aiming high\nExam/goal timeline: May 2026, about 2 months\nTarget score: AP 5 with margin; wants Olympiad-like challenge if useful\nWeekly study time: 8 hours\nTotal preparation win"
+        },
+        "pedagogy_profile": {
+          "pace": "accelerated",
+          "support_pattern": "diagnose and skip basics; challenge-first",
+          "concept_example_practice_test_ratio": "10/15/55/20",
+          "engagement_mode": "hard-mode challenges, traps, timed FRQs"
+        },
+        "weekly_schedule": [
+          {
+            "day": "Mon",
+            "focus": "fast diagnostic + hard problem set"
+          },
+          {
+            "day": "Wed",
+            "focus": "timed FRQ / experimental design"
+          },
+          {
+            "day": "Fri",
+            "focus": "error upgrade + cross-unit challenge"
+          }
+        ],
+        "engagement_hooks": [
+          "Hard-mode FRQ",
+          "misconception traps",
+          "experimental design challenge"
+        ],
+        "challenge_rule": "Skip basics after a quick diagnostic; spend saved time on FRQ rubrics, traps, lab design, and cross-unit synthesis."
+      },
+      "diagnostic_question": null,
+      "next_action_label": "Looks good, let's go!",
+      "detected_subject": {
+        "subject": "physics",
+        "framework": "ap",
+        "difficulty": "intermediate",
+        "topics": [
+          "Kinematics",
+          "Dynamics",
+          "Circular Motion and Gravitation",
+          "Energy",
+          "Momentum"
+        ],
+        "confidence": 0.95,
+        "course_id": "ap_physics_1",
+        "course_name": "AP Physics 1: Algebra-Based"
+      },
+      "options": null,
+      "allow_free_text": true
+    },
+    "pre_send_text": "M\nMentorMind\nToday\nDaily review\nStudy plan\nSeminar\nLibrary\nT\ntest\nLearner\nStudy plan\nSearch lessons, plans, actions…\n⌘K\nEN\n中文\n17\nT\nSTUDY PLAN\nYour study plan\nView your existing plans or build a new one with Mina.\n1. Select\n2. Profile\n3. Mina\n4. Review\n5. Save\nConfirm the plan with Mina\n← Back\n⚛️ Physics\nAP (Advanced Placement)\nMina\n\nHi, I'm Mina. I have your Physics AP (Advanced Placement) context and will use it to build the plan.\n\n01:45 AM\nYou\n\nI want to build a study plan.\n\nFramework: AP (Advanced Placement)\n\nSubject: Physics\n\nCourse: AP Physics 1\n\nCurrent foundation: Aiming high\n\nExam/goal timeline: May 2026, about 2 months\n\nTarget score: AP 5 with margin; wants Olympiad-like challenge if useful\n\nWeekly study time: 8 hours\n\nTotal preparation window: 2 months\n\nSchedule: Mon, Wed, Fri, 2 hours per session\n\nWeak areas/context: Already fast with algebra, vectors, and basic mechanics. Needs high-difficulty AP Physics 1 FRQs, experimental design, edge cases, and a fast pace. Gets bored by long basic explanations.\n\nBaseline self-check:\n\nI feel confident with core concepts.: Very confident\n\nI feel confident with calculations/data.: Very confident\n\nI feel confident with labs/graphs.: Very confident\n\nI feel confident with structured responses.: Mostly steady\n\nI feel confident with common misconceptions.: Very confident\n\nIf this is enough, generate the plan. If a key detail is missing, ask only one important follow-up question.\n\n01:45 AM\nSend\nTweaks",
+    "final_text": "M\nMentorMind\nToday\nDaily review\nStudy plan\nSeminar\nLibrary\nT\ntest\nLearner\nStudy plan\nSearch lessons, plans, actions…\n⌘K\nEN\n中文\n17\nT\nSTUDY PLAN\nYour study plan\nView your existing plans or build a new one with Mina.\n1. Select\n2. Profile\n3. Mina\n4. Review\n5. Save\nPROPOSED STUDY PLAN\nSaved after confirmation\nAP Physics 1: Algebra-Based: Challenge & FRQ Mastery\nSubject: Physics\nFramework: AP (Advanced Placement)\nEstimated hours: 60h\nLearner path: accelerated\nLearning mode\n\ndiagnose and skip basics; challenge-first\n\nConcept/example/practice/test: 10/15/55/20\n\nWeekly rhythm\n\nMon: fast diagnostic + hard problem set\n\nWed: timed FRQ / experimental design\n\nFri: error upgrade + cross-unit challenge\n\nEngagement\nHard-mode FRQ\nmisconception traps\nexperimental design challenge\nSkip basics after a quick diagnostic; spend saved time on FRQ rubrics, traps, lab design, and cross-unit synthesis.\nUNITS\n1. Fast Diagnostic & Skip List\n\nbaseline traps rubric scan\n\nbaseline traps\nrubric scan\nskip/review decisions\n10h\n2. Kinematics\n\nKinematics common traps\n\nKinematics\ncommon traps\ntimed challenge\nerror upgrade\n10h\n3. Dynamics\n\nDynamics common traps\n\nDynamics\ncommon traps\ntimed challenge\nerror upgrade\n10h\n4. Circular Motion and Gravitation\n\nCircular Motion and Gravitation common traps\n\nCircular Motion and Gravitation\ncommon traps\ntimed challenge\nerror upgrade\n10h\n5. Energy\n\nEnergy common traps\n\nEnergy\ncommon traps\ntimed challenge\nerror upgrade\n10h\n6. Cross-Unit Challenge Set\n\nsynthesis problems edge cases\n\nsynthesis problems\nedge cases\nerror upgrade\n10h\n7. Full Exam Simulation\n\ntimed exam postmortem\n\ntimed exam\npostmortem\nfinal weak spots\n10h\nLooks good, let's go!\n\nWant changes? Tell me what to adjust:\n\nRevise\nTweaks"
+  },
+  {
+    "profile": {
+      "id": "smart",
+      "label": "Smart",
+      "foundation": "Intermediate",
+      "timeline": "May 2026, about 4 months",
+      "target": "AP 4 or 5",
+      "weekly": "6",
+      "months": "4",
+      "sessionHours": "1.5",
+      "desiredDays": [
+        "Mon",
+        "Wed",
+        "Fri"
+      ],
+      "baseline": [
+        "Mostly steady",
+        "Somewhat",
+        "Somewhat",
+        "Mostly steady",
+        "Somewhat"
+      ],
+      "notes": "Understands class lectures and can solve routine problems. Mistakes appear on multi-step force/energy questions, graphs, and explaining reasoning under time pressure.",
+      "expectation": "Should balance concise concept repair with frequent AP-style practice, error review, and timed FRQ drills."
+    },
+    "started_at": "2026-05-30T17:45:59.356Z",
+    "elapsed_ms": 1524,
+    "network": [
+      {
+        "status": 200,
+        "url": "http://localhost:3000/api/backend/study-plan/chat",
+        "ts": 1780163162576
+      }
+    ],
+    "chat_response_status": 200,
+    "chat_json": {
+      "success": true,
+      "stage": "plan_review",
+      "content": "Here's your personalized study plan — review it and hit **Let's go!** when ready.",
+      "response_source": "fallback_plan_review_retry_fast",
+      "thinking_process": "",
+      "proposed_plan": {
+        "title": "AP Physics 1: Algebra-Based: Mastery Plan",
+        "subject": "physics",
+        "framework": "ap",
+        "course_name": "AP Physics 1: Algebra-Based",
+        "learner_tier": "standard",
+        "estimated_hours": 60,
+        "units": [
+          {
+            "title": "Kinematics",
+            "description": "Kinematics core concepts",
+            "topics": [
+              "Kinematics",
+              "core concepts",
+              "typical problems",
+              "error review"
+            ],
+            "learning_objectives": [
+              "Use Kinematics confidently",
+              "Practice error review"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Dynamics",
+            "description": "Dynamics core concepts",
+            "topics": [
+              "Dynamics",
+              "core concepts",
+              "typical problems",
+              "error review"
+            ],
+            "learning_objectives": [
+              "Use Dynamics confidently",
+              "Practice error review"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Circular Motion and Gravitation",
+            "description": "Circular Motion and Gravitation core concepts",
+            "topics": [
+              "Circular Motion and Gravitation",
+              "core concepts",
+              "typical problems",
+              "error review"
+            ],
+            "learning_objectives": [
+              "Use Circular Motion and Gravitation confidently",
+              "Practice error review"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Energy",
+            "description": "Energy core concepts",
+            "topics": [
+              "Energy",
+              "core concepts",
+              "typical problems",
+              "error review"
+            ],
+            "learning_objectives": [
+              "Use Energy confidently",
+              "Practice error review"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Momentum",
+            "description": "Momentum core concepts",
+            "topics": [
+              "Momentum",
+              "core concepts",
+              "typical problems",
+              "error review"
+            ],
+            "learning_objectives": [
+              "Use Momentum confidently",
+              "Practice error review"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Simple Harmonic Motion",
+            "description": "Simple Harmonic Motion core concepts",
+            "topics": [
+              "Simple Harmonic Motion",
+              "core concepts",
+              "typical problems",
+              "error review"
+            ],
+            "learning_objectives": [
+              "Use Simple Harmonic Motion confidently",
+              "Practice error review"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          }
+        ],
+        "ai_metadata": {
+          "fallback": true,
+          "diagnostic_excerpt": "I want to build a study plan.\nFramework: AP (Advanced Placement)\nSubject: Physics\nCourse: AP Physics 1\nCurrent foundation: Intermediate\nExam/goal timeline: May 2026, about 4 months\nTarget score: AP 4 or 5\nWeekly study time: 6 hours\nTotal preparation window: 4 months\nSchedule: Mon, Wed, Fri, 1.5 hour"
+        },
+        "pedagogy_profile": {
+          "pace": "normal",
+          "support_pattern": "concept repair plus frequent AP practice",
+          "concept_example_practice_test_ratio": "25/25/35/15",
+          "engagement_mode": "progress streaks, timed mini-checks, error upgrades"
+        },
+        "weekly_schedule": [
+          {
+            "day": "Mon",
+            "focus": "core concept + typical problems"
+          },
+          {
+            "day": "Wed",
+            "focus": "AP-style practice + graph/data work"
+          },
+          {
+            "day": "Fri",
+            "focus": "timed mini-check + error review"
+          }
+        ],
+        "engagement_hooks": [
+          "progress bar",
+          "error upgrade",
+          "weekly mini-check"
+        ]
+      },
+      "diagnostic_question": null,
+      "next_action_label": "Looks good, let's go!",
+      "detected_subject": {
+        "subject": "physics",
+        "framework": "ap",
+        "difficulty": "intermediate",
+        "topics": [
+          "Kinematics",
+          "Dynamics",
+          "Circular Motion and Gravitation",
+          "Energy",
+          "Momentum"
+        ],
+        "confidence": 0.95,
+        "course_id": "ap_physics_1",
+        "course_name": "AP Physics 1: Algebra-Based"
+      },
+      "options": null,
+      "allow_free_text": true
+    },
+    "pre_send_text": "M\nMentorMind\nToday\nDaily review\nStudy plan\nSeminar\nLibrary\nT\ntest\nLearner\nStudy plan\nSearch lessons, plans, actions…\n⌘K\nEN\n中文\n17\nT\nSTUDY PLAN\nYour study plan\nView your existing plans or build a new one with Mina.\n1. Select\n2. Profile\n3. Mina\n4. Review\n5. Save\nConfirm the plan with Mina\n← Back\n⚛️ Physics\nAP (Advanced Placement)\nMina\n\nHi, I'm Mina. I have your Physics AP (Advanced Placement) context and will use it to build the plan.\n\n01:46 AM\nYou\n\nI want to build a study plan.\n\nFramework: AP (Advanced Placement)\n\nSubject: Physics\n\nCourse: AP Physics 1\n\nCurrent foundation: Intermediate\n\nExam/goal timeline: May 2026, about 4 months\n\nTarget score: AP 4 or 5\n\nWeekly study time: 6 hours\n\nTotal preparation window: 4 months\n\nSchedule: Mon, Wed, Fri, 1.5 hours per session\n\nWeak areas/context: Understands class lectures and can solve routine problems. Mistakes appear on multi-step force/energy questions, graphs, and explaining reasoning under time pressure.\n\nBaseline self-check:\n\nI feel confident with core concepts.: Mostly steady\n\nI feel confident with calculations/data.: Somewhat\n\nI feel confident with labs/graphs.: Somewhat\n\nI feel confident with structured responses.: Mostly steady\n\nI feel confident with common misconceptions.: Somewhat\n\nIf this is enough, generate the plan. If a key detail is missing, ask only one important follow-up question.\n\n01:46 AM\nSend\nTweaks",
+    "final_text": "M\nMentorMind\nToday\nDaily review\nStudy plan\nSeminar\nLibrary\nT\ntest\nLearner\nStudy plan\nSearch lessons, plans, actions…\n⌘K\nEN\n中文\n17\nT\nSTUDY PLAN\nYour study plan\nView your existing plans or build a new one with Mina.\n1. Select\n2. Profile\n3. Mina\n4. Review\n5. Save\nPROPOSED STUDY PLAN\nSaved after confirmation\nAP Physics 1: Algebra-Based: Mastery Plan\nSubject: Physics\nFramework: AP (Advanced Placement)\nEstimated hours: 60h\nLearner path: standard\nLearning mode\n\nconcept repair plus frequent AP practice\n\nConcept/example/practice/test: 25/25/35/15\n\nWeekly rhythm\n\nMon: core concept + typical problems\n\nWed: AP-style practice + graph/data work\n\nFri: timed mini-check + error review\n\nEngagement\nprogress bar\nerror upgrade\nweekly mini-check\nUNITS\n1. Kinematics\n\nKinematics core concepts\n\nKinematics\ncore concepts\ntypical problems\nerror review\n10h\n2. Dynamics\n\nDynamics core concepts\n\nDynamics\ncore concepts\ntypical problems\nerror review\n10h\n3. Circular Motion and Gravitation\n\nCircular Motion and Gravitation core concepts\n\nCircular Motion and Gravitation\ncore concepts\ntypical problems\nerror review\n10h\n4. Energy\n\nEnergy core concepts\n\nEnergy\ncore concepts\ntypical problems\nerror review\n10h\n5. Momentum\n\nMomentum core concepts\n\nMomentum\ncore concepts\ntypical problems\nerror review\n10h\n6. Simple Harmonic Motion\n\nSimple Harmonic Motion core concepts\n\nSimple Harmonic Motion\ncore concepts\ntypical problems\nerror review\n10h\nLooks good, let's go!\n\nWant changes? Tell me what to adjust:\n\nRevise\nTweaks"
+  },
+  {
+    "profile": {
+      "id": "medium",
+      "label": "Medium",
+      "foundation": "Some foundation",
+      "timeline": "May 2026, about 5 months",
+      "target": "AP 3 or 4",
+      "weekly": "5",
+      "months": "5",
+      "sessionHours": "1",
+      "desiredDays": [
+        "Mon",
+        "Wed",
+        "Fri"
+      ],
+      "baseline": [
+        "Somewhat",
+        "Not confident",
+        "Somewhat",
+        "Somewhat",
+        "Not confident"
+      ],
+      "notes": "Can follow examples after seeing them, but struggles to start problems alone. Weak in free-body diagrams, equations from graphs, and choosing formulas.",
+      "expectation": "Should include scaffolding, worked examples, small wins, retrieval practice, and gradual release before timed AP work."
+    },
+    "started_at": "2026-05-30T17:46:04.095Z",
+    "elapsed_ms": 1533,
+    "network": [
+      {
+        "status": 200,
+        "url": "http://localhost:3000/api/backend/study-plan/chat",
+        "ts": 1780163167301
+      }
+    ],
+    "chat_response_status": 200,
+    "chat_json": {
+      "success": true,
+      "stage": "plan_review",
+      "content": "Here's your personalized study plan — review it and hit **Let's go!** when ready.",
+      "response_source": "fallback_plan_review_retry_fast",
+      "thinking_process": "",
+      "proposed_plan": {
+        "title": "AP Physics 1: Algebra-Based: Guided Problem-Solving Plan",
+        "subject": "physics",
+        "framework": "ap",
+        "course_name": "AP Physics 1: Algebra-Based",
+        "learner_tier": "scaffolded",
+        "estimated_hours": 72,
+        "units": [
+          {
+            "title": "Problem Setup Toolkit",
+            "description": "draw the situation known/unknown",
+            "topics": [
+              "draw the situation",
+              "known/unknown",
+              "choose one law",
+              "one-step wins"
+            ],
+            "learning_objectives": [
+              "Use draw the situation confidently",
+              "Practice one-step wins"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Kinematics",
+            "description": "Kinematics worked example",
+            "topics": [
+              "Kinematics",
+              "worked example",
+              "guided practice",
+              "independent attempt"
+            ],
+            "learning_objectives": [
+              "Use Kinematics confidently",
+              "Practice independent attempt"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Dynamics",
+            "description": "Dynamics worked example",
+            "topics": [
+              "Dynamics",
+              "worked example",
+              "guided practice",
+              "independent attempt"
+            ],
+            "learning_objectives": [
+              "Use Dynamics confidently",
+              "Practice independent attempt"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Circular Motion and Gravitation",
+            "description": "Circular Motion and Gravitation worked example",
+            "topics": [
+              "Circular Motion and Gravitation",
+              "worked example",
+              "guided practice",
+              "independent attempt"
+            ],
+            "learning_objectives": [
+              "Use Circular Motion and Gravitation confidently",
+              "Practice independent attempt"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Energy",
+            "description": "Energy worked example",
+            "topics": [
+              "Energy",
+              "worked example",
+              "guided practice",
+              "independent attempt"
+            ],
+            "learning_objectives": [
+              "Use Energy confidently",
+              "Practice independent attempt"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Momentum",
+            "description": "Momentum worked example",
+            "topics": [
+              "Momentum",
+              "worked example",
+              "guided practice",
+              "independent attempt"
+            ],
+            "learning_objectives": [
+              "Use Momentum confidently",
+              "Practice independent attempt"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Exam Practice Ramp",
+            "description": "mixed practice mini-checks",
+            "topics": [
+              "mixed practice",
+              "mini-checks",
+              "error review"
+            ],
+            "learning_objectives": [
+              "Use mixed practice confidently",
+              "Practice error review"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          }
+        ],
+        "ai_metadata": {
+          "fallback": true,
+          "diagnostic_excerpt": "I want to build a study plan.\nFramework: AP (Advanced Placement)\nSubject: Physics\nCourse: AP Physics 1\nCurrent foundation: Some foundation\nExam/goal timeline: May 2026, about 5 months\nTarget score: AP 3 or 4\nWeekly study time: 5 hours\nTotal preparation window: 5 months\nSchedule: Mon, Wed, Fri, 1 hou"
+        },
+        "pedagogy_profile": {
+          "pace": "guided",
+          "support_pattern": "worked example -> guided attempt -> independent attempt",
+          "concept_example_practice_test_ratio": "30/35/25/10",
+          "engagement_mode": "small wins, step cards, visible progress each session"
+        },
+        "weekly_schedule": [
+          {
+            "day": "Mon",
+            "focus": "concept repair + worked example"
+          },
+          {
+            "day": "Wed",
+            "focus": "guided practice + error tagging"
+          },
+          {
+            "day": "Fri",
+            "focus": "independent attempt + mini-check"
+          }
+        ],
+        "engagement_hooks": [
+          "step cards",
+          "worked-example relay",
+          "three-question win"
+        ],
+        "scaffolding_rule": "Every unit should use: worked example -> guided attempt -> independent attempt -> error review."
+      },
+      "diagnostic_question": null,
+      "next_action_label": "Looks good, let's go!",
+      "detected_subject": {
+        "subject": "physics",
+        "framework": "ap",
+        "difficulty": "intermediate",
+        "topics": [
+          "Kinematics",
+          "Dynamics",
+          "Circular Motion and Gravitation",
+          "Energy",
+          "Momentum"
+        ],
+        "confidence": 0.95,
+        "course_id": "ap_physics_1",
+        "course_name": "AP Physics 1: Algebra-Based"
+      },
+      "options": null,
+      "allow_free_text": true
+    },
+    "pre_send_text": "M\nMentorMind\nToday\nDaily review\nStudy plan\nSeminar\nLibrary\nT\ntest\nLearner\nStudy plan\nSearch lessons, plans, actions…\n⌘K\nEN\n中文\n17\nT\nSTUDY PLAN\nYour study plan\nView your existing plans or build a new one with Mina.\n1. Select\n2. Profile\n3. Mina\n4. Review\n5. Save\nConfirm the plan with Mina\n← Back\n⚛️ Physics\nAP (Advanced Placement)\nMina\n\nHi, I'm Mina. I have your Physics AP (Advanced Placement) context and will use it to build the plan.\n\n01:46 AM\nYou\n\nI want to build a study plan.\n\nFramework: AP (Advanced Placement)\n\nSubject: Physics\n\nCourse: AP Physics 1\n\nCurrent foundation: Some foundation\n\nExam/goal timeline: May 2026, about 5 months\n\nTarget score: AP 3 or 4\n\nWeekly study time: 5 hours\n\nTotal preparation window: 5 months\n\nSchedule: Mon, Wed, Fri, 1 hours per session\n\nWeak areas/context: Can follow examples after seeing them, but struggles to start problems alone. Weak in free-body diagrams, equations from graphs, and choosing formulas.\n\nBaseline self-check:\n\nI feel confident with core concepts.: Somewhat\n\nI feel confident with calculations/data.: Not confident\n\nI feel confident with labs/graphs.: Somewhat\n\nI feel confident with structured responses.: Somewhat\n\nI feel confident with common misconceptions.: Not confident\n\nIf this is enough, generate the plan. If a key detail is missing, ask only one important follow-up question.\n\n01:46 AM\nSend\nTweaks",
+    "final_text": "M\nMentorMind\nToday\nDaily review\nStudy plan\nSeminar\nLibrary\nT\ntest\nLearner\nStudy plan\nSearch lessons, plans, actions…\n⌘K\nEN\n中文\n17\nT\nSTUDY PLAN\nYour study plan\nView your existing plans or build a new one with Mina.\n1. Select\n2. Profile\n3. Mina\n4. Review\n5. Save\nPROPOSED STUDY PLAN\nSaved after confirmation\nAP Physics 1: Algebra-Based: Guided Problem-Solving Plan\nSubject: Physics\nFramework: AP (Advanced Placement)\nEstimated hours: 72h\nLearner path: scaffolded\nLearning mode\n\nworked example -> guided attempt -> independent attempt\n\nConcept/example/practice/test: 30/35/25/10\n\nWeekly rhythm\n\nMon: concept repair + worked example\n\nWed: guided practice + error tagging\n\nFri: independent attempt + mini-check\n\nEngagement\nstep cards\nworked-example relay\nthree-question win\nEvery unit should use: worked example -> guided attempt -> independent attempt -> error review.\nUNITS\n1. Problem Setup Toolkit\n\ndraw the situation known/unknown\n\ndraw the situation\nknown/unknown\nchoose one law\none-step wins\n10h\n2. Kinematics\n\nKinematics worked example\n\nKinematics\nworked example\nguided practice\nindependent attempt\n10h\n3. Dynamics\n\nDynamics worked example\n\nDynamics\nworked example\nguided practice\nindependent attempt\n10h\n4. Circular Motion and Gravitation\n\nCircular Motion and Gravitation worked example\n\nCircular Motion and Gravitation\nworked example\nguided practice\nindependent attempt\n10h\n5. Energy\n\nEnergy worked example\n\nEnergy\nworked example\nguided practice\nindependent attempt\n10h\n6. Momentum\n\nMomentum worked example\n\nMomentum\nworked example\nguided practice\nindependent attempt\n10h\n7. Exam Practice Ramp\n\nmixed practice mini-checks\n\nmixed practice\nmini-checks\nerror review\n10h\nLooks good, let's go!\n\nWant changes? Tell me what to adjust:\n\nRevise\nTweaks"
+  },
+  {
+    "profile": {
+      "id": "slow-learner",
+      "label": "Slow Learner",
+      "foundation": "Need quick wins",
+      "timeline": "May 2026, about 6 months",
+      "target": "Pass AP Physics 1; build confidence first",
+      "weekly": "4",
+      "months": "6",
+      "sessionHours": "1",
+      "desiredDays": [
+        "Mon",
+        "Wed",
+        "Sat"
+      ],
+      "baseline": [],
+      "notes": "I do not want a long pretest first. I need quick wins, fun short missions, very concrete explanations, visual intuition, repetition, and confidence-building.",
+      "expectation": "Should infer foundation_rebuild without forcing baseline answers; use short low-pressure missions, concrete examples, and confidence-building."
+    },
+    "started_at": "2026-05-30T17:46:08.825Z",
+    "elapsed_ms": 1539,
+    "network": [
+      {
+        "status": 200,
+        "url": "http://localhost:3000/api/backend/study-plan/chat",
+        "ts": 1780163172051
+      }
+    ],
+    "chat_response_status": 200,
+    "chat_json": {
+      "success": true,
+      "stage": "plan_review",
+      "content": "Here's your personalized study plan — review it and hit **Let's go!** when ready.",
+      "response_source": "fallback_plan_review_retry_fast",
+      "thinking_process": "",
+      "proposed_plan": {
+        "title": "AP Physics 1: Algebra-Based: Confidence Builder",
+        "subject": "physics",
+        "framework": "ap",
+        "course_name": "AP Physics 1: Algebra-Based",
+        "learner_tier": "foundation_rebuild",
+        "estimated_hours": 72,
+        "units": [
+          {
+            "title": "Foundations & Confidence",
+            "description": "physics vocabulary units and symbols",
+            "topics": [
+              "physics vocabulary",
+              "units and symbols",
+              "formula decoding",
+              "visual intuition"
+            ],
+            "learning_objectives": [
+              "Use physics vocabulary confidently",
+              "Practice visual intuition"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "How to Start Problems",
+            "description": "draw the situation known/unknown",
+            "topics": [
+              "draw the situation",
+              "known/unknown",
+              "choose one law",
+              "one-step wins"
+            ],
+            "learning_objectives": [
+              "Use draw the situation confidently",
+              "Practice one-step wins"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Kinematics",
+            "description": "Kinematics intuition example",
+            "topics": [
+              "Kinematics",
+              "intuition example",
+              "short practice",
+              "confidence review"
+            ],
+            "learning_objectives": [
+              "Use Kinematics confidently",
+              "Practice confidence review"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Dynamics",
+            "description": "Dynamics intuition example",
+            "topics": [
+              "Dynamics",
+              "intuition example",
+              "short practice",
+              "confidence review"
+            ],
+            "learning_objectives": [
+              "Use Dynamics confidently",
+              "Practice confidence review"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Circular Motion and Gravitation",
+            "description": "Circular Motion and Gravitation intuition example",
+            "topics": [
+              "Circular Motion and Gravitation",
+              "intuition example",
+              "short practice",
+              "confidence review"
+            ],
+            "learning_objectives": [
+              "Use Circular Motion and Gravitation confidently",
+              "Practice confidence review"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Energy",
+            "description": "Energy intuition example",
+            "topics": [
+              "Energy",
+              "intuition example",
+              "short practice",
+              "confidence review"
+            ],
+            "learning_objectives": [
+              "Use Energy confidently",
+              "Practice confidence review"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          },
+          {
+            "title": "Gentle Exam Practice",
+            "description": "short streaks guided responses",
+            "topics": [
+              "short streaks",
+              "guided responses",
+              "confidence review"
+            ],
+            "learning_objectives": [
+              "Use short streaks confidently",
+              "Practice confidence review"
+            ],
+            "estimated_hours": 10,
+            "estimated_minutes": 600
+          }
+        ],
+        "ai_metadata": {
+          "fallback": true,
+          "diagnostic_excerpt": "I want to build a study plan.\nFramework: AP (Advanced Placement)\nSubject: Physics\nCourse: AP Physics 1\nCurrent foundation: Need quick wins\nExam/goal timeline: May 2026, about 6 months\nTarget score: Pass AP Physics 1; build confidence first\nWeekly study time: 4 hours\nTotal preparation window: 6 month"
+        },
+        "pedagogy_profile": {
+          "pace": "slow",
+          "support_pattern": "confidence-first; tiny input before short practice",
+          "concept_example_practice_test_ratio": "35/40/20/5",
+          "engagement_mode": "game-like missions, visual intuition, low-pressure streaks"
+        },
+        "weekly_schedule": [
+          {
+            "day": "Mon",
+            "focus": "10-min intuition picture + 1 worked example + 1 confidence win"
+          },
+          {
+            "day": "Wed",
+            "focus": "vocabulary/formula decoding + guided practice"
+          },
+          {
+            "day": "Fri",
+            "focus": "low-pressure recap + 2-question streak challenge"
+          }
+        ],
+        "engagement_hooks": [
+          "formula-decoder game",
+          "draw-the-physics prompt",
+          "two-question streak badge"
+        ],
+        "motivation_safeguards": [
+          "Keep pretests optional",
+          "Start with a visible win",
+          "Use short sessions with a choice of mission",
+          "Delay timed tests until setup is stable"
+        ]
+      },
+      "diagnostic_question": null,
+      "next_action_label": "Looks good, let's go!",
+      "detected_subject": {
+        "subject": "physics",
+        "framework": "ap",
+        "difficulty": "intermediate",
+        "topics": [
+          "Kinematics",
+          "Dynamics",
+          "Circular Motion and Gravitation",
+          "Energy",
+          "Momentum"
+        ],
+        "confidence": 0.95,
+        "course_id": "ap_physics_1",
+        "course_name": "AP Physics 1: Algebra-Based"
+      },
+      "options": null,
+      "allow_free_text": true
+    },
+    "pre_send_text": "M\nMentorMind\nToday\nDaily review\nStudy plan\nSeminar\nLibrary\nT\ntest\nLearner\nStudy plan\nSearch lessons, plans, actions…\n⌘K\nEN\n中文\n17\nT\nSTUDY PLAN\nYour study plan\nView your existing plans or build a new one with Mina.\n1. Select\n2. Profile\n3. Mina\n4. Review\n5. Save\nConfirm the plan with Mina\n← Back\n⚛️ Physics\nAP (Advanced Placement)\nMina\n\nHi, I'm Mina. I have your Physics AP (Advanced Placement) context and will use it to build the plan.\n\n01:46 AM\nYou\n\nI want to build a study plan.\n\nFramework: AP (Advanced Placement)\n\nSubject: Physics\n\nCourse: AP Physics 1\n\nCurrent foundation: Need quick wins\n\nExam/goal timeline: May 2026, about 6 months\n\nTarget score: Pass AP Physics 1; build confidence first\n\nWeekly study time: 4 hours\n\nTotal preparation window: 6 months\n\nSchedule: Mon, Wed, Fri, 1 hours per session\n\nWeak areas/context: I do not want a long pretest first. I need quick wins, fun short missions, very concrete explanations, visual intuition, repetition, and confidence-building.\n\nBaseline self-check:\n\nI feel confident with core concepts.: not answered\n\nI feel confident with calculations/data.: not answered\n\nI feel confident with labs/graphs.: not answered\n\nI feel confident with structured responses.: not answered\n\nI feel confident with common misconceptions.: not answered\n\nIf this is enough, generate the plan. If a key detail is missing, ask only one important follow-up question.\n\n01:46 AM\nSend\nTweaks",
+    "final_text": "M\nMentorMind\nToday\nDaily review\nStudy plan\nSeminar\nLibrary\nT\ntest\nLearner\nStudy plan\nSearch lessons, plans, actions…\n⌘K\nEN\n中文\n17\nT\nSTUDY PLAN\nYour study plan\nView your existing plans or build a new one with Mina.\n1. Select\n2. Profile\n3. Mina\n4. Review\n5. Save\nPROPOSED STUDY PLAN\nSaved after confirmation\nAP Physics 1: Algebra-Based: Confidence Builder\nSubject: Physics\nFramework: AP (Advanced Placement)\nEstimated hours: 72h\nLearner path: foundation rebuild\nLearning mode\n\nconfidence-first; tiny input before short practice\n\nConcept/example/practice/test: 35/40/20/5\n\nWeekly rhythm\n\nMon: 10-min intuition picture + 1 worked example + 1 confidence win\n\nWed: vocabulary/formula decoding + guided practice\n\nFri: low-pressure recap + 2-question streak challenge\n\nEngagement\nformula-decoder game\ndraw-the-physics prompt\ntwo-question streak badge\nKeep pretests optional · Start with a visible win · Use short sessions with a choice of mission · Delay timed tests until setup is stable\nUNITS\n1. Foundations & Confidence\n\nphysics vocabulary units and symbols\n\nphysics vocabulary\nunits and symbols\nformula decoding\nvisual intuition\n10h\n2. How to Start Problems\n\ndraw the situation known/unknown\n\ndraw the situation\nknown/unknown\nchoose one law\none-step wins\n10h\n3. Kinematics\n\nKinematics intuition example\n\nKinematics\nintuition example\nshort practice\nconfidence review\n10h\n4. Dynamics\n\nDynamics intuition example\n\nDynamics\nintuition example\nshort practice\nconfidence review\n10h\n5. Circular Motion and Gravitation\n\nCircular Motion and Gravitation intuition example\n\nCircular Motion and Gravitation\nintuition example\nshort practice\nconfidence review\n10h\n6. Energy\n\nEnergy intuition example\n\nEnergy\nintuition example\nshort practice\nconfidence review\n10h\n7. Gentle Exam Practice\n\nshort streaks guided responses\n\nshort streaks\nguided responses\nconfidence review\n10h\nLooks good, let's go!\n\nWant changes? Tell me what to adjust:\n\nRevise\nTweaks"
+  }
+]

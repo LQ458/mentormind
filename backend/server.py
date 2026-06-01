@@ -18,13 +18,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 import uvicorn
 from dotenv import load_dotenv
 import tempfile
 import shutil
 import re
+import uuid
 
 # Per-IP rate limiting for no-auth POSTs (slowapi)
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -57,9 +58,10 @@ from core.modules.video_scripting import VideoScriptGenerator
 from celery.result import AsyncResult
 from celery_app import create_class_video_task, transcript_to_lesson_task, transcribe_audio_task, celery_app, regenerate_board_segment_task
 from database import LessonStorageSQL, init_database
-from database import get_db
+from database import get_db, SessionLocal
 from database.models.user import User, UserProfile, UserMediaContext, SubjectProficiency
-from auth import get_current_user, get_optional_user
+from database.models.seminar import SeminarRoom, SeminarParticipant, SeminarTurn, SeminarProfile
+from auth import get_current_user, get_optional_user, verify_token_or_test_bypass
 from config import config
 from core.asr import transcribe_with_local_model_result, get_asr_status, extract_text_with_paddleocr
 from core.summarize import summarize_extracted_content
@@ -126,6 +128,13 @@ _SESSION_ID_RE = re.compile(r"[0-9a-f-]{8,64}", re.I)
 def _validate_session_id_or_400(session_id: str) -> None:
     if not isinstance(session_id, str) or not _SESSION_ID_RE.fullmatch(session_id):
         raise HTTPException(status_code=400, detail="Invalid session_id format")
+
+
+def _redis_url(db: int = 1) -> str:
+    base = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL") or "redis://localhost:6379/0"
+    if "/" not in base.rsplit("://", 1)[-1]:
+        return f"{base}/{db}"
+    return base.rsplit("/", 1)[0] + f"/{db}"
 
 # Configure CORS for frontend
 _cors_origins = ["http://localhost:3000", "http://localhost:3001"]
@@ -2036,7 +2045,7 @@ async def get_content_quality_analytics(timeframe_days: int = 7, current_user: U
     """Get AI-evaluated content quality analytics"""
     try:
         import redis
-        redis_client = redis.Redis.from_url("redis://localhost:6379/1", decode_responses=True)
+        redis_client = redis.Redis.from_url(_redis_url(1), decode_responses=True)
         # _, tracker = create_content_evaluator(api_client, redis_client)  # Temporarily disabled
         # 
         # analytics = await tracker.get_quality_analytics(timeframe_days)
@@ -2112,7 +2121,7 @@ async def get_lesson_quality(lesson_id: str, current_user: User = Depends(get_cu
     """Get quality evaluation for a specific lesson"""
     try:
         import redis
-        redis_client = redis.Redis.from_url("redis://localhost:6379/1", decode_responses=True)
+        redis_client = redis.Redis.from_url(_redis_url(1), decode_responses=True)
         
         key = f"content_quality:{lesson_id}"
         evaluation_data = redis_client.hget(key, "evaluation")
@@ -2522,6 +2531,7 @@ async def ingest_image(
     file: UploadFile = File(...),
     language: str = Form(default="zh"),
     display_language: str = Form(default="en"),
+    sync: str = Form(default="false"),
     current_user: User = Depends(get_current_user),
 ):
     """Extract text from image (OCR) via background task."""
@@ -2541,6 +2551,29 @@ async def ingest_image(
 
         with open(tmp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+
+        if sync.lower() == "true":
+            try:
+                ocr_result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    extract_text_with_paddleocr,
+                    tmp_path,
+                )
+                full_text = (ocr_result.get("text") or "").strip()
+                if not full_text:
+                    raise HTTPException(status_code=422, detail="Could not extract text from image")
+                summary = full_text[:180] + ("..." if len(full_text) > 180 else "")
+                return {
+                    "success": True,
+                    "text": full_text,
+                    "summary": summary,
+                    "language": language,
+                    "engine": ocr_result.get("engine", "ocr"),
+                    "timestamp": datetime.now().isoformat(),
+                }
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
 
         print(f"📦 Dispatching OCR task: {job_id}")
         task = ocr_image_task.delay(tmp_path, language, job_id, target_language=display_language)
@@ -3249,6 +3282,28 @@ class StudyPlanCreateRequest(BaseModel):
     request_id: Optional[str] = None
 
 
+class SeminarCreateRoomRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    topic: str = Field(min_length=1, max_length=500)
+    plan_id: Optional[str] = None
+    subject: Optional[str] = None
+    framework: Optional[str] = None
+    language: str = "zh"
+    max_participants: int = Field(default=4, ge=2, le=4)
+
+
+class SeminarJoinRequest(BaseModel):
+    display_name: Optional[str] = Field(default=None, max_length=80)
+
+
+class SeminarTurnRequest(BaseModel):
+    participant_id: Optional[str] = None
+    display_name: Optional[str] = Field(default=None, max_length=80)
+    message: str = Field(min_length=1, max_length=2000)
+    source: str = "text"
+    audio_metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class StudyPlanBulkDeleteRequest(BaseModel):
     plan_ids: List[str] = Field(default_factory=list)
     delete_all: bool = False
@@ -3308,6 +3363,340 @@ def _enforce_quota(user: User, action: str) -> None:
                 "retry_after_seconds": result.reset_seconds,
             },
         )
+
+
+def _seminar_now() -> str:
+    return datetime.utcnow().isoformat() + "Z"
+
+
+def _participant_name(user: User, display_name: Optional[str] = None) -> str:
+    if display_name and display_name.strip():
+        return display_name.strip()[:80]
+    return getattr(user, "username", None) or getattr(user, "full_name", None) or "Learner"
+
+
+def _seminar_dt() -> datetime:
+    return datetime.utcnow()
+
+
+def _serialize_seminar_participant(participant: SeminarParticipant) -> Dict[str, Any]:
+    return {
+        "id": str(participant.id),
+        "user_id": participant.user_id,
+        "participant_key": participant.participant_key,
+        "name": participant.name,
+        "kind": participant.kind,
+        "joined_at": participant.joined_at.isoformat() if participant.joined_at else None,
+        "total_score": participant.total_score or 0,
+        "ability_snapshot": participant.ability_snapshot or {},
+    }
+
+
+def _public_seminar_room(room: Any, match: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    if isinstance(room, dict):
+        return {
+            "id": room["id"],
+            "title": room["title"],
+            "topic": room["topic"],
+            "plan_id": room.get("plan_id"),
+            "subject": room.get("subject"),
+            "framework": room.get("framework"),
+            "language": room.get("language", "zh"),
+            "status": room.get("status", "open"),
+            "phase": room.get("phase", "prep"),
+            "max_participants": room.get("max_participants", 4),
+            "participants": room.get("participants", []),
+            "turns": room.get("turns", []),
+            "review": room.get("review"),
+            "match": match,
+            "created_at": room.get("created_at"),
+            "updated_at": room.get("updated_at"),
+        }
+    return {
+        "id": str(room.id),
+        "title": room.title,
+        "topic": room.topic,
+        "plan_id": str(room.plan_id) if room.plan_id else None,
+        "subject": room.subject,
+        "framework": room.framework,
+        "language": room.language or "zh",
+        "status": room.status,
+        "phase": room.phase,
+        "max_participants": room.max_participants,
+        "participants": [_serialize_seminar_participant(p) for p in room.participants],
+        "turns": [turn.to_dict() for turn in room.turns],
+        "review": room.review,
+        "aggregate_scores": room.aggregate_scores or {},
+        "match": match,
+        "created_at": room.created_at.isoformat() if room.created_at else None,
+        "updated_at": room.updated_at.isoformat() if room.updated_at else None,
+    }
+
+
+def _seminar_room_ai_payload(room: SeminarRoom) -> Dict[str, Any]:
+    return _public_seminar_room(room)
+
+
+def _ensure_ai_participants(db: Session, room: SeminarRoom) -> None:
+    existing = {participant.participant_key for participant in room.participants}
+    if "ai-facilitator" not in existing:
+        db.add(SeminarParticipant(
+            room_id=room.id,
+            user_id=None,
+            participant_key="ai-facilitator",
+            name="Mina",
+            kind="ai_facilitator",
+        ))
+    if "ai-participant" not in existing:
+        db.add(SeminarParticipant(
+            room_id=room.id,
+            user_id=None,
+            participant_key="ai-participant",
+            name="Kai",
+            kind="ai_participant",
+        ))
+
+
+def _get_or_join_human_participant(
+    db: Session,
+    room: SeminarRoom,
+    user: User,
+    display_name: Optional[str] = None,
+) -> SeminarParticipant:
+    participant_key = str(user.id)
+    existing = next((p for p in room.participants if p.participant_key == participant_key), None)
+    if existing:
+        if display_name and display_name.strip() and existing.name != display_name.strip()[:80]:
+            existing.name = display_name.strip()[:80]
+        return existing
+    human_count = len([p for p in room.participants if p.kind == "human"])
+    if human_count >= room.max_participants:
+        raise HTTPException(status_code=409, detail="Seminar room is full")
+    participant = SeminarParticipant(
+        room_id=room.id,
+        user_id=str(user.id),
+        participant_key=participant_key,
+        name=_participant_name(user, display_name),
+        kind="human",
+    )
+    db.add(participant)
+    db.flush()
+    room.participants.append(participant)
+    return participant
+
+
+def _seminar_match_for_room(room: SeminarRoom, plans: List[StudyPlan]) -> Dict[str, Any]:
+    score = 0.2
+    reasons = []
+    for plan in plans:
+        candidate = 0.2
+        candidate_reasons = []
+        if room.plan_id and str(room.plan_id) == str(plan.id):
+            candidate += 0.45
+            candidate_reasons.append("same_plan")
+        if room.subject and plan.subject and room.subject == plan.subject:
+            candidate += 0.25
+            candidate_reasons.append("same_subject")
+        if room.framework and plan.framework and room.framework == plan.framework:
+            candidate += 0.2
+            candidate_reasons.append("same_framework")
+        if candidate > score:
+            score = candidate
+            reasons = candidate_reasons
+    return {
+        "score": round(min(score, 1.0), 2),
+        "reasons": reasons or ["open_topic"],
+    }
+
+
+def _seminar_profile_for_user(db: Session, user_id: str) -> SeminarProfile:
+    profile = db.query(SeminarProfile).filter(SeminarProfile.user_id == user_id).first()
+    if profile:
+        return profile
+    profile = SeminarProfile(
+        user_id=user_id,
+        rating=1000,
+        rooms_completed=0,
+        turns_count=0,
+        ability_graph={
+            "argument_logic": 0.5,
+            "concept_use": 0.5,
+            "responsiveness": 0.5,
+            "evidence": 0.5,
+            "collaboration": 0.5,
+        },
+    )
+    db.add(profile)
+    db.flush()
+    return profile
+
+
+def _fallback_seminar_intervention(room: Dict[str, Any], message: str, language: str) -> Dict[str, Any]:
+    turns = room.get("turns", [])
+    is_zh = language == "zh"
+    if is_zh:
+        facilitator = {
+            "name": "Mina",
+            "message": "先暂停一下。这个观点需要把证据和结论之间的桥梁说清楚。",
+            "question": "你能指出一个可能反驳你观点的例子，并解释为什么它不足以推翻你的结论吗？",
+            "target_participant": turns[-1].get("participant_name") if turns else None,
+        }
+        ai_participant = {
+            "name": "Kai",
+            "stance": "反方追问者",
+            "message": f"我先挑战一下：如果只看“{message[:80]}”，它更像一个判断，还缺少可检验的依据。你会用哪条事实或公式来支撑？",
+        }
+    else:
+        facilitator = {
+            "name": "Mina",
+            "message": "Pause there. The bridge between the evidence and conclusion needs to be made explicit.",
+            "question": "Can you name one counterexample and explain why it does not overturn your claim?",
+            "target_participant": turns[-1].get("participant_name") if turns else None,
+        }
+        ai_participant = {
+            "name": "Kai",
+            "stance": "challenger",
+            "message": f"I'll push back: '{message[:80]}' sounds like a claim, but it still needs testable support. What fact, example, or principle carries it?",
+        }
+    return {
+        "facilitator": facilitator,
+        "ai_participant": ai_participant,
+        "scores": {
+            "argument_logic": 0.62,
+            "concept_use": 0.58,
+            "responsiveness": 0.55,
+            "evidence": 0.52,
+            "collaboration": 0.7,
+        },
+        "phase_suggestion": "challenge",
+    }
+
+
+async def _generate_seminar_intervention(room: Dict[str, Any], message: str, language: str) -> Dict[str, Any]:
+    transcript = "\n".join(
+        f"{turn.get('participant_name', 'Learner')}: {turn.get('message', '')}"
+        for turn in room.get("turns", [])[-8:]
+        if turn.get("kind") == "human"
+    )
+    prompt = f"""
+You are running a 3-4 student Socratic seminar room for MentorMind.
+The room topic is: {room.get('topic')}
+Subject/framework: {room.get('subject') or 'unknown'} / {room.get('framework') or 'general'}
+
+Rules:
+- Do not directly solve the topic for students.
+- Act as Mina, the AI facilitator: identify one logical gap, assumption, missing evidence, or neglected viewpoint.
+- Also create one short turn from Kai, an AI participant who respectfully challenges the latest claim.
+- Keep the energy social but academically serious.
+- Score the latest human contribution on five dimensions from 0 to 1.
+- Return ONLY valid JSON.
+
+Recent transcript:
+{transcript}
+
+Latest contribution:
+{message}
+
+JSON schema:
+{{
+  "facilitator": {{
+    "name": "Mina",
+    "message": "one concise facilitation note",
+    "question": "one Socratic question",
+    "target_participant": "name or null"
+  }},
+  "ai_participant": {{
+    "name": "Kai",
+    "stance": "supporter/challenger/synthesizer",
+    "message": "one concise participant turn"
+  }},
+  "scores": {{
+    "argument_logic": 0.0,
+    "concept_use": 0.0,
+    "responsiveness": 0.0,
+    "evidence": 0.0,
+    "collaboration": 0.0
+  }},
+  "phase_suggestion": "prep|opening|challenge|synthesis|review"
+}}
+"""
+    try:
+        response = await api_client.study_plan_chat_completion(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Respond in Chinese when language=zh, otherwise English. Return strict JSON.",
+                },
+                {"role": "user", "content": f"language={language}\n{prompt}"},
+            ],
+            phase="seminar",
+            temperature=0.45,
+            max_tokens=900,
+        )
+        content = response.data.get("choices", [{}])[0].get("message", {}).get("content", "") if response.success else ""
+        content = (content or "").strip()
+        if content.startswith("```"):
+            content = content.split("```", 2)[1].replace("json", "", 1).strip()
+        parsed = json.loads(content)
+        if not isinstance(parsed, dict):
+            raise ValueError("seminar intervention was not an object")
+        return parsed
+    except Exception as exc:
+        logger.warning("Seminar AI intervention fallback: %s", exc)
+        return _fallback_seminar_intervention(room, message, language)
+
+
+async def _generate_seminar_review(room: Dict[str, Any]) -> Dict[str, Any]:
+    turns = room.get("turns", [])
+    language = room.get("language", "zh")
+    human_turns = [turn for turn in turns if turn.get("kind") == "human"]
+    if not human_turns:
+        return {
+            "summary": "No human turns yet." if language == "en" else "还没有学生发言。",
+            "player_scores": [],
+            "next_drill": "",
+        }
+
+    by_participant: Dict[str, Dict[str, Any]] = {}
+    for turn in human_turns:
+        pid = turn.get("participant_id") or turn.get("participant_name")
+        bucket = by_participant.setdefault(
+            pid,
+            {"participant_id": pid, "name": turn.get("participant_name"), "turns": 0, "scores": []},
+        )
+        bucket["turns"] += 1
+        if isinstance(turn.get("scores"), dict):
+            bucket["scores"].append(turn["scores"])
+
+    player_scores = []
+    for bucket in by_participant.values():
+        dimensions = ["argument_logic", "concept_use", "responsiveness", "evidence", "collaboration"]
+        averages = {}
+        for dim in dimensions:
+            vals = [float(score.get(dim, 0)) for score in bucket["scores"] if isinstance(score, dict)]
+            averages[dim] = round(sum(vals) / len(vals), 2) if vals else 0.5
+        overall = round(sum(averages.values()) / len(averages), 2)
+        player_scores.append({
+            "participant_id": bucket["participant_id"],
+            "name": bucket["name"],
+            "turns": bucket["turns"],
+            "overall": overall,
+            "dimensions": averages,
+        })
+
+    return {
+        "summary": (
+            "The room produced enough material for a first reflection. Look for claims that still need evidence."
+            if language == "en"
+            else "这一轮已经有足够材料复盘。重点看哪些观点还缺证据，哪些反驳没有接住。"
+        ),
+        "player_scores": player_scores,
+        "next_drill": (
+            "Each student rewrites one claim as claim → evidence → warrant → counterexample."
+            if language == "en"
+            else "每个人把一个观点改写成：结论 → 证据 → 推理桥梁 → 反例回应。"
+        ),
+    }
 
 
 class GaokaoChatRequest(BaseModel):
@@ -3453,6 +3842,74 @@ class AskAIResponse(BaseModel):
     success: bool
     answer: str
     error: Optional[str] = None
+
+
+class QuickQuestionRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=3000)
+    context: Optional[str] = Field(default=None, max_length=12000)
+    subject: Optional[str] = Field(default=None, max_length=80)
+    framework: Optional[str] = Field(default=None, max_length=80)
+    language: str = "en"
+
+
+class QuickQuestionResponse(BaseModel):
+    success: bool
+    answer: str
+    next_steps: List[str] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+@app.post("/quick-question", response_model=QuickQuestionResponse)
+async def quick_question(req: QuickQuestionRequest, current_user: User = Depends(get_current_user)):
+    """Answer a single study question without entering the lesson/video creation flow."""
+    language = req.language if req.language in {"zh", "en"} else "en"
+    language_instruction = get_language_instruction(language)
+    context_parts = []
+    if req.subject:
+        context_parts.append(f"Subject: {req.subject}")
+    if req.framework:
+        context_parts.append(f"Framework: {req.framework}")
+    if req.context:
+        context_parts.append(f"Student-provided context:\n{req.context.strip()}")
+    context_text = "\n\n".join(context_parts) or "No extra context provided."
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are Mina, a concise study tutor for MentorMind. "
+                "Answer the student's one-off question directly, then add a short check-for-understanding. "
+                "Do not propose creating a video, lesson, syllabus, or study plan. "
+                f"{language_instruction}"
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"{context_text}\n\nQuestion:\n{req.question.strip()}",
+        },
+    ]
+    response = await api_client.study_plan_chat_completion(
+        messages=messages,
+        phase="quick_question",
+        temperature=0.25,
+        max_tokens=900,
+    )
+    if response.success and response.data:
+        answer = response.data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        return QuickQuestionResponse(
+            success=True,
+            answer=answer,
+            next_steps=(
+                ["Try a similar problem", "Ask Mina to explain one step", "Turn this into a study plan"]
+                if language == "en"
+                else ["做一道相似题", "让 Mina 解释其中一步", "把这个问题扩展成学习计划"]
+            ),
+        )
+    return QuickQuestionResponse(
+        success=False,
+        answer="",
+        error=response.error or "AI service unavailable",
+    )
 
 
 @app.post("/study-plan/ask-ai", response_model=AskAIResponse)
@@ -3826,6 +4283,330 @@ async def create_study_plan(
         db.rollback()
         logger.error(f"Study plan creation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/seminar/rooms")
+async def list_seminar_rooms(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """List active seminar rooms, plan-based matches, suggestions, and user seminar profile."""
+    user_plans = (
+        db.query(StudyPlan)
+        .filter(StudyPlan.user_id == current_user.id)
+        .filter(StudyPlan.deleted_at.is_(None))
+        .order_by(StudyPlan.updated_at.desc().nullslast(), StudyPlan.created_at.desc())
+        .limit(6)
+        .all()
+    )
+    active_room_models = (
+        db.query(SeminarRoom)
+        .filter(SeminarRoom.status.in_(["open", "active"]))
+        .filter(SeminarRoom.is_matchmaking_visible.is_(True))
+        .order_by(SeminarRoom.updated_at.desc().nullslast(), SeminarRoom.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    active_rooms = [
+        _public_seminar_room(room, _seminar_match_for_room(room, user_plans))
+        for room in active_room_models
+    ]
+    suggested_topics = []
+    for plan in user_plans:
+        suggested_topics.append({
+            "plan_id": str(plan.id),
+            "title": plan.title,
+            "subject": plan.subject,
+            "framework": plan.framework,
+            "topic": (
+                f"Debate the hardest idea in {plan.course_name or plan.title}"
+                if (plan.language or "zh") == "en"
+                else f"围绕 {plan.course_name or plan.title} 中最容易误解的知识点进行研讨"
+            ),
+        })
+    recent_rooms = (
+        db.query(SeminarRoom)
+        .join(SeminarParticipant, SeminarParticipant.room_id == SeminarRoom.id)
+        .filter(SeminarParticipant.user_id == str(current_user.id))
+        .order_by(SeminarRoom.updated_at.desc().nullslast(), SeminarRoom.created_at.desc())
+        .limit(6)
+        .all()
+    )
+    profile = _seminar_profile_for_user(db, str(current_user.id))
+    db.commit()
+    return {
+        "success": True,
+        "rooms": active_rooms,
+        "recent_rooms": [_public_seminar_room(room, _seminar_match_for_room(room, user_plans)) for room in recent_rooms],
+        "suggested_topics": suggested_topics,
+        "profile": {
+            "rating": profile.rating,
+            "rooms_completed": profile.rooms_completed,
+            "turns_count": profile.turns_count,
+            "ability_graph": profile.ability_graph or {},
+        },
+    }
+
+
+@app.post("/seminar/rooms")
+async def create_seminar_room(
+    req: SeminarCreateRoomRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a durable small seminar room for students with similar plans."""
+    plan = None
+    if req.plan_id:
+        try:
+            plan_uuid = uuid.UUID(req.plan_id)
+            plan = (
+                db.query(StudyPlan)
+                .filter(StudyPlan.id == plan_uuid, StudyPlan.user_id == current_user.id)
+                .first()
+            )
+        except Exception:
+            plan = None
+    room = SeminarRoom(
+        title=req.title.strip(),
+        topic=req.topic.strip(),
+        plan_id=plan.id if plan else None,
+        subject=req.subject or (plan.subject if plan else None),
+        framework=req.framework or (plan.framework if plan else None),
+        language=req.language if req.language in {"zh", "en"} else "zh",
+        status="open",
+        phase="prep",
+        max_participants=req.max_participants,
+        created_by=str(current_user.id),
+        ai_metadata={"mode": "seminar_debate", "version": 2},
+    )
+    db.add(room)
+    db.flush()
+    participant = SeminarParticipant(
+        room_id=room.id,
+        user_id=str(current_user.id),
+        participant_key=str(current_user.id),
+        name=_participant_name(current_user),
+        kind="human",
+    )
+    db.add(participant)
+    _ensure_ai_participants(db, room)
+    db.commit()
+    db.refresh(room)
+    return {"success": True, "room": _public_seminar_room(room), "participant_id": str(participant.id)}
+
+
+@app.get("/seminar/rooms/{room_id}")
+async def get_seminar_room(room_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    room = db.query(SeminarRoom).filter(SeminarRoom.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Seminar room not found")
+    return {"success": True, "room": _public_seminar_room(room)}
+
+
+@app.post("/seminar/rooms/{room_id}/join")
+async def join_seminar_room(
+    room_id: str,
+    req: SeminarJoinRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    room = db.query(SeminarRoom).filter(SeminarRoom.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Seminar room not found")
+    participant = _get_or_join_human_participant(db, room, current_user, req.display_name)
+    _ensure_ai_participants(db, room)
+    room.status = "active"
+    room.updated_at = _seminar_dt()
+    db.commit()
+    db.refresh(room)
+    return {"success": True, "room": _public_seminar_room(room), "participant_id": str(participant.id)}
+
+
+@app.post("/seminar/rooms/{room_id}/turn")
+async def post_seminar_turn(
+    room_id: str,
+    req: SeminarTurnRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    room = db.query(SeminarRoom).filter(SeminarRoom.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Seminar room not found")
+    participant = _get_or_join_human_participant(db, room, current_user, req.display_name)
+    room.status = "active"
+    room.phase = "challenge"
+    room.updated_at = _seminar_dt()
+    human_turn = SeminarTurn(
+        room_id=room.id,
+        participant_id=participant.id,
+        participant_key=participant.participant_key,
+        participant_name=participant.name,
+        kind="human",
+        message=req.message.strip(),
+        source=req.source if req.source in {"text", "voice"} else "text",
+        audio_metadata=req.audio_metadata or {},
+    )
+    db.add(human_turn)
+    db.commit()
+    db.refresh(room)
+
+    intervention = await _generate_seminar_intervention(_seminar_room_ai_payload(room), req.message.strip(), room.language or "zh")
+    human_turn.scores = intervention.get("scores", {})
+    facilitator = next((p for p in room.participants if p.participant_key == "ai-facilitator"), None)
+    challenger = next((p for p in room.participants if p.participant_key == "ai-participant"), None)
+    if facilitator is None or challenger is None:
+        _ensure_ai_participants(db, room)
+        db.flush()
+        facilitator = next((p for p in room.participants if p.participant_key == "ai-facilitator"), None)
+        challenger = next((p for p in room.participants if p.participant_key == "ai-participant"), None)
+    ai_turns = [
+        SeminarTurn(
+            room_id=room.id,
+            participant_id=facilitator.id if facilitator else None,
+            participant_key="ai-facilitator",
+            participant_name=intervention.get("facilitator", {}).get("name", "Mina"),
+            kind="ai_facilitator",
+            message=intervention.get("facilitator", {}).get("message", ""),
+            question=intervention.get("facilitator", {}).get("question", ""),
+            source="ai",
+        ),
+        SeminarTurn(
+            room_id=room.id,
+            participant_id=challenger.id if challenger else None,
+            participant_key="ai-participant",
+            participant_name=intervention.get("ai_participant", {}).get("name", "Kai"),
+            kind="ai_participant",
+            stance=intervention.get("ai_participant", {}).get("stance", "challenger"),
+            message=intervention.get("ai_participant", {}).get("message", ""),
+            source="ai",
+        ),
+    ]
+    for turn in ai_turns:
+        db.add(turn)
+    room.phase = intervention.get("phase_suggestion") or room.phase
+    room.updated_at = _seminar_dt()
+    db.commit()
+    db.refresh(room)
+    return {"success": True, "room": _public_seminar_room(room), "intervention": intervention}
+
+
+@app.post("/seminar/rooms/{room_id}/audio-turn")
+async def post_seminar_audio_turn(
+    room_id: str,
+    file: UploadFile = File(...),
+    display_name: str = Form(default=""),
+    language: str = Form(default="auto"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Transcribe an audio contribution and feed it into the seminar turn stream."""
+    allowed_types = {"audio/wav", "audio/mpeg", "audio/mp4", "audio/ogg", "audio/flac", "audio/x-m4a", "audio/webm"}
+    if file.content_type and file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail=f"Unsupported format: {file.content_type}")
+    suffix = os.path.splitext(file.filename or ".webm")[1] or ".webm"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+    try:
+        result = await asyncio.wait_for(
+            transcribe_with_local_model_result(tmp_path, language),
+            timeout=float(os.getenv("SEMINAR_ASR_TIMEOUT_SECONDS", "30")),
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Audio transcription took too long")
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+    text = (result.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="No speech detected")
+    req = SeminarTurnRequest(
+        display_name=display_name or None,
+        message=text,
+        source="voice",
+        audio_metadata={
+            "detected_language": result.get("detected_language"),
+            "engine": result.get("engine"),
+            "content_type": file.content_type,
+        },
+    )
+    return await post_seminar_turn(room_id, req, current_user, db)
+
+
+@app.post("/seminar/rooms/{room_id}/finish")
+async def finish_seminar_room(room_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    room = db.query(SeminarRoom).filter(SeminarRoom.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Seminar room not found")
+    review = await _generate_seminar_review(_seminar_room_ai_payload(room))
+    room.review = review
+    room.aggregate_scores = {
+        "player_count": len(review.get("player_scores", [])),
+        "average_overall": round(
+            sum(float(score.get("overall", 0)) for score in review.get("player_scores", []))
+            / max(1, len(review.get("player_scores", []))),
+            2,
+        ),
+    }
+    room.status = "review"
+    room.phase = "review"
+    room.updated_at = _seminar_dt()
+    for score in review.get("player_scores", []):
+        participant = next((p for p in room.participants if str(p.id) == str(score.get("participant_id")) or p.participant_key == str(score.get("participant_id"))), None)
+        if not participant or not participant.user_id:
+            continue
+        profile = _seminar_profile_for_user(db, participant.user_id)
+        ability = profile.ability_graph or {}
+        for dim, val in (score.get("dimensions") or {}).items():
+            previous = float(ability.get(dim, 0.5))
+            ability[dim] = round(previous * 0.7 + float(val) * 0.3, 2)
+        profile.ability_graph = ability
+        profile.turns_count = (profile.turns_count or 0) + int(score.get("turns", 0))
+        profile.rooms_completed = (profile.rooms_completed or 0) + 1
+        profile.rating = max(100, int((profile.rating or 1000) + (float(score.get("overall", 0.5)) - 0.5) * 80))
+        profile.last_room_id = room.id
+        participant.total_score = float(score.get("overall", 0))
+        participant.ability_snapshot = score.get("dimensions") or {}
+    db.commit()
+    db.refresh(room)
+    return {"success": True, "room": _public_seminar_room(room), "review": review}
+
+
+@app.websocket("/ws/seminar/{room_id}")
+async def seminar_room_websocket(websocket: WebSocket, room_id: str):
+    """Lightweight realtime seminar stream.
+
+    On a single VPS this uses DB polling over a WebSocket. It avoids adding a
+    separate room broker now, while keeping the client contract compatible with
+    a later Redis pub/sub upgrade.
+    """
+    token = websocket.query_params.get("token", "")
+    db = SessionLocal()
+    try:
+      if not token:
+          await websocket.close(code=4401)
+          return
+      verify_token_or_test_bypass(token, db)
+      await websocket.accept()
+      last_signature = ""
+      while True:
+          room = db.query(SeminarRoom).filter(SeminarRoom.id == room_id).first()
+          if not room:
+              await websocket.send_json({"type": "not_found"})
+              await websocket.close(code=4404)
+              return
+          signature = f"{room.updated_at}-{len(room.turns)}-{room.status}-{room.phase}"
+          if signature != last_signature:
+              await websocket.send_json({"type": "room", "room": _public_seminar_room(room)})
+              last_signature = signature
+          await asyncio.sleep(2)
+    except WebSocketDisconnect:
+        return
+    except Exception as exc:
+        logger.warning("Seminar websocket closed: %s", exc)
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
+    finally:
+        db.close()
 
 
 @app.get("/study-plan/my-plans")

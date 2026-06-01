@@ -1,0 +1,22 @@
+import { NextRequest, NextResponse } from 'next/server'
+
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    const auth = req.headers.get('Authorization')
+    if (auth) headers.Authorization = auth
+    const res = await fetch(`${BACKEND_URL}/quick-question`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    })
+    const data = await res.json().catch(() => ({}))
+    return NextResponse.json(data, { status: res.status })
+  } catch (err) {
+    console.error('[quick-question proxy] error:', err)
+    return NextResponse.json({ error: 'Failed to reach quick question service' }, { status: 502 })
+  }
+}

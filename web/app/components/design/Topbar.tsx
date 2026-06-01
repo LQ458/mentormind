@@ -18,6 +18,8 @@ const PAGE_META: Record<string, PageMeta> = {
   '/dashboard': { en: 'Today', zh: '今日' },
   '/today': { en: 'Daily review', zh: '每日复习' },
   '/study-plan': { en: 'Study plan', zh: '学习计划' },
+  '/ask': { en: 'Quick question', zh: '快速提问' },
+  '/seminar': { en: 'Seminar', zh: '研讨' },
   '/lessons': { en: 'Library', zh: '文库' },
 }
 

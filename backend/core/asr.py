@@ -67,6 +67,43 @@ def _get_paddleocr():
             raise RuntimeError(f"PaddleOCR model load error: {e}")
     return _paddleocr_model
 
+
+def _extract_text_with_tesseract(tmp_path: str) -> dict:
+    """Fallback OCR via the tesseract CLI, avoiding Python OCR package imports."""
+    command = [
+        "tesseract",
+        tmp_path,
+        "stdout",
+        "-l",
+        os.getenv("TESSERACT_LANGS", "eng+chi_sim"),
+        "--psm",
+        os.getenv("TESSERACT_PSM", "6"),
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=float(os.getenv("TESSERACT_TIMEOUT_SECONDS", "30")),
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("tesseract is not installed or not on PATH") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("tesseract OCR timed out") from exc
+
+    text = (result.stdout or "").strip()
+    if result.returncode != 0 and not text:
+        error = (result.stderr or "tesseract OCR failed").strip()
+        raise RuntimeError(error)
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return {
+        "text": "\n".join(lines),
+        "lines": lines,
+        "engine": "tesseract",
+    }
+
 async def transcribe_with_local_model(tmp_path: str, language: str) -> str:
     """Backward-compatible wrapper that returns only the transcribed text."""
     result = await transcribe_with_local_model_result(tmp_path, language)
@@ -174,19 +211,24 @@ async def transcribe_with_local_model_result(tmp_path: str, language: str = "aut
 
 def extract_text_with_paddleocr(tmp_path: str) -> dict:
     """Extract text from an image using PaddleOCR."""
-    ocr = _get_paddleocr()
-    result = ocr.ocr(tmp_path, cls=True)
-    lines = []
-    for block in (result or []):
-        for line in (block or []):
-            if line and len(line) >= 2:
-                text, conf = line[1]
-                if text.strip():
-                    lines.append(text)
-    return {
-        "text": "\n".join(lines),
-        "lines": lines
-    }
+    try:
+        ocr = _get_paddleocr()
+        result = ocr.ocr(tmp_path, cls=True)
+        lines = []
+        for block in (result or []):
+            for line in (block or []):
+                if line and len(line) >= 2:
+                    text, conf = line[1]
+                    if text.strip():
+                        lines.append(text)
+        return {
+            "text": "\n".join(lines),
+            "lines": lines,
+            "engine": "paddleocr",
+        }
+    except Exception as exc:
+        print(f"⚠️ PaddleOCR unavailable, falling back to tesseract: {exc}")
+        return _extract_text_with_tesseract(tmp_path)
 
 def get_asr_status() -> Dict[str, bool]:
     """Check the status of loaded ASR and OCR models."""

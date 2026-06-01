@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'mentormind-pwa-v2'
+const CACHE_VERSION = 'mentormind-pwa-v3'
 const STATIC_CACHE = `${CACHE_VERSION}:static`
 const OFFLINE_URL = '/offline.html'
 
@@ -33,6 +33,15 @@ self.addEventListener('activate', (event) => {
 })
 
 function isStaticRequest(requestUrl) {
+  const isLocalDev =
+    requestUrl.hostname === 'localhost' ||
+    requestUrl.hostname === '127.0.0.1' ||
+    requestUrl.hostname === '0.0.0.0'
+
+  if (isLocalDev && requestUrl.pathname.startsWith('/_next/')) {
+    return false
+  }
+
   return (
     requestUrl.origin === self.location.origin &&
     (
@@ -69,6 +78,10 @@ async function navigationNetworkFirst(request) {
   }
 }
 
+async function networkOnly(request) {
+  return fetch(request)
+}
+
 self.addEventListener('fetch', (event) => {
   const request = event.request
   if (request.method !== 'GET') return
@@ -77,6 +90,15 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     event.respondWith(navigationNetworkFirst(request))
+    return
+  }
+
+  if (
+    requestUrl.hostname === 'localhost' ||
+    requestUrl.hostname === '127.0.0.1' ||
+    requestUrl.hostname === '0.0.0.0'
+  ) {
+    event.respondWith(networkOnly(request))
     return
   }
 

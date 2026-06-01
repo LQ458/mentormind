@@ -11,6 +11,11 @@ interface BeforeInstallPromptEvent extends Event {
 
 const INSTALL_DISMISSED_KEY = 'mm-pwa-install-dismissed-v1'
 
+function isLocalhost(): boolean {
+  if (typeof window === 'undefined') return false
+  return ['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
+}
+
 function isStandaloneDisplay(): boolean {
   if (typeof window === 'undefined') return false
   return (
@@ -32,9 +37,19 @@ export default function PWAClient() {
     setOnline(window.navigator.onLine)
 
     if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
+      if (isLocalhost()) {
+        navigator.serviceWorker.getRegistrations()
+          .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+          .then(() => ('caches' in window ? window.caches.keys() : []))
+          .then((keys) => Promise.all(keys.filter((key) => key.startsWith('mentormind-pwa-')).map((key) => window.caches.delete(key))))
+          .catch((err) => {
+            console.warn('[pwa] local service worker cleanup failed', err)
+          })
+      } else {
       navigator.serviceWorker.register('/sw.js').catch((err) => {
         console.warn('[pwa] service worker registration failed', err)
       })
+      }
     }
 
     const onOnline = () => setOnline(true)

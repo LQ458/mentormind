@@ -51,6 +51,7 @@ class PlanResponse:
 MAX_DIAGNOSTIC_TURNS = 6
 PLAN_REVIEW_LLM_TIMEOUT_SECONDS = 25
 PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS = 20
+VALID_LEARNER_TIERS = {"accelerated", "standard", "scaffolded", "foundation_rebuild"}
 
 
 _ASK_USER_BLOCK_RE = re.compile(r"```ask_user\s*(\{.*?\})\s*```", re.DOTALL)
@@ -162,6 +163,256 @@ def _plan_generation_error_response(
         allow_free_text=True,
         detected_subject=_detection_to_dict(detection) if detection else None,
     )
+
+
+def _infer_learner_tier(diagnostic_text: str) -> str:
+    text = (diagnostic_text or "").lower()
+    very_confident = text.count("very confident")
+    not_confident = text.count("not confident")
+    somewhat = text.count("somewhat")
+
+    if any(term in text for term in ["aiming high", "冲高分", "olympiad", "edge case", "gets bored", "challenge pacing"]):
+        return "accelerated"
+    if any(term in text for term in ["new to this", "零基础", "need quick wins", "quick wins", "需要先有成就感", "unmotivated", "overwhelmed", "压力很大", "gives up", "confidence first", "建立信心", "not confident", "没把握"]):
+        if (
+            not_confident >= 3
+            or "new to this" in text
+            or "零基础" in text
+            or "need quick wins" in text
+            or "quick wins" in text
+            or "需要先有成就感" in text
+            or "overwhelmed" in text
+            or "压力很大" in text
+            or "gives up" in text
+            or "没把握" in text
+        ):
+            return "foundation_rebuild"
+    if (
+        any(term in text for term in ["intermediate", "中等基础", "understands class lectures", "routine problems"])
+        and not any(term in text for term in ["struggles to start", "weak in", "new to this", "零基础", "overwhelmed", "压力很大"])
+        and not_confident <= 1
+    ):
+        return "standard"
+    if any(term in text for term in ["some foundation", "有一点基础", "struggles to start", "weak in", "not confident", "没把握"]) or somewhat >= 2:
+        return "scaffolded"
+    if very_confident >= 4:
+        return "accelerated"
+    return "standard"
+
+
+def _tier_profile(learner_tier: str, language: str) -> Dict[str, Any]:
+    if language == "zh":
+        profiles = {
+            "accelerated": {
+                "pace": "accelerated",
+                "support_pattern": "诊断跳过基础，挑战题优先",
+                "concept_example_practice_test_ratio": "10/15/55/20",
+                "engagement_mode": "高难挑战、错因复盘、限时 FRQ",
+            },
+            "standard": {
+                "pace": "normal",
+                "support_pattern": "概念修补 + 高频练习",
+                "concept_example_practice_test_ratio": "25/25/35/15",
+                "engagement_mode": "目标进度条、限时小测、错题升级",
+            },
+            "scaffolded": {
+                "pace": "guided",
+                "support_pattern": "例题示范 → 引导尝试 → 独立练习",
+                "concept_example_practice_test_ratio": "30/35/25/10",
+                "engagement_mode": "小胜利、步骤卡、每节一个可见进步",
+            },
+            "foundation_rebuild": {
+                "pace": "slow",
+                "support_pattern": "信心优先，先少量输入，再做短练习",
+                "concept_example_practice_test_ratio": "35/40/20/5",
+                "engagement_mode": "小游戏式任务、可视化直觉、低压力连胜",
+            },
+        }
+    else:
+        profiles = {
+            "accelerated": {
+                "pace": "accelerated",
+                "support_pattern": "diagnose and skip basics; challenge-first",
+                "concept_example_practice_test_ratio": "10/15/55/20",
+                "engagement_mode": "hard-mode challenges, traps, timed FRQs",
+            },
+            "standard": {
+                "pace": "normal",
+                "support_pattern": "concept repair plus frequent AP practice",
+                "concept_example_practice_test_ratio": "25/25/35/15",
+                "engagement_mode": "progress streaks, timed mini-checks, error upgrades",
+            },
+            "scaffolded": {
+                "pace": "guided",
+                "support_pattern": "worked example -> guided attempt -> independent attempt",
+                "concept_example_practice_test_ratio": "30/35/25/10",
+                "engagement_mode": "small wins, step cards, visible progress each session",
+            },
+            "foundation_rebuild": {
+                "pace": "slow",
+                "support_pattern": "confidence-first; tiny input before short practice",
+                "concept_example_practice_test_ratio": "35/40/20/5",
+                "engagement_mode": "game-like missions, visual intuition, low-pressure streaks",
+            },
+        }
+    return profiles.get(learner_tier, profiles["standard"])
+
+
+def _build_weekly_schedule(learner_tier: str, language: str) -> List[Dict[str, str]]:
+    if language == "zh":
+        if learner_tier == "foundation_rebuild":
+            return [
+                {"day": "Mon", "focus": "10分钟直觉图 + 1个例题 + 1个小胜利"},
+                {"day": "Wed", "focus": "词汇/公式解码 + 引导练习"},
+                {"day": "Fri", "focus": "低压力复盘 + 2题连胜挑战"},
+            ]
+        if learner_tier == "scaffolded":
+            return [
+                {"day": "Mon", "focus": "概念修补 + 例题拆解"},
+                {"day": "Wed", "focus": "引导练习 + 错因标记"},
+                {"day": "Fri", "focus": "独立练习 + 迷你测验"},
+            ]
+        if learner_tier == "accelerated":
+            return [
+                {"day": "Mon", "focus": "快速诊断 + 难题组"},
+                {"day": "Wed", "focus": "FRQ/实验设计限时训练"},
+                {"day": "Fri", "focus": "错题升级 + 跨单元挑战"},
+            ]
+        return [
+            {"day": "Mon", "focus": "核心概念 + 典型题"},
+            {"day": "Wed", "focus": "AP风格练习 + 图像/数据"},
+            {"day": "Fri", "focus": "限时小测 + 错题复盘"},
+        ]
+    if learner_tier == "foundation_rebuild":
+        return [
+            {"day": "Mon", "focus": "10-min intuition picture + 1 worked example + 1 confidence win"},
+            {"day": "Wed", "focus": "vocabulary/formula decoding + guided practice"},
+            {"day": "Fri", "focus": "low-pressure recap + 2-question streak challenge"},
+        ]
+    if learner_tier == "scaffolded":
+        return [
+            {"day": "Mon", "focus": "concept repair + worked example"},
+            {"day": "Wed", "focus": "guided practice + error tagging"},
+            {"day": "Fri", "focus": "independent attempt + mini-check"},
+        ]
+    if learner_tier == "accelerated":
+        return [
+            {"day": "Mon", "focus": "fast diagnostic + hard problem set"},
+            {"day": "Wed", "focus": "timed FRQ / experimental design"},
+            {"day": "Fri", "focus": "error upgrade + cross-unit challenge"},
+        ]
+    return [
+        {"day": "Mon", "focus": "core concept + typical problems"},
+        {"day": "Wed", "focus": "AP-style practice + graph/data work"},
+        {"day": "Fri", "focus": "timed mini-check + error review"},
+    ]
+
+
+def _enhance_plan_for_tier(plan: Dict[str, Any], learner_tier: str, language: str) -> Dict[str, Any]:
+    """Normalize the LLM plan and inject required learner-tier supports.
+
+    The LLM is good at course coverage but can drift toward a generic syllabus.
+    This deterministic layer keeps the output usable for all four learner bands.
+    """
+    if not isinstance(plan, dict):
+        return plan
+    if learner_tier not in VALID_LEARNER_TIERS:
+        learner_tier = "standard"
+    units = plan.get("units") if isinstance(plan.get("units"), list) else []
+    total_hours = int(plan.get("estimated_hours") or 0)
+    if not total_hours:
+        total_hours = max(40, len(units) * 8)
+        plan["estimated_hours"] = total_hours
+
+    if units:
+        default_hours = max(1, round(total_hours / len(units)))
+        for unit in units:
+            if not isinstance(unit, dict):
+                continue
+            hours = unit.get("estimated_hours")
+            if not isinstance(hours, (int, float)) or hours <= 0:
+                unit["estimated_hours"] = default_hours
+            if not isinstance(unit.get("estimated_minutes"), (int, float)) or unit.get("estimated_minutes") <= 0:
+                unit["estimated_minutes"] = int(unit["estimated_hours"] * 60)
+
+    plan["learner_tier"] = learner_tier
+    plan["pedagogy_profile"] = _tier_profile(learner_tier, language)
+    plan["weekly_schedule"] = _build_weekly_schedule(learner_tier, language)
+
+    if language == "zh":
+        hooks = {
+            "accelerated": ["Hard mode FRQ", "误区陷阱题", "实验设计挑战"],
+            "standard": ["进度条", "错题升级", "周末小测"],
+            "scaffolded": ["步骤卡", "例题接力", "三题小胜利"],
+            "foundation_rebuild": ["公式解码小游戏", "画图猜物理", "两题连胜徽章"],
+        }
+    else:
+        hooks = {
+            "accelerated": ["Hard-mode FRQ", "misconception traps", "experimental design challenge"],
+            "standard": ["progress bar", "error upgrade", "weekly mini-check"],
+            "scaffolded": ["step cards", "worked-example relay", "three-question win"],
+            "foundation_rebuild": ["formula-decoder game", "draw-the-physics prompt", "two-question streak badge"],
+        }
+    plan["engagement_hooks"] = hooks.get(learner_tier, hooks["standard"])
+
+    if learner_tier == "foundation_rebuild":
+        title = "Foundations & Confidence" if language == "en" else "基础与信心建立"
+        subject = str(plan.get("subject") or "general")
+        topics = _foundation_topics_for_subject(subject, language)
+        objectives = (
+            ["Decode symbols without panic", "Set up a one-step physics problem", "Build a two-question confidence streak"]
+            if language == "en"
+            else ["不慌张地读懂符号", "能搭建一步物理题", "建立两题连胜信心"]
+        )
+        if not units or title.lower() not in str(units[0].get("title", "")).lower():
+            units.insert(0, {
+                "title": title,
+                "description": "Low-pressure prerequisite rebuild before AP pacing." if language == "en" else "进入 AP 节奏前的低压力基础重建。",
+                "topics": topics,
+                "learning_objectives": objectives,
+                "estimated_hours": 8,
+                "estimated_minutes": 480,
+            })
+        plan["motivation_safeguards"] = (
+            ["Keep pretests optional", "Start with a visible win", "Use short sessions with a choice of mission", "Delay timed tests until setup is stable"]
+            if language == "en"
+            else ["预测试可跳过", "先给一个可见小胜利", "短任务并允许选择", "能稳定列式后再限时"]
+        )
+    elif learner_tier == "scaffolded":
+        plan["scaffolding_rule"] = (
+            "Every unit should use: worked example -> guided attempt -> independent attempt -> error review."
+            if language == "en"
+            else "每个单元遵循：例题示范 → 引导尝试 → 独立练习 → 错因复盘。"
+        )
+    elif learner_tier == "accelerated":
+        plan["challenge_rule"] = (
+            "Skip basics after a quick diagnostic; spend saved time on FRQ rubrics, traps, lab design, and cross-unit synthesis."
+            if language == "en"
+            else "快速诊断后跳过已会基础，把时间给 FRQ 评分、陷阱题、实验设计和跨单元综合。"
+        )
+
+    plan["units"] = units[:10]
+    return plan
+
+
+def _foundation_topics_for_subject(subject: str, language: str) -> List[str]:
+    if language == "zh":
+        topics = {
+            "math": ["符号和词汇", "一步例题", "图像直觉", "公式从哪里来"],
+            "physics": ["物理词汇", "单位和符号", "公式解码", "图像直觉"],
+            "chemistry": ["化学词汇", "符号和单位", "反应式怎么读", "微观图像"],
+            "biology": ["核心词汇", "结构图", "过程顺序", "概念卡片"],
+            "history": ["人物地点时间", "事件脉络", "证据怎么读", "一句话观点"],
+        }
+        return topics.get(subject, ["核心词汇", "符号和概念", "例子直觉", "如何开始"])
+    topics = {
+        "math": ["symbols and vocabulary", "one-step examples", "graph intuition", "where formulas come from"],
+        "physics": ["physics vocabulary", "units and symbols", "formula decoding", "visual intuition"],
+        "chemistry": ["chemistry vocabulary", "symbols and units", "reading equations", "particle-level pictures"],
+        "biology": ["core vocabulary", "structure diagrams", "process order", "concept cards"],
+        "history": ["people/place/time", "event timeline", "reading evidence", "one-sentence claims"],
+    }
+    return topics.get(subject, ["core vocabulary", "symbols and concepts", "example intuition", "how to start"])
 
 
 def _build_curriculum_note(detection: SubjectDetection) -> str:
@@ -539,8 +790,8 @@ Keep total response ≤ 60 words excluding the ask_user block.
         user_messages = [m for m in history if m["role"] == "user"]
         subject_input = user_messages[0]["content"] if user_messages else "the subject"
         diagnostic_summary = (
-            " | ".join(m["content"] for m in user_messages[1:])
-            if len(user_messages) > 1
+            " | ".join(m["content"] for m in user_messages)
+            if user_messages
             else "Not much diagnostic info — use sensible defaults."
         )
 
@@ -581,7 +832,16 @@ Diagnostic answers: {diagnostic_summary}
 {curriculum_note}
 {bilingual_terminology_hint}
 
-Generate a compact full-course study plan with 6-10 units covering the complete syllabus.
+Infer one learner_tier from the diagnostic answers:
+- accelerated: already strong, bored by basics, aiming high, wants challenge.
+- standard: typical motivated learner with some weak areas.
+- scaffolded: some foundation but struggles to start problems independently.
+- foundation_rebuild: new/unconfident/overwhelmed/unmotivated; needs fun, low-friction engagement.
+
+Generate a compact full-course study plan with 6-10 units covering the complete syllabus, but adapt the pedagogy.
+For accelerated learners, compress basics and add hard FRQ/lab/challenge work.
+For scaffolded learners, require worked example -> guided attempt -> independent attempt.
+For foundation_rebuild learners, reduce pretest pressure, add prerequisite rebuild, concrete/visual explanations, short fun missions, and confidence wins.
 Keep descriptions and objectives short. Prefer official curriculum unit names when provided.
 
 Required JSON schema:
@@ -590,7 +850,20 @@ Required JSON schema:
     "subject": "{detection.subject if detection else 'general'}",
     "framework": "{detection.framework if detection and detection.framework else ''}",
     "course_name": "{detection.course_name if detection and detection.course_name else 'Full course name'}",
+    "learner_tier": "accelerated|standard|scaffolded|foundation_rebuild",
     "estimated_hours": <integer>,
+    "pedagogy_profile": {{
+        "pace": "accelerated|normal|guided|slow",
+        "support_pattern": "short description",
+        "concept_example_practice_test_ratio": "e.g. 30/35/25/10",
+        "engagement_mode": "short description"
+    }},
+    "weekly_schedule": [
+        {{"day": "Mon", "focus": "session focus"}},
+        {{"day": "Wed", "focus": "session focus"}},
+        {{"day": "Fri", "focus": "session focus"}}
+    ],
+    "engagement_hooks": ["hook1", "hook2", "hook3"],
     "units": [
         {{
             "title": "Unit title",
@@ -613,13 +886,19 @@ Diagnostic answers: {diagnostic_summary}
 {bilingual_terminology_hint}
 
 Create a compact full-course study plan with 6-10 units. Use the official curriculum units when provided.
+Adapt to learner_tier: accelerated, standard, scaffolded, or foundation_rebuild.
+For weak/unmotivated learners, include one foundation/confidence unit and game-like short missions instead of a long pretest.
 Schema:
 {{
   "title": "Course plan title",
   "subject": "{detection.subject if detection else 'general'}",
   "framework": "{detection.framework if detection and detection.framework else ''}",
   "course_name": "{detection.course_name if detection and detection.course_name else 'Full course name'}",
+  "learner_tier": "standard",
   "estimated_hours": 40,
+  "pedagogy_profile": {{"pace": "normal", "support_pattern": "balanced", "concept_example_practice_test_ratio": "25/25/35/15", "engagement_mode": "progress"}},
+  "weekly_schedule": [{{"day": "Mon", "focus": "concept"}}, {{"day": "Wed", "focus": "practice"}}, {{"day": "Fri", "focus": "review"}}],
+  "engagement_hooks": ["progress bar", "mini-check"],
   "units": [
     {{
       "title": "Unit title",
@@ -669,11 +948,14 @@ Schema:
             last_error_source = "llm_plan_review_parse_error"
 
         if not proposed_plan:
-            return _plan_generation_error_response(
-                language,
-                _source_name(last_error_source, fast=fast, after_retry=True),
-                detection,
-            )
+            return _plan_generation_error_response(language, last_error_source, detection)
+
+        inferred_tier = _infer_learner_tier(diagnostic_summary)
+        proposed_plan = _enhance_plan_for_tier(
+            proposed_plan,
+            proposed_plan.get("learner_tier") if proposed_plan.get("learner_tier") in VALID_LEARNER_TIERS else inferred_tier,
+            language,
+        )
 
         summary = (
             "Here's your personalized study plan — review it and hit **Let's go!** when ready."

@@ -1,0 +1,2864 @@
+[
+  {
+    "vp": {
+      "name": "ipad-portrait",
+      "width": 768,
+      "height": 1024
+    },
+    "answerState": {
+      "label": "ipad-portrait answer",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 768,
+        "height": 1024
+      },
+      "doc": {
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "bodyScrollWidth": 768,
+        "scrollHeight": 1435
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": true,
+        "practicePanel": false,
+        "explainPanel": false,
+        "nextButtons": true,
+        "katexCount": 11
+      },
+      "upload": [
+        {
+          "x": 50,
+          "y": 682,
+          "w": 217,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 275,
+          "y": 682,
+          "w": 217,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 501,
+          "y": 682,
+          "w": 217,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 37,
+          "y": 1210,
+          "w": 694,
+          "h": 36,
+          "text": "做一道相似题"
+        },
+        {
+          "x": 37,
+          "y": 1254,
+          "w": 694,
+          "h": 36,
+          "text": "让 Mina 解释其中一步"
+        },
+        {
+          "x": 37,
+          "y": 1298,
+          "w": 694,
+          "h": 36,
+          "text": "把这个问题扩展成学习计划"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 37,
+          "y": 256,
+          "w": 694,
+          "h": 186,
+          "text": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。"
+        },
+        {
+          "x": 37,
+          "y": 512,
+          "w": 694,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 502,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 560,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 596,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 660,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 714,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "practiceState": {
+      "label": "ipad-portrait practice",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 768,
+        "height": 1024
+      },
+      "doc": {
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "bodyScrollWidth": 768,
+        "scrollHeight": 1554
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": false,
+        "practicePanel": true,
+        "explainPanel": false,
+        "nextButtons": true,
+        "katexCount": 9
+      },
+      "upload": [
+        {
+          "x": 50,
+          "y": 271,
+          "w": 217,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 275,
+          "y": 271,
+          "w": 217,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 501,
+          "y": 271,
+          "w": 217,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 50,
+          "y": 812,
+          "w": 217,
+          "h": 36,
+          "text": "检查我的答案"
+        },
+        {
+          "x": 275,
+          "y": 812,
+          "w": 217,
+          "h": 36,
+          "text": "给我一个提示"
+        },
+        {
+          "x": 501,
+          "y": 812,
+          "w": 217,
+          "h": 36,
+          "text": "看完整解答"
+        },
+        {
+          "x": 37,
+          "y": 918,
+          "w": 694,
+          "h": 36,
+          "text": "做一道相似题"
+        },
+        {
+          "x": 37,
+          "y": 962,
+          "w": 694,
+          "h": 36,
+          "text": "让 Mina 解释其中一步"
+        },
+        {
+          "x": 37,
+          "y": 1006,
+          "w": 694,
+          "h": 36,
+          "text": "把这个问题扩展成学习计划"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 37,
+          "y": -155,
+          "w": 694,
+          "h": 186,
+          "text": "请基于刚才这道题，出一道相似但数字或边界略有变化的练习题。先只给题目、一个提示和答案检查点，不要直接给完整解答。"
+        },
+        {
+          "x": 37,
+          "y": 101,
+          "w": 694,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        },
+        {
+          "x": 50,
+          "y": 683,
+          "w": 668,
+          "h": 114,
+          "text": "我认为角度是 0 到 pi/3，半径从 2secθ 到 4。"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 502,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 560,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 596,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 660,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 714,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "verifyState": {
+      "label": "ipad-portrait verify",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 768,
+        "height": 1024
+      },
+      "doc": {
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "bodyScrollWidth": 768,
+        "scrollHeight": 1421
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": false,
+        "practicePanel": true,
+        "explainPanel": false,
+        "nextButtons": false,
+        "katexCount": 3
+      },
+      "upload": [
+        {
+          "x": 50,
+          "y": 285,
+          "w": 217,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 275,
+          "y": 285,
+          "w": 217,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 501,
+          "y": 285,
+          "w": 217,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 50,
+          "y": 693,
+          "w": 217,
+          "h": 36,
+          "text": "检查我的答案"
+        },
+        {
+          "x": 275,
+          "y": 693,
+          "w": 217,
+          "h": 36,
+          "text": "给我一个提示"
+        },
+        {
+          "x": 501,
+          "y": 693,
+          "w": 217,
+          "h": 36,
+          "text": "看完整解答"
+        },
+        {
+          "x": 37,
+          "y": 843,
+          "w": 694,
+          "h": 36,
+          "text": "给我一个更小提示"
+        },
+        {
+          "x": 37,
+          "y": 887,
+          "w": 694,
+          "h": 36,
+          "text": "看完整解答"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 37,
+          "y": -141,
+          "w": 694,
+          "h": 186,
+          "text": "请检查我的答案和过程。先判断是否正确；如果错了，只指出第一个关键错误并给一个修正提示，不要直接重做整题。"
+        },
+        {
+          "x": 37,
+          "y": 115,
+          "w": 694,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        },
+        {
+          "x": 50,
+          "y": 564,
+          "w": 668,
+          "h": 114,
+          "text": "我认为角度是 0 到 pi/3，半径从 2secθ 到 4。"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 502,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 560,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 596,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 660,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 714,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "explainState": {
+      "label": "ipad-portrait explain",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 768,
+        "height": 1024
+      },
+      "doc": {
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "bodyScrollWidth": 768,
+        "scrollHeight": 1642
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": true,
+        "practicePanel": false,
+        "explainPanel": true,
+        "nextButtons": true,
+        "katexCount": 11
+      },
+      "upload": [
+        {
+          "x": 50,
+          "y": 273,
+          "w": 217,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 275,
+          "y": 273,
+          "w": 217,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 501,
+          "y": 273,
+          "w": 217,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 50,
+          "y": 902,
+          "w": 94,
+          "h": 36,
+          "text": "解释这一步"
+        },
+        {
+          "x": 152,
+          "y": 902,
+          "w": 162,
+          "h": 36,
+          "text": "让 Mina 选择关键步骤"
+        },
+        {
+          "x": 37,
+          "y": 1008,
+          "w": 694,
+          "h": 36,
+          "text": "做一道相似题"
+        },
+        {
+          "x": 37,
+          "y": 1052,
+          "w": 694,
+          "h": 36,
+          "text": "让 Mina 解释其中一步"
+        },
+        {
+          "x": 37,
+          "y": 1096,
+          "w": 694,
+          "h": 36,
+          "text": "把这个问题扩展成学习计划"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 37,
+          "y": -153,
+          "w": 694,
+          "h": 186,
+          "text": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。"
+        },
+        {
+          "x": 37,
+          "y": 103,
+          "w": 694,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        },
+        {
+          "x": 50,
+          "y": 797,
+          "w": 668,
+          "h": 90,
+          "text": "为什么半径下限是 (3/sqrt(5))secθ？"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 502,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 560,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 596,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 660,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 714,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "explainResultState": {
+      "label": "ipad-portrait explain-result",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 768,
+        "height": 1024
+      },
+      "doc": {
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "bodyScrollWidth": 768,
+        "scrollHeight": 1328
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": false,
+        "practicePanel": false,
+        "explainPanel": false,
+        "nextButtons": true,
+        "katexCount": 7
+      },
+      "upload": [
+        {
+          "x": 50,
+          "y": 378,
+          "w": 217,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 275,
+          "y": 378,
+          "w": 217,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 501,
+          "y": 378,
+          "w": 217,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 37,
+          "y": 661,
+          "w": 694,
+          "h": 36,
+          "text": "做一道相似题"
+        },
+        {
+          "x": 37,
+          "y": 705,
+          "w": 694,
+          "h": 36,
+          "text": "让 Mina 解释其中一步"
+        },
+        {
+          "x": 37,
+          "y": 749,
+          "w": 694,
+          "h": 36,
+          "text": "把这个问题扩展成学习计划"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 37,
+          "y": -48,
+          "w": 694,
+          "h": 186,
+          "text": "请重点解释这一步：为什么半径下限是 (3/sqrt(5))secθ？。用更慢的方式说明为什么这样做，并给一个检查理解的小问题。"
+        },
+        {
+          "x": 37,
+          "y": 208,
+          "w": 694,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 502,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 560,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 596,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 660,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 714,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "planNav": {
+      "url": "http://localhost:3000/study-plan?source=quick-question",
+      "hasPlanContext": 0
+    },
+    "requestLog": [
+      {
+        "question": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。",
+        "contextLength": 14,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请基于刚才这道题，出一道相似但数字或边界略有变化的练习题。先只给题目、一个提示和答案检查点，不要直接给完整解答。",
+        "contextLength": 457,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请检查我的答案和过程。先判断是否正确；如果错了，只指出第一个关键错误并给一个修正提示，不要直接重做整题。",
+        "contextLength": 285,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。",
+        "contextLength": 14,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请重点解释这一步：为什么半径下限是 (3/sqrt(5))secθ？。用更慢的方式说明为什么这样做，并给一个检查理解的小问题。",
+        "contextLength": 457,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。",
+        "contextLength": 14,
+        "subject": "Calculus",
+        "language": "zh"
+      }
+    ]
+  },
+  {
+    "vp": {
+      "name": "ipad-landscape",
+      "width": 1024,
+      "height": 768
+    },
+    "answerState": {
+      "label": "ipad-landscape answer",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "doc": {
+        "clientWidth": 1024,
+        "scrollWidth": 1024,
+        "bodyScrollWidth": 1024,
+        "scrollHeight": 1435
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": true,
+        "practicePanel": false,
+        "explainPanel": false,
+        "nextButtons": true,
+        "katexCount": 11
+      },
+      "upload": [
+        {
+          "x": 50,
+          "y": 665,
+          "w": 303,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 361,
+          "y": 665,
+          "w": 303,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 671,
+          "y": 665,
+          "w": 303,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 37,
+          "y": 1193,
+          "w": 950,
+          "h": 36,
+          "text": "做一道相似题"
+        },
+        {
+          "x": 37,
+          "y": 1237,
+          "w": 950,
+          "h": 36,
+          "text": "让 Mina 解释其中一步"
+        },
+        {
+          "x": 37,
+          "y": 1281,
+          "w": 950,
+          "h": 36,
+          "text": "把这个问题扩展成学习计划"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 37,
+          "y": 239,
+          "w": 950,
+          "h": 186,
+          "text": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。"
+        },
+        {
+          "x": 37,
+          "y": 495,
+          "w": 950,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 758,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 816,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 852,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 916,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 970,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "practiceState": {
+      "label": "ipad-landscape practice",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "doc": {
+        "clientWidth": 1024,
+        "scrollWidth": 1024,
+        "bodyScrollWidth": 1024,
+        "scrollHeight": 1554
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": false,
+        "practicePanel": true,
+        "explainPanel": false,
+        "nextButtons": true,
+        "katexCount": 9
+      },
+      "upload": [
+        {
+          "x": 50,
+          "y": 15,
+          "w": 303,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 361,
+          "y": 15,
+          "w": 303,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 671,
+          "y": 15,
+          "w": 303,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 50,
+          "y": 556,
+          "w": 303,
+          "h": 36,
+          "text": "检查我的答案"
+        },
+        {
+          "x": 361,
+          "y": 556,
+          "w": 303,
+          "h": 36,
+          "text": "给我一个提示"
+        },
+        {
+          "x": 671,
+          "y": 556,
+          "w": 303,
+          "h": 36,
+          "text": "看完整解答"
+        },
+        {
+          "x": 37,
+          "y": 662,
+          "w": 950,
+          "h": 36,
+          "text": "做一道相似题"
+        },
+        {
+          "x": 37,
+          "y": 706,
+          "w": 950,
+          "h": 36,
+          "text": "让 Mina 解释其中一步"
+        },
+        {
+          "x": 37,
+          "y": 750,
+          "w": 950,
+          "h": 36,
+          "text": "把这个问题扩展成学习计划"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 37,
+          "y": -411,
+          "w": 950,
+          "h": 186,
+          "text": "请基于刚才这道题，出一道相似但数字或边界略有变化的练习题。先只给题目、一个提示和答案检查点，不要直接给完整解答。"
+        },
+        {
+          "x": 37,
+          "y": -155,
+          "w": 950,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        },
+        {
+          "x": 50,
+          "y": 427,
+          "w": 924,
+          "h": 114,
+          "text": "我认为角度是 0 到 pi/3，半径从 2secθ 到 4。"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 758,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 816,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 852,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 916,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 970,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "verifyState": {
+      "label": "ipad-landscape verify",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "doc": {
+        "clientWidth": 1024,
+        "scrollWidth": 1024,
+        "bodyScrollWidth": 1024,
+        "scrollHeight": 1419
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": false,
+        "practicePanel": true,
+        "explainPanel": false,
+        "nextButtons": false,
+        "katexCount": 3
+      },
+      "upload": [
+        {
+          "x": 50,
+          "y": 31,
+          "w": 303,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 361,
+          "y": 31,
+          "w": 303,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 671,
+          "y": 31,
+          "w": 303,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 50,
+          "y": 437,
+          "w": 303,
+          "h": 36,
+          "text": "检查我的答案"
+        },
+        {
+          "x": 361,
+          "y": 437,
+          "w": 303,
+          "h": 36,
+          "text": "给我一个提示"
+        },
+        {
+          "x": 671,
+          "y": 437,
+          "w": 303,
+          "h": 36,
+          "text": "看完整解答"
+        },
+        {
+          "x": 37,
+          "y": 587,
+          "w": 950,
+          "h": 36,
+          "text": "给我一个更小提示"
+        },
+        {
+          "x": 37,
+          "y": 631,
+          "w": 950,
+          "h": 36,
+          "text": "看完整解答"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 37,
+          "y": -395,
+          "w": 950,
+          "h": 186,
+          "text": "请检查我的答案和过程。先判断是否正确；如果错了，只指出第一个关键错误并给一个修正提示，不要直接重做整题。"
+        },
+        {
+          "x": 37,
+          "y": -139,
+          "w": 950,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        },
+        {
+          "x": 50,
+          "y": 308,
+          "w": 924,
+          "h": 114,
+          "text": "我认为角度是 0 到 pi/3，半径从 2secθ 到 4。"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 758,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 816,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 852,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 916,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 970,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "explainState": {
+      "label": "ipad-landscape explain",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "doc": {
+        "clientWidth": 1024,
+        "scrollWidth": 1024,
+        "bodyScrollWidth": 1024,
+        "scrollHeight": 1642
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": true,
+        "practicePanel": false,
+        "explainPanel": true,
+        "nextButtons": true,
+        "katexCount": 11
+      },
+      "upload": [
+        {
+          "x": 50,
+          "y": 15,
+          "w": 303,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 361,
+          "y": 15,
+          "w": 303,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 671,
+          "y": 15,
+          "w": 303,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 50,
+          "y": 644,
+          "w": 94,
+          "h": 36,
+          "text": "解释这一步"
+        },
+        {
+          "x": 152,
+          "y": 644,
+          "w": 162,
+          "h": 36,
+          "text": "让 Mina 选择关键步骤"
+        },
+        {
+          "x": 37,
+          "y": 750,
+          "w": 950,
+          "h": 36,
+          "text": "做一道相似题"
+        },
+        {
+          "x": 37,
+          "y": 794,
+          "w": 950,
+          "h": 36,
+          "text": "让 Mina 解释其中一步"
+        },
+        {
+          "x": 37,
+          "y": 838,
+          "w": 950,
+          "h": 36,
+          "text": "把这个问题扩展成学习计划"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 37,
+          "y": -411,
+          "w": 950,
+          "h": 186,
+          "text": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。"
+        },
+        {
+          "x": 37,
+          "y": -155,
+          "w": 950,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        },
+        {
+          "x": 50,
+          "y": 539,
+          "w": 924,
+          "h": 90,
+          "text": "为什么半径下限是 (3/sqrt(5))secθ？"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 758,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 816,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 852,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 916,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 970,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "explainResultState": {
+      "label": "ipad-landscape explain-result",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "doc": {
+        "clientWidth": 1024,
+        "scrollWidth": 1024,
+        "bodyScrollWidth": 1024,
+        "scrollHeight": 1328
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": false,
+        "practicePanel": false,
+        "explainPanel": false,
+        "nextButtons": true,
+        "katexCount": 7
+      },
+      "upload": [
+        {
+          "x": 50,
+          "y": 122,
+          "w": 303,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 361,
+          "y": 122,
+          "w": 303,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 671,
+          "y": 122,
+          "w": 303,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 37,
+          "y": 405,
+          "w": 950,
+          "h": 36,
+          "text": "做一道相似题"
+        },
+        {
+          "x": 37,
+          "y": 449,
+          "w": 950,
+          "h": 36,
+          "text": "让 Mina 解释其中一步"
+        },
+        {
+          "x": 37,
+          "y": 493,
+          "w": 950,
+          "h": 36,
+          "text": "把这个问题扩展成学习计划"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 37,
+          "y": -304,
+          "w": 950,
+          "h": 186,
+          "text": "请重点解释这一步：为什么半径下限是 (3/sqrt(5))secθ？。用更慢的方式说明为什么这样做，并给一个检查理解的小问题。"
+        },
+        {
+          "x": 37,
+          "y": -48,
+          "w": 950,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 758,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 816,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 852,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 916,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 970,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "planNav": {
+      "url": "http://localhost:3000/study-plan?source=quick-question",
+      "hasPlanContext": 0
+    },
+    "requestLog": [
+      {
+        "question": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。",
+        "contextLength": 14,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请基于刚才这道题，出一道相似但数字或边界略有变化的练习题。先只给题目、一个提示和答案检查点，不要直接给完整解答。",
+        "contextLength": 457,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请检查我的答案和过程。先判断是否正确；如果错了，只指出第一个关键错误并给一个修正提示，不要直接重做整题。",
+        "contextLength": 285,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。",
+        "contextLength": 14,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请重点解释这一步：为什么半径下限是 (3/sqrt(5))secθ？。用更慢的方式说明为什么这样做，并给一个检查理解的小问题。",
+        "contextLength": 457,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。",
+        "contextLength": 14,
+        "subject": "Calculus",
+        "language": "zh"
+      }
+    ]
+  },
+  {
+    "vp": {
+      "name": "ipad-pro-landscape",
+      "width": 1366,
+      "height": 1024
+    },
+    "answerState": {
+      "label": "ipad-pro-landscape answer",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 1366,
+        "height": 1024
+      },
+      "doc": {
+        "clientWidth": 1366,
+        "scrollWidth": 1366,
+        "bodyScrollWidth": 1366,
+        "scrollHeight": 1024
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": true,
+        "practicePanel": false,
+        "explainPanel": false,
+        "nextButtons": true,
+        "katexCount": 11
+      },
+      "upload": [
+        {
+          "x": 314,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 507,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 701,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 961,
+          "y": 697,
+          "w": 352,
+          "h": 36,
+          "text": "做一道相似题"
+        },
+        {
+          "x": 961,
+          "y": 741,
+          "w": 352,
+          "h": 36,
+          "text": "让 Mina 解释其中一步"
+        },
+        {
+          "x": 961,
+          "y": 785,
+          "w": 352,
+          "h": 36,
+          "text": "把这个问题扩展成学习计划"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 301,
+          "y": 256,
+          "w": 598,
+          "h": 186,
+          "text": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。"
+        },
+        {
+          "x": 301,
+          "y": 512,
+          "w": 598,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 1084,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 1142,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 1178,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 1242,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 1296,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "practiceState": {
+      "label": "ipad-pro-landscape practice",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 1366,
+        "height": 1024
+      },
+      "doc": {
+        "clientWidth": 1366,
+        "scrollWidth": 1366,
+        "bodyScrollWidth": 1366,
+        "scrollHeight": 1024
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": false,
+        "practicePanel": true,
+        "explainPanel": false,
+        "nextButtons": true,
+        "katexCount": 9
+      },
+      "upload": [
+        {
+          "x": 314,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 507,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 701,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 974,
+          "y": 652,
+          "w": 103,
+          "h": 36,
+          "text": "检查我的答案"
+        },
+        {
+          "x": 1085,
+          "y": 652,
+          "w": 103,
+          "h": 36,
+          "text": "给我一个提示"
+        },
+        {
+          "x": 1197,
+          "y": 652,
+          "w": 103,
+          "h": 36,
+          "text": "看完整解答"
+        },
+        {
+          "x": 961,
+          "y": 758,
+          "w": 352,
+          "h": 36,
+          "text": "做一道相似题"
+        },
+        {
+          "x": 961,
+          "y": 802,
+          "w": 352,
+          "h": 36,
+          "text": "让 Mina 解释其中一步"
+        },
+        {
+          "x": 961,
+          "y": 846,
+          "w": 352,
+          "h": 36,
+          "text": "把这个问题扩展成学习计划"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 301,
+          "y": 256,
+          "w": 598,
+          "h": 186,
+          "text": "请基于刚才这道题，出一道相似但数字或边界略有变化的练习题。先只给题目、一个提示和答案检查点，不要直接给完整解答。"
+        },
+        {
+          "x": 301,
+          "y": 512,
+          "w": 598,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        },
+        {
+          "x": 974,
+          "y": 523,
+          "w": 326,
+          "h": 114,
+          "text": "我认为角度是 0 到 pi/3，半径从 2secθ 到 4。"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 1084,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 1142,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 1178,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 1242,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 1296,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "verifyState": {
+      "label": "ipad-pro-landscape verify",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 1366,
+        "height": 1024
+      },
+      "doc": {
+        "clientWidth": 1366,
+        "scrollWidth": 1366,
+        "bodyScrollWidth": 1366,
+        "scrollHeight": 1024
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": false,
+        "practicePanel": true,
+        "explainPanel": false,
+        "nextButtons": false,
+        "katexCount": 3
+      },
+      "upload": [
+        {
+          "x": 314,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 507,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 701,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 974,
+          "y": 518,
+          "w": 103,
+          "h": 36,
+          "text": "检查我的答案"
+        },
+        {
+          "x": 1085,
+          "y": 518,
+          "w": 103,
+          "h": 36,
+          "text": "给我一个提示"
+        },
+        {
+          "x": 1197,
+          "y": 518,
+          "w": 103,
+          "h": 36,
+          "text": "看完整解答"
+        },
+        {
+          "x": 961,
+          "y": 668,
+          "w": 352,
+          "h": 36,
+          "text": "给我一个更小提示"
+        },
+        {
+          "x": 961,
+          "y": 712,
+          "w": 352,
+          "h": 36,
+          "text": "看完整解答"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 301,
+          "y": 256,
+          "w": 598,
+          "h": 186,
+          "text": "请检查我的答案和过程。先判断是否正确；如果错了，只指出第一个关键错误并给一个修正提示，不要直接重做整题。"
+        },
+        {
+          "x": 301,
+          "y": 512,
+          "w": 598,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        },
+        {
+          "x": 974,
+          "y": 389,
+          "w": 326,
+          "h": 114,
+          "text": "我认为角度是 0 到 pi/3，半径从 2secθ 到 4。"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 1084,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 1142,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 1178,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 1242,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 1296,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "explainState": {
+      "label": "ipad-pro-landscape explain",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 1366,
+        "height": 1024
+      },
+      "doc": {
+        "clientWidth": 1366,
+        "scrollWidth": 1366,
+        "bodyScrollWidth": 1366,
+        "scrollHeight": 1129
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": true,
+        "practicePanel": false,
+        "explainPanel": true,
+        "nextButtons": true,
+        "katexCount": 11
+      },
+      "upload": [
+        {
+          "x": 314,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 507,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 701,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 974,
+          "y": 798,
+          "w": 94,
+          "h": 36,
+          "text": "解释这一步"
+        },
+        {
+          "x": 1076,
+          "y": 798,
+          "w": 162,
+          "h": 36,
+          "text": "让 Mina 选择关键步骤"
+        },
+        {
+          "x": 961,
+          "y": 904,
+          "w": 352,
+          "h": 36,
+          "text": "做一道相似题"
+        },
+        {
+          "x": 961,
+          "y": 948,
+          "w": 352,
+          "h": 36,
+          "text": "让 Mina 解释其中一步"
+        },
+        {
+          "x": 961,
+          "y": 992,
+          "w": 352,
+          "h": 36,
+          "text": "把这个问题扩展成学习计划"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 301,
+          "y": 256,
+          "w": 598,
+          "h": 186,
+          "text": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。"
+        },
+        {
+          "x": 301,
+          "y": 512,
+          "w": 598,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        },
+        {
+          "x": 974,
+          "y": 693,
+          "w": 326,
+          "h": 90,
+          "text": "为什么半径下限是 (3/sqrt(5))secθ？"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 1084,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 1142,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 1178,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 1242,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 1296,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "explainResultState": {
+      "label": "ipad-pro-landscape explain-result",
+      "url": "http://localhost:3000/ask",
+      "viewport": {
+        "width": 1366,
+        "height": 1024
+      },
+      "doc": {
+        "clientWidth": 1366,
+        "scrollWidth": 1366,
+        "bodyScrollWidth": 1366,
+        "scrollHeight": 1024
+      },
+      "flags": {
+        "uploadPanel": true,
+        "answer": false,
+        "practicePanel": false,
+        "explainPanel": false,
+        "nextButtons": true,
+        "katexCount": 7
+      },
+      "upload": [
+        {
+          "x": 314,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "图片/PDF"
+        },
+        {
+          "x": 507,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "音频"
+        },
+        {
+          "x": 701,
+          "y": 682,
+          "w": 185,
+          "h": 40,
+          "text": "文本"
+        }
+      ],
+      "next": [
+        {
+          "x": 961,
+          "y": 393,
+          "w": 352,
+          "h": 36,
+          "text": "做一道相似题"
+        },
+        {
+          "x": 961,
+          "y": 437,
+          "w": 352,
+          "h": 36,
+          "text": "让 Mina 解释其中一步"
+        },
+        {
+          "x": 961,
+          "y": 481,
+          "w": 352,
+          "h": 36,
+          "text": "把这个问题扩展成学习计划"
+        }
+      ],
+      "textareas": [
+        {
+          "x": 301,
+          "y": 256,
+          "w": 598,
+          "h": 186,
+          "text": "请重点解释这一步：为什么半径下限是 (3/sqrt(5))secθ？。用更慢的方式说明为什么这样做，并给一个检查理解的小问题。"
+        },
+        {
+          "x": 301,
+          "y": 512,
+          "w": 598,
+          "h": 114,
+          "text": "我想知道如何确定极坐标边界。"
+        }
+      ],
+      "smallTargets": [
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "BUTTON",
+          "text": "",
+          "w": 38,
+          "h": 38,
+          "x": 1084,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "EN",
+          "w": 36,
+          "h": 27,
+          "x": 1142,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "中文",
+          "w": 44,
+          "h": 27,
+          "x": 1178,
+          "y": 19
+        },
+        {
+          "tag": "BUTTON",
+          "text": "17",
+          "w": 38,
+          "h": 38,
+          "x": 1242,
+          "y": 13
+        },
+        {
+          "tag": "BUTTON",
+          "text": "T",
+          "w": 38,
+          "h": 38,
+          "x": 1296,
+          "y": 13
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "tag": "INPUT",
+          "text": "",
+          "w": 0,
+          "h": 0,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "offscreen": []
+    },
+    "planNav": {
+      "url": "http://localhost:3000/study-plan?source=quick-question",
+      "hasPlanContext": 0
+    },
+    "requestLog": [
+      {
+        "question": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。",
+        "contextLength": 14,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请基于刚才这道题，出一道相似但数字或边界略有变化的练习题。先只给题目、一个提示和答案检查点，不要直接给完整解答。",
+        "contextLength": 457,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请检查我的答案和过程。先判断是否正确；如果错了，只指出第一个关键错误并给一个修正提示，不要直接重做整题。",
+        "contextLength": 285,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。",
+        "contextLength": 14,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请重点解释这一步：为什么半径下限是 (3/sqrt(5))secθ？。用更慢的方式说明为什么这样做，并给一个检查理解的小问题。",
+        "contextLength": 457,
+        "subject": "Calculus",
+        "language": "zh"
+      },
+      {
+        "question": "请讲解这道极坐标积分题：圆 x^2+y^2=9 内，x=3/sqrt(5) 右侧区域。",
+        "contextLength": 14,
+        "subject": "Calculus",
+        "language": "zh"
+      }
+    ]
+  }
+]

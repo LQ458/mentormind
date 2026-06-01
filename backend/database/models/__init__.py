@@ -22,6 +22,7 @@ from .user import User, SubjectProficiency
 from .lesson import Lesson, LessonObjective, LessonResource, LessonExercise
 from .analytics import AnalyticsEventType
 from .study_plan import StudyPlan, StudyPlanUnit, GaokaoSession
+from .seminar import SeminarRoom, SeminarParticipant, SeminarTurn, SeminarProfile
 from .knowledge_graph import KGConcept, KGRelationship
 from .board_session import BoardSession
 from .telemetry import TelemetryEvent, ALLOWED_EVENT_TYPES
@@ -55,6 +56,10 @@ __all__ = [
     "StudyPlan",
     "StudyPlanUnit",
     "GaokaoSession",
+    "SeminarRoom",
+    "SeminarParticipant",
+    "SeminarTurn",
+    "SeminarProfile",
     # Knowledge graph
     "KGConcept",
     "KGRelationship",

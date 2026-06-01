@@ -6,6 +6,8 @@ Centralized database models and utilities
 from .base import Base, engine, SessionLocal, get_db, init_database
 from .models.lesson import Lesson, LessonObjective, LessonResource, LessonExercise
 from .models.user import User, UserLesson, UserProfile, StudentPerformance, MemoryReview, AgentInteractionTurn, ProactiveNotification, UserMediaContext
+from .models.study_plan import StudyPlan, StudyPlanUnit, GaokaoSession
+from .models.seminar import SeminarRoom, SeminarParticipant, SeminarTurn, SeminarProfile
 from .models.enums import Language, StudentLevel, DifficultyLevel
 from .storage import LessonStorageSQL
 
@@ -27,6 +29,13 @@ __all__ = [
     'AgentInteractionTurn',
     'ProactiveNotification',
     'UserMediaContext',
+    'StudyPlan',
+    'StudyPlanUnit',
+    'GaokaoSession',
+    'SeminarRoom',
+    'SeminarParticipant',
+    'SeminarTurn',
+    'SeminarProfile',
     'Language',
     'StudentLevel',
     'DifficultyLevel',

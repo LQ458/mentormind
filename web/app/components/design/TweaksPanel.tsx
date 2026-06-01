@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { usePathname } from 'next/navigation'
 import { EyeOff, GripHorizontal, Settings, X } from 'lucide-react'
 import { useTweaks, type Palette, type Accent, type Density } from './TweaksProvider'
 
@@ -28,6 +29,7 @@ function clampPosition(point: Point, panelOpen: boolean): Point {
 }
 
 export default function TweaksPanel() {
+  const pathname = usePathname() || '/'
   const [open, setOpen] = useState(false)
   const [hidden, setHidden] = useState(false)
   const [position, setPosition] = useState<Point | null>(null)
@@ -118,7 +120,7 @@ export default function TweaksPanel() {
     }, 0)
   }
 
-  if (!position) return null
+  if (pathname === '/' || pathname.startsWith('/ask') || pathname.startsWith('/seminar') || !position) return null
 
   if (hidden) {
     return (

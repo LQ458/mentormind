@@ -4,9 +4,11 @@ import type { NextRequest } from 'next/server'
 const PROTECTED_PREFIXES = [
   '/dashboard',
   '/settings',
+  '/ask',
   '/create',
   '/lessons',
   '/study-plan',
+  '/seminar',
   '/knowledge-graph',
   '/analytics',
   '/board',

@@ -2,27 +2,21 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import DOMPurify from 'dompurify'
-import { Mic, ImagePlus, X, Trash2 } from 'lucide-react'
+import Link from 'next/link'
+import { BookOpen, HelpCircle, ImagePlus, Mic, Sparkles, Trash2, X } from 'lucide-react'
 import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '../components/AuthContext'
-import { PageHead, Section } from '../components/design/primitives'
-import KnowledgeGraph from '../components/design/KnowledgeGraph'
+import { PageHead } from '../components/design/primitives'
+import { MathText } from '../components/MathText'
 import { SUBJECTS } from '../lib/subjects'
 import { FRAMEWORKS, getFramework } from '../lib/frameworks'
 import { getCourseSuggestions } from '../lib/course-suggestions'
 import { track } from '../lib/telemetry'
 import { useIngestUpload, type MediaContext } from '../hooks/useIngestUpload'
 
-// DOMPurify only runs in the browser. On the server (during SSR/prerender) we
-// fall back to passing the input through unchanged because the eventual render
-// happens client-side and will be sanitized there.
-const sanitizeHtml = (html: string): string =>
-  typeof window === 'undefined' ? html : DOMPurify.sanitize(html)
-
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type WorkflowPhase = 'selecting' | 'chatting' | 'plan_review' | 'creating' | 'done'
+type WorkflowPhase = 'selecting' | 'intake' | 'chatting' | 'plan_review' | 'creating' | 'done'
 
 interface ChatMessage {
   id: string
@@ -38,15 +32,43 @@ interface ChatMessage {
 interface StudyUnit {
   title: string
   topics: string[]
-  estimated_hours: number
+  description?: string
+  learning_objectives?: string[]
+  estimated_hours?: number
+  estimated_minutes?: number
 }
 
 interface ProposedPlan {
   title: string
   subject: string
   framework: string
+  course_name?: string
   estimated_hours: number
+  learner_tier?: 'accelerated' | 'standard' | 'scaffolded' | 'foundation_rebuild' | string
+  pedagogy_profile?: {
+    pace?: string
+    support_pattern?: string
+    concept_example_practice_test_ratio?: string
+    engagement_mode?: string
+  }
+  weekly_schedule?: Array<{ day: string; focus: string }>
+  engagement_hooks?: string[]
+  motivation_safeguards?: string[]
+  scaffolding_rule?: string
+  challenge_rule?: string
   units: StudyUnit[]
+}
+
+interface PlanIntake {
+  foundation: string
+  examTimeline: string
+  targetScore: string
+  weeklyHours: string
+  prepMonths: string
+  studyDays: string[]
+  hoursPerSession: string
+  weakAreas: string
+  baselineConfidence: Record<string, string>
 }
 
 interface StudyPlanChatDraft {
@@ -55,6 +77,8 @@ interface StudyPlanChatDraft {
   phase: WorkflowPhase
   selectedSubject: string | null
   selectedFramework: string | null
+  selectedCourse: string | null
+  intake: PlanIntake
   chatMessages: Array<Omit<ChatMessage, 'timestamp'> & { timestamp: string }>
   userInput: string
   chatStage: string
@@ -64,8 +88,67 @@ interface StudyPlanChatDraft {
   autoSaveStatus: 'idle' | 'saving' | 'saved'
 }
 
+const defaultIntake = (): PlanIntake => ({
+  foundation: '',
+  examTimeline: '',
+  targetScore: '',
+  weeklyHours: '6',
+  prepMonths: '3',
+  studyDays: ['mon', 'wed', 'fri'],
+  hoursPerSession: '1.5',
+  weakAreas: '',
+  baselineConfidence: {},
+})
+
+const STUDY_DAYS = [
+  { value: 'mon', zh: '一', en: 'Mon' },
+  { value: 'tue', zh: '二', en: 'Tue' },
+  { value: 'wed', zh: '三', en: 'Wed' },
+  { value: 'thu', zh: '四', en: 'Thu' },
+  { value: 'fri', zh: '五', en: 'Fri' },
+  { value: 'sat', zh: '六', en: 'Sat' },
+  { value: 'sun', zh: '日', en: 'Sun' },
+]
+
+function baselinePrompts(subject: string | null, course: string | null, lang: 'zh' | 'en'): string[] {
+  const courseLabel = course || (lang === 'zh' ? '这门课' : 'this course')
+  const generic = lang === 'zh'
+    ? [
+        `我能说清 ${courseLabel} 的核心概念。`,
+        '我能独立完成基础题。',
+        '我能看懂中等难度题目的条件。',
+        '我知道自己最薄弱的章节。',
+        '我能在限时环境下保持稳定。',
+      ]
+    : [
+        `I can explain the core ideas in ${courseLabel}.`,
+        'I can solve foundational problems independently.',
+        'I can parse medium-difficulty prompts.',
+        'I know which units are weakest.',
+        'I stay steady under timed conditions.',
+      ]
+
+  if (subject === 'math') {
+    return lang === 'zh'
+      ? ['函数/公式变形', '概念定义', '计算准确率', '综合应用题', '限时解题'].map((x) => `我对「${x}」有把握。`)
+      : ['functions/formula manipulation', 'definitions', 'calculation accuracy', 'multi-step applications', 'timed solving'].map((x) => `I feel confident with ${x}.`)
+  }
+  if (['physics', 'chemistry', 'biology', 'environmental_science'].includes(subject || '')) {
+    return lang === 'zh'
+      ? ['核心概念', '计算/数据题', '实验/图表', '大题表达', '易错点辨析'].map((x) => `我对「${x}」有把握。`)
+      : ['core concepts', 'calculations/data', 'labs/graphs', 'structured responses', 'common misconceptions'].map((x) => `I feel confident with ${x}.`)
+  }
+  if (['history', 'english', 'economics', 'government', 'psychology', 'world_languages', 'art'].includes(subject || '')) {
+    return lang === 'zh'
+      ? ['核心概念', '材料/文本分析', '论证结构', '案例/证据使用', '限时写作'].map((x) => `我对「${x}」有把握。`)
+      : ['core concepts', 'source/text analysis', 'argument structure', 'evidence use', 'timed writing'].map((x) => `I feel confident with ${x}.`)
+  }
+  return generic
+}
+
 const STUDY_PLAN_DRAFT_KEY_PREFIX = 'study-plan-chat-draft-v2'
 const STUDY_PLAN_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+const QUICK_QUESTION_PLAN_PREFILL_KEY = 'mm-quick-question-study-plan-prefill-v1'
 
 function serializeChatMessages(messages: ChatMessage[]): StudyPlanChatDraft['chatMessages'] {
   return messages.map((message) => ({
@@ -75,6 +158,19 @@ function serializeChatMessages(messages: ChatMessage[]): StudyPlanChatDraft['cha
         ? message.timestamp.toISOString()
         : new Date(message.timestamp).toISOString(),
   }))
+}
+
+function subjectFromQuickQuestion(subject: string | undefined | null): string | null {
+  const normalized = (subject || '').trim().toLowerCase()
+  if (!normalized) return null
+  const direct = SUBJECTS.find((item) => item.id === normalized)
+  if (direct) return direct.id
+  if (/(math|calculus|algebra|geometry|precalc|统计|数学|微积分|代数|几何)/i.test(normalized)) return 'math'
+  if (/(physics|物理)/i.test(normalized)) return 'physics'
+  if (/(chem|化学)/i.test(normalized)) return 'chemistry'
+  if (/(bio|biology|生物)/i.test(normalized)) return 'biology'
+  if (/(econ|economics|经济)/i.test(normalized)) return 'economics'
+  return null
 }
 
 async function readJsonOrThrow(response: Response): Promise<any> {
@@ -121,27 +217,7 @@ function makeStudyPlanRequestId() {
 // ── Message renderer (matches /create pattern) ───────────────────────────────
 
 function AssistantMessage({ content }: { content: string }) {
-  const renderInline = (text: string, key: string | number) => {
-    const bold = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    const italic = bold
-      .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>')
-      .replace(/_(.+?)_/g, '<em>$1</em>')
-    const code = italic.replace(
-      /`([^`]+)`/g,
-      '<code class="bg-gray-200 rounded px-1 py-0.5 text-xs font-mono">$1</code>'
-    )
-    return <span key={key} dangerouslySetInnerHTML={{ __html: sanitizeHtml(code) }} />
-  }
-
-  return (
-    <div className="text-sm leading-relaxed space-y-1">
-      {content.split('\n').map((line, li) => (
-        <p key={li} className={line.trim() === '' ? 'h-2' : ''}>
-          {renderInline(line, li)}
-        </p>
-      ))}
-    </div>
-  )
+  return <MathText content={content} className="leading-relaxed" />
 }
 
 // ── Main Page ────────────────────────────────────────────────────────────────
@@ -149,7 +225,7 @@ function AssistantMessage({ content }: { content: string }) {
 export default function StudyPlanPage() {
   const router = useRouter()
   const { language: uiLanguage } = useLanguage()
-  const { getToken, user, isLoaded: authLoaded } = useAuth()
+  const { getToken, user, isLoaded: authLoaded, signOut } = useAuth()
 
   const audioInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -159,14 +235,18 @@ export default function StudyPlanPage() {
     isUploading,
     handleAudioUpload,
     handleImageUpload,
+    getLastUploadErrorMessage,
+    clearUploadError,
     removeContext,
     buildContextMessage,
     clearContexts,
-  } = useIngestUpload(lang)
+  } = useIngestUpload(lang, { getToken, onAuthInvalid: signOut })
 
   const [phase, setPhase] = useState<WorkflowPhase>('selecting')
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null)
   const [selectedFramework, setSelectedFramework] = useState<string | null>(null)
+  const [selectedCourse, setSelectedCourse] = useState<string | null>(null)
+  const [intake, setIntake] = useState<PlanIntake>(() => defaultIntake())
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [userInput, setUserInput] = useState('')
@@ -179,6 +259,16 @@ export default function StudyPlanPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [createdPlanId, setCreatedPlanId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const handlePlanContextUpload = async (file: File | undefined, kind: 'audio' | 'image') => {
+    if (!file) return
+    setError(null)
+    clearUploadError()
+    const result = kind === 'audio'
+      ? await handleAudioUpload(file)
+      : await handleImageUpload(file)
+    if (!result) setError(getLastUploadErrorMessage())
+  }
 
   // Gaokao now flows through the same chat path as every other framework.
   // Standalone Gaokao tutoring lives at /gaokao (kept for bookmark continuity).
@@ -277,6 +367,8 @@ export default function StudyPlanPage() {
       phase: phase === 'creating' ? 'plan_review' : phase,
       selectedSubject,
       selectedFramework,
+      selectedCourse,
+      intake,
       chatMessages: serializeChatMessages(chatMessages),
       userInput,
       chatStage,
@@ -289,6 +381,8 @@ export default function StudyPlanPage() {
     phase,
     selectedSubject,
     selectedFramework,
+    selectedCourse,
+    intake,
     chatMessages,
     userInput,
     chatStage,
@@ -325,6 +419,86 @@ export default function StudyPlanPage() {
     if (!authLoaded || typeof window === 'undefined' || draftHydratedRef.current) return
     draftHydratedRef.current = true
     try {
+      const quickPrefillRaw = window.localStorage.getItem(QUICK_QUESTION_PLAN_PREFILL_KEY)
+      if (quickPrefillRaw) {
+        window.localStorage.removeItem(QUICK_QUESTION_PLAN_PREFILL_KEY)
+        const quickPrefill = JSON.parse(quickPrefillRaw) as {
+          savedAt?: number
+          language?: string
+          subject?: string
+          question?: string
+          context?: string
+          uploadedContext?: string | null
+          answer?: string
+        }
+        if (!quickPrefill.savedAt || Date.now() - quickPrefill.savedAt <= STUDY_PLAN_DRAFT_MAX_AGE_MS) {
+          const inferredSubject = subjectFromQuickQuestion(quickPrefill.subject)
+          const prompt = uiLanguage === 'zh'
+            ? '请把这个单题暴露出的知识点和薄弱环节，扩展成一个短期学习计划。'
+            : 'Turn the knowledge gaps exposed by this one question into a short study plan.'
+          const quickMessages: ChatMessage[] = [
+            {
+              id: 'quick_question_source',
+              role: 'user',
+              content: [
+                quickPrefill.subject ? `Subject: ${quickPrefill.subject}` : null,
+                quickPrefill.question ? `Question:\n${quickPrefill.question}` : null,
+                quickPrefill.context ? `Context:\n${quickPrefill.context}` : null,
+                quickPrefill.uploadedContext || null,
+                quickPrefill.answer ? `Mina's answer:\n${quickPrefill.answer}` : null,
+              ].filter(Boolean).join('\n\n'),
+              timestamp: new Date(),
+            },
+            {
+              id: 'quick_question_plan_prompt',
+              role: 'assistant',
+              content: uiLanguage === 'zh'
+                ? '我已经带入这道题、你的补充材料和刚才的解答。你可以直接让我生成计划，或补充考试时间、目标分数和每周学习时间。'
+                : 'I brought over the question, your extra materials, and Mina’s answer. You can ask me to generate the plan now, or add exam timing, target score, and weekly study time.',
+              timestamp: new Date(),
+            },
+          ]
+          setPhase('chatting')
+          setSelectedSubject(inferredSubject)
+          setSelectedFramework('general')
+          setSelectedCourse(null)
+          setIntake({
+            ...defaultIntake(),
+            weakAreas: quickPrefill.question || '',
+          })
+          setChatMessages(quickMessages)
+          setUserInput(prompt)
+          setChatStage('diagnostic')
+          setProposedPlan(null)
+          setPlanFeedback('')
+          setCreatedPlanId(null)
+          setAutoSaveStatus('idle')
+          setIsTyping(false)
+          setStreamingContent(null)
+          setError(null)
+          writeStudyPlanDraftSnapshot({
+            version: 2,
+            savedAt: Date.now(),
+            phase: 'chatting',
+            selectedSubject: inferredSubject,
+            selectedFramework: 'general',
+            selectedCourse: null,
+            intake: {
+              ...defaultIntake(),
+              weakAreas: quickPrefill.question || '',
+            },
+            chatMessages: serializeChatMessages(quickMessages),
+            userInput: prompt,
+            chatStage: 'diagnostic',
+            proposedPlan: null,
+            planFeedback: '',
+            createdPlanId: null,
+            autoSaveStatus: 'idle',
+          })
+          return
+        }
+      }
+
       const raw = window.localStorage.getItem(draftKey)
       if (!raw) return
       const draft = JSON.parse(raw) as StudyPlanChatDraft
@@ -342,6 +516,8 @@ export default function StudyPlanPage() {
       setPhase(draft.phase || 'selecting')
       setSelectedSubject(draft.selectedSubject ?? null)
       setSelectedFramework(draft.selectedFramework ?? null)
+      setSelectedCourse(draft.selectedCourse ?? null)
+      setIntake(draft.intake ?? defaultIntake())
       setChatMessages(restoredMessages)
       setUserInput(draft.userInput ?? '')
       setChatStage(draft.chatStage || 'opening')
@@ -355,7 +531,7 @@ export default function StudyPlanPage() {
     } catch (err) {
       console.warn('[study-plan/draft] restore failed', err)
     }
-  }, [authLoaded, draftKey])
+  }, [authLoaded, draftKey, uiLanguage, writeStudyPlanDraftSnapshot])
 
   useEffect(() => {
     if (!draftHydratedRef.current || typeof window === 'undefined') return
@@ -405,34 +581,114 @@ export default function StudyPlanPage() {
 
   const handleSubjectSelect = (subjectId: string) => {
     setSelectedSubject(subjectId)
+    setSelectedCourse(null)
   }
 
   const handleFrameworkSelect = (frameworkId: string) => {
     setSelectedFramework(frameworkId)
-    const subject = SUBJECTS.find((s) => s.id === selectedSubject)
+    setSelectedCourse(null)
+  }
 
-    // Unified flow: every framework (including Gaokao) runs the same plan-creation chat.
-    const framework = FRAMEWORKS.find((f) => f.id === frameworkId)
+  const handleContinueToIntake = (courseName?: string) => {
+    if (!selectedFramework || !selectedSubject) return
+    if (courseName) setSelectedCourse(courseName)
+    setPhase('intake')
+  }
+
+  const toggleStudyDay = (day: string) => {
+    setIntake((prev) => {
+      const exists = prev.studyDays.includes(day)
+      const nextDays = exists
+        ? prev.studyDays.filter((item) => item !== day)
+        : [...prev.studyDays, day]
+      return { ...prev, studyDays: nextDays.length > 0 ? nextDays : prev.studyDays }
+    })
+  }
+
+  const buildIntakeSummary = () => {
+    const subject = SUBJECTS.find((s) => s.id === selectedSubject)
+    const framework = FRAMEWORKS.find((f) => f.id === selectedFramework)
+    const course = selectedCourse || (uiLanguage === 'zh' ? '未指定具体课程' : 'No exact course selected')
+    const days = intake.studyDays
+      .map((day) => STUDY_DAYS.find((item) => item.value === day))
+      .filter(Boolean)
+      .map((day) => uiLanguage === 'zh' ? `周${day?.zh}` : day?.en)
+      .join(', ')
+    const baseline = baselinePrompts(selectedSubject, selectedCourse, uiLanguage === 'zh' ? 'zh' : 'en')
+      .map((prompt) => `${prompt}: ${intake.baselineConfidence[prompt] || (uiLanguage === 'zh' ? '未填写' : 'not answered')}`)
+      .join('\n')
+
+    if (uiLanguage === 'zh') {
+      return [
+        `我想制定学习计划。`,
+        `课程体系：${framework?.labelZh ?? selectedFramework}`,
+        `科目：${subject?.labelZh ?? selectedSubject}`,
+        `具体课程：${course}`,
+        `当前基础：${intake.foundation || '未填写'}`,
+        `考试/目标时间：${intake.examTimeline || '未填写'}`,
+        `目标分数：${intake.targetScore || '未填写'}`,
+        `每周学习时间：${intake.weeklyHours} 小时`,
+        `总准备周期：${intake.prepMonths} 个月`,
+        `学习安排：${days}，每次 ${intake.hoursPerSession} 小时`,
+        `薄弱点/补充需求：${intake.weakAreas || '未填写'}`,
+        `基线自测：\n${baseline}`,
+        `请先判断信息是否足够；如果足够，请生成完整学习计划；如果缺关键信息，只问一个最重要的问题。`,
+      ].join('\n')
+    }
+
+    return [
+      `I want to build a study plan.`,
+      `Framework: ${framework?.label ?? selectedFramework}`,
+      `Subject: ${subject?.label ?? selectedSubject}`,
+      `Course: ${course}`,
+      `Current foundation: ${intake.foundation || 'not provided'}`,
+      `Exam/goal timeline: ${intake.examTimeline || 'not provided'}`,
+      `Target score: ${intake.targetScore || 'not provided'}`,
+      `Weekly study time: ${intake.weeklyHours} hours`,
+      `Total preparation window: ${intake.prepMonths} months`,
+      `Schedule: ${days}, ${intake.hoursPerSession} hours per session`,
+      `Weak areas/context: ${intake.weakAreas || 'not provided'}`,
+      `Baseline self-check:\n${baseline}`,
+      `If this is enough, generate the plan. If a key detail is missing, ask only one important follow-up question.`,
+    ].join('\n')
+  }
+
+  const startChatFromIntake = () => {
+    const subject = SUBJECTS.find((s) => s.id === selectedSubject)
+    const framework = FRAMEWORKS.find((f) => f.id === selectedFramework)
+    const assistantName = 'Mina'
     const openingMessage: ChatMessage = {
       id: 'opening_1',
       role: 'assistant',
       content:
         uiLanguage === 'zh'
-          ? `你好！我来帮你制定一份 ${subject?.labelZh ?? ''} ${framework?.labelZh ?? ''} 的学习计划。先告诉我你目前的基础水平，以及你的目标或考试时间线吧！`
-          : `Hi! I'll help you build a ${subject?.label ?? ''} ${framework?.label ?? ''} study plan. Tell me about your current level and your goals or exam timeline!`,
+          ? `你好，我是 ${assistantName}。我已经整理好你的 ${subject?.labelZh ?? ''} ${framework?.labelZh ?? ''} 背景，会用这些信息帮你生成计划。`
+          : `Hi, I'm ${assistantName}. I have your ${subject?.label ?? ''} ${framework?.label ?? ''} context and will use it to build the plan.`,
       timestamp: new Date(),
     }
-    setChatMessages([openingMessage])
+    const summary = buildIntakeSummary()
+    const userMessage: ChatMessage = {
+      id: 'intake_summary',
+      role: 'user',
+      content: summary,
+      timestamp: new Date(),
+    }
+    const messages = [openingMessage, userMessage]
+    setChatMessages(messages)
+    setUserInput(uiLanguage === 'zh' ? '请根据以上信息生成学习计划。' : 'Please generate the study plan from the context above.')
+    setChatStage('diagnostic')
     setPhase('chatting')
     writeStudyPlanDraftSnapshot({
       version: 2,
       savedAt: Date.now(),
       phase: 'chatting',
       selectedSubject,
-      selectedFramework: frameworkId,
-      chatMessages: serializeChatMessages([openingMessage]),
-      userInput: '',
-      chatStage: 'opening',
+      selectedFramework,
+      selectedCourse,
+      intake,
+      chatMessages: serializeChatMessages(messages),
+      userInput: uiLanguage === 'zh' ? '请根据以上信息生成学习计划。' : 'Please generate the study plan from the context above.',
+      chatStage: 'diagnostic',
       proposedPlan: null,
       planFeedback: '',
       createdPlanId: null,
@@ -463,6 +719,8 @@ export default function StudyPlanPage() {
       phase: 'chatting',
       selectedSubject,
       selectedFramework,
+      selectedCourse,
+      intake,
       chatMessages: serializeChatMessages([...chatMessages, userMessage]),
       userInput: '',
       chatStage,
@@ -605,6 +863,8 @@ export default function StudyPlanPage() {
         phase: 'chatting',
         selectedSubject,
         selectedFramework,
+        selectedCourse,
+        intake,
         chatMessages: serializeChatMessages([...chatMessages, userMessage]),
         userInput: '',
         chatStage,
@@ -694,51 +954,6 @@ export default function StudyPlanPage() {
     }, 0)
   }
 
-  // ── Auto-save plan when generated ─────────────────────────────────────────
-
-  const autoSavePlan = useCallback(async (plan: ProposedPlan) => {
-    setAutoSaveStatus('saving')
-    try {
-      const token = await getToken()
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (token) headers.Authorization = `Bearer ${token}`
-
-      const response = await fetch('/api/backend/study-plan/create', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          plan_data: {
-            ...plan,
-            subject: selectedSubject,
-            framework: selectedFramework,
-          },
-          language: uiLanguage === 'zh' ? 'zh' : 'en',
-        }),
-      })
-
-      const data = await response.json()
-
-      if (data.success && data.plan_id) {
-        setCreatedPlanId(data.plan_id)
-        setAutoSaveStatus('saved')
-      } else if (data.plan_id) {
-        setCreatedPlanId(data.plan_id)
-        setAutoSaveStatus('saved')
-      } else {
-        setAutoSaveStatus('idle')
-      }
-    } catch {
-      setAutoSaveStatus('idle')
-    }
-  }, [getToken, selectedSubject, selectedFramework, uiLanguage])
-
-  // Trigger auto-save when a proposed plan is received
-  useEffect(() => {
-    if (proposedPlan && phase === 'plan_review' && !createdPlanId) {
-      autoSavePlan(proposedPlan)
-    }
-  }, [proposedPlan, phase, createdPlanId, autoSavePlan])
-
   // ── Plan review ───────────────────────────────────────────────────────────
 
   const handleRequestChanges = () => {
@@ -788,6 +1003,12 @@ export default function StudyPlanPage() {
             ...proposedPlan,
             subject: selectedSubject,
             framework: selectedFramework,
+            course_name: selectedCourse || proposedPlan.course_name,
+            diagnostic_context: {
+              intake,
+              selected_course: selectedCourse,
+              assistant_name: 'Mina',
+            },
           },
           language: uiLanguage === 'zh' ? 'zh' : 'en',
         }),
@@ -839,16 +1060,10 @@ export default function StudyPlanPage() {
         title={uiLanguage === 'zh' ? '你的学习计划' : 'Your study plan'}
         kicker={
           uiLanguage === 'zh'
-            ? '查看已有计划，或与 AI 对话创建新的学习计划。'
-            : 'View your existing plans or chat with AI to build a new one.'
+            ? '查看已有计划，或与 Mina 创建新的学习计划。'
+            : 'View your existing plans or build a new one with Mina.'
         }
       />
-
-      <Section title={uiLanguage === 'zh' ? '知识图' : 'Knowledge graph'}>
-        <div className="card-new" style={{ padding: 18 }}>
-          <KnowledgeGraph />
-        </div>
-      </Section>
 
       {/* ── MY STUDY PLANS ────────────────────────────────────────────────── */}
       {myPlans.length > 0 && (
@@ -947,6 +1162,47 @@ export default function StudyPlanPage() {
         </div>
       )}
 
+      {phase === 'selecting' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <button
+            type="button"
+            className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-5 text-left shadow-sm transition hover:border-blue-300"
+          >
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-700">
+              <BookOpen size={20} />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-gray-900">
+                {uiLanguage === 'zh' ? '生成学习计划' : 'Build a study plan'}
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-gray-500">
+                {uiLanguage === 'zh'
+                  ? '适合 AP、IB、A Level、高考等长期备考。'
+                  : 'For AP, IB, A Level, Gaokao, and longer exam prep.'}
+              </span>
+            </span>
+          </button>
+          <Link
+            href="/ask"
+            className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-5 text-left shadow-sm transition hover:border-emerald-300"
+          >
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700">
+              <HelpCircle size={20} />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-gray-900">
+                {uiLanguage === 'zh' ? '只问一道题' : 'Ask one question'}
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-gray-500">
+                {uiLanguage === 'zh'
+                  ? '不用生成计划，直接上传题目或描述问题。'
+                  : 'Skip planning and go straight to a problem or concept.'}
+              </span>
+            </span>
+          </Link>
+        </div>
+      )}
+
       {/* ── CREATE NEW PLAN ───────────────────────────────────────────────── */}
       {myPlans.length > 0 && phase === 'selecting' && (
         <div className="border-t border-gray-200 pt-6">
@@ -955,19 +1211,20 @@ export default function StudyPlanPage() {
           </h2>
           <p className="text-sm text-gray-500 mb-4">
             {uiLanguage === 'zh'
-              ? '选择科目和框架，与 AI 对话制定专属学习计划。'
-              : 'Choose a subject and framework, then chat with AI to build your personalized plan.'}
+              ? '选择科目和框架，让 Mina 制定专属学习计划。'
+              : 'Choose a subject and framework, then let Mina build your personalized plan.'}
           </p>
         </div>
       )}
 
       {/* Phase indicator (unified for every framework, including Gaokao) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         {[
           { key: 'selecting', label: uiLanguage === 'zh' ? '1. 选择科目' : '1. Select' },
-          { key: 'chatting', label: uiLanguage === 'zh' ? '2. 对话诊断' : '2. Chat' },
-          { key: 'plan_review', label: uiLanguage === 'zh' ? '3. 确认计划' : '3. Review' },
-          { key: 'creating', label: uiLanguage === 'zh' ? '4. 生成计划' : '4. Create' },
+          { key: 'intake', label: uiLanguage === 'zh' ? '2. 学习画像' : '2. Profile' },
+          { key: 'chatting', label: uiLanguage === 'zh' ? '3. Mina 确认' : '3. Mina' },
+          { key: 'plan_review', label: uiLanguage === 'zh' ? '4. 确认计划' : '4. Review' },
+          { key: 'creating', label: uiLanguage === 'zh' ? '5. 保存' : '5. Save' },
         ].map((step) => (
           <div
             key={step.key}
@@ -1019,7 +1276,7 @@ export default function StudyPlanPage() {
                 return (
                   <button
                     key={framework.id}
-                    onClick={() => setSelectedFramework(framework.id)}
+                    onClick={() => handleFrameworkSelect(framework.id)}
                     className={`flex items-start gap-3 rounded-xl border-2 p-4 text-left transition-all hover:shadow-sm ${
                       isActive
                         ? `${framework.borderClass} ${framework.bgClass} shadow-sm`
@@ -1157,17 +1414,13 @@ export default function StudyPlanPage() {
                     <div className="flex flex-wrap gap-2">
                       {courses.map((course, ci) => {
                         const display = uiLanguage === 'zh' && course.nameZh ? course.nameZh : course.name
-                        const seed =
-                          uiLanguage === 'zh'
-                            ? `我想学 ${course.nameZh ?? course.name}`
-                            : `I want to study ${course.name}`
                         return (
                           <button
                             key={ci}
                             type="button"
                             onClick={() => {
-                              handleFrameworkSelect(selectedFramework)
-                              setTimeout(() => setUserInput(seed), 60)
+                              setSelectedCourse(course.name)
+                              handleContinueToIntake(course.name)
                             }}
                             className={`rounded-full border ${fw?.borderClass ?? 'border-gray-300'} bg-white hover:bg-gray-50 px-3 py-1.5 text-xs font-medium ${fw?.textClass ?? 'text-gray-800'}`}
                           >
@@ -1186,7 +1439,7 @@ export default function StudyPlanPage() {
                 )}
                 <button
                   type="button"
-                  onClick={() => handleFrameworkSelect(selectedFramework)}
+                  onClick={() => handleContinueToIntake()}
                   className={`w-full rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2.5 transition-colors`}
                 >
                   {uiLanguage === 'zh'
@@ -1199,18 +1452,224 @@ export default function StudyPlanPage() {
         </div>
       )}
 
+      {/* ── INTAKE PHASE ──────────────────────────────────────────────────── */}
+      {phase === 'intake' && (
+        <div className="space-y-5 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">
+                {uiLanguage === 'zh' ? '先建立学习画像' : 'Build your learner profile'}
+              </h2>
+              <p className="mt-1 text-sm text-gray-500">
+                {uiLanguage === 'zh'
+                  ? 'Mina 会用这些答案决定讲概念、串讲复习和刷题训练的比例。'
+                  : 'Mina uses this to balance concepts, review, and practice.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPhase('selecting')}
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              {uiLanguage === 'zh' ? '← 返回' : '← Back'}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label className="space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                {uiLanguage === 'zh' ? '当前基础' : 'Current foundation'}
+              </span>
+              <select
+                value={intake.foundation}
+                onChange={(e) => setIntake((prev) => ({ ...prev, foundation: e.target.value }))}
+                className="h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+              >
+                <option value="">{uiLanguage === 'zh' ? '请选择' : 'Choose one'}</option>
+                {(uiLanguage === 'zh'
+                  ? ['零基础', '需要先有成就感', '有一点基础', '中等基础', '学校学过，主要复习', '冲高分']
+                  : ['New to this', 'Need quick wins', 'Some foundation', 'Intermediate', 'Reviewing after school', 'Aiming high']
+                ).map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </label>
+
+            <label className="space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                {uiLanguage === 'zh' ? '考试/目标时间' : 'Exam or target date'}
+              </span>
+              <input
+                value={intake.examTimeline}
+                onChange={(e) => setIntake((prev) => ({ ...prev, examTimeline: e.target.value }))}
+                placeholder={uiLanguage === 'zh' ? '例如：2026年5月，或3个月后' : 'e.g. May 2026, or in 3 months'}
+                className="h-11 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </label>
+
+            <label className="space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                {uiLanguage === 'zh' ? '目标分数' : 'Target score'}
+              </span>
+              <input
+                value={intake.targetScore}
+                onChange={(e) => setIntake((prev) => ({ ...prev, targetScore: e.target.value }))}
+                placeholder={uiLanguage === 'zh' ? '例如：AP 5分 / IB 7分 / 高考130+' : 'e.g. AP 5 / IB 7 / A* / 90%+'}
+                className="h-11 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </label>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  {uiLanguage === 'zh' ? '每周小时' : 'Hours/week'}
+                </span>
+                <input
+                  type="number"
+                  min="1"
+                  max="40"
+                  value={intake.weeklyHours}
+                  onChange={(e) => setIntake((prev) => ({ ...prev, weeklyHours: e.target.value }))}
+                  className="h-11 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  {uiLanguage === 'zh' ? '准备月数' : 'Months'}
+                </span>
+                <input
+                  type="number"
+                  min="1"
+                  max="24"
+                  value={intake.prepMonths}
+                  onChange={(e) => setIntake((prev) => ({ ...prev, prepMonths: e.target.value }))}
+                  className="h-11 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-4">
+            <div className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                {uiLanguage === 'zh' ? '每周学习日' : 'Study days'}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {STUDY_DAYS.map((day) => {
+                  const active = intake.studyDays.includes(day.value)
+                  return (
+                    <button
+                      key={day.value}
+                      type="button"
+                      onClick={() => toggleStudyDay(day.value)}
+                      className={`h-9 rounded-lg border px-3 text-sm font-medium ${
+                        active
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      {uiLanguage === 'zh' ? `周${day.zh}` : day.en}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <label className="space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                {uiLanguage === 'zh' ? '每次小时' : 'Hours/session'}
+              </span>
+              <input
+                type="number"
+                min="0.5"
+                step="0.5"
+                max="8"
+                value={intake.hoursPerSession}
+                onChange={(e) => setIntake((prev) => ({ ...prev, hoursPerSession: e.target.value }))}
+                className="h-11 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </label>
+          </div>
+
+          <label className="block space-y-1.5">
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              {uiLanguage === 'zh' ? '薄弱点 / 学校进度 / 其他要求' : 'Weak areas / school progress / notes'}
+            </span>
+            <textarea
+              value={intake.weakAreas}
+              onChange={(e) => setIntake((prev) => ({ ...prev, weakAreas: e.target.value }))}
+              rows={3}
+              placeholder={uiLanguage === 'zh' ? '例如：概念听过但题做不出来；学校刚学完微分；想多练大题。' : 'e.g. I know the ideas but struggle with problems; school just finished differentiation.'}
+              className="w-full resize-none rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+            />
+          </label>
+
+          <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Sparkles size={16} className="text-blue-600" />
+                <h3 className="text-sm font-semibold text-gray-900">
+                  {uiLanguage === 'zh' ? '可选：5题基线自测' : 'Optional: 5-question baseline check'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIntake((prev) => ({ ...prev, baselineConfidence: {} }))}
+                className="text-xs font-medium text-gray-500 hover:text-gray-700"
+              >
+                {uiLanguage === 'zh' ? '先跳过' : 'Skip for now'}
+              </button>
+            </div>
+            <p className="text-xs leading-relaxed text-gray-500">
+              {uiLanguage === 'zh'
+                ? '不想做自测也可以直接生成。Mina 会从你的基础和备注判断节奏。'
+                : 'You can skip this. Mina can infer pacing from your foundation and notes.'}
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {baselinePrompts(selectedSubject, selectedCourse, uiLanguage === 'zh' ? 'zh' : 'en').map((prompt) => (
+                <label key={prompt} className="rounded-lg border border-gray-200 bg-white p-3">
+                  <span className="block text-sm text-gray-800">{prompt}</span>
+                  <select
+                    value={intake.baselineConfidence[prompt] || ''}
+                    onChange={(e) => setIntake((prev) => ({
+                      ...prev,
+                      baselineConfidence: { ...prev.baselineConfidence, [prompt]: e.target.value },
+                    }))}
+                    className="mt-2 h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-xs outline-none"
+                  >
+                    <option value="">{uiLanguage === 'zh' ? '未选择' : 'Not answered'}</option>
+                    {(uiLanguage === 'zh'
+                      ? ['没把握', '有点把握', '比较稳', '很熟练']
+                      : ['Not confident', 'Somewhat', 'Mostly steady', 'Very confident']
+                    ).map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={startChatFromIntake}
+            disabled={!intake.foundation || !intake.examTimeline || !intake.weeklyHours}
+            className="w-full rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {uiLanguage === 'zh' ? '让 Mina 生成计划' : 'Let Mina build the plan'}
+          </button>
+        </div>
+      )}
+
       {/* ── CHATTING PHASE ──────────────────────────────────────────────────── */}
       {phase === 'chatting' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">
-              {uiLanguage === 'zh' ? '和 AI 聊聊你的情况' : 'Tell the AI about your situation'}
+              {uiLanguage === 'zh' ? '和 Mina 确认计划' : 'Confirm the plan with Mina'}
             </h2>
             <button
               onClick={() => {
                 setPhase('selecting')
                 setSelectedSubject(null)
                 setSelectedFramework(null)
+                setSelectedCourse(null)
+                setIntake(defaultIntake())
                 setChatMessages([])
                 setChatStage('opening')
                 setUserInput('')
@@ -1266,8 +1725,8 @@ export default function StudyPlanPage() {
                         ? '你'
                         : 'You'
                       : uiLanguage === 'zh'
-                      ? 'AI 导师'
-                      : 'AI Advisor'}
+                      ? 'Mina'
+                      : 'Mina'}
                   </div>
                   <AssistantMessage content={message.content} />
                   {message.role === 'assistant' && message.id === latestOptionMessageId && message.options && message.options.length > 0 && (
@@ -1299,7 +1758,7 @@ export default function StudyPlanPage() {
               <div className="flex justify-start">
                 <div className="bg-gray-100 text-gray-900 rounded-lg p-4 max-w-[80%]">
                   <div className="text-sm font-medium mb-1">
-                    {uiLanguage === 'zh' ? 'AI 导师' : 'AI Advisor'}
+                    Mina
                   </div>
                   {streamingContent !== null ? (
                     <AssistantMessage content={streamingContent + ' ▍'} />
@@ -1339,14 +1798,22 @@ export default function StudyPlanPage() {
               type="file"
               accept="audio/*"
               className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) { handleAudioUpload(f); e.target.value = '' } }}
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) void handlePlanContextUpload(f, 'audio')
+                e.target.value = ''
+              }}
             />
             <input
               ref={imageInputRef}
               type="file"
               accept="image/*,.pdf"
               className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) { handleImageUpload(f); e.target.value = '' } }}
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) void handlePlanContextUpload(f, 'image')
+                e.target.value = ''
+              }}
             />
 
             {/* Uploaded context pills */}
@@ -1429,16 +1896,9 @@ export default function StudyPlanPage() {
                 <span className="text-xs font-semibold uppercase tracking-wide text-blue-600">
                   {uiLanguage === 'zh' ? '拟定学习计划' : 'Proposed Study Plan'}
                 </span>
-                {autoSaveStatus === 'saving' && (
-                  <span className="text-xs text-gray-400 animate-pulse">
-                    {uiLanguage === 'zh' ? '自动保存中...' : 'Auto-saving...'}
-                  </span>
-                )}
-                {autoSaveStatus === 'saved' && (
-                  <span className="text-xs text-green-600">
-                    {uiLanguage === 'zh' ? '✓ 已自动保存' : '✓ Auto-saved'}
-                  </span>
-                )}
+                <span className="text-xs text-gray-400">
+                  {uiLanguage === 'zh' ? '确认后保存' : 'Saved after confirmation'}
+                </span>
               </div>
               <h2 className="text-xl font-bold text-gray-900">{proposedPlan.title}</h2>
               <div className="flex flex-wrap gap-3 mt-2 text-sm text-gray-600">
@@ -1458,8 +1918,69 @@ export default function StudyPlanPage() {
                   {uiLanguage === 'zh' ? '预计总时长：' : 'Estimated hours: '}
                   {proposedPlan.estimated_hours}h
                 </span>
+                {proposedPlan.learner_tier && (
+                  <span>
+                    {uiLanguage === 'zh' ? '学习节奏：' : 'Learner path: '}
+                    {proposedPlan.learner_tier.replace(/_/g, ' ')}
+                  </span>
+                )}
               </div>
             </div>
+
+            {(proposedPlan.pedagogy_profile || proposedPlan.weekly_schedule?.length || proposedPlan.engagement_hooks?.length) && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                {proposedPlan.pedagogy_profile && (
+                  <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                    <h3 className="text-sm font-semibold text-blue-950">
+                      {uiLanguage === 'zh' ? '学习方式' : 'Learning mode'}
+                    </h3>
+                    <div className="mt-2 space-y-1 text-sm text-blue-900">
+                      {proposedPlan.pedagogy_profile.support_pattern && <p>{proposedPlan.pedagogy_profile.support_pattern}</p>}
+                      {proposedPlan.pedagogy_profile.concept_example_practice_test_ratio && (
+                        <p className="text-xs text-blue-700">
+                          {uiLanguage === 'zh' ? '概念/例题/练习/测试：' : 'Concept/example/practice/test: '}
+                          {proposedPlan.pedagogy_profile.concept_example_practice_test_ratio}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {proposedPlan.weekly_schedule?.length ? (
+                  <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+                    <h3 className="text-sm font-semibold text-emerald-950">
+                      {uiLanguage === 'zh' ? '每周节奏' : 'Weekly rhythm'}
+                    </h3>
+                    <div className="mt-2 space-y-1">
+                      {proposedPlan.weekly_schedule.map((slot) => (
+                        <p key={`${slot.day}-${slot.focus}`} className="text-sm text-emerald-900">
+                          <span className="font-semibold">{slot.day}:</span> {slot.focus}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {proposedPlan.engagement_hooks?.length ? (
+                  <div className="rounded-lg border border-violet-100 bg-violet-50 p-4">
+                    <h3 className="text-sm font-semibold text-violet-950">
+                      {uiLanguage === 'zh' ? '保持动力' : 'Engagement'}
+                    </h3>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {proposedPlan.engagement_hooks.map((hook) => (
+                        <span key={hook} className="rounded-full bg-white/80 px-2 py-1 text-xs font-medium text-violet-800">
+                          {hook}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {(proposedPlan.motivation_safeguards?.length || proposedPlan.scaffolding_rule || proposedPlan.challenge_rule) && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                {proposedPlan.challenge_rule || proposedPlan.scaffolding_rule || proposedPlan.motivation_safeguards?.join(' · ')}
+              </div>
+            )}
 
             {/* Units list */}
             <div className="space-y-3">
@@ -1476,6 +1997,9 @@ export default function StudyPlanPage() {
                       <div className="font-medium text-gray-900">
                         {idx + 1}. {unit.title}
                       </div>
+                      {unit.description && (
+                        <p className="mt-1 text-sm text-gray-500">{unit.description}</p>
+                      )}
                       {unit.topics.length > 0 && (
                         <ul className="mt-1.5 space-y-0.5">
                           {unit.topics.map((topic, ti) => (
@@ -1487,9 +2011,11 @@ export default function StudyPlanPage() {
                         </ul>
                       )}
                     </div>
-                    <span className="text-xs text-gray-500 whitespace-nowrap shrink-0">
-                      {unit.estimated_hours}h
-                    </span>
+                    {typeof unit.estimated_hours === 'number' && unit.estimated_hours > 0 && (
+                      <span className="text-xs text-gray-500 whitespace-nowrap shrink-0">
+                        {unit.estimated_hours}h
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

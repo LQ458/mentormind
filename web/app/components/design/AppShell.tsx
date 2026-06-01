@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useCallback } from 'react'
+import { usePathname } from 'next/navigation'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
 import ErrorBoundary from '../ErrorBoundary'
@@ -13,12 +14,15 @@ import PWAClient from '../PWAClient'
 export const OPEN_SURVEY_EVENT = 'mm:open-survey'
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname() || '/'
   const [mobileOpen, setMobileOpen] = useState(false)
   const [surveyOpen, setSurveyOpen] = useState(false)
   const openMenu = useCallback(() => setMobileOpen(true), [])
   const closeMenu = useCallback(() => setMobileOpen(false), [])
+  const isPublicHome = pathname === '/'
 
   React.useEffect(() => {
+    if (isPublicHome) return
     if (!mobileOpen) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') closeMenu()
@@ -30,10 +34,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [mobileOpen, closeMenu])
+  }, [mobileOpen, closeMenu, isPublicHome])
 
   // Listen for the global open-survey event (fired by Topbar feedback button)
   React.useEffect(() => {
+    if (isPublicHome) return
     const handler = () => {
       if (localStorage.getItem(SURVEY_KEY) !== '1') {
         setSurveyOpen(true)
@@ -44,7 +49,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
     window.addEventListener(OPEN_SURVEY_EVENT, handler)
     return () => window.removeEventListener(OPEN_SURVEY_EVENT, handler)
-  }, [])
+  }, [isPublicHome])
+
+  if (isPublicHome) {
+    return (
+      <div className="min-h-screen bg-[var(--bg)]">
+        <ErrorBoundary>{children}</ErrorBoundary>
+        <PWAClient />
+      </div>
+    )
+  }
 
   return (
     <div className="app">

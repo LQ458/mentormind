@@ -514,6 +514,14 @@ body {
   z-index: 300;
   box-shadow: var(--shadow-lg);
 }
+
+@media (max-width: 640px) {
+  .tweaks-float,
+  .tweaks,
+  .tweaks-reveal {
+    display: none;
+  }
+}
 .tweaks h3 {
   font-family: var(--display);
   font-size: 16px; font-weight: 500;
@@ -667,6 +675,7 @@ body {
     gap: 8px;
     padding: 0 12px;
     overflow: hidden;
+    position: static;
   }
   .topbar .page-title {
     flex: 1 1 auto;
