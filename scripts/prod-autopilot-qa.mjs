@@ -1477,11 +1477,30 @@ async function testBoardLessonAskWorkflow(browser) {
       await context.close()
     }
 
-    const state = await fetchJson(`${BASE_URL}/api/backend/board/${sessionId}/state`, {
-      method: 'GET',
-      headers: authHeaders(false),
-    })
+    let state = null
+    const finalStatePolls = []
+    const finalPollStarted = performance.now()
+    while (performance.now() - finalPollStarted < 30000) {
+      state = await fetchJson(`${BASE_URL}/api/backend/board/${sessionId}/state`, {
+        method: 'GET',
+        headers: authHeaders(false),
+      })
+      const liveSession = state.data?.session || state.data?.state || {}
+      const elementCount = Array.isArray(liveSession.element_order)
+        ? liveSession.element_order.length
+        : Object.keys(liveSession.elements || {}).length
+      const chatText = JSON.stringify(liveSession.chat_history || [])
+      finalStatePolls.push({
+        status: state.status,
+        session_status: liveSession.status || null,
+        element_count: elementCount,
+        chat_count: Array.isArray(liveSession.chat_history) ? liveSession.chat_history.length : 0,
+      })
+      if (elementCount > 0 && chatText.includes(question)) break
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+    }
     record.steps.state = state
+    record.steps.final_state_polls = finalStatePolls
     const sessionState = state.data?.session || state.data?.state || {}
     const stateText = JSON.stringify(sessionState || {}).slice(0, 4000)
     const elementCount = Array.isArray(sessionState.element_order)

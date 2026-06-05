@@ -6992,7 +6992,17 @@ async def board_websocket(websocket: WebSocket, session_id: str):
                         "timestamp": event.timestamp,
                     })
                 emitted_counter["n"] += 1
-                if emitted_counter["n"] % 5 == 0:
+                should_checkpoint = (
+                    event.event_type in {
+                        "board_created",
+                        "element_added",
+                        "element_updated",
+                        "board_cleared",
+                        "layout_changed",
+                    }
+                    or emitted_counter["n"] % 5 == 0
+                )
+                if should_checkpoint:
                     await _persist_board_session_safe(
                         session_id, session, status="generating",
                         last_event_seq=emitted_counter["n"],
@@ -7096,6 +7106,13 @@ async def board_websocket(websocket: WebSocket, session_id: str):
                             "timestamp": time.time(),
                         })
                         generator.enqueue_user_message(text)
+                        await _persist_board_session_safe(
+                            session_id,
+                            session,
+                            status=session.get("status") or "streaming",
+                            last_event_seq=emitted_counter["n"],
+                            conversation_state=generator._current_messages,
+                        )
             except asyncio.TimeoutError:
                 if send_task.done():
                     break
