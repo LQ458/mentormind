@@ -89,10 +89,68 @@ Final full run: `prod-autopilot-2026-06-05T13-16-03-214Z-xzun4e`
 
 | Case | Result |
 | --- | --- |
-| Short valid audio upload that should transcribe and answer |  |
-| PDF upload through `/ask` UI |  |
-| Seminar full room flow with real audio turn and AI facilitator response |  |
-| Board lesson full ask-AI workflow |  |
-| Load higher than 40 requests / concurrency 6 |  |
-| Browser visual manual review beyond automated screenshots/overflow checks |  |
+| Short valid audio upload that should transcribe and answer | Covered in the Online Fixture Deep Round below. |
+| PDF upload through `/ask` UI | Covered in the Online Fixture Deep Round below. |
+| Seminar full room flow with real audio turn and AI facilitator response | Covered in the Online Fixture Deep Round below. |
+| Board lesson full ask-AI workflow | Covered in the Online Fixture Deep Round below. |
+| Load higher than 40 requests / concurrency 6 | Covered in the Online Fixture Deep Round below. |
+| Browser visual manual review beyond automated screenshots/overflow checks | Covered in the Online Fixture Deep Round below, with latest visual-only rerun marked inconclusive. |
 
+## Online Fixture Deep Round
+
+Base URL: `https://mentormind.cloud`
+
+Production product commits deployed during this round:
+
+- `9610804` — explicit board empty-stream failure, board input gating, stricter board QA startup checks.
+- `7da3646` — preserve AI plain-text board follow-up replies as board text elements and de-dupe optimistic/server user-message echoes.
+
+### Online Fixtures
+
+| Type | Local fixture | Source | Status |
+| --- | --- | --- | --- |
+| PDF | `web/.browser-sessions/online-fixtures/2026-06-05-deep/w3c-dummy.pdf` | W3C dummy PDF | tested |
+| PDF | `web/.browser-sessions/online-fixtures/2026-06-05-deep/orimi-pdf-test.pdf` | orimi.com PDF test file | tested |
+| Text | `web/.browser-sessions/online-fixtures/2026-06-05-deep/gutenberg-pride-and-prejudice.txt` | Project Gutenberg text | tested |
+| Text | `web/.browser-sessions/online-fixtures/2026-06-05-deep/rfc9110-http-semantics.txt` | RFC Editor RFC 9110 text | tested |
+| Audio | `web/.browser-sessions/online-fixtures/2026-06-05-deep/deepspeech-ldc93s1.wav` | Mozilla DeepSpeech LDC93S1 WAV fixture | tested |
+| Audio | `web/.browser-sessions/online-fixtures/2026-06-05-deep/whisper-jfk.flac` | OpenAI Whisper JFK FLAC fixture | tested |
+
+### Split Run Log
+
+| Run ID | Scope | Executed | Success | Success rate | Findings | Blank | Notes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `prod-autopilot-2026-06-05T17-24-47-991Z-7sajiv` | Oversized combined run |  |  |  |  |  | Killed before `report.json`; screenshots exist through text upload only. Not counted. |
+| `prod-autopilot-2026-06-05T17-30-32-250Z-v05033` | Text/PDF uploads + 48x/6 pressure | 26 | 26 | 100% | 0 | 1 | Two text fixtures and two PDF fixtures passed. Audio category intentionally blank in this split. |
+| `prod-autopilot-2026-06-05T17-36-03-771Z-hw59wl` | Short audio uploads | 25 | 25 | 100% | 0 | 1 | Two short online audio fixtures passed transcription + answer. Image category intentionally blank in this split. |
+| `prod-autopilot-2026-06-05T17-41-17-142Z-0mcj5k` | Deep workflows before follow-up fix | 25 | 24 | 96% | 1 | 0 | Seminar and visual review passed; stricter board ask-AI failed because no assistant response was persisted after the question. |
+| `prod-autopilot-2026-06-05T17-52-49-523Z-5mopyj` | Deep workflows after follow-up fix | 17 | 17 | 100% | 1 | 0 | Seminar passed. Board passed with 7 elements, 8 chat entries, and `assistant_after_question = true`. The later visual step crashed with `net::ERR_CONNECTION_CLOSED`, so this run still has a harness finding. |
+| `prod-autopilot-2026-06-05T18-00-31-534Z-wszs8f` | Visual-only rerun attempt | 4 | 4 | 100% | 9 | 0 | Inconclusive: run was manually killed after repeated routing/network hangs before visual review completed. Not counted as a visual pass. |
+
+### Required Case Coverage
+
+| Case | Best evidence run | Result |
+| --- | --- | --- |
+| Short valid audio upload that should transcribe and answer | `prod-autopilot-2026-06-05T17-36-03-771Z-hw59wl` | Passed: 2/2 short audio fixtures. |
+| PDF upload through `/ask` UI | `prod-autopilot-2026-06-05T17-30-32-250Z-v05033` | Passed: 2/2 PDF fixtures. |
+| Seminar full room flow with real audio turn and AI facilitator response | `prod-autopilot-2026-06-05T17-52-49-523Z-5mopyj` | Passed. |
+| Board lesson full ask-AI workflow | `prod-autopilot-2026-06-05T17-52-49-523Z-5mopyj` | Passed after `7da3646`; stricter check requires assistant response after the user question. |
+| Load higher than 40 requests / concurrency 6 | `prod-autopilot-2026-06-05T17-30-32-250Z-v05033` | Passed: 48 requests, concurrency 6, 0 failures, p50 1081 ms, p95 2902 ms, p99/max 5501 ms. |
+| Browser visual manual review beyond automated screenshots/overflow checks | `prod-autopilot-2026-06-05T17-41-17-142Z-0mcj5k` | Passed in this run with screenshots. Latest visual-only rerun was inconclusive due routing/network hang and is not counted as a pass. |
+
+### Bugs Found and Fixed in Online Fixture Round
+
+| Bug | Evidence | Status | Fix |
+| --- | --- | --- | --- |
+| Board lesson could finish as `completed` with zero board elements, hiding model/tool failure. | Earlier production run `prod-autopilot-2026-06-05T17-04-14-555Z-5jdq3o` | fixed | Backend now emits/persists an explicit `error` if no `board_created` or `element_added` event is produced. |
+| Board chat allowed asking before the board existed, creating confusing early-message states. | Board startup screenshots and state polls | fixed | Board input is disabled until a board or element exists. |
+| Board ask-AI could accept/persist a question but lose a plain-text AI follow-up because only board tool calls were rendered. | `prod-autopilot-2026-06-05T17-41-17-142Z-0mcj5k` | fixed | AI plain-text replies are converted to board `text_block` elements once a board exists. |
+| Board chat could show duplicate student messages from optimistic local send + server echo. | `board-lesson-ask-ai.png` from `prod-autopilot-2026-06-05T17-41-17-142Z-0mcj5k` | fixed | Client reducer now suppresses near-time identical user-message echoes. |
+| Production QA visual review could crash the whole report on one navigation error. | `net::ERR_CONNECTION_CLOSED` during `prod-autopilot-2026-06-05T17-52-49-523Z-5mopyj` | fixed in harness | Visual review now records per-target errors as findings instead of aborting the full report. |
+
+### Still Open / Watch
+
+| Issue | Evidence | Status |
+| --- | --- | --- |
+| Visual-only rerun was inconclusive after repeated route load failures/hangs and manual kill. | `prod-autopilot-2026-06-05T18-00-31-534Z-wszs8f` | open watch item; curl checks immediately after showed `/ask` redirect and `/api/backend/status` healthy. |
+| FunASR is offline in production status, while Whisper is online. | `/api/backend/status` after the runs | acceptable for current tests because audio transcription passed through Whisper; relevant if low-latency seminar speech is required. |

@@ -25,6 +25,9 @@ const QA_AUDIO_FIXTURES = splitEnvList(process.env.QA_AUDIO_FIXTURES || QA_AUDIO
 const QA_PDF_FIXTURES = splitEnvList(process.env.QA_PDF_FIXTURES || QA_PDF_FIXTURE)
 const QA_TEXT_FIXTURES = splitEnvList(process.env.QA_TEXT_FIXTURES || QA_TEXT_FIXTURE)
 const RUN_DEEP_WORKFLOW_QA = process.env.RUN_DEEP_WORKFLOW_QA !== 'false'
+const RUN_SEMINAR_QA = process.env.RUN_SEMINAR_QA !== 'false'
+const RUN_BOARD_QA = process.env.RUN_BOARD_QA !== 'false'
+const RUN_VISUAL_QA = process.env.RUN_VISUAL_QA !== 'false'
 const QA_RUN_UPLOAD_UI = process.env.QA_RUN_UPLOAD_UI !== 'false'
 
 const findings = []
@@ -1624,14 +1627,24 @@ async function captureVisualManualReview(browser) {
       }))
       const shot = await screenshot(page, `manual-review-${target.viewport.name}-${target.route}`)
       screenshots.push({ route: target.route, viewport: target.viewport.name, screenshot: shot, metrics, observed })
+    } catch (error) {
+      screenshots.push({
+        route: target.route,
+        viewport: target.viewport.name,
+        error: String(error),
+        metrics: null,
+        observed,
+      })
     } finally {
       await context.close()
     }
   }
   const success = screenshots.every((item) => (
-    item.metrics.bodyTextLength >= 80
+    item.metrics
+    && item.metrics.bodyTextLength >= 80
     && item.metrics.scrollWidth <= item.metrics.clientWidth + 8
     && !item.observed.serverErrors.length
+    && !item.error
   ))
   events.push({
     type: 'visual_manual_review',
@@ -1940,9 +1953,15 @@ async function main() {
       await testStudyPlanPersonas(browser)
     }
     if (RUN_DEEP_WORKFLOW_QA) {
-      await testSeminarFullFlow(browser)
-      await testBoardLessonAskWorkflow(browser)
-      await captureVisualManualReview(browser)
+      if (RUN_SEMINAR_QA) {
+        await testSeminarFullFlow(browser)
+      }
+      if (RUN_BOARD_QA) {
+        await testBoardLessonAskWorkflow(browser)
+      }
+      if (RUN_VISUAL_QA) {
+        await captureVisualManualReview(browser)
+      }
     }
   } finally {
     await browser.close()
