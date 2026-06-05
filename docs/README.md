@@ -9,6 +9,7 @@ This folder contains both current product/deployment docs and historical researc
 - `deployment_plans.md`: VPS/Docker/nginx deployment notes, including WebSocket and long upload/audio requirements.
 - `vps_scaling_safety_growth_plan.md`: single-VPS safety, queue, rate-limit, and scaling notes.
 - `ai-testing-feedback-architecture.md`: feedback/error collection architecture and future agent triage workflow.
+- `qa/robustness-2026-06-05.md`: production robustness runs, success rates, fixtures, audio-upload bug evidence, and post-fix verification.
 - `product-requests-2026-06-02.md`: organized product requests from the June 2 feedback/images/audio notes, with implementation status and remaining follow-ups.
 - `USING_GUIDE_AND_GAPS.md`: product usage guide plus known gaps.
 - `功能说明.md`: Chinese feature overview.

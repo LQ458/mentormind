@@ -859,7 +859,7 @@ async function testQuickQuestionUploadForms(browser) {
           expected: 'User-uploaded context should either load into the quick-question form or show a controlled, specific error.',
           evidence: { case_id: item.id, fixture: item.fixture, latency, rawGatewayHtml, bodySnippet: body.slice(-1800), screenshot: shot, observed },
         })
-      } else if (!answerSucceeded) {
+      } else if (!answerSucceeded && !controlledRejection) {
         await addFinding({
           title: `/ask ${item.label} could not produce a follow-up answer`,
           severity: 'blocked',
@@ -868,7 +868,7 @@ async function testQuickQuestionUploadForms(browser) {
           expected: 'After upload context is loaded, Mina should answer and expose an interactive next step.',
           evidence: { case_id: item.id, fixture: item.fixture, latency, bodySnippet: body.slice(-1800), screenshot: shot, observed },
         })
-      } else if (!personaMatched) {
+      } else if (!personaMatched && !controlledRejection) {
         await addFinding({
           title: `/ask ${item.label} answer did not reflect uploaded context`,
           severity: 'quality',
