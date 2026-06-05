@@ -1510,7 +1510,7 @@ async function testBoardLessonAskWorkflow(browser) {
         before_text_length: beforeText.length,
         after_text_length: afterText.length,
         user_message_visible: afterText.includes(question),
-        ai_teacher_visible: boardStarted && /AI Teacher|AI 老师/.test(afterText),
+        ai_teacher_visible: boardStarted && /AI\s*TEACHER|AI Teacher|AI 老师/i.test(afterText),
         startup_state_polls: startupStatePolls,
         state_polls: statePolls,
         observed,
@@ -1549,8 +1549,12 @@ async function testBoardLessonAskWorkflow(browser) {
     const elementCount = Array.isArray(sessionState.element_order)
       ? sessionState.element_order.length
       : Object.keys(sessionState.elements || {}).length
-    const chatText = JSON.stringify(sessionState.chat_history || [])
+    const chatHistory = Array.isArray(sessionState.chat_history) ? sessionState.chat_history : []
+    const chatText = JSON.stringify(chatHistory)
     const hasPersistedQuestion = chatText.includes(question)
+    const questionIndex = chatHistory.findIndex((msg) => msg?.role === 'user' && msg?.text === question)
+    const assistantAfterQuestion = questionIndex >= 0 && chatHistory.slice(questionIndex + 1).some((msg) => msg?.role === 'assistant')
+    record.steps.assistant_after_question = assistantAfterQuestion
     const success = Boolean(
       record.steps.browser?.board_started
       && record.steps.browser?.question_sent
@@ -1560,6 +1564,7 @@ async function testBoardLessonAskWorkflow(browser) {
       && (!state.status || state.status < 500)
       && elementCount > 0
       && hasPersistedQuestion
+      && assistantAfterQuestion
       && /one-sided|limit|continuity|elements|chat|conversation|board/i.test(stateText)
     )
     record.status = success ? 'passed' : 'failed'

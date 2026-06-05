@@ -419,6 +419,11 @@ function coerceAgentText(v: unknown): string {
   try { return JSON.stringify(v) } catch { return String(v) }
 }
 
+function timestampToMs(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return Date.now()
+  return value < 10_000_000_000 ? value * 1000 : value
+}
+
 export function applyBoardEvent(state: BoardWSState, ev: BoardEvent): BoardWSState {
   return applyEvent(state, ev)
 }
@@ -636,11 +641,11 @@ function applyEvent(state: BoardWSState, ev: BoardEvent): BoardWSState {
     case 'summary_ready':
       return { ...state, summary: ev.data.summary }
     case 'user_message':
-      if (
-        state.chatHistory.length > 0 &&
-        state.chatHistory[state.chatHistory.length - 1]?.role === 'user' &&
-        state.chatHistory[state.chatHistory.length - 1]?.text === ev.data.text
-      ) {
+      if (state.chatHistory.some((msg) => (
+        msg.role === 'user' &&
+        msg.text === ev.data.text &&
+        Math.abs(timestampToMs(msg.timestamp) - timestampToMs(ev.timestamp)) < 30_000
+      ))) {
         return state
       }
       return {
