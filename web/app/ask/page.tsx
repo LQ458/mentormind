@@ -47,7 +47,13 @@ export default function AskPage() {
     removeContext,
     buildContextMessage,
     clearContexts,
-  } = useIngestUpload(lang, { getToken, onAuthInvalid: signOut, syncImageOcr: true })
+  } = useIngestUpload(lang, {
+    getToken,
+    onAuthInvalid: signOut,
+    syncImageOcr: true,
+    maxAudioBytes: 25 * 1024 * 1024,
+    maxAudioDurationSeconds: 12 * 60,
+  })
 
   const handleContextFile = async (file: File | undefined) => {
     if (!file) return

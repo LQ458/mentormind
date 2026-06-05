@@ -16,6 +16,10 @@ const PERSONA_LIMIT = Number(process.env.PERSONA_LIMIT || 4)
 const QA_INVITE_CODE = process.env.QA_INVITE_CODE || ''
 const QA_USERNAME = process.env.QA_USERNAME || `qa_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
 const QA_PASSWORD = process.env.QA_PASSWORD || `qa_${Math.random().toString(36).slice(2, 10)}`
+const QA_IMAGE_FIXTURE = process.env.QA_IMAGE_FIXTURE || ''
+const QA_AUDIO_FIXTURE = process.env.QA_AUDIO_FIXTURE || ''
+const QA_PDF_FIXTURE = process.env.QA_PDF_FIXTURE || ''
+const QA_RUN_UPLOAD_UI = process.env.QA_RUN_UPLOAD_UI !== 'false'
 
 const findings = []
 const events = []
@@ -341,6 +345,40 @@ async function clickFirstVisible(page, locators) {
     }
   }
   return false
+}
+
+async function fileExists(filePath) {
+  if (!filePath) return false
+  try {
+    const stat = await fs.stat(filePath)
+    return stat.isFile()
+  } catch {
+    return false
+  }
+}
+
+async function submitAskQuestion(page, prompt) {
+  const textBox = await findTextbox(page)
+  if (!textBox) return false
+  await textBox.fill(prompt)
+  return await clickFirstVisible(page, [
+    page.getByRole('button', { name: /^(问 Mina|Ask Mina)$/i }),
+    page.locator('button').filter({ hasText: /^(问 Mina|Ask Mina)$/i }),
+    page.locator('button[type="submit"]'),
+  ])
+}
+
+async function waitForAskAnswer(page) {
+  await page.waitForFunction(
+    () => {
+      const text = document.body.innerText
+      return /下一步|继续讨论|Next|Continue the Discussion|轮到你|Your Turn|写下你的答案|Write Your Attempt/i.test(text)
+        || /上传失败|Upload failed|Failed to answer|网络错误|Network error/i.test(text)
+    },
+    { timeout: AI_TIMEOUT_MS },
+  ).catch(() => null)
+  await page.waitForTimeout(900)
+  return await page.locator('body').innerText()
 }
 
 async function setStudyDays(page, desiredDays) {
@@ -685,6 +723,176 @@ async function testQuickQuestion(browser) {
   }
 }
 
+async function testQuickQuestionUploadForms(browser) {
+  const textFixture = path.join(OUT_DIR, 'quick-question-text-fixture.txt')
+  await fs.writeFile(
+    textFixture,
+    [
+      'H.W. Brands frames American business history as a recurring tension.',
+      'Political democracy promises equality, while capitalism often rewards inequality, risk, and entrepreneurial advantage.',
+      'A strong discussion answer should connect enterprise, government, technology, and democratic ideals.',
+    ].join('\n'),
+  )
+
+  const uploadCases = [
+    {
+      id: 'text_context',
+      label: 'Text context upload',
+      fileType: 'text',
+      fixture: textFixture,
+      inputSelector: 'input[type="file"][accept=".txt,.md,.csv,.json,text/*"]',
+      prompt: '根据上传的文字材料，先给我一个讨论式主旨，再问我一个追问问题。',
+      expectedPatterns: [/讨论|主旨|张力|追问|Your Turn|轮到你|democracy|capitalism/i],
+    },
+    {
+      id: 'image_context',
+      label: 'Image/PDF context upload',
+      fileType: 'image',
+      fixture: QA_IMAGE_FIXTURE || QA_PDF_FIXTURE,
+      inputSelector: 'input[type="file"][accept="image/*,.pdf"]',
+      prompt: '请根据我上传的题目图片，解释这道题的关键思路，并给我一个可以回答的小检查问题。',
+      expectedPatterns: [/关键|思路|检查|积分|坐标|theta|半径|question|check/i],
+    },
+    {
+      id: 'audio_context',
+      label: 'Audio context upload',
+      fileType: 'audio',
+      fixture: QA_AUDIO_FIXTURE,
+      inputSelector: 'input[type="file"][accept="audio/*"]',
+      prompt: '根据上传音频，总结这段内容的核心观点，然后用讨论方式问我一个问题。',
+      expectedPatterns: [/核心|观点|讨论|追问|Your Turn|轮到你|enterprise|business|market/i],
+    },
+  ]
+
+  for (const item of uploadCases) {
+    const fixtureAvailable = await fileExists(item.fixture)
+    if (!fixtureAvailable) {
+      events.push({
+        type: 'quick_question_upload',
+        case_id: item.id,
+        label: item.label,
+        file_type: item.fileType,
+        fixture_path: item.fixture || null,
+        status: 'not_run',
+        reason: 'fixture_not_provided_or_missing',
+      })
+      continue
+    }
+
+    const { context, page, observed } = await createObservedPage(browser, { name: `upload-${item.id}`, size: { width: 1365, height: 900 } })
+    const started = performance.now()
+    let shot = null
+    try {
+      await page.goto(`${BASE_URL}/ask`, { waitUntil: 'networkidle', timeout: 45000 })
+      const fileName = path.basename(item.fixture)
+      await page.locator(item.inputSelector).setInputFiles(item.fixture)
+      await page.waitForFunction(
+        ({ fileName: expectedFileName }) => {
+          const text = document.body.innerText
+          return text.includes(expectedFileName)
+            || /上传失败|Upload failed|无法读取|unsupported|timeout|超时|Request Entity Too Large|413/i.test(text)
+        },
+        { fileName },
+        { timeout: AI_TIMEOUT_MS },
+      ).catch(() => null)
+      await page.waitForTimeout(800)
+      const afterUpload = await page.locator('body').innerText()
+      const uploadSucceeded = afterUpload.includes(fileName) && !/上传失败|Upload failed|无法读取|unsupported|timeout|超时|Request Entity Too Large|413/i.test(afterUpload)
+      const controlledRejection = !uploadSucceeded
+        && item.fileType === 'audio'
+        && /上传失败|Upload failed/i.test(afterUpload)
+        && /音频太长|too long|quick questions|快速提问|裁剪|trim|too large|文件太大/i.test(afterUpload)
+      let answerSucceeded = false
+      let personaMatched = false
+      let body = afterUpload
+      if (uploadSucceeded) {
+        const submitted = await submitAskQuestion(page, item.prompt)
+        if (submitted) {
+          body = await waitForAskAnswer(page)
+          answerSucceeded = /下一步|继续讨论|Next|Continue the Discussion|轮到你|Your Turn|写下你的答案|Write Your Attempt/i.test(body)
+          personaMatched = hasAny(body, item.expectedPatterns)
+        }
+      }
+      const latency = Math.round(performance.now() - started)
+      shot = await screenshot(page, `ask-upload-${item.id}`)
+      const rawGatewayHtml = /<html[\s\S]*nginx|Request Entity Too Large|Gateway Timeout/i.test(body)
+      events.push({
+        type: 'quick_question_upload',
+        case_id: item.id,
+        label: item.label,
+        file_type: item.fileType,
+        fixture_path: item.fixture,
+        status: uploadSucceeded && answerSucceeded ? 'passed' : controlledRejection ? 'controlled_rejection' : 'failed',
+        upload_succeeded: uploadSucceeded,
+        answer_succeeded: answerSucceeded,
+        controlled_rejection: controlledRejection,
+        expected_content_matched: personaMatched,
+        raw_gateway_html: rawGatewayHtml,
+        latency,
+        observed,
+        screenshot: shot,
+        bodySnippet: body.slice(-3000),
+      })
+      await postTelemetry('interaction', '/ask', {
+        schema: 'mentormind.prod_autopilot_quick_upload.v1',
+        case_id: item.id,
+        file_type: item.fileType,
+        fixture_name: path.basename(item.fixture),
+        upload_succeeded: uploadSucceeded,
+        answer_succeeded: answerSucceeded,
+        controlled_rejection: controlledRejection,
+        expected_content_matched: personaMatched,
+        raw_gateway_html: rawGatewayHtml,
+        latency,
+        observed_counts: {
+          consoleErrors: observed.consoleErrors.length,
+          failedRequests: observed.failedRequests.length,
+          serverErrors: observed.serverErrors.length,
+        },
+      }, latency)
+      if (!uploadSucceeded && !controlledRejection) {
+        await addFinding({
+          title: `/ask ${item.label} did not load usable context`,
+          severity: rawGatewayHtml ? 'blocked' : 'wrong',
+          surface: 'ask-upload',
+          page: '/ask',
+          expected: 'User-uploaded context should either load into the quick-question form or show a controlled, specific error.',
+          evidence: { case_id: item.id, fixture: item.fixture, latency, rawGatewayHtml, bodySnippet: body.slice(-1800), screenshot: shot, observed },
+        })
+      } else if (!answerSucceeded) {
+        await addFinding({
+          title: `/ask ${item.label} could not produce a follow-up answer`,
+          severity: 'blocked',
+          surface: 'ask-upload',
+          page: '/ask',
+          expected: 'After upload context is loaded, Mina should answer and expose an interactive next step.',
+          evidence: { case_id: item.id, fixture: item.fixture, latency, bodySnippet: body.slice(-1800), screenshot: shot, observed },
+        })
+      } else if (!personaMatched) {
+        await addFinding({
+          title: `/ask ${item.label} answer did not reflect uploaded context`,
+          severity: 'quality',
+          surface: 'ask-upload',
+          page: '/ask',
+          expected: 'The answer should visibly use the uploaded context instead of giving a generic response.',
+          evidence: { case_id: item.id, fixture: item.fixture, expectedPatterns: item.expectedPatterns.map(String), bodySnippet: body.slice(-1800), screenshot: shot },
+        })
+      }
+    } catch (error) {
+      await addFinding({
+        title: `/ask ${item.label} workflow crashed`,
+        severity: 'blocked',
+        surface: 'ask-upload',
+        page: '/ask',
+        expected: 'Upload-context quick question should complete through the real browser flow.',
+        evidence: { case_id: item.id, fixture: item.fixture, error: String(error), observed, screenshot: shot || await screenshot(page, `ask-upload-${item.id}-crash`) },
+      })
+    } finally {
+      await context.close()
+    }
+  }
+}
+
 async function testStudyPlanRouting(browser) {
   const { context, page, observed } = await createObservedPage(browser, { name: 'desktop', size: { width: 1365, height: 900 } })
   try {
@@ -956,10 +1164,12 @@ async function pressureTest() {
 
 async function writeReport() {
   await fs.mkdir(OUT_DIR, { recursive: true })
+  const summary = buildRunSummary(events, findings)
   const json = {
     run_id: RUN_ID,
     base_url: BASE_URL,
     created_at: nowIso(),
+    summary,
     findings,
     events,
   }
@@ -970,6 +1180,17 @@ async function writeReport() {
     `- Run: \`${RUN_ID}\``,
     `- Base URL: ${BASE_URL}`,
     `- Findings: ${findings.length}`,
+    ``,
+    `## Success Summary`,
+    ``,
+    `- Overall executed checks: ${summary.executed_checks}`,
+    `- Overall successes: ${summary.successful_checks}`,
+    `- Overall success rate: ${summary.success_rate_percent === null ? '' : `${summary.success_rate_percent}%`}`,
+    `- Blank / not-run checks: ${summary.blank_checks}`,
+    ``,
+    `| Area | Executed | Success | Success rate | Blank / not run |`,
+    `| --- | ---: | ---: | ---: | ---: |`,
+    ...summary.areas.map((area) => `| ${area.area} | ${area.executed} | ${area.successes} | ${area.success_rate_percent === null ? '' : `${area.success_rate_percent}%`} | ${area.blank} |`),
     ``,
     `## Findings`,
     ``,
@@ -1003,8 +1224,85 @@ async function writeReport() {
       lines.push(`- ${event.persona}: plan=${event.reachedPlanReview ? 'yes' : 'no'}, persona_match=${event.personaMatched ? 'yes' : 'no'}, schedule=${event.scheduleMentioned ? 'yes' : 'no'}, latency=${event.latency}ms`)
     }
   }
+  const uploadEvents = events.filter((event) => event.type === 'quick_question_upload')
+  if (uploadEvents.length) {
+    lines.push(``)
+    lines.push(`## Quick Upload Summary`)
+    for (const event of uploadEvents) {
+      lines.push(`- ${event.case_id}: ${event.status || ''}${event.status === 'not_run' ? ` (${event.reason || ''})` : `, upload=${event.upload_succeeded ? 'yes' : 'no'}, answer=${event.answer_succeeded ? 'yes' : 'no'}, controlled_rejection=${event.controlled_rejection ? 'yes' : 'no'}, latency=${event.latency || ''}ms`}`)
+    }
+  }
   await fs.writeFile(path.join(OUT_DIR, 'report.md'), `${lines.join('\n')}\n`)
   return json
+}
+
+function rate(successes, executed) {
+  if (!executed) return null
+  return Math.round((successes / executed) * 10000) / 100
+}
+
+function buildRunSummary(allEvents, allFindings) {
+  const findingKeys = new Set(allFindings.map((finding) => `${finding.surface}:${finding.page}:${finding.title}`))
+  const areas = []
+  function add(area, checks) {
+    const executedChecks = checks.filter((check) => check.status !== 'not_run')
+    const successes = executedChecks.filter((check) => check.success).length
+    areas.push({
+      area,
+      executed: executedChecks.length,
+      successes,
+      success_rate_percent: rate(successes, executedChecks.length),
+      blank: checks.length - executedChecks.length,
+    })
+  }
+
+  add('page_viewports', allEvents.filter((event) => event.type === 'page_check').map((event) => ({
+    success: Boolean(
+      event.status
+      && event.status < 500
+      && (event.route === '/' || event.metrics?.bodyTextLength >= 80)
+      && event.metrics?.scrollWidth <= event.metrics?.clientWidth + 8
+      && !event.observed?.serverErrors?.length,
+    ),
+  })))
+  add('quick_question_discussion_text', allEvents.filter((event) => event.type === 'quick_question_discussion').map((event) => ({
+    success: /轮到你|Your Turn|反方|Counterpoint|追问|Probe|整理成短答|Draft/i.test(event.bodySnippet || '')
+      && !/学习计划没有生成完成|deterministic|fallback/i.test(event.bodySnippet || ''),
+  })))
+  add('quick_question_upload_forms', allEvents.filter((event) => event.type === 'quick_question_upload').map((event) => ({
+    status: event.status,
+    success: event.status === 'passed' || event.status === 'controlled_rejection',
+  })))
+  add('study_plan_personas', allEvents.filter((event) => event.type === 'persona_study_plan').map((event) => ({
+    success: Boolean(event.reachedPlanReview && event.personaMatched && event.scheduleMentioned && !event.usedFallback),
+  })))
+  add('study_plan_routing', allEvents.filter((event) => event.type === 'study_plan_routing').map((event) => ({
+    success: Boolean(event.clicked && !/\/create(?:$|[/?#])/.test(event.url || '')),
+  })))
+  add('websocket', allEvents.filter((event) => event.type === 'websocket_smoke').map((event) => ({
+    success: Boolean(event.result?.opened),
+  })))
+  add('weird_api', allEvents.filter((event) => event.type === 'weird_api').map((event) => ({
+    success: Boolean(event.status && event.status < 500),
+  })))
+  add('upload_edge_api', allEvents.filter((event) => event.type === 'upload_edge').map((event) => ({
+    success: Boolean(event.status && event.status < 500 && !event.rawGatewayHtml && [400, 401, 403, 422].includes(event.status)),
+  })))
+  add('pressure', allEvents.filter((event) => event.type === 'pressure_test').map((event) => ({
+    success: Boolean(event.summary && event.summary.failures === 0 && (event.summary.p95_ms === null || event.summary.p95_ms <= 5000)),
+  })))
+
+  const executed = areas.reduce((sum, area) => sum + area.executed, 0)
+  const successes = areas.reduce((sum, area) => sum + area.successes, 0)
+  return {
+    executed_checks: executed,
+    successful_checks: successes,
+    success_rate_percent: rate(successes, executed),
+    blank_checks: areas.reduce((sum, area) => sum + area.blank, 0),
+    findings_count: allFindings.length,
+    finding_keys_count: findingKeys.size,
+    areas,
+  }
 }
 
 async function main() {
@@ -1036,6 +1334,9 @@ async function main() {
     await testWebSocket(browser)
     await testStudyPlanRouting(browser)
     await testQuickQuestion(browser)
+    if (QA_RUN_UPLOAD_UI) {
+      await testQuickQuestionUploadForms(browser)
+    }
     if (RUN_PERSONA_QA) {
       await testStudyPlanPersonas(browser)
     }
@@ -1051,6 +1352,7 @@ async function main() {
     run_id: RUN_ID,
     base_url: BASE_URL,
     out_dir: OUT_DIR,
+    summary: report.summary,
     findings: report.findings.map((f) => ({ id: f.id, severity: f.severity, surface: f.surface, title: f.title })),
     pressure: events.find((event) => event.type === 'pressure_test')?.summary || null,
   }, null, 2))

@@ -14,6 +14,8 @@ export interface MediaContext {
 interface IngestUploadOptions {
   getToken?: () => Promise<string | null>
   syncImageOcr?: boolean
+  maxAudioBytes?: number
+  maxAudioDurationSeconds?: number
   onAuthInvalid?: () => void | Promise<void>
 }
 
@@ -24,6 +26,7 @@ type UploadErrorType =
   | 'empty_file'
   | 'no_text'
   | 'timeout'
+  | 'audio_too_long'
   | 'ocr_unavailable'
   | 'transcription_unavailable'
   | 'network'
@@ -123,6 +126,10 @@ function localizedUploadFailure(lang: 'zh' | 'en', failure: UploadFailure | null
       zh: '上传失败：识别超时。请裁剪成更小的文件后重试。',
       en: 'Upload failed: recognition timed out. Crop or shrink the file and try again.',
     },
+    audio_too_long: {
+      zh: '上传失败：这段音频太长，不适合快速提问。请截取 10 分钟左右的片段，或把重点文字粘贴进上下文。',
+      en: 'Upload failed: this audio is too long for quick questions. Trim it to about 10 minutes or paste the key transcript into context.',
+    },
     ocr_unavailable: {
       zh: '上传失败：图片/PDF 识别服务不可用。',
       en: 'Upload failed: image/PDF OCR is unavailable.',
@@ -174,7 +181,37 @@ function humanReadableFailureDetail(lang: 'zh' | 'en', failure: UploadFailure): 
       ? '上传大小超过服务器限制。'
       : 'The upload exceeds the server size limit.'
   }
+  if (failure.type === 'audio_too_long') {
+    return detail
+  }
   return detail
+}
+
+async function readAudioDurationSeconds(file: File): Promise<number | null> {
+  if (typeof document === 'undefined' || typeof URL === 'undefined') return null
+  return await new Promise((resolve) => {
+    const audio = document.createElement('audio')
+    const objectUrl = URL.createObjectURL(file)
+    let settled = false
+    const finish = (value: number | null) => {
+      if (settled) return
+      settled = true
+      URL.revokeObjectURL(objectUrl)
+      resolve(value)
+    }
+    const timer = window.setTimeout(() => finish(null), 2500)
+    audio.preload = 'metadata'
+    audio.onloadedmetadata = () => {
+      window.clearTimeout(timer)
+      const duration = Number.isFinite(audio.duration) ? audio.duration : null
+      finish(duration)
+    }
+    audio.onerror = () => {
+      window.clearTimeout(timer)
+      finish(null)
+    }
+    audio.src = objectUrl
+  })
 }
 
 async function readJsonSafely(response: Response) {
@@ -210,7 +247,7 @@ async function pollIngestStatus(jobId: string, type: 'audio' | 'image', headers:
 }
 
 export function useIngestUpload(lang: 'zh' | 'en', options: IngestUploadOptions = {}) {
-  const { getToken, onAuthInvalid, syncImageOcr } = options
+  const { getToken, onAuthInvalid, syncImageOcr, maxAudioBytes, maxAudioDurationSeconds } = options
   const [contexts, setContexts] = useState<MediaContext[]>([])
   const [isUploading, setIsUploading] = useState(false)
   const [uploadFailure, setUploadFailureState] = useState<UploadFailure | null>(null)
@@ -239,8 +276,29 @@ export function useIngestUpload(lang: 'zh' | 'en', options: IngestUploadOptions 
 
   const handleAudioUpload = useCallback(
     async (file: File) => {
-      setIsUploading(true)
       setUploadFailure(null)
+      if (maxAudioBytes && file.size > maxAudioBytes) {
+        setUploadFailure({
+          type: 'audio_too_long',
+          detail: lang === 'zh'
+            ? `音频文件大小 ${(file.size / 1024 / 1024).toFixed(1)}MB，超过快速提问限制。`
+            : `Audio size ${(file.size / 1024 / 1024).toFixed(1)}MB exceeds the quick-question limit.`,
+        })
+        return null
+      }
+      if (maxAudioDurationSeconds) {
+        const durationSeconds = await readAudioDurationSeconds(file)
+        if (durationSeconds !== null && durationSeconds > maxAudioDurationSeconds) {
+          setUploadFailure({
+            type: 'audio_too_long',
+            detail: lang === 'zh'
+              ? `音频时长约 ${Math.round(durationSeconds / 60)} 分钟，超过快速提问限制。`
+              : `Audio duration is about ${Math.round(durationSeconds / 60)} minutes, above the quick-question limit.`,
+          })
+          return null
+        }
+      }
+      setIsUploading(true)
       try {
         const formData = new FormData()
         formData.append('file', file)
@@ -291,7 +349,7 @@ export function useIngestUpload(lang: 'zh' | 'en', options: IngestUploadOptions 
         setIsUploading(false)
       }
     },
-    [getAuthHeaders, setUploadFailure, lang],
+    [getAuthHeaders, setUploadFailure, lang, maxAudioBytes, maxAudioDurationSeconds],
   )
 
   const handleImageUpload = useCallback(
