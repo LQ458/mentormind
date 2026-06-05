@@ -5866,6 +5866,19 @@ def _board_payload_has_content(payload: Optional[Dict[str, Any]]) -> bool:
     )
 
 
+def _board_load_state_direct(
+    db: Session,
+    session_id: str,
+    user_id: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    row = db.query(BoardSession).filter(BoardSession.id == session_id).first()
+    if row is None:
+        return None
+    if user_id is not None and row.user_id and str(row.user_id) != str(user_id):
+        return {"__forbidden__": True, "id": row.id, "user_id": row.user_id}
+    return row.to_dict()
+
+
 def _persist_board_session_sync(
     session_id: str,
     session: dict,
@@ -5931,7 +5944,20 @@ async def get_board_persisted_state(
     hydrate the reducer before opening the WebSocket on revisit.
     """
     _validate_session_id_or_400(session_id)
-    loaded = _board_load_state(db, session_id, user_id=str(current_user.id))
+    user_id = str(current_user.id)
+    loaded = _board_load_state(db, session_id, user_id=user_id)
+    if loaded is None:
+        try:
+            loaded = _board_load_state_direct(db, session_id, user_id=user_id)
+        except Exception as exc:
+            logger.warning(f"Direct board state lookup failed for {session_id}: {exc}")
+    if loaded is None:
+        try:
+            from database.base import SessionLocal as _SL
+            with _SL() as fresh_db:
+                loaded = _board_load_state_direct(fresh_db, session_id, user_id=user_id)
+        except Exception as exc:
+            logger.warning(f"Fresh board state lookup failed for {session_id}: {exc}")
     mem = _board_sessions.get(session_id)
     live_payload: Optional[Dict[str, Any]] = None
     if mem is not None:

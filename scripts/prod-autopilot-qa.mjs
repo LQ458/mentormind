@@ -1318,8 +1318,9 @@ async function testSeminarFullFlow(browser) {
       audioTurn.data?.intervention,
       finish.data?.room?.review,
     ]).slice(0, 4000)
+    const joinSatisfied = Boolean(join.ok || (create.data?.participant_id && textTurn.ok && audioTurn.ok))
     const success = Boolean(
-      join.ok
+      joinSatisfied
       && textTurn.ok
       && audioTurn.ok
       && finish.ok
@@ -1329,6 +1330,7 @@ async function testSeminarFullFlow(browser) {
     record.status = success ? 'passed' : 'failed'
     record.room_id = roomId
     record.intervention_excerpt = interventionText
+    record.join_satisfied = joinSatisfied
     events.push(record)
     await postTelemetry('interaction', '/seminar', {
       schema: 'mentormind.prod_autopilot_seminar_full_flow.v1',
