@@ -12,6 +12,7 @@ x-backend-env: &backend_env
   BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
   DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
   SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
+  SEMINAR_ASR_TIMEOUT_SECONDS: ${SEMINAR_ASR_TIMEOUT_SECONDS:-90}
   UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
   PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
   HEYGEN_API_KEY: ${HEYGEN_API_KEY:-}
@@ -85,6 +86,10 @@ services:
     command: sh -c "python migrate_db.py && uvicorn server:app --host 0.0.0.0 --port 8000"
     expose:
       - "8000"
+    ports:
+      # Loopback-only so a host-level TLS nginx can proxy /ws/ to the FastAPI
+      # WebSocket endpoints without exposing the backend directly to the public net.
+      - "${BACKEND_BIND:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")'"]
       interval: 15s
@@ -152,6 +157,7 @@ services:
       args:
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
         NEXT_PUBLIC_BACKEND_WS_URL: ${NEXT_PUBLIC_BACKEND_WS_URL:-}
+        NEXT_PUBLIC_AUDIO_INGEST_POLL_MINUTES: ${NEXT_PUBLIC_AUDIO_INGEST_POLL_MINUTES:-30}
         ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-}
     container_name: mentormind-frontend
     restart: unless-stopped
@@ -166,10 +172,14 @@ services:
       ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
       NEXT_PUBLIC_BACKEND_WS_URL: ${NEXT_PUBLIC_BACKEND_WS_URL:-}
+      NEXT_PUBLIC_AUDIO_INGEST_POLL_MINUTES: ${NEXT_PUBLIC_AUDIO_INGEST_POLL_MINUTES:-30}
+      SEMINAR_AUDIO_TIMEOUT_MS: ${SEMINAR_AUDIO_TIMEOUT_MS:-120000}
+      SEMINAR_TURN_TIMEOUT_MS: ${SEMINAR_TURN_TIMEOUT_MS:-90000}
     expose:
       - "3000"
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      # The public entrypoint should be nginx. Keep raw Next.js local to the VPS.
+      - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-3000}:3000"
     networks:
       - mentormind-net
 

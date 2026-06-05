@@ -2,17 +2,17 @@
 
 ## Overview
 
-MentorMind is a bilingual (Chinese/English) AI-powered educational platform that generates lesson content, animated videos (Manim), narrated audio (TTS), and interactive learning experiences from a student's learning query.
+MentorMind is a bilingual (Chinese/English) AI-powered educational platform for study plans, quick tutoring, seminar-style debate, interactive board lessons, multimodal uploads, narrated/audio-supported lessons, and selected video-generation workflows.
 
 **API rule: All LLM/TTS calls use DeepSeek or SiliconFlow only. No OpenAI services are used or allowed.**
 
 ```
 mentormind/
 ├── backend/               ← Python FastAPI server + all AI pipeline logic
-├── web/                   ← Next.js 13 App Router frontend
+├── web/                   ← Next.js 14 App Router frontend
 ├── docker-compose.yml     ← Full-stack launcher (Postgres + Redis + Backend + Celery + FunASR + PaddleOCR)
 ├── .env / .env.example    ← All API keys and connection strings
-└── architecture.md        ← This file
+└── docs/architecture.md   ← This file
 ```
 
 ---
@@ -116,6 +116,24 @@ sequenceDiagram
 | :--- | :--- | :--- |
 | `POST` | `/ingest/audio` | Upload audio → FunASR transcription (async, returns `job_id`). |
 | `POST` | `/ingest/image` | Upload image → PaddleOCR extraction (async, returns `job_id`). |
+
+#### Quick Question, Feedback, and Telemetry
+
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `POST` | `/quick-question` | One-off Mina answer flow. Detects `problem` vs `discussion` mode and returns answer plus next-step actions. |
+| `POST` | `/telemetry/event` | Stores page views, interaction breadcrumbs, console/network errors, long tasks, and `feedback_moment` reports in `telemetry_events`. |
+| `POST` | `/feedback/submit` | Stores longer PMF/NPS beta survey responses in `survey_responses` and derives session context from telemetry. |
+| `GET` | `/admin/telemetry/aggregate` | Admin-only telemetry rollup by page or event type, including latency and top error signatures. |
+| `GET` | `/admin/feedback` | Admin-only feedback survey rows with filters. |
+| `GET` | `/admin/feedback/aggregate` | Admin-only survey distribution and score aggregates. |
+
+Feedback implementation notes:
+
+- The topbar message icon opens `FeedbackHub`, a short bug/function/feeling/general feedback modal.
+- `/ask` answer cards render `FeedbackMoment` for exact "this moment is wrong" reports.
+- Both emit `feedback_moment` telemetry events with route, viewport, browser, recent errors, recent interaction breadcrumbs, and a surface-specific app snapshot.
+- User-written fields and nested context are bounded before database storage.
 
 ---
 
@@ -221,19 +239,25 @@ In-app notification records derived from the review queue. Fields: `notification
 
 ## Frontend (`web/`)
 
-Next.js 13 App Router. All backend API calls are proxied through `web/app/api/backend/`.
+Next.js 14 App Router. Browser-facing backend calls are proxied through `web/app/api/backend/` so local and same-origin production routes stay consistent.
 
 ### Pages
 
 | Route | Description |
 | :--- | :--- |
-| `/` | Landing page |
+| `/` | Minimal home and learning entry |
+| `/ask` | Quick-question flow with image/PDF/audio/text context, discussion/problem modes, next-step actions, math rendering, and moment feedback |
+| `/study-plan` | Course framework/subject selection, learner profile, Mina planning chat, review, and save |
+| `/study-plan/[id]` | Saved plan detail, unit generation, board lesson entry, and unit AI ask sidebar |
+| `/seminar` | Multiplayer and AI-assisted seminar/debate rooms |
+| `/board/[sessionId]` | Interactive board lesson session |
 | `/create` | Lesson creation: chat → topic → configure (with `LessonDesign` options) → generate (SSE + fallback polling) → preview |
 | `/lessons/[id]` | Lesson detail with 5 tabs: **Seminar**, Practice, Content, Transcript, Video |
 | `/dashboard` | Lesson history + **Process Inbox** (notifications) + **Today's Proactive Interventions** (review queue) |
 | `/principles` | About / Features page — all 9 features + learning loop + design principles |
 | `/settings` | Settings page |
 | `/analytics` | Analytics |
+| `/admin/feedback` | Admin feedback and survey review |
 | `/dev-form` | Direct upload speed test (audio/image ASR/OCR) |
 
 ### Lesson Detail Tabs (`/lessons/[id]`)
@@ -272,6 +296,18 @@ Next.js 13 App Router. All backend API calls are proxied through `web/app/api/ba
 | `users/me/profile/` | `POST /users/me/profile` |
 | `ingest/audio/` | `POST /ingest/audio` |
 | `ingest/image/` | `POST /ingest/image` |
+| `quick-question/` | `POST /quick-question` |
+| `study-plan/chat/` | `POST /study-plan/chat` |
+| `study-plan/create/` | `POST /study-plan/create` |
+| `study-plan/[id]/` | `GET / DELETE /study-plan/{id}` |
+| `study-plan/[id]/unit/[unitId]/generate/` | `POST /study-plan/{id}/unit/{unitId}/generate` |
+| `study-plan/ask-ai/` | `POST /study-plan/ask-ai` |
+| `seminar/rooms/` | `GET / POST /seminar/rooms` |
+| `seminar/rooms/[roomId]/turn/` | `POST /seminar/rooms/{roomId}/turn` |
+| `seminar/rooms/[roomId]/audio-turn/` | `POST /seminar/rooms/{roomId}/audio-turn` |
+| `telemetry/event/` | `POST /telemetry/event` |
+| `feedback/submit/` | `POST /feedback/submit` |
+| `admin/feedback/` | `GET /admin/feedback` |
 | `media/[...path]/` | Static media file proxy |
 
 ---

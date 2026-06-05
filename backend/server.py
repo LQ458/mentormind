@@ -2446,6 +2446,19 @@ from celery_app import (
 
 # ... (rest of imports remains same)
 
+def _celery_queue_has_worker(queue_name: str) -> bool:
+    """Return whether any live Celery worker is consuming the requested queue."""
+    try:
+        inspector = celery_app.control.inspect(timeout=1.0)
+        active_queues = inspector.active_queues() or {}
+        for queues in active_queues.values():
+            for queue in queues or []:
+                if queue.get("name") == queue_name:
+                    return True
+    except Exception as exc:
+        logger.warning("Celery worker inspection failed for queue %s: %s", queue_name, exc)
+    return False
+
 @app.post("/ingest/audio")
 async def ingest_audio(
     file: UploadFile = File(...),
@@ -2464,6 +2477,7 @@ async def ingest_audio(
     current_user: User = Depends(get_current_user),
 ):
     """Transcribe user-uploaded audio (ASR) via background task."""
+    tmp_path = None
     try:
         # Validate file type
         allowed_types = {"audio/wav", "audio/mpeg", "audio/mp4", "audio/ogg",
@@ -2485,6 +2499,12 @@ async def ingest_audio(
         # Dispatch task to Celery
         if process.lower() != "true":
             # Just transcription
+            if not _celery_queue_has_worker("heavy_ml"):
+                logger.warning("Audio ingest rejected because heavy_ml worker is unavailable")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Audio transcription worker is not running. Start celery-heavy-ml and retry.",
+                )
             print(f"📦 Dispatching transcription task: {job_id}")
             task = transcribe_audio_task.delay(tmp_path, language, job_id, target_language=display_language)
             return {
@@ -2521,7 +2541,13 @@ async def ingest_audio(
                 "language": language,
             }
 
+    except HTTPException:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
     except Exception as e:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
         print(f"❌ Error initiating audio ingest: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -3856,14 +3882,78 @@ class QuickQuestionResponse(BaseModel):
     success: bool
     answer: str
     next_steps: List[str] = Field(default_factory=list)
+    answer_mode: str = "problem"
     error: Optional[str] = None
+
+
+def _quick_question_mode(question: str, context: Optional[str]) -> str:
+    text = f"{question}\n{context or ''}".lower()
+    discussion_markers = [
+        "main idea", "central idea", "big idea", "theme", "thesis", "passage", "article",
+        "author", "argument", "discuss", "discussion", "what is the idea", "what's the idea",
+        "summarize", "summary", "meaning of this",
+        "主旨", "大意", "中心思想", "这篇", "文章", "段落", "作者", "观点", "讨论", "总结", "概括",
+    ]
+    problem_markers = [
+        "solve", "calculate", "integral", "derivative", "equation", "proof", "answer is",
+        "求", "解", "计算", "积分", "导数", "方程", "证明",
+    ]
+    if any(marker in text for marker in discussion_markers) and not any(marker in text for marker in problem_markers):
+        return "discussion"
+    return "problem"
+
+
+def _quick_question_system_prompt(language: str, mode: str) -> str:
+    language_instruction = get_language_instruction(language)
+    if mode == "discussion":
+        if language == "zh":
+            return (
+                "你是 MentorMind 的 Mina，擅长把阅读/音频材料转成可讨论的理解。"
+                "不要把它当成计算题，也不要给'做一道相似题'式回答。"
+                "请用以下结构，简洁但有思辨性：\n"
+                "**主旨一句话**：用一句话说明材料核心。\n"
+                "**关键依据**：列出2-3个支撑主旨的材料线索。\n"
+                "**值得讨论的张力**：指出一个可争论、可展开的矛盾/问题。\n"
+                "**Mina追问**：给学生一个开放式讨论问题。\n"
+                f"{language_instruction}"
+            )
+        return (
+            "You are Mina for MentorMind. Turn reading/audio material into a discussion-ready understanding. "
+            "Do not treat this like a calculation problem. "
+            "Use this structure, concise but thoughtful:\n"
+            "**One-sentence main idea**: state the core idea.\n"
+            "**Evidence from the passage**: give 2-3 concrete signals from the material.\n"
+            "**Discussion tension**: name one debatable tension or deeper issue.\n"
+            "**Mina's follow-up**: ask one open-ended discussion question.\n"
+            f"{language_instruction}"
+        )
+    return (
+        "You are Mina, a concise study tutor for MentorMind. "
+        "Answer the student's one-off question directly, then add a short check-for-understanding. "
+        "Do not propose creating a video, lesson, syllabus, or study plan. "
+        f"{language_instruction}"
+    )
+
+
+def _quick_question_next_steps(language: str, mode: str) -> List[str]:
+    if mode == "discussion":
+        return (
+            ["Push one idea deeper", "Make a discussion outline", "Draft a response paragraph", "Turn this into a study plan"]
+            if language == "en"
+            else ["追问一个观点", "整理成讨论提纲", "写一段回答", "把这个材料扩展成学习计划"]
+        )
+    return (
+        ["Try a similar problem", "Ask Mina to explain one step", "Turn this into a study plan"]
+        if language == "en"
+        else ["做一道相似题", "让 Mina 解释其中一步", "把这个问题扩展成学习计划"]
+    )
 
 
 @app.post("/quick-question", response_model=QuickQuestionResponse)
 async def quick_question(req: QuickQuestionRequest, current_user: User = Depends(get_current_user)):
     """Answer a single study question without entering the lesson/video creation flow."""
     language = req.language if req.language in {"zh", "en"} else "en"
-    language_instruction = get_language_instruction(language)
+    answer_mode = _quick_question_mode(req.question, req.context)
     context_parts = []
     if req.subject:
         context_parts.append(f"Subject: {req.subject}")
@@ -3876,12 +3966,7 @@ async def quick_question(req: QuickQuestionRequest, current_user: User = Depends
     messages = [
         {
             "role": "system",
-            "content": (
-                "You are Mina, a concise study tutor for MentorMind. "
-                "Answer the student's one-off question directly, then add a short check-for-understanding. "
-                "Do not propose creating a video, lesson, syllabus, or study plan. "
-                f"{language_instruction}"
-            ),
+            "content": _quick_question_system_prompt(language, answer_mode),
         },
         {
             "role": "user",
@@ -3899,11 +3984,8 @@ async def quick_question(req: QuickQuestionRequest, current_user: User = Depends
         return QuickQuestionResponse(
             success=True,
             answer=answer,
-            next_steps=(
-                ["Try a similar problem", "Ask Mina to explain one step", "Turn this into a study plan"]
-                if language == "en"
-                else ["做一道相似题", "让 Mina 解释其中一步", "把这个问题扩展成学习计划"]
-            ),
+            answer_mode=answer_mode,
+            next_steps=_quick_question_next_steps(language, answer_mode),
         )
     return QuickQuestionResponse(
         success=False,
@@ -5947,15 +6029,44 @@ async def post_telemetry_event(
     # so a future event_type with large strings can't blow up the row. Special
     # case `survey_response.freeText` to 4000 (matches the client cap).
     raw_payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
+
+    def _sanitize_payload_value(value: Any, *, max_string: int, depth: int = 0) -> Any:
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+        if isinstance(value, str):
+            return value[:max_string]
+        if depth >= 4:
+            return str(value)[:max_string]
+        if isinstance(value, list):
+            return [
+                _sanitize_payload_value(item, max_string=max_string, depth=depth + 1)
+                for item in value[:24]
+            ]
+        if isinstance(value, dict):
+            clean: Dict[str, Any] = {}
+            for key, nested_value in list(value.items())[:60]:
+                clean[str(key)[:80]] = _sanitize_payload_value(
+                    nested_value,
+                    max_string=max_string,
+                    depth=depth + 1,
+                )
+            return clean
+        return str(value)[:max_string]
+
     safe_payload: Dict[str, Any] = {}
     for k, v in raw_payload.items():
         if isinstance(v, str):
             cap = 8000
             if event_type == "survey_response" and k == "freeText":
                 cap = 4000
+            if event_type == "feedback_moment" and k in {"user_note", "expected_behavior"}:
+                cap = 1200
             safe_payload[k] = v[:cap]
         else:
-            safe_payload[k] = v
+            safe_payload[k] = _sanitize_payload_value(
+                v,
+                max_string=1200 if event_type == "feedback_moment" else 8000,
+            )
 
     user_agent = request.headers.get("user-agent")
     client_host = request.client.host if request.client else None

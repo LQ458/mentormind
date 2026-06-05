@@ -149,17 +149,31 @@ def _plan_generation_error_response(
     source: str,
     detection: Optional[SubjectDetection],
 ) -> PlanResponse:
+    is_timeout = "timeout" in source
     content = (
-        "The plan did not finish generating. Please retry once, or add one shorter detail and try again."
+        (
+            "The plan did not finish before the server timeout. Retry once, or add exam timing and weekly hours so the next attempt can be shorter."
+            if is_timeout
+            else "The plan did not finish as a usable study-plan draft. Mina received an AI response, but it was not structured enough to save. Retry once, or add exam timing, weekly hours, and target score."
+        )
         if language == "en"
-        else "学习计划没有生成完成。请再试一次，或补充一句更短的信息后重试。"
+        else (
+            "学习计划没有生成完成：Mina 在服务器超时前没有完成计划。可以重试一次，或先补充考试时间和每周学习时长，让下一次生成更短更稳。"
+            if is_timeout
+            else "学习计划没有生成完成：Mina 收到了 AI 回复，但不是可保存的学习计划草稿。可以重试一次，或补充考试时间、每周学习时长和目标分数。"
+        )
+    )
+    options = (
+        ["Retry generation", "Add weekly hours", "Add exam date", "Add target score"]
+        if language == "en"
+        else ["重试生成", "补充每周时长", "补充考试时间", "补充目标分数"]
     )
     return PlanResponse(
         stage=PlanStage.DIAGNOSTIC,
         content=content,
         response_source=source,
         diagnostic_question=content,
-        options=["Retry", "Add one detail"] if language == "en" else ["重试生成", "补充信息"],
+        options=options,
         allow_free_text=True,
         detected_subject=_detection_to_dict(detection) if detection else None,
     )
@@ -948,7 +962,8 @@ Schema:
             last_error_source = "llm_plan_review_parse_error"
 
         if not proposed_plan:
-            return _plan_generation_error_response(language, last_error_source, detection)
+            failure_source = _source_name(last_error_source, fast=fast, after_retry=used_retry if fast else False)
+            return _plan_generation_error_response(language, failure_source, detection)
 
         inferred_tier = _infer_learner_tier(diagnostic_summary)
         proposed_plan = _enhance_plan_for_tier(

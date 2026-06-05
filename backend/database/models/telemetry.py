@@ -30,6 +30,7 @@ ALLOWED_EVENT_TYPES: Set[str] = {
     "study_plan_chat_rtt",
     "survey_response",
     "feedback_click",
+    "feedback_moment",
 }
 
 

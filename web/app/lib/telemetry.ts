@@ -21,6 +21,7 @@ export type EventType =
   | 'study_plan_chat_rtt'
   | 'survey_response'
   | 'feedback_click'
+  | 'feedback_moment'
 
 interface TrackMeta {
   latency_ms?: number
@@ -39,11 +40,43 @@ interface TelemetryPayload {
   viewport_h?: number
 }
 
+interface TelemetryBreadcrumb {
+  at: string
+  event_type: EventType
+  page?: string
+  latency_ms?: number
+  payload?: Record<string, unknown>
+}
+
 const TELEMETRY_ENDPOINT = '/api/backend/telemetry/event'
 const SESSION_KEY = 'mm_telemetry_session_id'
+const RECENT_EVENTS_KEY = 'mm_telemetry_recent_events_v1'
+const RECENT_LIMIT = 24
+const FEEDBACK_CONTEXT_LIMIT = 10
+
+const SAFE_BREADCRUMB_KEYS = new Set([
+  'action',
+  'answer_mode',
+  'area',
+  'code',
+  'duration_ms',
+  'error',
+  'kind',
+  'message',
+  'method',
+  'phase',
+  'schema',
+  'severity',
+  'source',
+  'status',
+  'status_code',
+  'surface',
+  'url',
+])
 
 let queue: TelemetryPayload[] = []
 let initialized = false
+let fetchInstrumented = false
 
 function safeUUID(): string {
   try {
@@ -95,6 +128,97 @@ function send(payload: TelemetryPayload): void {
   }
 }
 
+function safeString(value: unknown, max = 180): string {
+  if (value === null || value === undefined) return ''
+  return String(value).slice(0, max)
+}
+
+function safeUrlPath(value: unknown): string | undefined {
+  const raw = safeString(value, 512)
+  if (!raw) return undefined
+  try {
+    const url = new URL(raw, window.location.origin)
+    return `${url.pathname}${url.search ? '?...' : ''}`
+  } catch {
+    return raw.split('?')[0].slice(0, 240)
+  }
+}
+
+function compactPayload(payload?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!payload) return undefined
+  const compact: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(payload)) {
+    if (!SAFE_BREADCRUMB_KEYS.has(key)) continue
+    if (key === 'url') {
+      const path = safeUrlPath(value)
+      if (path) compact[key] = path
+      continue
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      compact[key] = value
+      continue
+    }
+    if (value !== null && value !== undefined) {
+      compact[key] = safeString(value)
+    }
+  }
+  return Object.keys(compact).length ? compact : undefined
+}
+
+function readRecentEvents(): TelemetryBreadcrumb[] {
+  try {
+    const raw = window.sessionStorage.getItem(RECENT_EVENTS_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed.slice(-RECENT_LIMIT) : []
+  } catch {
+    return []
+  }
+}
+
+function rememberEvent(event: TelemetryPayload): void {
+  try {
+    if (event.event_type === 'feedback_moment' || event.event_type === 'survey_response') return
+    const next: TelemetryBreadcrumb = {
+      at: new Date().toISOString(),
+      event_type: event.event_type,
+      page: event.page,
+    }
+    if (typeof event.latency_ms === 'number') next.latency_ms = event.latency_ms
+    const payload = compactPayload(event.payload)
+    if (payload) next.payload = payload
+    const events = [...readRecentEvents(), next].slice(-RECENT_LIMIT)
+    window.sessionStorage.setItem(RECENT_EVENTS_KEY, JSON.stringify(events))
+  } catch {
+    // Telemetry memory should never affect the app.
+  }
+}
+
+export function getTelemetryContextSnapshot(appSnapshot?: Record<string, unknown>): Record<string, unknown> {
+  if (typeof window === 'undefined') return { app_snapshot: appSnapshot || {} }
+  const recentEvents = readRecentEvents().slice(-FEEDBACK_CONTEXT_LIMIT)
+  const recentErrors = recentEvents
+    .filter((event) => ['error_console', 'error_network', 'ws_close'].includes(event.event_type))
+    .slice(-5)
+
+  return {
+    captured_at: new Date().toISOString(),
+    session_id: getOrCreateSessionId(),
+    route: window.location.pathname,
+    url: window.location.href.slice(0, 512),
+    viewport: {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    },
+    browser: {
+      language: navigator.language,
+      user_agent: navigator.userAgent.slice(0, 240),
+    },
+    recent_events: recentEvents,
+    recent_errors: recentErrors,
+    app_snapshot: appSnapshot || {},
+  }
+}
+
 export function track(
   type: EventType,
   payload?: Record<string, unknown>,
@@ -113,6 +237,7 @@ export function track(
     }
     if (typeof meta?.latency_ms === 'number') event.latency_ms = meta.latency_ms
     if (payload && Object.keys(payload).length > 0) event.payload = payload
+    rememberEvent(event)
     send(event)
   } catch {
     // swallow
@@ -136,6 +261,49 @@ export function initTelemetry(): void {
   initialized = true
 
   try {
+    if (!fetchInstrumented && typeof window.fetch === 'function') {
+      fetchInstrumented = true
+      const originalFetch = window.fetch.bind(window)
+      window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
+        const method = (init?.method || (input instanceof Request ? input.method : 'GET') || 'GET').toUpperCase()
+        const rawUrl = typeof input === 'string' || input instanceof URL
+          ? String(input)
+          : input instanceof Request
+            ? input.url
+            : ''
+        const urlPath = safeUrlPath(rawUrl)
+        const isTelemetryRequest = !!urlPath && urlPath.includes('/api/backend/telemetry/event')
+        try {
+          const response = await originalFetch(input, init)
+          if (!isTelemetryRequest && response.status >= 400) {
+            const elapsed = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt)
+            track('error_network', {
+              source: 'fetch',
+              method,
+              url: urlPath,
+              status_code: response.status,
+              status: response.statusText,
+              duration_ms: elapsed,
+            }, { latency_ms: elapsed })
+          }
+          return response
+        } catch (err) {
+          if (!isTelemetryRequest) {
+            const elapsed = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt)
+            track('error_network', {
+              source: 'fetch',
+              method,
+              url: urlPath,
+              error: err instanceof Error ? err.message.slice(0, 180) : 'fetch failed',
+              duration_ms: elapsed,
+            }, { latency_ms: elapsed })
+          }
+          throw err
+        }
+      }) as typeof window.fetch
+    }
+
     // Global error capture — record only what's safe (no user input).
     window.addEventListener('error', (ev) => {
       try {

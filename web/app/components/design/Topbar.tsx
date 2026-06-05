@@ -6,7 +6,7 @@ import { useLanguage } from '../LanguageContext'
 import { useUser, useAuth } from '../AuthContext'
 import NotificationsPanel from '../NotificationsPanel'
 import { openCommandPalette } from '../CommandPalette'
-import { OPEN_SURVEY_EVENT } from './AppShell'
+import { OPEN_FEEDBACK_EVENT } from './AppShell'
 import { track } from '../../lib/telemetry'
 
 interface PageMeta {
@@ -92,7 +92,7 @@ export default function Topbar({ onMenuClick, menuOpen = false }: { onMenuClick?
         aria-label={language === 'zh' ? '发送反馈' : 'Send feedback'}
         onClick={() => {
           track('feedback_click')
-          window.dispatchEvent(new Event(OPEN_SURVEY_EVENT))
+          window.dispatchEvent(new Event(OPEN_FEEDBACK_EVENT))
         }}
       >
         <MessageSquare size={18} />

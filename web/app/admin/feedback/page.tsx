@@ -125,7 +125,7 @@ export default function AdminFeedbackPage() {
       params.set('limit', '50')
       params.set('offset', '0')
       if (examFilter) params.set('exam', examFilter)
-      if (pmfFilter) params.set('pmf_score', pmfFilter)
+      if (pmfFilter) params.set('pmf', pmfFilter)
       if (langFilter) params.set('language', langFilter)
 
       const [aggRes, listRes] = await Promise.all([

@@ -242,6 +242,20 @@ WebSocket upgrade headers. Use `nginx/external-tls-proxy.example.conf` as the
 reference. A broken `/ws/` route usually shows up as browser-only board lesson
 failures while normal HTTP API calls still work.
 
+Audio upload/transcription is intentionally allowed to run longer than normal
+chat/API requests:
+
+- The bundled production nginx allows large request bodies and has a dedicated
+  `/api/backend/ingest/audio` location with request buffering disabled.
+- If a VPS-level TLS nginx sits in front of the bundled nginx, it must also set
+  a large enough `client_max_body_size` and long read/send timeouts. Use
+  `nginx/external-tls-proxy.example.conf` as the reference.
+- Set `NEXT_PUBLIC_AUDIO_INGEST_POLL_MINUTES` high enough for long audio files;
+  `.env.example` defaults it to 30 minutes.
+- The backend checks whether a `heavy_ml` Celery worker is serving the audio
+  queue before accepting a transcription job. If that worker is down, users get
+  an actionable worker-unavailable error instead of a silent timeout.
+
 ### Deploy
 
 ```bash

@@ -8,6 +8,7 @@ The production path is a single CentOS VPS running Docker Compose:
 - Next.js handles browser pages plus `/api/backend/*` proxy routes.
 - FastAPI handles generation, board streaming, persistence, and auth verification.
 - Celery workers process long-running class and unit generation queues.
+- The `heavy_ml` Celery queue is required for long audio transcription and other memory-heavy ingestion work.
 - PostgreSQL stores durable user, study-plan, lesson, and board-session state.
 - Redis stores Celery broker/results and short-lived job/unit status.
 
@@ -28,6 +29,7 @@ Recommended worker layout for 100 active users:
 - Keep `orchestration` concurrency modest, around 4-8 per VPS depending on CPU/RAM.
 - Keep `rendering` concurrency at 1 unless Manim rendering is proven stable with more.
 - Keep `heavy_ml` concurrency low, around 1-2, because ASR/OCR/model loading can dominate memory.
+- Monitor `heavy_ml` explicitly. The backend now refuses async audio transcription if no `heavy_ml` worker is serving that queue, which is safer for users but makes worker uptime a visible product dependency.
 - Add queue-depth alerts before increasing concurrency. More workers can make LLM/provider limits worse if there is no backpressure.
 
 ## Board Lesson Generation And Saving

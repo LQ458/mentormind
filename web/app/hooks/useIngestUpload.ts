@@ -20,6 +20,7 @@ interface IngestUploadOptions {
 type UploadErrorType =
   | 'auth'
   | 'unsupported'
+  | 'too_large'
   | 'empty_file'
   | 'no_text'
   | 'timeout'
@@ -32,6 +33,14 @@ interface UploadFailure {
   type: UploadErrorType
   detail: string
 }
+
+const IMAGE_POLL_ATTEMPTS = 60
+const INGEST_POLL_INTERVAL_MS = 5000
+const AUDIO_POLL_MINUTES = Math.max(
+  5,
+  Number(process.env.NEXT_PUBLIC_AUDIO_INGEST_POLL_MINUTES || 30),
+)
+const AUDIO_POLL_ATTEMPTS = Math.ceil((AUDIO_POLL_MINUTES * 60_000) / INGEST_POLL_INTERVAL_MS)
 
 function extractErrorDetail(data: any): string {
   const raw = data?.detail || data?.details || data?.error || data?.message || ''
@@ -50,6 +59,9 @@ function classifyUploadFailure(status: number | null, data: any, fallback: strin
 
   if (status === 401 || status === 403 || lower.includes('authentication') || lower.includes('unauthorized')) {
     return { type: 'auth', detail }
+  }
+  if (status === 413 || lower.includes('413 request entity too large') || lower.includes('request entity too large')) {
+    return { type: 'too_large', detail }
   }
   if (status === 400 || lower.includes('unsupported format') || lower.includes('unsupported file')) {
     return { type: 'unsupported', detail }
@@ -84,7 +96,8 @@ function localizedUploadFailure(lang: 'zh' | 'en', failure: UploadFailure | null
       ? '上传失败：暂时无法读取这个文件。'
       : 'Upload failed: this file could not be read yet.'
   }
-  const suffix = failure.detail ? (lang === 'zh' ? ` 原因：${failure.detail}` : ` Reason: ${failure.detail}`) : ''
+  const detail = humanReadableFailureDetail(lang, failure)
+  const suffix = detail ? (lang === 'zh' ? ` 原因：${detail}` : ` Reason: ${detail}`) : ''
   const messages: Record<UploadErrorType, { zh: string; en: string }> = {
     auth: {
       zh: '上传失败：登录已过期或缺少权限，请重新登录后再试。',
@@ -93,6 +106,10 @@ function localizedUploadFailure(lang: 'zh' | 'en', failure: UploadFailure | null
     unsupported: {
       zh: '上传失败：文件格式不支持。请上传图片、PDF、音频，或 txt/md/csv/json 文本文件。',
       en: 'Upload failed: unsupported file type. Upload an image, PDF, audio, or txt/md/csv/json text file.',
+    },
+    too_large: {
+      zh: '上传失败：文件太大。请压缩音频、裁剪片段，或联系管理员提高上传上限。',
+      en: 'Upload failed: the file is too large. Compress the audio, trim the clip, or ask an admin to raise the upload limit.',
     },
     empty_file: {
       zh: '上传失败：文件是空的，或没有可读取的内容。',
@@ -126,6 +143,40 @@ function localizedUploadFailure(lang: 'zh' | 'en', failure: UploadFailure | null
   return `${messages[failure.type][lang]}${suffix}`
 }
 
+function humanReadableFailureDetail(lang: 'zh' | 'en', failure: UploadFailure): string {
+  const detail = failure.detail.trim()
+  if (!detail) return ''
+  const lower = detail.toLowerCase()
+  if (failure.type === 'ocr_unavailable') {
+    if (lower.includes('tesseract') || lower.includes('paddleocr')) {
+      return lang === 'zh'
+        ? '服务器图片识别组件未安装或未启动。'
+        : 'The server OCR component is not installed or is not running.'
+    }
+  }
+  if (failure.type === 'auth' && lower.includes('signature verification failed')) {
+    return lang === 'zh'
+      ? '登录凭证签名校验失败。'
+      : 'The sign-in token signature could not be verified.'
+  }
+  if (failure.type === 'timeout' && lower.includes('transcription')) {
+    return lang === 'zh'
+      ? `音频转写超过 ${AUDIO_POLL_MINUTES} 分钟仍未完成。`
+      : `Audio transcription was still running after ${AUDIO_POLL_MINUTES} minutes.`
+  }
+  if (failure.type === 'transcription_unavailable' && lower.includes('worker')) {
+    return lang === 'zh'
+      ? '本地音频转写 worker 没有启动。'
+      : 'The local audio transcription worker is not running.'
+  }
+  if (failure.type === 'too_large') {
+    return lang === 'zh'
+      ? '上传大小超过服务器限制。'
+      : 'The upload exceeds the server size limit.'
+  }
+  return detail
+}
+
 async function readJsonSafely(response: Response) {
   const text = await response.text()
   if (!text) return {}
@@ -138,7 +189,8 @@ async function readJsonSafely(response: Response) {
 
 async function pollIngestStatus(jobId: string, type: 'audio' | 'image', headers: Record<string, string>) {
   let attempts = 0
-  while (attempts < 60) {
+  const maxAttempts = type === 'audio' ? AUDIO_POLL_ATTEMPTS : IMAGE_POLL_ATTEMPTS
+  while (attempts < maxAttempts) {
     try {
       const res = await fetch(`/api/backend/job-status/${jobId}`, { headers })
       const statusData = await res.json()
@@ -152,9 +204,9 @@ async function pollIngestStatus(jobId: string, type: 'audio' | 'image', headers:
       if ((err as Error).message?.includes('failed')) throw err
     }
     attempts++
-    await new Promise((r) => setTimeout(r, 5000))
+    await new Promise((r) => setTimeout(r, INGEST_POLL_INTERVAL_MS))
   }
-  throw new Error('Polling timeout')
+  throw new Error(type === 'audio' ? 'Transcription timed out' : 'Polling timeout')
 }
 
 export function useIngestUpload(lang: 'zh' | 'en', options: IngestUploadOptions = {}) {

@@ -6,12 +6,15 @@ import { ArrowRight, BookOpen, FileText, ImagePlus, Loader2, Mic, Send, Trash2 }
 import { useAuth } from '../components/AuthContext'
 import { useLanguage } from '../components/LanguageContext'
 import { PageHead } from '../components/design/primitives'
+import { FeedbackMoment } from '../components/FeedbackMoment'
 import { MathText } from '../components/MathText'
 import { useIngestUpload } from '../hooks/useIngestUpload'
+import { track } from '../lib/telemetry'
 
 interface AnswerState {
   answer: string
   next_steps: string[]
+  answer_mode?: 'problem' | 'discussion'
 }
 
 const QUICK_QUESTION_PLAN_PREFILL_KEY = 'mm-quick-question-study-plan-prefill-v1'
@@ -25,6 +28,7 @@ export default function AskPage() {
   const [subject, setSubject] = useState('')
   const [practiceProblem, setPracticeProblem] = useState('')
   const [practiceAttempt, setPracticeAttempt] = useState('')
+  const [discussionReply, setDiscussionReply] = useState('')
   const [explainOpen, setExplainOpen] = useState(false)
   const [explainTarget, setExplainTarget] = useState('')
   const [loading, setLoading] = useState(false)
@@ -106,7 +110,11 @@ export default function AskPage() {
       })
       const data = await res.json()
       if (!res.ok || !data.success) throw new Error(data.detail || data.error || 'Request failed')
-      const nextAnswer = { answer: data.answer || '', next_steps: data.next_steps || [] }
+      const nextAnswer = {
+        answer: data.answer || '',
+        next_steps: data.next_steps || [],
+        answer_mode: data.answer_mode === 'discussion' ? 'discussion' : 'problem',
+      } satisfies AnswerState
       setAnswer(nextAnswer)
       return nextAnswer
     } catch (err) {
@@ -120,6 +128,7 @@ export default function AskPage() {
   const submit = async () => {
     setPracticeProblem('')
     setPracticeAttempt('')
+    setDiscussionReply('')
     setExplainOpen(false)
     await submitQuestion(question)
   }
@@ -128,11 +137,12 @@ export default function AskPage() {
     if (!answer || loading || isUploading) return
 
     const lower = step.toLowerCase()
+    const wantsStudyPlan = lower.includes('study plan') || step.includes('学习计划')
     const previousContext = language === 'zh'
       ? `上一题：\n${question}\n\n上一轮解答：\n${answer.answer}`
       : `Previous question:\n${question}\n\nPrevious answer:\n${answer.answer}`
 
-    if (index === 2 || lower.includes('study plan') || step.includes('学习计划')) {
+    if (wantsStudyPlan) {
       try {
         window.localStorage.setItem(QUICK_QUESTION_PLAN_PREFILL_KEY, JSON.stringify({
           savedAt: Date.now(),
@@ -147,6 +157,27 @@ export default function AskPage() {
         // The route still works if storage is unavailable; it just starts empty.
       }
       router.push('/study-plan?source=quick-question')
+      return
+    }
+
+    if (answer.answer_mode === 'discussion') {
+      const discussionPrompt = lower.includes('outline') || step.includes('提纲')
+        ? (language === 'zh'
+            ? '请把刚才的材料整理成一个课堂讨论提纲：核心命题、3个证据点、2个可争论问题、1个可延伸到现实/历史的连接。'
+            : 'Turn the material into a class discussion outline: core claim, 3 evidence points, 2 debatable questions, and 1 connection to a broader real-world or historical issue.')
+        : lower.includes('paragraph') || step.includes('回答')
+          ? (language === 'zh'
+              ? '请根据刚才的材料，写一段适合课堂讨论或短答题的回答。要求：观点清楚、引用材料依据、最后留一个可继续讨论的问题。'
+              : 'Draft a discussion-ready response paragraph based on the material. Make a clear claim, cite evidence from the material, and end with one question that keeps the discussion open.')
+          : (language === 'zh'
+              ? '请选择刚才回答里最值得深挖的一个观点，用苏格拉底式追问展开：先说明为什么这个观点重要，再提出2个追问，并给一个可能的回答方向。'
+              : 'Choose the most important idea from the previous answer and push it deeper with Socratic follow-up: explain why it matters, ask 2 probing questions, and give one possible direction for answering.')
+
+      setPracticeProblem('')
+      setPracticeAttempt('')
+      setDiscussionReply('')
+      setExplainOpen(false)
+      await submitQuestion(discussionPrompt, previousContext)
       return
     }
 
@@ -171,8 +202,44 @@ export default function AskPage() {
     if (nextAnswer && (index === 0 || lower.includes('similar') || step.includes('相似'))) {
       setPracticeProblem(nextAnswer.answer)
       setPracticeAttempt('')
+      setDiscussionReply('')
       setExplainOpen(false)
     }
+  }
+
+  const submitDiscussionReply = async (mode: 'probe' | 'counter' | 'draft') => {
+    if (!answer || loading) return
+    const replyText = discussionReply.trim()
+    if (!replyText) {
+      setError(language === 'zh' ? '先写一句你的回应，再让 Mina 继续追问。' : 'Write your response first, then let Mina continue.')
+      return
+    }
+
+    const previousContext = language === 'zh'
+      ? `原问题：\n${question}\n\nMina上一轮回答：\n${answer.answer}\n\n我的回应：\n${replyText}`
+      : `Original question:\n${question}\n\nMina's previous answer:\n${answer.answer}\n\nMy response:\n${replyText}`
+    const prompt = mode === 'probe'
+      ? (language === 'zh'
+          ? '请像Mina导师一样追问我的回应。先判断我是否抓住了核心，再指出一个薄弱处，最后只问我一个更尖锐的问题。不要直接替我完成答案。'
+          : 'Continue as Mina. First judge whether my response catches the core idea, then point out one weak spot, and end with one sharper follow-up question. Do not finish the answer for me.')
+      : mode === 'counter'
+        ? (language === 'zh'
+            ? '请针对我的回应给一个有力反方观点，并问我如何回应这个反方观点。'
+            : 'Give one strong counterargument to my response, then ask how I would answer that counterargument.')
+        : (language === 'zh'
+            ? '请把我的回应整理成一段课堂可用短答，保留我的观点，但补上逻辑连接和材料依据。最后给我一句可以继续讨论的问题。'
+            : 'Turn my response into a class-ready short answer. Keep my claim, add logical links and evidence from the material, and end with one discussion question.')
+
+    try {
+      track('interaction', { area: 'ask_discussion_reply', action: mode, answer_mode: 'discussion' })
+    } catch {
+      // Best-effort telemetry only.
+    }
+    setPracticeProblem('')
+    setPracticeAttempt('')
+    setExplainOpen(false)
+    const nextAnswer = await submitQuestion(prompt, previousContext)
+    if (nextAnswer) setDiscussionReply('')
   }
 
   const verifyPracticeAttempt = async (mode: 'check' | 'hint' | 'solution') => {
@@ -395,7 +462,84 @@ export default function AskPage() {
           )}
           {answer && (
             <div className="space-y-4">
-              <MathText content={answer.answer} />
+              {answer.answer_mode === 'discussion' && (
+                <div className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                  {language === 'zh' ? '阅读讨论' : 'Discussion'}
+                </div>
+              )}
+              <div className={answer.answer_mode === 'discussion' ? 'rounded-lg border border-amber-100 bg-amber-50/40 p-4' : ''}>
+                <MathText content={answer.answer} />
+              </div>
+              <FeedbackMoment
+                surface="quick_question"
+                interactionId={`ask-${answer.answer_mode || 'problem'}-${question.slice(0, 40)}`}
+                snapshot={{
+                  answer_mode: answer.answer_mode || 'problem',
+                  language: lang,
+                  subject: subject || null,
+                  has_uploaded_context: contexts.length > 0,
+                  next_steps: answer.next_steps,
+                }}
+              />
+              {answer.answer_mode === 'discussion' && (
+                <div className="rounded-lg border border-amber-200 bg-white p-3 shadow-sm">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700">
+                    {language === 'zh' ? '轮到你回应' : 'Your Turn'}
+                  </div>
+                  <textarea
+                    value={discussionReply}
+                    onChange={(event) => setDiscussionReply(event.target.value)}
+                    rows={4}
+                    placeholder={
+                      language === 'zh'
+                        ? '写一句你的理解、反对意见、例子，或你不确定的地方…'
+                        : 'Write your take, objection, example, or the part you are unsure about...'
+                    }
+                    className="w-full resize-none rounded-lg border border-amber-200 bg-amber-50/30 px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-amber-400"
+                  />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(language === 'zh'
+                      ? ['我觉得核心是…', '我不同意，因为…', '一个例子是…']
+                      : ['I think the core is...', 'I disagree because...', 'One example is...']
+                    ).map((starter) => (
+                      <button
+                        key={starter}
+                        type="button"
+                        onClick={() => setDiscussionReply((prev) => (prev.trim() ? `${prev.trim()} ${starter}` : starter))}
+                        className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                      >
+                        {starter}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { void submitDiscussionReply('probe') }}
+                      disabled={loading}
+                      className="inline-flex h-9 items-center justify-center rounded-lg bg-amber-600 px-3 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      {language === 'zh' ? '让 Mina 追问我' : 'Have Mina Probe Me'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { void submitDiscussionReply('counter') }}
+                      disabled={loading}
+                      className="inline-flex h-9 items-center justify-center rounded-lg border border-amber-200 bg-white px-3 text-sm font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+                    >
+                      {language === 'zh' ? '给我反方观点' : 'Give a Counterpoint'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { void submitDiscussionReply('draft') }}
+                      disabled={loading}
+                      className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {language === 'zh' ? '整理成短答' : 'Draft My Answer'}
+                    </button>
+                  </div>
+                </div>
+              )}
               {practiceProblem && (
                 <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3">
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-700">
@@ -471,7 +615,9 @@ export default function AskPage() {
               {answer.next_steps.length > 0 && (
                 <div className="border-t border-gray-100 pt-4">
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    {language === 'zh' ? '下一步' : 'Next'}
+                    {answer.answer_mode === 'discussion'
+                      ? (language === 'zh' ? '继续讨论' : 'Continue the Discussion')
+                      : (language === 'zh' ? '下一步' : 'Next')}
                   </div>
                   <div className="space-y-2">
                     {answer.next_steps.map((step, index) => (
@@ -480,9 +626,13 @@ export default function AskPage() {
                         type="button"
                         onClick={() => { void handleNextStep(step, index) }}
                         disabled={loading || isUploading}
-                        className="flex w-full items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-left text-sm text-gray-700 transition hover:bg-blue-50 hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+                        className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                          answer.answer_mode === 'discussion'
+                            ? 'bg-amber-50/60 text-gray-800 hover:bg-amber-100 hover:text-amber-900'
+                            : 'bg-gray-50 text-gray-700 hover:bg-blue-50 hover:text-blue-800'
+                        }`}
                       >
-                        <ArrowRight size={14} className="text-blue-600" />
+                        <ArrowRight size={14} className={answer.answer_mode === 'discussion' ? 'text-amber-700' : 'text-blue-600'} />
                         {step}
                       </button>
                     ))}
