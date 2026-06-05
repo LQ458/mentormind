@@ -1423,13 +1423,13 @@ async function testBoardLessonAskWorkflow(browser) {
     record.unit_id = unitId
     record.session_id = sessionId
 
+    const question = 'Can you explain why one-sided limits must match before continuity works?'
     const { context, page, observed } = await createObservedPage(browser, { name: 'board-ask', size: { width: 1365, height: 900 } })
     let shot = null
     try {
       await page.goto(`${BASE_URL}/board/${sessionId}`, { waitUntil: 'domcontentloaded', timeout: 45000 })
       await page.waitForFunction(() => /AI Board Lesson|AI 板书课|Ask the AI teacher|向 AI 老师|Board Lesson failed|Lesson session expired/i.test(document.body.innerText), { timeout: 90000 }).catch(() => null)
       const beforeText = await page.locator('body').innerText().catch(() => '')
-      const question = 'Can you explain why one-sided limits must match before continuity works?'
       const box = page.locator('textarea').last()
       await box.fill(question)
       await page.getByRole('button', { name: /^(Send|发送)$/ }).click()

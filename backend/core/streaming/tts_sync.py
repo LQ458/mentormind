@@ -102,7 +102,7 @@ class BoardTTSSync:
                 result.audio_path if hasattr(result, "audio_path") else str(result)
             )
             rel_name = os.path.basename(local_path)
-            audio_path = f"/api/files/board-audio/{rel_name}"
+            audio_path = f"/api/backend/media/board-audio/{rel_name}"
             duration_ms = (
                 int(getattr(result, "duration", 0) * 1000)
                 if hasattr(result, "duration") and getattr(result, "duration", 0)

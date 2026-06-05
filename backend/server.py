@@ -5828,6 +5828,44 @@ def _board_session_to_state_dict(session: dict, status: Optional[str] = None, co
     }
 
 
+def _board_live_session_payload(session_id: str, session: dict) -> Dict[str, Any]:
+    """Return a live in-memory board session using the same shape as persistence."""
+    cfg = session.get("config") or {}
+    state_dict = _board_session_to_state_dict(
+        session,
+        status=session.get("status"),
+        conversation_state=session.get("_conversation_state") or [],
+    )
+    return {
+        "id": session_id,
+        "user_id": str(session.get("user_id", "")),
+        "plan_id": session.get("plan_id"),
+        "unit_id": session.get("unit_id"),
+        "topic": cfg.get("topic"),
+        "title": cfg.get("topic"),
+        "config": cfg,
+        "created_at": None,
+        "updated_at": None,
+        **state_dict,
+    }
+
+
+def _board_payload_has_content(payload: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    try:
+        seq = int(payload.get("last_event_seq") or 0)
+    except (TypeError, ValueError):
+        seq = 0
+    return bool(
+        seq > 0
+        or payload.get("elements")
+        or payload.get("chat_history")
+        or payload.get("audio_queue")
+        or payload.get("narration_log")
+    )
+
+
 def _persist_board_session_sync(
     session_id: str,
     session: dict,
@@ -5894,32 +5932,36 @@ async def get_board_persisted_state(
     """
     _validate_session_id_or_400(session_id)
     loaded = _board_load_state(db, session_id, user_id=str(current_user.id))
-    if loaded is None:
-        mem = _board_sessions.get(session_id)
-        if mem is None:
-            raise HTTPException(status_code=404, detail="Board session not found")
+    mem = _board_sessions.get(session_id)
+    live_payload: Optional[Dict[str, Any]] = None
+    if mem is not None:
         if mem.get("user_id") and str(mem["user_id"]) != str(current_user.id):
             raise HTTPException(status_code=403, detail="Not authorized for this session")
-        loaded = {
-            "id": session_id,
-            "user_id": str(mem.get("user_id", "")),
-            "plan_id": mem.get("plan_id"),
-            "unit_id": mem.get("unit_id"),
-            "topic": mem.get("config", {}).get("topic"),
-            "title": mem.get("config", {}).get("topic"),
-            "status": mem.get("status", "created"),
-            "elements": {},
-            "element_order": [],
-            "narration_log": [],
-            "audio_queue": [],
-            "chat_history": [],
-            "last_event_seq": 0,
-            "config": mem.get("config", {}),
-            "created_at": None,
-            "updated_at": None,
-        }
+        live_payload = _board_live_session_payload(session_id, mem)
+    if loaded is None:
+        if live_payload is None:
+            raise HTTPException(status_code=404, detail="Board session not found")
+        loaded = live_payload
     if isinstance(loaded, dict) and loaded.get("__forbidden__"):
         raise HTTPException(status_code=403, detail="Not authorized for this session")
+    if live_payload is not None and _board_payload_has_content(live_payload):
+        loaded_seq = loaded.get("last_event_seq") if isinstance(loaded, dict) else 0
+        live_seq = live_payload.get("last_event_seq") or 0
+        try:
+            loaded_seq = int(loaded_seq or 0)
+        except (TypeError, ValueError):
+            loaded_seq = 0
+        try:
+            live_seq = int(live_seq or 0)
+        except (TypeError, ValueError):
+            live_seq = 0
+        if live_seq >= loaded_seq or not _board_payload_has_content(loaded):
+            loaded = {
+                **loaded,
+                **live_payload,
+                "created_at": loaded.get("created_at") if isinstance(loaded, dict) else live_payload.get("created_at"),
+                "updated_at": loaded.get("updated_at") if isinstance(loaded, dict) else live_payload.get("updated_at"),
+            }
     return {"success": True, "session": loaded}
 
 

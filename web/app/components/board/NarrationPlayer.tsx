@@ -55,15 +55,14 @@ export default function NarrationPlayer({
     if (cursor > audioQueue.length) setCursor(audioQueue.length)
   }, [audioQueue.length, cursor])
 
-  // Resolve a backend-served audio path to an absolute URL the browser can fetch.
-  // In dev, the Next dev server (:3000) can't proxy /api/files, so point at backend :8000.
+  // Resolve backend-served audio through the Next media proxy. Older board
+  // sessions may still contain /api/files paths emitted before the proxy URL fix.
   const resolveAudioSrc = (path: string): string => {
     if (!path) return path
     if (/^https?:\/\//i.test(path) || path.startsWith('blob:') || path.startsWith('data:')) return path
-    if (typeof window === 'undefined') return path
-    const { hostname, protocol } = window.location
-    const isDev = hostname === 'localhost' || hostname === '127.0.0.1'
-    if (isDev && path.startsWith('/')) return `${protocol}//${hostname}:8000${path}`
+    if (path.startsWith('/api/files/')) {
+      return `/api/backend/media/${path.replace(/^\/api\/files\//, '')}`
+    }
     return path
   }
 
