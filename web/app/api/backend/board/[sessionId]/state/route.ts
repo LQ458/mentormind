@@ -11,12 +11,16 @@ export async function GET(
     const { sessionId } = params
     const res = await fetch(`${BACKEND_URL}/board/${sessionId}/state`, {
       method: 'GET',
+      cache: 'no-store',
       headers: {
         Authorization: req.headers.get('Authorization') || '',
       },
     })
     const data = await res.json().catch(() => ({}))
-    return NextResponse.json(data, { status: res.status })
+    return NextResponse.json(data, {
+      status: res.status,
+      headers: { 'Cache-Control': 'no-store' },
+    })
   } catch (err) {
     console.error('[board state proxy] error:', err)
     return NextResponse.json(
