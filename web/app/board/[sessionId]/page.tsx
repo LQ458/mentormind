@@ -245,12 +245,15 @@ function BoardSessionInner() {
     }
   }, [sessionId, getToken, language])
 
+  const canAskTeacher = state.status !== 'error' && Boolean(state.board || state.elementOrder.length > 0)
+
   const handleSend = useCallback(() => {
     const text = draft.trim()
     if (!text) return
+    if (!canAskTeacher) return
     const ok = sendUserMessage(text)
     if (ok) setDraft('')
-  }, [draft, sendUserMessage])
+  }, [canAskTeacher, draft, sendUserMessage])
 
   const handleDraftKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -567,16 +570,18 @@ function BoardSessionInner() {
             onKeyDown={handleDraftKeyDown}
             rows={1}
             placeholder={
-              language === 'zh'
-                ? '向 AI 老师提问…（回车发送，Shift+回车换行）'
-                : 'Ask the AI teacher anything… (Enter to send, Shift+Enter for newline)'
+              !canAskTeacher
+                ? (language === 'zh' ? 'Mina 正在准备板书…' : 'Mina is preparing the board…')
+                : language === 'zh'
+                  ? '向 AI 老师提问…（回车发送，Shift+回车换行）'
+                  : 'Ask the AI teacher anything… (Enter to send, Shift+Enter for newline)'
             }
             className="flex-1 min-w-[180px] text-sm bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 placeholder:text-slate-500 resize-none"
           />
           <button
             type="button"
             onClick={handleSend}
-            disabled={!draft.trim() || state.status === 'error'}
+            disabled={!draft.trim() || !canAskTeacher}
             className="whitespace-nowrap text-xs px-3 sm:px-4 py-2 rounded-lg border border-sky-500/70 bg-sky-600/40 text-sky-50 hover:bg-sky-600/60 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {language === 'zh' ? '发送' : 'Send'}

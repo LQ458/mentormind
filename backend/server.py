@@ -6959,6 +6959,7 @@ async def board_websocket(websocket: WebSocket, session_id: str):
     # persisted last_event_seq reflects monotonic progress, not in-memory
     # event_log length (which resets on server restart).
     emitted_counter = {"n": 0}
+    emitted_event_types: set[str] = set()
 
     async def _send_events():
         nonlocal paused
@@ -7017,6 +7018,7 @@ async def board_websocket(websocket: WebSocket, session_id: str):
                         "text": event.data["narration"],
                         "timestamp": event.timestamp,
                     })
+                emitted_event_types.add(event.event_type)
                 emitted_counter["n"] += 1
                 should_checkpoint = (
                     event.event_type in {
@@ -7047,6 +7049,29 @@ async def board_websocket(websocket: WebSocket, session_id: str):
                 pass
             await _persist_board_session_safe(
                 session_id, session, status="error",
+                last_event_seq=emitted_counter["n"],
+                conversation_state=generator._current_messages,
+            )
+            return
+
+        if not (emitted_event_types & {"board_created", "element_added"}):
+            session["status"] = "error"
+            error_message = (
+                "Board lesson generation returned no board content. "
+                "Please retry; if this repeats, report it from the page."
+            )
+            try:
+                await websocket.send_json({
+                    "event_type": "error",
+                    "timestamp": time.time(),
+                    "data": {"error": error_message},
+                })
+            except Exception:
+                pass
+            await _persist_board_session_safe(
+                session_id,
+                session,
+                status="error",
                 last_event_seq=emitted_counter["n"],
                 conversation_state=generator._current_messages,
             )

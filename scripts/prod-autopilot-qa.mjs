@@ -1431,46 +1431,87 @@ async function testBoardLessonAskWorkflow(browser) {
     try {
       await page.goto(`${BASE_URL}/board/${sessionId}`, { waitUntil: 'domcontentloaded', timeout: 45000 })
       await page.waitForFunction(() => /AI Board Lesson|AI 板书课|Ask the AI teacher|向 AI 老师|Board Lesson failed|Lesson session expired/i.test(document.body.innerText), { timeout: 90000 }).catch(() => null)
-      const beforeText = await page.locator('body').innerText().catch(() => '')
-      const box = page.locator('textarea').last()
-      await box.fill(question)
-      await page.getByRole('button', { name: /^(Send|发送)$/ }).click()
-      await page.waitForFunction((expected) => document.body.innerText.includes(expected), question, { timeout: 15000 }).catch(() => null)
-      const statePolls = []
-      const pollStarted = performance.now()
-      while (performance.now() - pollStarted < 60000) {
+      const startupStatePolls = []
+      let boardStarted = false
+      let lastStartupState = null
+      const startupStarted = performance.now()
+      while (performance.now() - startupStarted < 90000) {
         const liveState = await fetchJson(`${BASE_URL}/api/backend/board/${sessionId}/state`, {
           method: 'GET',
           headers: authHeaders(false),
         })
+        lastStartupState = liveState
         const liveSession = liveState.data?.session || liveState.data?.state || {}
-        statePolls.push({
+        const elementCount = Array.isArray(liveSession.element_order)
+          ? liveSession.element_order.length
+          : Object.keys(liveSession.elements || {}).length
+        startupStatePolls.push({
           status: liveState.status,
           session_status: liveSession.status || null,
-          element_count: Array.isArray(liveSession.element_order)
-            ? liveSession.element_order.length
-            : Object.keys(liveSession.elements || {}).length,
+          element_count: elementCount,
           chat_count: Array.isArray(liveSession.chat_history) ? liveSession.chat_history.length : 0,
         })
-        const chatText = JSON.stringify(liveSession.chat_history || [])
-        const hasBoardContent =
-          (Array.isArray(liveSession.element_order) && liveSession.element_order.length > 0) ||
-          Object.keys(liveSession.elements || {}).length > 0
-        const hasPersistedQuestion = chatText.includes(question)
-        if (hasBoardContent || hasPersistedQuestion) {
-          record.steps.live_state = liveState
+        if (elementCount > 0) {
+          boardStarted = true
+          record.steps.initial_state = liveState
+          break
+        }
+        if (liveSession.status === 'error') {
+          record.steps.initial_state = liveState
           break
         }
         await page.waitForTimeout(2000)
+      }
+      if (!record.steps.initial_state && lastStartupState) {
+        record.steps.initial_state = lastStartupState
+      }
+      const beforeText = await page.locator('body').innerText().catch(() => '')
+      let questionSent = false
+      const statePolls = []
+      if (boardStarted) {
+        const box = page.locator('textarea').last()
+        await box.fill(question)
+        await page.getByRole('button', { name: /^(Send|发送)$/ }).click()
+        questionSent = true
+        await page.waitForFunction((expected) => document.body.innerText.includes(expected), question, { timeout: 15000 }).catch(() => null)
+        const pollStarted = performance.now()
+        while (performance.now() - pollStarted < 60000) {
+          const liveState = await fetchJson(`${BASE_URL}/api/backend/board/${sessionId}/state`, {
+            method: 'GET',
+            headers: authHeaders(false),
+          })
+          const liveSession = liveState.data?.session || liveState.data?.state || {}
+          statePolls.push({
+            status: liveState.status,
+            session_status: liveSession.status || null,
+            element_count: Array.isArray(liveSession.element_order)
+              ? liveSession.element_order.length
+              : Object.keys(liveSession.elements || {}).length,
+            chat_count: Array.isArray(liveSession.chat_history) ? liveSession.chat_history.length : 0,
+          })
+          const chatText = JSON.stringify(liveSession.chat_history || [])
+          const hasBoardContent =
+            (Array.isArray(liveSession.element_order) && liveSession.element_order.length > 0) ||
+            Object.keys(liveSession.elements || {}).length > 0
+          const hasPersistedQuestion = chatText.includes(question)
+          if (hasBoardContent && hasPersistedQuestion) {
+            record.steps.live_state = liveState
+            break
+          }
+          await page.waitForTimeout(2000)
+        }
       }
       const afterText = await page.locator('body').innerText().catch(() => '')
       shot = await screenshot(page, 'board-lesson-ask-ai')
       record.steps.browser = {
         status: 'completed',
+        board_started: boardStarted,
+        question_sent: questionSent,
         before_text_length: beforeText.length,
         after_text_length: afterText.length,
         user_message_visible: afterText.includes(question),
-        ai_teacher_visible: /Writing on the board|正在板书|AI Teacher|AI 老师|narrating|one-sided|limit|continuity/i.test(afterText),
+        ai_teacher_visible: boardStarted && /AI Teacher|AI 老师/.test(afterText),
+        startup_state_polls: startupStatePolls,
         state_polls: statePolls,
         observed,
         screenshot: shot,
@@ -1511,7 +1552,9 @@ async function testBoardLessonAskWorkflow(browser) {
     const chatText = JSON.stringify(sessionState.chat_history || [])
     const hasPersistedQuestion = chatText.includes(question)
     const success = Boolean(
-      record.steps.browser?.user_message_visible
+      record.steps.browser?.board_started
+      && record.steps.browser?.question_sent
+      && record.steps.browser?.user_message_visible
       && record.steps.browser?.ai_teacher_visible
       && !record.steps.browser?.observed?.serverErrors?.length
       && (!state.status || state.status < 500)
