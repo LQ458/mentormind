@@ -54,6 +54,32 @@ function percentile(values, p) {
   return Math.round(sorted[idx])
 }
 
+function compactTelemetryValue(value, depth = 0) {
+  if (value === null || value === undefined) return value
+  if (typeof value === 'boolean' || typeof value === 'number') return value
+  if (typeof value === 'string') return value.length > 900 ? `${value.slice(0, 900)}...[truncated ${value.length - 900} chars]` : value
+  if (depth >= 4) {
+    const text = JSON.stringify(value)
+    return text.length > 900 ? `${text.slice(0, 900)}...[truncated]` : text
+  }
+  if (Array.isArray(value)) {
+    const items = value.slice(0, 8).map((item) => compactTelemetryValue(item, depth + 1))
+    if (value.length > 8) items.push(`[truncated ${value.length - 8} items]`)
+    return items
+  }
+  if (typeof value === 'object') {
+    const compact = {}
+    const entries = Object.entries(value).slice(0, 28)
+    for (const [key, nested] of entries) {
+      compact[key.slice(0, 80)] = compactTelemetryValue(nested, depth + 1)
+    }
+    const remaining = Object.keys(value).length - entries.length
+    if (remaining > 0) compact.__truncated_keys = remaining
+    return compact
+  }
+  return String(value).slice(0, 900)
+}
+
 async function postTelemetry(eventType, page, payload, latencyMs = null) {
   const body = {
     session_id: RUN_ID,
@@ -64,7 +90,7 @@ async function postTelemetry(eventType, page, payload, latencyMs = null) {
     payload: {
       source: 'prod_autopilot_qa',
       run_id: RUN_ID,
-      ...payload,
+      ...compactTelemetryValue(payload),
     },
   }
   try {
@@ -1408,7 +1434,33 @@ async function testBoardLessonAskWorkflow(browser) {
       await box.fill(question)
       await page.getByRole('button', { name: /^(Send|发送)$/ }).click()
       await page.waitForFunction((expected) => document.body.innerText.includes(expected), question, { timeout: 15000 }).catch(() => null)
-      await page.waitForTimeout(12000)
+      const statePolls = []
+      const pollStarted = performance.now()
+      while (performance.now() - pollStarted < 60000) {
+        const liveState = await fetchJson(`${BASE_URL}/api/backend/board/${sessionId}/state`, {
+          method: 'GET',
+          headers: authHeaders(false),
+        })
+        const liveSession = liveState.data?.session || liveState.data?.state || {}
+        statePolls.push({
+          status: liveState.status,
+          session_status: liveSession.status || null,
+          element_count: Array.isArray(liveSession.element_order)
+            ? liveSession.element_order.length
+            : Object.keys(liveSession.elements || {}).length,
+          chat_count: Array.isArray(liveSession.chat_history) ? liveSession.chat_history.length : 0,
+        })
+        const chatText = JSON.stringify(liveSession.chat_history || [])
+        const hasBoardContent =
+          (Array.isArray(liveSession.element_order) && liveSession.element_order.length > 0) ||
+          Object.keys(liveSession.elements || {}).length > 0
+        const hasPersistedQuestion = chatText.includes(question)
+        if (hasBoardContent || hasPersistedQuestion) {
+          record.steps.live_state = liveState
+          break
+        }
+        await page.waitForTimeout(2000)
+      }
       const afterText = await page.locator('body').innerText().catch(() => '')
       shot = await screenshot(page, 'board-lesson-ask-ai')
       record.steps.browser = {
@@ -1416,7 +1468,8 @@ async function testBoardLessonAskWorkflow(browser) {
         before_text_length: beforeText.length,
         after_text_length: afterText.length,
         user_message_visible: afterText.includes(question),
-        ai_teacher_visible: /AI Teacher|AI 老师|narrating|板书|one-sided|limit|continuity/i.test(afterText),
+        ai_teacher_visible: /Writing on the board|正在板书|AI Teacher|AI 老师|narrating|one-sided|limit|continuity/i.test(afterText),
+        state_polls: statePolls,
         observed,
         screenshot: shot,
       }
@@ -1429,12 +1482,20 @@ async function testBoardLessonAskWorkflow(browser) {
       headers: authHeaders(false),
     })
     record.steps.state = state
-    const stateText = JSON.stringify(state.data || {}).slice(0, 4000)
+    const sessionState = state.data?.session || state.data?.state || {}
+    const stateText = JSON.stringify(sessionState || {}).slice(0, 4000)
+    const elementCount = Array.isArray(sessionState.element_order)
+      ? sessionState.element_order.length
+      : Object.keys(sessionState.elements || {}).length
+    const chatText = JSON.stringify(sessionState.chat_history || [])
+    const hasPersistedQuestion = chatText.includes(question)
     const success = Boolean(
       record.steps.browser?.user_message_visible
       && record.steps.browser?.ai_teacher_visible
       && !record.steps.browser?.observed?.serverErrors?.length
       && (!state.status || state.status < 500)
+      && elementCount > 0
+      && hasPersistedQuestion
       && /one-sided|limit|continuity|elements|chat|conversation|board/i.test(stateText)
     )
     record.status = success ? 'passed' : 'failed'

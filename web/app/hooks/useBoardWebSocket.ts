@@ -636,6 +636,13 @@ function applyEvent(state: BoardWSState, ev: BoardEvent): BoardWSState {
     case 'summary_ready':
       return { ...state, summary: ev.data.summary }
     case 'user_message':
+      if (
+        state.chatHistory.length > 0 &&
+        state.chatHistory[state.chatHistory.length - 1]?.role === 'user' &&
+        state.chatHistory[state.chatHistory.length - 1]?.text === ev.data.text
+      ) {
+        return state
+      }
       return {
         ...state,
         chatHistory: [
@@ -695,6 +702,7 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
   const { sessionId, token, enabled, backendWsUrl } = opts
   const [state, dispatch] = useReducer(reducer, initialState)
   const wsRef = useRef<WebSocket | null>(null)
+  const pendingMessagesRef = useRef<string[]>([])
   const attemptsRef = useRef(0)
   const closedByUserRef = useRef(false)
   // Mirror of state for unload-time access — useEffect cleanup can't read
@@ -862,6 +870,15 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
       // we wait for the first `board_created` event. The reducer will
       // promote this to `streaming` when real events start arriving.
       dispatch({ type: 'SET_STATUS', status: 'open' })
+      const queued = pendingMessagesRef.current.splice(0)
+      for (const text of queued) {
+        try {
+          ws.send(JSON.stringify({ action: 'user_message', text }))
+        } catch {
+          pendingMessagesRef.current.unshift(text)
+          break
+        }
+      }
     }
 
     ws.onmessage = (msg) => {
@@ -1011,12 +1028,43 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
     const trimmed = text.trim()
     if (!trimmed) return false
     const ws = wsRef.current
-    if (!ws || ws.readyState !== WebSocket.OPEN) return false
+    const currentStatus = stateRef.current.status
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      if (currentStatus === 'done' || currentStatus === 'error') return false
+      pendingMessagesRef.current.push(trimmed)
+      dispatch({
+        type: 'EVENT',
+        event: {
+          event_type: 'user_message',
+          timestamp: Date.now(),
+          data: { text: trimmed },
+        } as UserMessageEvent,
+      })
+      return true
+    }
     try {
       ws.send(JSON.stringify({ action: 'user_message', text: trimmed }))
+      dispatch({
+        type: 'EVENT',
+        event: {
+          event_type: 'user_message',
+          timestamp: Date.now(),
+          data: { text: trimmed },
+        } as UserMessageEvent,
+      })
       return true
     } catch {
-      return false
+      if (currentStatus === 'done' || currentStatus === 'error') return false
+      pendingMessagesRef.current.push(trimmed)
+      dispatch({
+        type: 'EVENT',
+        event: {
+          event_type: 'user_message',
+          timestamp: Date.now(),
+          data: { text: trimmed },
+        } as UserMessageEvent,
+      })
+      return true
     }
   }, [])
 

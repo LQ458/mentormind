@@ -6039,6 +6039,9 @@ class TelemetryEventPayload(BaseModel):
     viewport_h: Optional[int] = None
 
 
+TELEMETRY_MAX_RAW_BYTES = 64 * 1024
+
+
 @app.post("/telemetry/event")
 @limiter.limit("60/minute")
 async def post_telemetry_event(
@@ -6048,8 +6051,11 @@ async def post_telemetry_event(
 ):
     """Record a single client-side telemetry event. No auth required."""
     raw = await request.body()
-    if len(raw) > 8 * 1024:
-        raise HTTPException(status_code=413, detail="Payload too large")
+    if len(raw) > TELEMETRY_MAX_RAW_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Payload too large; max {TELEMETRY_MAX_RAW_BYTES // 1024} KiB",
+        )
     try:
         body = json.loads(raw.decode("utf-8") or "{}") if raw else {}
     except Exception:
@@ -6079,9 +6085,9 @@ async def post_telemetry_event(
         except Exception:
             return None
 
-    # Defense-in-depth: clamp every string field inside `payload` to 8000 chars
-    # so a future event_type with large strings can't blow up the row. Special
-    # case `survey_response.freeText` to 4000 (matches the client cap).
+    # Defense-in-depth: clamp every string field inside `payload` so a future
+    # event_type with large strings cannot blow up the row. Special case
+    # `survey_response.freeText` to 4000 (matches the client cap).
     raw_payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
 
     def _sanitize_payload_value(value: Any, *, max_string: int, depth: int = 0) -> Any:

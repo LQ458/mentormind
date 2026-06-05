@@ -130,12 +130,19 @@ function BoardSessionInner() {
         if (res.status === 404) return
         if (!res.ok) return
         const body = await res.json().catch(() => null)
-        if (cancelled || !body || !body.success || !body.state) return
-        const snap = body.state as Record<string, unknown>
+        const snap = (body?.session ?? body?.state) as Record<string, unknown> | undefined
+        if (cancelled || !body || !body.success || !snap) return
         const elements = (snap.elements as Record<string, unknown> | undefined) ?? {}
         if (Object.keys(elements).length === 0) return
         hydrate(snap)
-        setResumedAt(typeof body.updated_at === 'number' ? body.updated_at : Date.now())
+        const updatedAt = snap.updated_at
+        const resumedTime =
+          typeof updatedAt === 'number'
+            ? updatedAt
+            : typeof updatedAt === 'string'
+              ? Date.parse(updatedAt)
+              : Date.now()
+        setResumedAt(Number.isFinite(resumedTime) ? resumedTime : Date.now())
       } catch {
         // network errors are non-fatal; just proceed without resume banner.
       }
