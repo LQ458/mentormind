@@ -47,6 +47,8 @@ from core.agents.study_plan_agent import (
     _parse_plan_json,
     _strip_ask_user_block,
     _build_curriculum_note,
+    _build_weekly_schedule,
+    _extract_requested_study_days,
 )
 
 
@@ -542,3 +544,29 @@ def test_T34_parse_plan_json_unwraps_proposed_plan_payload():
     assert plan is not None
     assert plan["title"] == "Wrapped Plan"
     assert plan["units"][0]["title"] == "Polar"
+
+
+def test_T35_extract_requested_study_days_from_intake_summary():
+    days = _extract_requested_study_days(
+        "Schedule: Mon, Wed, Fri, Sun, 2 hours per session",
+        "en",
+    )
+
+    assert days == ["Mon", "Wed", "Fri", "Sun"]
+
+
+def test_T36_weekly_schedule_preserves_requested_days():
+    schedule = _build_weekly_schedule("accelerated", "en", ["Mon", "Wed", "Fri", "Sun"])
+
+    assert [slot["day"] for slot in schedule] == ["Mon", "Wed", "Fri", "Sun"]
+    assert "hard" in schedule[0]["focus"].lower()
+    assert "hard" in schedule[3]["focus"].lower()
+
+
+def test_T37_extract_requested_zh_study_days_from_intake_summary():
+    days = _extract_requested_study_days(
+        "学习安排：周二, 周四, 周日，每次 1 小时",
+        "zh",
+    )
+
+    assert days == ["周二", "周四", "周日"]

@@ -283,57 +283,100 @@ def _tier_profile(learner_tier: str, language: str) -> Dict[str, Any]:
     return profiles.get(learner_tier, profiles["standard"])
 
 
-def _build_weekly_schedule(learner_tier: str, language: str) -> List[Dict[str, str]]:
+def _extract_requested_study_days(diagnostic_text: str, language: str) -> Optional[List[str]]:
+    """Extract user-selected weekly study days from the intake summary."""
+    text = diagnostic_text or ""
+    schedule_line = ""
+    for line in text.splitlines():
+        lowered = line.lower()
+        if "schedule:" in lowered or "学习安排" in line:
+            schedule_line = line
+            break
+    if not schedule_line:
+        return None
+
+    if language == "zh":
+        day_map = [
+            ("周一", "周一"), ("周二", "周二"), ("周三", "周三"), ("周四", "周四"),
+            ("周五", "周五"), ("周六", "周六"), ("周日", "周日"), ("周天", "周日"),
+        ]
+        days = []
+        for needle, label in day_map:
+            if needle in schedule_line and label not in days:
+                days.append(label)
+        return days or None
+
+    day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    found = []
+    for label in day_labels:
+        if re.search(rf"\b{label}\b", schedule_line, re.IGNORECASE):
+            found.append(label)
+    return found or None
+
+
+def _build_weekly_schedule(learner_tier: str, language: str, requested_days: Optional[List[str]] = None) -> List[Dict[str, str]]:
     if language == "zh":
         if learner_tier == "foundation_rebuild":
-            return [
-                {"day": "Mon", "focus": "10分钟直觉图 + 1个例题 + 1个小胜利"},
-                {"day": "Wed", "focus": "词汇/公式解码 + 引导练习"},
-                {"day": "Fri", "focus": "低压力复盘 + 2题连胜挑战"},
+            focus_cycle = [
+                "10分钟直觉图 + 1个例题 + 1个小胜利",
+                "词汇/公式解码 + 引导练习",
+                "低压力复盘 + 2题连胜挑战",
             ]
-        if learner_tier == "scaffolded":
-            return [
-                {"day": "Mon", "focus": "概念修补 + 例题拆解"},
-                {"day": "Wed", "focus": "引导练习 + 错因标记"},
-                {"day": "Fri", "focus": "独立练习 + 迷你测验"},
+        elif learner_tier == "scaffolded":
+            focus_cycle = [
+                "概念修补 + 例题拆解",
+                "引导练习 + 错因标记",
+                "独立练习 + 迷你测验",
             ]
-        if learner_tier == "accelerated":
-            return [
-                {"day": "Mon", "focus": "快速诊断 + 难题组"},
-                {"day": "Wed", "focus": "FRQ/实验设计限时训练"},
-                {"day": "Fri", "focus": "错题升级 + 跨单元挑战"},
+        elif learner_tier == "accelerated":
+            focus_cycle = [
+                "快速诊断 + 难题组",
+                "FRQ/实验设计限时训练",
+                "错题升级 + 跨单元挑战",
             ]
-        return [
-            {"day": "Mon", "focus": "核心概念 + 典型题"},
-            {"day": "Wed", "focus": "AP风格练习 + 图像/数据"},
-            {"day": "Fri", "focus": "限时小测 + 错题复盘"},
-        ]
+        else:
+            focus_cycle = [
+                "核心概念 + 典型题",
+                "AP风格练习 + 图像/数据",
+                "限时小测 + 错题复盘",
+            ]
+        days = requested_days or ["周一", "周三", "周五"]
+        return [{"day": day, "focus": focus_cycle[i % len(focus_cycle)]} for i, day in enumerate(days)]
+
     if learner_tier == "foundation_rebuild":
-        return [
-            {"day": "Mon", "focus": "10-min intuition picture + 1 worked example + 1 confidence win"},
-            {"day": "Wed", "focus": "vocabulary/formula decoding + guided practice"},
-            {"day": "Fri", "focus": "low-pressure recap + 2-question streak challenge"},
+        focus_cycle = [
+            "10-min intuition picture + 1 worked example + 1 confidence win",
+            "vocabulary/formula decoding + guided practice",
+            "low-pressure recap + 2-question streak challenge",
         ]
-    if learner_tier == "scaffolded":
-        return [
-            {"day": "Mon", "focus": "concept repair + worked example"},
-            {"day": "Wed", "focus": "guided practice + error tagging"},
-            {"day": "Fri", "focus": "independent attempt + mini-check"},
+    elif learner_tier == "scaffolded":
+        focus_cycle = [
+            "concept repair + worked example",
+            "guided practice + error tagging",
+            "independent attempt + mini-check",
         ]
-    if learner_tier == "accelerated":
-        return [
-            {"day": "Mon", "focus": "fast diagnostic + hard problem set"},
-            {"day": "Wed", "focus": "timed FRQ / experimental design"},
-            {"day": "Fri", "focus": "error upgrade + cross-unit challenge"},
+    elif learner_tier == "accelerated":
+        focus_cycle = [
+            "fast diagnostic + hard problem set",
+            "timed FRQ / experimental design",
+            "error upgrade + cross-unit challenge",
         ]
-    return [
-        {"day": "Mon", "focus": "core concept + typical problems"},
-        {"day": "Wed", "focus": "AP-style practice + graph/data work"},
-        {"day": "Fri", "focus": "timed mini-check + error review"},
-    ]
+    else:
+        focus_cycle = [
+            "core concept + typical problems",
+            "AP-style practice + graph/data work",
+            "timed mini-check + error review",
+        ]
+    days = requested_days or ["Mon", "Wed", "Fri"]
+    return [{"day": day, "focus": focus_cycle[i % len(focus_cycle)]} for i, day in enumerate(days)]
 
 
-def _enhance_plan_for_tier(plan: Dict[str, Any], learner_tier: str, language: str) -> Dict[str, Any]:
+def _enhance_plan_for_tier(
+    plan: Dict[str, Any],
+    learner_tier: str,
+    language: str,
+    diagnostic_text: str = "",
+) -> Dict[str, Any]:
     """Normalize the LLM plan and inject required learner-tier supports.
 
     The LLM is good at course coverage but can drift toward a generic syllabus.
@@ -362,7 +405,11 @@ def _enhance_plan_for_tier(plan: Dict[str, Any], learner_tier: str, language: st
 
     plan["learner_tier"] = learner_tier
     plan["pedagogy_profile"] = _tier_profile(learner_tier, language)
-    plan["weekly_schedule"] = _build_weekly_schedule(learner_tier, language)
+    plan["weekly_schedule"] = _build_weekly_schedule(
+        learner_tier,
+        language,
+        _extract_requested_study_days(diagnostic_text, language),
+    )
 
     if language == "zh":
         hooks = {
@@ -981,6 +1028,7 @@ Schema:
             proposed_plan,
             proposed_plan.get("learner_tier") if proposed_plan.get("learner_tier") in VALID_LEARNER_TIERS else inferred_tier,
             language,
+            diagnostic_summary,
         )
 
         summary = (
