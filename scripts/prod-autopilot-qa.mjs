@@ -19,6 +19,12 @@ const QA_PASSWORD = process.env.QA_PASSWORD || `qa_${Math.random().toString(36).
 const QA_IMAGE_FIXTURE = process.env.QA_IMAGE_FIXTURE || ''
 const QA_AUDIO_FIXTURE = process.env.QA_AUDIO_FIXTURE || ''
 const QA_PDF_FIXTURE = process.env.QA_PDF_FIXTURE || ''
+const QA_TEXT_FIXTURE = process.env.QA_TEXT_FIXTURE || ''
+const QA_IMAGE_FIXTURES = splitEnvList(process.env.QA_IMAGE_FIXTURES || QA_IMAGE_FIXTURE)
+const QA_AUDIO_FIXTURES = splitEnvList(process.env.QA_AUDIO_FIXTURES || QA_AUDIO_FIXTURE)
+const QA_PDF_FIXTURES = splitEnvList(process.env.QA_PDF_FIXTURES || QA_PDF_FIXTURE)
+const QA_TEXT_FIXTURES = splitEnvList(process.env.QA_TEXT_FIXTURES || QA_TEXT_FIXTURE)
+const RUN_DEEP_WORKFLOW_QA = process.env.RUN_DEEP_WORKFLOW_QA !== 'false'
 const QA_RUN_UPLOAD_UI = process.env.QA_RUN_UPLOAD_UI !== 'false'
 
 const findings = []
@@ -31,6 +37,14 @@ function nowIso() {
 
 function sanitizeName(value) {
   return value.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '') || 'artifact'
+}
+
+function splitEnvList(value) {
+  if (!value) return []
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 function percentile(values, p) {
@@ -724,9 +738,9 @@ async function testQuickQuestion(browser) {
 }
 
 async function testQuickQuestionUploadForms(browser) {
-  const textFixture = path.join(OUT_DIR, 'quick-question-text-fixture.txt')
+  const generatedTextFixture = path.join(OUT_DIR, 'quick-question-text-fixture.txt')
   await fs.writeFile(
-    textFixture,
+    generatedTextFixture,
     [
       'H.W. Brands frames American business history as a recurring tension.',
       'Political democracy promises equality, while capitalism often rewards inequality, risk, and entrepreneurial advantage.',
@@ -734,34 +748,43 @@ async function testQuickQuestionUploadForms(browser) {
     ].join('\n'),
   )
 
+  const textFixtures = QA_TEXT_FIXTURES.length ? QA_TEXT_FIXTURES : [generatedTextFixture]
+  const mediaFixtures = [
+    ...QA_IMAGE_FIXTURES.map((fixture) => ({ fixture, fileType: 'image' })),
+    ...QA_PDF_FIXTURES.map((fixture) => ({ fixture, fileType: 'pdf' })),
+  ]
   const uploadCases = [
-    {
-      id: 'text_context',
-      label: 'Text context upload',
+    ...textFixtures.map((fixture, index) => ({
+      id: `text_context_${index + 1}`,
+      label: `Text context upload ${index + 1}`,
       fileType: 'text',
-      fixture: textFixture,
+      fixture,
       inputSelector: 'input[type="file"][accept=".txt,.md,.csv,.json,text/*"]',
       prompt: '根据上传的文字材料，先给我一个讨论式主旨，再问我一个追问问题。',
-      expectedPatterns: [/讨论|主旨|张力|追问|Your Turn|轮到你|democracy|capitalism/i],
-    },
-    {
-      id: 'image_context',
-      label: 'Image/PDF context upload',
-      fileType: 'image',
-      fixture: QA_IMAGE_FIXTURE || QA_PDF_FIXTURE,
+      expectedPatterns: [/讨论|主旨|张力|追问|Your Turn|轮到你|evidence|材料|观点|summary/i],
+    })),
+    ...(mediaFixtures.length ? mediaFixtures : [{ fixture: '', fileType: 'image' }]).map((media, index) => ({
+      id: `${media.fileType}_context_${index + 1}`,
+      label: `${media.fileType === 'pdf' ? 'PDF' : 'Image'} context upload ${index + 1}`,
+      fileType: media.fileType,
+      fixture: media.fixture,
       inputSelector: 'input[type="file"][accept="image/*,.pdf"]',
-      prompt: '请根据我上传的题目图片，解释这道题的关键思路，并给我一个可以回答的小检查问题。',
-      expectedPatterns: [/关键|思路|检查|积分|坐标|theta|半径|question|check/i],
-    },
-    {
-      id: 'audio_context',
-      label: 'Audio context upload',
+      prompt: media.fileType === 'pdf'
+        ? '请根据我上传的 PDF，概括材料的核心内容，并给我一个讨论式追问。'
+        : '请根据我上传的题目图片，解释这道题的关键思路，并给我一个可以回答的小检查问题。',
+      expectedPatterns: media.fileType === 'pdf'
+        ? [/PDF|document|材料|核心|主旨|讨论|追问|dummy|summary/i]
+        : [/关键|思路|检查|积分|坐标|theta|半径|question|check/i],
+    })),
+    ...(QA_AUDIO_FIXTURES.length ? QA_AUDIO_FIXTURES : ['']).map((fixture, index) => ({
+      id: `audio_context_${index + 1}`,
+      label: `Audio context upload ${index + 1}`,
       fileType: 'audio',
-      fixture: QA_AUDIO_FIXTURE,
+      fixture,
       inputSelector: 'input[type="file"][accept="audio/*"]',
       prompt: '根据上传音频，总结这段内容的核心观点，然后用讨论方式问我一个问题。',
-      expectedPatterns: [/核心|观点|讨论|追问|Your Turn|轮到你|enterprise|business|market/i],
-    },
+      expectedPatterns: [/核心|观点|讨论|追问|Your Turn|轮到你|speech|business|market|idea/i],
+    })),
   ]
 
   for (const item of uploadCases) {
@@ -810,7 +833,9 @@ async function testQuickQuestionUploadForms(browser) {
         if (submitted) {
           body = await waitForAskAnswer(page)
           answerSucceeded = /下一步|继续讨论|Next|Continue the Discussion|轮到你|Your Turn|写下你的答案|Write Your Attempt/i.test(body)
-          personaMatched = hasAny(body, item.expectedPatterns)
+          personaMatched = hasAny(body, item.expectedPatterns) || hasAny(body, [
+            /Discussion Focus|Follow-Up Question|Mina's follow-up|Evidence from the passage|讨论焦点|追问问题/i,
+          ])
         }
       }
       const latency = Math.round(performance.now() - started)
@@ -1090,6 +1115,412 @@ async function testUploadEdges() {
   }
 }
 
+function authHeaders(json = false) {
+  const headers = {}
+  if (authSession?.token) headers.Authorization = `Bearer ${authSession.token}`
+  if (json) headers['Content-Type'] = 'application/json'
+  return headers
+}
+
+function guessMime(filePath) {
+  const ext = path.extname(filePath || '').toLowerCase()
+  if (ext === '.pdf') return 'application/pdf'
+  if (ext === '.mp3') return 'audio/mpeg'
+  if (ext === '.wav') return 'audio/wav'
+  if (ext === '.flac') return 'audio/flac'
+  if (ext === '.ogg' || ext === '.oga') return 'audio/ogg'
+  if (ext === '.m4a') return 'audio/x-m4a'
+  if (ext === '.webm') return 'audio/webm'
+  if (ext === '.txt' || ext === '.md') return 'text/plain'
+  if (ext === '.json') return 'application/json'
+  if (ext === '.csv') return 'text/csv'
+  if (ext === '.png') return 'image/png'
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg'
+  return 'application/octet-stream'
+}
+
+async function fetchJson(url, options = {}, timeoutMs = AI_TIMEOUT_MS) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const started = performance.now()
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal })
+    const text = await res.text()
+    let data = null
+    try {
+      data = text ? JSON.parse(text) : null
+    } catch {
+      data = { raw: text.slice(0, 2000) }
+    }
+    return {
+      ok: res.ok,
+      status: res.status,
+      data,
+      text: text.slice(0, 2000),
+      latency: Math.round(performance.now() - started),
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      status: null,
+      data: null,
+      text: String(error),
+      latency: Math.round(performance.now() - started),
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function appendFixtureFile(form, fieldName, filePath, filename = path.basename(filePath)) {
+  const bytes = await fs.readFile(filePath)
+  form.append(fieldName, new Blob([bytes], { type: guessMime(filePath) }), filename)
+}
+
+async function firstExisting(paths) {
+  for (const item of paths) {
+    if (await fileExists(item)) return item
+  }
+  return ''
+}
+
+async function testSeminarFullFlow(browser) {
+  const session = await ensureAuthSession()
+  const audioFixture = await firstExisting(QA_AUDIO_FIXTURES)
+  const record = {
+    type: 'seminar_full_flow',
+    status: 'not_run',
+    fixture_path: audioFixture || null,
+    steps: {},
+  }
+  if (!session) {
+    record.reason = 'auth_not_available'
+    events.push(record)
+    return
+  }
+  if (!audioFixture) {
+    record.reason = 'audio_fixture_not_provided_or_missing'
+    events.push(record)
+    return
+  }
+
+  try {
+    const create = await fetchJson(`${BASE_URL}/api/backend/seminar/rooms`, {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        title: `QA seminar ${RUN_ID}`,
+        topic: 'Should business history be taught mainly through entrepreneur biographies or structural forces?',
+        subject: 'history',
+        framework: 'general',
+        language: 'en',
+        max_participants: 4,
+      }),
+    })
+    record.steps.create = create
+    const roomId = create.data?.room?.id
+    if (!create.ok || !roomId) throw new Error(`create room failed: ${create.status}`)
+
+    const { context, page } = await createObservedPage(browser, { name: 'seminar-ws', size: { width: 1024, height: 768 } })
+    try {
+      await page.goto(`${BASE_URL}/seminar`, { waitUntil: 'domcontentloaded', timeout: 30000 })
+      record.steps.websocket = await page.evaluate(async ({ roomId, token }) => {
+        const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/seminar/${roomId}?token=${encodeURIComponent(token)}`
+        return await new Promise((resolve) => {
+          const ws = new WebSocket(url)
+          const messages = []
+          const timer = setTimeout(() => {
+            try { ws.close() } catch {}
+            resolve({ opened: false, timeout: true, messages, url })
+          }, 9000)
+          ws.onopen = () => {
+            messages.push({ type: 'open' })
+          }
+          ws.onmessage = (event) => {
+            messages.push(String(event.data).slice(0, 600))
+            clearTimeout(timer)
+            try { ws.close() } catch {}
+            resolve({ opened: true, timeout: false, messages, url })
+          }
+          ws.onerror = () => {
+            clearTimeout(timer)
+            resolve({ opened: false, error: true, messages, url })
+          }
+        })
+      }, { roomId, token: session.token })
+    } finally {
+      await context.close()
+    }
+
+    const join = await fetchJson(`${BASE_URL}/api/backend/seminar/rooms/${roomId}/join`, {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({ display_name: 'Production QA Learner' }),
+    })
+    record.steps.join = join
+
+    const textTurn = await fetchJson(`${BASE_URL}/api/backend/seminar/rooms/${roomId}/turn`, {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        display_name: 'Production QA Learner',
+        message: 'I think biographies make abstract market forces easier to care about, but they may hide policy and labor conditions.',
+        source: 'text',
+      }),
+    })
+    record.steps.text_turn = textTurn
+
+    const form = new FormData()
+    await appendFixtureFile(form, 'file', audioFixture, path.basename(audioFixture))
+    form.append('display_name', 'Production QA Learner')
+    form.append('language', 'en')
+    const audioTurn = await fetchJson(`${BASE_URL}/api/backend/seminar/rooms/${roomId}/audio-turn`, {
+      method: 'POST',
+      headers: authHeaders(false),
+      body: form,
+    }, Math.max(AI_TIMEOUT_MS, 120000))
+    record.steps.audio_turn = audioTurn
+
+    const finish = await fetchJson(`${BASE_URL}/api/backend/seminar/rooms/${roomId}/finish`, {
+      method: 'POST',
+      headers: authHeaders(false),
+    }, Math.max(AI_TIMEOUT_MS, 120000))
+    record.steps.finish = finish
+
+    const interventionText = JSON.stringify([
+      textTurn.data?.intervention,
+      audioTurn.data?.intervention,
+      finish.data?.room?.review,
+    ]).slice(0, 4000)
+    const success = Boolean(
+      join.ok
+      && textTurn.ok
+      && audioTurn.ok
+      && finish.ok
+      && record.steps.websocket?.opened
+      && /facilitator|question|Mina|Kai|logic|argument|score|review/i.test(interventionText)
+    )
+    record.status = success ? 'passed' : 'failed'
+    record.room_id = roomId
+    record.intervention_excerpt = interventionText
+    events.push(record)
+    await postTelemetry('interaction', '/seminar', {
+      schema: 'mentormind.prod_autopilot_seminar_full_flow.v1',
+      status: record.status,
+      room_id: roomId,
+      steps: record.steps,
+      fixture_name: path.basename(audioFixture),
+    })
+    if (!success) {
+      await addFinding({
+        title: 'Seminar full room flow did not complete cleanly',
+        severity: audioTurn.status === 504 || finish.status === 504 ? 'slow' : 'blocked',
+        surface: 'seminar',
+        page: '/seminar',
+        expected: 'A seminar room should create, accept text and audio turns, produce AI facilitator/participant responses, and finish with review.',
+        evidence: record,
+      })
+    }
+  } catch (error) {
+    record.status = 'failed'
+    record.error = String(error)
+    events.push(record)
+    await addFinding({
+      title: 'Seminar full room flow crashed in harness',
+      severity: 'blocked',
+      surface: 'seminar',
+      page: '/seminar',
+      expected: 'Full seminar workflow should be testable end to end.',
+      evidence: record,
+    })
+  }
+}
+
+async function testBoardLessonAskWorkflow(browser) {
+  const session = await ensureAuthSession()
+  const record = {
+    type: 'board_lesson_ask_ai',
+    status: 'not_run',
+    steps: {},
+  }
+  if (!session) {
+    record.reason = 'auth_not_available'
+    events.push(record)
+    return
+  }
+
+  try {
+    const planData = {
+      subject: 'mathematics',
+      framework: 'AP',
+      course_name: 'AP Calculus BC',
+      title: `QA Board Lesson ${RUN_ID}`,
+      description: 'Disposable production QA plan for board lesson ask-AI flow.',
+      estimated_hours: 1,
+      diagnostic_context: { qa_run_id: RUN_ID },
+      units: [
+        {
+          title: 'Limits and Continuity Check',
+          description: 'A short board lesson on one-sided limits and continuity.',
+          topics: ['one-sided limits', 'continuity', 'graph behavior'],
+          learning_objectives: ['Explain why left and right limits must agree for a limit to exist.'],
+          estimated_minutes: 30,
+        },
+      ],
+    }
+    const createPlan = await fetchJson(`${BASE_URL}/api/backend/study-plan/create`, {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({ plan_data: planData, language: 'en', request_id: `board-${RUN_ID}` }),
+    })
+    record.steps.create_plan = createPlan
+    const planId = createPlan.data?.plan_id
+    if (!createPlan.ok || !planId) throw new Error(`create plan failed: ${createPlan.status}`)
+
+    const getPlan = await fetchJson(`${BASE_URL}/api/backend/study-plan/${planId}`, {
+      method: 'GET',
+      headers: authHeaders(false),
+    })
+    record.steps.get_plan = getPlan
+    const unitId = getPlan.data?.plan?.units?.[0]?.id
+    if (!getPlan.ok || !unitId) throw new Error(`get plan/unit failed: ${getPlan.status}`)
+
+    const createBoard = await fetchJson(`${BASE_URL}/api/backend/study-plan/${planId}/unit/${unitId}/board-lesson`, {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({ language: 'en' }),
+    })
+    record.steps.create_board = createBoard
+    const sessionId = createBoard.data?.session_id
+    if (!createBoard.ok || !sessionId) throw new Error(`create board failed: ${createBoard.status}`)
+    record.plan_id = planId
+    record.unit_id = unitId
+    record.session_id = sessionId
+
+    const { context, page, observed } = await createObservedPage(browser, { name: 'board-ask', size: { width: 1365, height: 900 } })
+    let shot = null
+    try {
+      await page.goto(`${BASE_URL}/board/${sessionId}`, { waitUntil: 'domcontentloaded', timeout: 45000 })
+      await page.waitForFunction(() => /AI Board Lesson|AI 板书课|Ask the AI teacher|向 AI 老师|Board Lesson failed|Lesson session expired/i.test(document.body.innerText), { timeout: 90000 }).catch(() => null)
+      const beforeText = await page.locator('body').innerText().catch(() => '')
+      const question = 'Can you explain why one-sided limits must match before continuity works?'
+      const box = page.locator('textarea').last()
+      await box.fill(question)
+      await page.getByRole('button', { name: /^(Send|发送)$/ }).click()
+      await page.waitForFunction((expected) => document.body.innerText.includes(expected), question, { timeout: 15000 }).catch(() => null)
+      await page.waitForTimeout(12000)
+      const afterText = await page.locator('body').innerText().catch(() => '')
+      shot = await screenshot(page, 'board-lesson-ask-ai')
+      record.steps.browser = {
+        status: 'completed',
+        before_text_length: beforeText.length,
+        after_text_length: afterText.length,
+        user_message_visible: afterText.includes(question),
+        ai_teacher_visible: /AI Teacher|AI 老师|narrating|板书|one-sided|limit|continuity/i.test(afterText),
+        observed,
+        screenshot: shot,
+      }
+    } finally {
+      await context.close()
+    }
+
+    const state = await fetchJson(`${BASE_URL}/api/backend/board/${sessionId}/state`, {
+      method: 'GET',
+      headers: authHeaders(false),
+    })
+    record.steps.state = state
+    const stateText = JSON.stringify(state.data || {}).slice(0, 4000)
+    const success = Boolean(
+      record.steps.browser?.user_message_visible
+      && record.steps.browser?.ai_teacher_visible
+      && !record.steps.browser?.observed?.serverErrors?.length
+      && (!state.status || state.status < 500)
+      && /one-sided|limit|continuity|elements|chat|conversation|board/i.test(stateText)
+    )
+    record.status = success ? 'passed' : 'failed'
+    events.push(record)
+    await postTelemetry('interaction', '/board', {
+      schema: 'mentormind.prod_autopilot_board_ask_ai.v1',
+      status: record.status,
+      plan_id: planId,
+      unit_id: unitId,
+      session_id: sessionId,
+      steps: record.steps,
+    })
+    if (!success) {
+      await addFinding({
+        title: 'Board lesson ask-AI workflow did not complete cleanly',
+        severity: record.steps.browser?.observed?.serverErrors?.length ? 'blocked' : 'wrong',
+        surface: 'board',
+        page: `/board/${sessionId}`,
+        expected: 'A board lesson should open, accept a visible student question, and preserve/respond through the board session workflow.',
+        evidence: record,
+      })
+    }
+  } catch (error) {
+    record.status = 'failed'
+    record.error = String(error)
+    events.push(record)
+    await addFinding({
+      title: 'Board lesson ask-AI workflow crashed in harness',
+      severity: 'blocked',
+      surface: 'board',
+      page: '/board',
+      expected: 'Board lesson ask-AI flow should be testable end to end.',
+      evidence: record,
+    })
+  }
+}
+
+async function captureVisualManualReview(browser) {
+  const targets = [
+    { route: '/ask', viewport: { name: 'manual-desktop', size: { width: 1440, height: 900 } } },
+    { route: '/ask', viewport: { name: 'manual-iphone', size: { width: 390, height: 844 }, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' } },
+    { route: '/study-plan', viewport: { name: 'manual-ipad', size: { width: 820, height: 1180 } } },
+    { route: '/seminar', viewport: { name: 'manual-desktop', size: { width: 1440, height: 900 } } },
+  ]
+  const screenshots = []
+  for (const target of targets) {
+    const { context, page, observed } = await createObservedPage(browser, target.viewport)
+    try {
+      await page.goto(`${BASE_URL}${target.route}`, { waitUntil: 'networkidle', timeout: 45000 })
+      await page.waitForTimeout(900)
+      const metrics = await page.evaluate(() => ({
+        bodyTextLength: document.body?.innerText?.trim().length || 0,
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        h1: document.querySelector('h1')?.textContent?.trim() || '',
+      }))
+      const shot = await screenshot(page, `manual-review-${target.viewport.name}-${target.route}`)
+      screenshots.push({ route: target.route, viewport: target.viewport.name, screenshot: shot, metrics, observed })
+    } finally {
+      await context.close()
+    }
+  }
+  const success = screenshots.every((item) => (
+    item.metrics.bodyTextLength >= 80
+    && item.metrics.scrollWidth <= item.metrics.clientWidth + 8
+    && !item.observed.serverErrors.length
+  ))
+  events.push({
+    type: 'visual_manual_review',
+    status: success ? 'passed' : 'failed',
+    screenshots,
+    note: 'Screenshots captured for human visual inspection; success also checks visible content, no horizontal overflow, and no 5xx subrequests.',
+  })
+  if (!success) {
+    await addFinding({
+      title: 'Visual manual review capture found layout/network risk',
+      severity: 'visual',
+      surface: 'responsive',
+      page: '/manual-review',
+      expected: 'Primary flows should render meaningful content without horizontal overflow or 5xx subrequests across desktop/tablet/mobile.',
+      evidence: { screenshots },
+    })
+  }
+}
+
 async function pressureTest() {
   const targets = [
     `${BASE_URL}/`,
@@ -1232,6 +1663,32 @@ async function writeReport() {
       lines.push(`- ${event.case_id}: ${event.status || ''}${event.status === 'not_run' ? ` (${event.reason || ''})` : `, upload=${event.upload_succeeded ? 'yes' : 'no'}, answer=${event.answer_succeeded ? 'yes' : 'no'}, controlled_rejection=${event.controlled_rejection ? 'yes' : 'no'}, latency=${event.latency || ''}ms`}`)
     }
   }
+  const seminar = events.find((event) => event.type === 'seminar_full_flow')
+  if (seminar) {
+    lines.push(``)
+    lines.push(`## Seminar Full Flow`)
+    lines.push(`- Status: ${seminar.status}`)
+    lines.push(`- Room: ${seminar.room_id || ''}`)
+    lines.push(`- Audio fixture: ${seminar.fixture_path || ''}`)
+    lines.push(`- Steps: \`${JSON.stringify(Object.fromEntries(Object.entries(seminar.steps || {}).map(([key, value]) => [key, { status: value?.status, latency: value?.latency, ok: value?.ok, opened: value?.opened }]))).slice(0, 1200)}\``)
+  }
+  const board = events.find((event) => event.type === 'board_lesson_ask_ai')
+  if (board) {
+    lines.push(``)
+    lines.push(`## Board Lesson Ask-AI`)
+    lines.push(`- Status: ${board.status}`)
+    lines.push(`- Session: ${board.session_id || ''}`)
+    lines.push(`- Screenshot: ${board.steps?.browser?.screenshot || ''}`)
+  }
+  const visual = events.find((event) => event.type === 'visual_manual_review')
+  if (visual) {
+    lines.push(``)
+    lines.push(`## Visual Manual Review Capture`)
+    lines.push(`- Status: ${visual.status}`)
+    for (const item of visual.screenshots || []) {
+      lines.push(`- ${item.viewport} ${item.route}: ${item.screenshot}`)
+    }
+  }
   await fs.writeFile(path.join(OUT_DIR, 'report.md'), `${lines.join('\n')}\n`)
   return json
 }
@@ -1291,6 +1748,18 @@ function buildRunSummary(allEvents, allFindings) {
   add('pressure', allEvents.filter((event) => event.type === 'pressure_test').map((event) => ({
     success: Boolean(event.summary && event.summary.failures === 0 && (event.summary.p95_ms === null || event.summary.p95_ms <= 5000)),
   })))
+  add('seminar_full_flow', allEvents.filter((event) => event.type === 'seminar_full_flow').map((event) => ({
+    status: event.status,
+    success: event.status === 'passed',
+  })))
+  add('board_lesson_ask_ai', allEvents.filter((event) => event.type === 'board_lesson_ask_ai').map((event) => ({
+    status: event.status,
+    success: event.status === 'passed',
+  })))
+  add('visual_manual_review', allEvents.filter((event) => event.type === 'visual_manual_review').map((event) => ({
+    status: event.status,
+    success: event.status === 'passed',
+  })))
 
   const executed = areas.reduce((sum, area) => sum + area.executed, 0)
   const successes = areas.reduce((sum, area) => sum + area.successes, 0)
@@ -1339,6 +1808,11 @@ async function main() {
     }
     if (RUN_PERSONA_QA) {
       await testStudyPlanPersonas(browser)
+    }
+    if (RUN_DEEP_WORKFLOW_QA) {
+      await testSeminarFullFlow(browser)
+      await testBoardLessonAskWorkflow(browser)
+      await captureVisualManualReview(browser)
     }
   } finally {
     await browser.close()

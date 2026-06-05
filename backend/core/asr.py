@@ -230,6 +230,42 @@ def extract_text_with_paddleocr(tmp_path: str) -> dict:
         print(f"⚠️ PaddleOCR unavailable, falling back to tesseract: {exc}")
         return _extract_text_with_tesseract(tmp_path)
 
+
+def extract_text_from_pdf(tmp_path: str) -> dict:
+    """Extract selectable text from a PDF.
+
+    This intentionally handles text PDFs only. Scanned/image-only PDFs should
+    return a controlled no-text error at the API layer instead of being passed
+    to image OCR as a raw PDF, which PaddleOCR/Leptonica cannot read directly.
+    """
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise RuntimeError("pypdf is not installed. Run: pip install pypdf") from exc
+
+    reader = PdfReader(tmp_path)
+    pages = []
+    for index, page in enumerate(reader.pages):
+        text = (page.extract_text() or "").strip()
+        if text:
+            pages.append((index + 1, text))
+
+    lines = []
+    for page_number, text in pages:
+        for line in text.splitlines():
+            clean = line.strip()
+            if clean:
+                lines.append(clean)
+
+    return {
+        "text": "\n".join(lines),
+        "lines": lines,
+        "page_count": len(reader.pages),
+        "pages_with_text": len(pages),
+        "engine": "pypdf",
+    }
+
+
 def get_asr_status() -> Dict[str, bool]:
     """Check the status of loaded ASR and OCR models."""
     return {

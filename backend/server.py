@@ -63,7 +63,7 @@ from database.models.user import User, UserProfile, UserMediaContext, SubjectPro
 from database.models.seminar import SeminarRoom, SeminarParticipant, SeminarTurn, SeminarProfile
 from auth import get_current_user, get_optional_user, verify_token_or_test_bypass
 from config import config
-from core.asr import transcribe_with_local_model_result, get_asr_status, extract_text_with_paddleocr
+from core.asr import transcribe_with_local_model_result, get_asr_status, extract_text_with_paddleocr, extract_text_from_pdf
 from core.summarize import summarize_extracted_content
 from core.modules.mentor import MentorAgent, MentorStage, MentorResponse
 from services.api_client import api_client, get_language_instruction
@@ -2594,6 +2594,37 @@ async def ingest_image(
 
         with open(tmp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+
+        is_pdf = (file.content_type or "").lower() == "application/pdf" or suffix.lower() == ".pdf"
+        if is_pdf:
+            try:
+                pdf_result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    extract_text_from_pdf,
+                    tmp_path,
+                )
+                full_text = (pdf_result.get("text") or "").strip()
+                if not full_text:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Could not extract selectable text from PDF. If this is a scanned PDF, upload a clearer image page or paste the text.",
+                    )
+                summary = full_text[:180] + ("..." if len(full_text) > 180 else "")
+                return {
+                    "success": True,
+                    "text": full_text,
+                    "summary": summary,
+                    "language": language,
+                    "engine": pdf_result.get("engine", "pypdf"),
+                    "page_count": pdf_result.get("page_count"),
+                    "pages_with_text": pdf_result.get("pages_with_text"),
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except RuntimeError as exc:
+                raise HTTPException(status_code=503, detail=str(exc))
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
 
         if sync.lower() == "true":
             try:
