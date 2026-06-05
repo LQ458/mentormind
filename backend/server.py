@@ -150,16 +150,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+async def _safe_request_body_excerpt(request: Request, max_bytes: int = 2000) -> Optional[str]:
+    """Return a bounded validation-debug body excerpt without crashing on uploads."""
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        return "[multipart body omitted]"
+    try:
+        body = await request.body()
+    except Exception as exc:
+        return f"[body unavailable: {type(exc).__name__}]"
+    if not body:
+        return None
+    excerpt = body[:max_bytes].decode("utf-8", errors="replace")
+    if len(body) > max_bytes:
+        excerpt += "... [truncated]"
+    return excerpt
+
 # Add validation error handler
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Log validation errors for debugging"""
     print(f"❌ Validation error on {request.method} {request.url}: {exc.errors()}")
-    body = await request.body()
-    print(f"📋 Request body: {body.decode('utf-8') if body else 'empty'}")
+    body_excerpt = await _safe_request_body_excerpt(request)
+    print(f"📋 Request body: {body_excerpt or 'empty'}")
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors(), "body": body.decode('utf-8') if body else None}
+        content={"detail": exc.errors(), "body": body_excerpt}
     )
 
 # Add auth error handler
@@ -2561,6 +2577,7 @@ async def ingest_image(
     current_user: User = Depends(get_current_user),
 ):
     """Extract text from image (OCR) via background task."""
+    tmp_path = None
     try:
         allowed_types = {"image/jpeg", "image/png", "image/bmp", "image/tiff",
                          "image/webp", "application/pdf"}
@@ -2611,7 +2628,13 @@ async def ingest_image(
             "message": "OCR text extraction started in background.",
             "language": language
         }
+    except HTTPException:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
     except Exception as e:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
         print(f"❌ Error initiating image ingest: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

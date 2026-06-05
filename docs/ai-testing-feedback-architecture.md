@@ -128,6 +128,29 @@ pnpm feedback:replay docs/issues/feedback-.../packet.json
 
 The first command should query admin feedback plus telemetry and write an issue packet. The second command should launch Playwright against local or staging and replay the captured journey.
 
+## Production Autopilot QA
+
+Use `scripts/prod-autopilot-qa.mjs` for bounded live production checks while beta testers are using the site. It is intentionally agent-friendly: every run gets a `prod-autopilot-...` session id, writes `report.json` and `report.md`, captures screenshots, and sends confirmed findings to telemetry as `feedback_moment` events with `schema = mentormind.prod_autopilot_bug.v1`.
+
+Run from `web/` after installing Playwright dependencies:
+
+```bash
+BASE_URL=https://mentormind.cloud QA_INVITE_CODE=<invite-code> \
+PRESSURE_REQUESTS=40 PRESSURE_CONCURRENCY=6 \
+node ../scripts/prod-autopilot-qa.mjs
+```
+
+Current coverage:
+
+- Authenticated page checks across desktop, iPad, and iPhone viewports.
+- `/ask` discussion prompt flow with a visible learner response loop.
+- `/study-plan` create-entry routing guard against the old `/create` flow.
+- Browser WebSocket upgrade smoke for board/seminar infrastructure.
+- Weird API requests, malformed upload requests, and controlled-error checks.
+- Bounded low-concurrency pressure smoke over home/product/status routes.
+
+When a run reports bugs, query `telemetry_events` by `session_id` or `payload->>'source' = 'prod_autopilot_qa'`, reproduce locally, add focused regression tests, then rerun the same production QA after deployment.
+
 ## Test Matrix
 
 Keep five always-on journeys:

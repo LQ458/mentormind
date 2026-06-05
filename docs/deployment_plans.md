@@ -265,6 +265,25 @@ chmod +x scripts/deploy-prod.sh
 
 Routine code deploys use the same command. Docker will reuse dependency layers; only changed app layers rebuild.
 
+For this VPS, routine Codex-managed production updates should be git-based:
+
+```bash
+# local machine
+git checkout master
+git status --short
+git add <changed files>
+git commit -m "<message>"
+git push origin master
+
+# VPS checkout
+cd /root/mentormind-clean_20260306115658
+git pull --ff-only origin master
+./scripts/deploy-prod.sh deploy
+PUBLIC_APP_URL=https://mentormind.cloud ./scripts/deploy-prod.sh smoke
+```
+
+Avoid long-term production drift from manual file copies. If an emergency server-side patch is copied directly to the VPS, immediately commit/push the same change locally and pull it on the VPS before the next deploy.
+
 Useful commands:
 
 ```bash

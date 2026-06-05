@@ -70,6 +70,11 @@ AI/coding-agent triage contract:
 4. Reproduce locally with Playwright/API tests.
 5. Patch, run focused checks, and summarize the fix.
 
+Production autopilot QA:
+
+- `scripts/prod-autopilot-qa.mjs` runs authenticated production journeys against `https://mentormind.cloud`, stores local reports under `web/.browser-sessions/prod-autopilot-qa/`, and auto-reports real findings as `feedback_moment` telemetry events with `schema = mentormind.prod_autopilot_bug.v1`.
+- It currently covers responsive primary routes, `/ask` discussion flow, study-plan create routing, WebSocket upgrade, malformed API requests, malformed upload requests, and a bounded low-concurrency pressure smoke.
+
 More detail is in `docs/ai-testing-feedback-architecture.md`.
 
 Architectural references used for this loop:
@@ -289,12 +294,13 @@ This repository includes older planning documents for the original video-generat
 - [x] Production nginx upload/body-size and WebSocket proxy settings.
 - [x] Audio ingestion worker availability checks for `heavy_ml`.
 - [x] Global and moment-level feedback collection into telemetry.
+- [x] Production autopilot QA runner for live journey/pressure/upload-edge checks.
 
 ### Active gaps
 
 - [ ] Extend `FeedbackMoment` beyond `/ask` to study-plan chat turns, seminar turns, upload errors, and board lessons.
 - [ ] Build an issue-packet exporter that clusters telemetry rows into agent-readable bug folders.
-- [ ] Add broader Playwright journey tests for `/ask`, `/study-plan`, `/seminar`, and `/board`.
+- [ ] Promote the production autopilot QA journeys into CI/staging Playwright specs for `/ask`, `/study-plan`, `/seminar`, and `/board`.
 - [ ] Improve long-audio UX with chunking or streaming transcription instead of asking users to manually trim files.
 - [ ] Harden seminar WebSocket/audio-turn behavior behind production nginx.
 - [ ] Continue prompt/product work for distinctive teaching styles, examples, and visual explanation quality.
@@ -302,15 +308,20 @@ This repository includes older planning documents for the original video-generat
 ## 🧪 Testing
 
 ```bash
-# Backend focused tests
-cd backend
+# From repo root: backend focused tests
 python -m pytest
 
 # Telemetry/feedback event tests
 python -m pytest tests/test_telemetry_events.py -q
 
+# Upload validation regression
+python -m pytest tests/integration/test_ingest_upload_errors.py -q
+
+# Production autopilot QA, after installing web deps
+cd web
+BASE_URL=https://mentormind.cloud QA_INVITE_CODE=<invite-code> node ../scripts/prod-autopilot-qa.mjs
+
 # Frontend type check
-cd ../web
 pnpm exec tsc --noEmit
 ```
 
