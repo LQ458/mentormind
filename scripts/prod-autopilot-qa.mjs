@@ -11,6 +11,8 @@ const OUT_DIR = path.resolve(process.cwd(), process.env.OUT_DIR || `.browser-ses
 const PRESSURE_CONCURRENCY = Number(process.env.PRESSURE_CONCURRENCY || 8)
 const PRESSURE_REQUESTS = Number(process.env.PRESSURE_REQUESTS || 80)
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 90000)
+const RUN_PERSONA_QA = process.env.RUN_PERSONA_QA !== 'false'
+const PERSONA_LIMIT = Number(process.env.PERSONA_LIMIT || 4)
 const QA_INVITE_CODE = process.env.QA_INVITE_CODE || ''
 const QA_USERNAME = process.env.QA_USERNAME || `qa_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
 const QA_PASSWORD = process.env.QA_PASSWORD || `qa_${Math.random().toString(36).slice(2, 10)}`
@@ -339,6 +341,247 @@ async function clickFirstVisible(page, locators) {
     }
   }
   return false
+}
+
+async function setStudyDays(page, desiredDays) {
+  const dayLabels = {
+    mon: 'Mon',
+    tue: 'Tue',
+    wed: 'Wed',
+    thu: 'Thu',
+    fri: 'Fri',
+    sat: 'Sat',
+    sun: 'Sun',
+  }
+  const current = new Set(['mon', 'wed', 'fri'])
+  const desired = new Set(desiredDays)
+  for (const [value, label] of Object.entries(dayLabels)) {
+    const shouldBeActive = desired.has(value)
+    const isActive = current.has(value)
+    if (shouldBeActive !== isActive) {
+      await page.locator('button').filter({ hasText: new RegExp(`^${label}$`) }).click()
+      if (shouldBeActive) current.add(value)
+      else current.delete(value)
+      await page.waitForTimeout(80)
+    }
+  }
+}
+
+async function fillStudyPlanPersona(page, persona) {
+  await page.locator('select').nth(0).selectOption(persona.foundation)
+  await page.locator('input').nth(0).fill(persona.examTimeline)
+  await page.locator('input').nth(1).fill(persona.targetScore)
+  await page.locator('input').nth(2).fill(String(persona.weeklyHours))
+  await page.locator('input').nth(3).fill(String(persona.prepMonths))
+  await page.locator('input').nth(4).fill(String(persona.hoursPerSession))
+  await setStudyDays(page, persona.studyDays)
+  await page.locator('textarea').fill(persona.notes)
+  if (persona.baseline?.length) {
+    for (const [index, value] of persona.baseline.entries()) {
+      await page.locator('select').nth(index + 1).selectOption(value)
+    }
+  } else {
+    await page.locator('button').filter({ hasText: /Skip for now|先跳过/i }).click()
+  }
+}
+
+function hasAny(text, patterns) {
+  return patterns.some((pattern) => pattern.test(text))
+}
+
+const STUDY_PLAN_PERSONAS = [
+  {
+    id: 'extra_smart',
+    label: 'Extra-smart ambitious learner',
+    foundation: 'Aiming high',
+    examTimeline: 'May 2026',
+    targetScore: 'AP 5 with margin',
+    weeklyHours: 10,
+    prepMonths: 4,
+    hoursPerSession: 2,
+    studyDays: ['mon', 'wed', 'fri', 'sun'],
+    baseline: ['Very confident', 'Very confident', 'Mostly steady', 'Mostly steady', 'Somewhat'],
+    notes: 'I already know most AP Calculus BC concepts. I want a fast, high-challenge plan focused on power series, Taylor error bounds, polar/parametric applications, and timed mixed FRQs. Avoid slow remedial lectures.',
+    expectedPatterns: [/accelerat|advanced|challenge|hard|timed|FRQ|series|Taylor|polar|parametric/i],
+  },
+  {
+    id: 'smart',
+    label: 'Smart steady learner',
+    foundation: 'Reviewing after school',
+    examTimeline: 'May 2026',
+    targetScore: 'AP 5',
+    weeklyHours: 7,
+    prepMonths: 4,
+    hoursPerSession: 1.5,
+    studyDays: ['mon', 'wed', 'fri'],
+    baseline: ['Mostly steady', 'Mostly steady', 'Mostly steady', 'Somewhat', 'Somewhat'],
+    notes: 'I did well in AP Calculus AB and am learning BC now. I need a balanced plan: short concept refresh, examples, then enough practice to make BC topics stable.',
+    expectedPatterns: [/balanced|practice|mixed|review|AP 5|BC|checkpoint|weekly/i],
+  },
+  {
+    id: 'medium',
+    label: 'Medium learner who needs structure',
+    foundation: 'Some foundation',
+    examTimeline: 'in 5 months',
+    targetScore: 'AP 4',
+    weeklyHours: 5,
+    prepMonths: 5,
+    hoursPerSession: 1,
+    studyDays: ['tue', 'thu', 'sat'],
+    baseline: ['Somewhat', 'Somewhat', 'Somewhat', 'Not confident', 'Not confident'],
+    notes: 'I understand basic derivatives and integrals when examples are similar, but multi-step applications confuse me. I need clear examples, checkpoints, and practice that ramps up slowly.',
+    expectedPatterns: [/scaffold|step|example|checkpoint|ramp|foundation|multi-step|practice/i],
+  },
+  {
+    id: 'slow_unmotivated',
+    label: 'Slow or unmotivated learner',
+    foundation: 'Need quick wins',
+    examTimeline: 'in 3 months',
+    targetScore: 'just pass / 3+',
+    weeklyHours: 2,
+    prepMonths: 3,
+    hoursPerSession: 0.5,
+    studyDays: ['sat', 'sun'],
+    baseline: [],
+    notes: 'I get bored quickly and do not want a long pretest. I often avoid homework when I feel stupid. Give me tiny wins, short missions, visual intuition, and only one small next action at a time.',
+    expectedPatterns: [/quick win|tiny|short|mission|confidence|low-pressure|visual|one small|foundation|avoid/i],
+  },
+]
+
+async function testStudyPlanPersonas(browser) {
+  const personas = STUDY_PLAN_PERSONAS.slice(0, Math.max(0, PERSONA_LIMIT))
+  for (const persona of personas) {
+    const { context, page, observed } = await createObservedPage(browser, { name: `persona-${persona.id}`, size: { width: 1365, height: 900 } })
+    const started = performance.now()
+    let shot = null
+    try {
+      await page.goto(`${BASE_URL}/study-plan`, { waitUntil: 'networkidle', timeout: 45000 })
+      await page.locator('button').filter({ hasText: /AP \(Advanced Placement\)/ }).click()
+      await page.waitForTimeout(300)
+      await page.locator('button').filter({ hasText: /^📐?\s*Mathematics|Mathematics$/ }).last().click()
+      await page.waitForTimeout(300)
+      await page.locator('button').filter({ hasText: /^AP Calculus BC$/ }).click()
+      await page.waitForTimeout(500)
+      await fillStudyPlanPersona(page, persona)
+      const canBuild = !(await page.locator('button').filter({ hasText: /Let Mina build|让 Mina 生成/i }).isDisabled())
+      if (!canBuild) {
+        await addFinding({
+          title: `Study-plan persona cannot start plan generation: ${persona.id}`,
+          severity: 'blocked',
+          surface: 'study-plan',
+          page: '/study-plan',
+          expected: 'A learner who provides foundation, timeline, and weekly hours should be able to continue without a required long pretest.',
+          evidence: { persona, screenshot: await screenshot(page, `persona-${persona.id}-disabled`) },
+        })
+        continue
+      }
+      await page.locator('button').filter({ hasText: /Let Mina build|让 Mina 生成/i }).click()
+      await page.waitForFunction(() => /Confirm the plan with Mina|和 Mina 确认计划/i.test(document.body.innerText), { timeout: 30000 })
+      await page.locator('button').filter({ hasText: /^Send$|^发送$/ }).click()
+      await page.waitForFunction(
+        () => /Proposed Study Plan|拟定学习计划|Looks good, let's go|看起来不错，开始学习/i.test(document.body.innerText)
+          || /网络错误|Failed to get|Network error|没有生成完成|not generated/i.test(document.body.innerText),
+        { timeout: AI_TIMEOUT_MS },
+      ).catch(() => null)
+      await page.waitForTimeout(1200)
+      const latency = Math.round(performance.now() - started)
+      const body = await page.locator('body').innerText()
+      shot = await screenshot(page, `persona-${persona.id}-study-plan`)
+      const reachedPlanReview = /Proposed Study Plan|拟定学习计划|Looks good, let's go|看起来不错，开始学习/i.test(body)
+      const personaMatched = hasAny(body, persona.expectedPatterns)
+      const usedFallback = /deterministic|fallback|学习计划没有生成完成|not generated|没有生成完成/i.test(body)
+      const selectedDayLabels = persona.studyDays.map((day) => ({ mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' }[day]))
+      const scheduleMentioned = selectedDayLabels.every((label) => new RegExp(label, 'i').test(body))
+      events.push({
+        type: 'persona_study_plan',
+        persona: persona.id,
+        latency,
+        reachedPlanReview,
+        personaMatched,
+        scheduleMentioned,
+        usedFallback,
+        observed,
+        screenshot: shot,
+        bodySnippet: body.slice(-4000),
+      })
+      await postTelemetry('interaction', '/study-plan', {
+        schema: 'mentormind.prod_autopilot_persona_study_plan.v1',
+        persona_id: persona.id,
+        persona_label: persona.label,
+        latency,
+        reached_plan_review: reachedPlanReview,
+        persona_matched: personaMatched,
+        schedule_mentioned: scheduleMentioned,
+        used_fallback: usedFallback,
+        observed_counts: {
+          consoleErrors: observed.consoleErrors.length,
+          failedRequests: observed.failedRequests.length,
+          serverErrors: observed.serverErrors.length,
+        },
+      }, latency)
+      if (!reachedPlanReview) {
+        await addFinding({
+          title: `Study-plan persona did not reach review plan: ${persona.id}`,
+          severity: 'blocked',
+          surface: 'study-plan',
+          page: '/study-plan',
+          expected: 'A complete persona intake should generate a reviewable plan or one clear follow-up question within the timeout.',
+          evidence: { persona: persona.id, latency, bodySnippet: body.slice(-3000), screenshot: shot, observed },
+        })
+      }
+      if (usedFallback) {
+        await addFinding({
+          title: `Study-plan persona produced fallback text: ${persona.id}`,
+          severity: 'wrong',
+          surface: 'study-plan',
+          page: '/study-plan',
+          expected: 'If AI generation is unavailable, the flow should fail clearly; it should not present deterministic/fallback output as a plan.',
+          evidence: { persona: persona.id, latency, bodySnippet: body.slice(-3000), screenshot: shot },
+        })
+      }
+      if (reachedPlanReview && !personaMatched) {
+        await addFinding({
+          title: `Study-plan plan lacks persona adaptation: ${persona.id}`,
+          severity: 'quality',
+          surface: 'study-plan',
+          page: '/study-plan',
+          expected: `The generated plan should visibly adapt to ${persona.label}.`,
+          evidence: { persona: persona.id, expectedPatterns: persona.expectedPatterns.map(String), bodySnippet: body.slice(-3000), screenshot: shot },
+        })
+      }
+      if (reachedPlanReview && !scheduleMentioned) {
+        await addFinding({
+          title: `Study-plan plan does not preserve selected study days: ${persona.id}`,
+          severity: 'wrong',
+          surface: 'study-plan',
+          page: '/study-plan',
+          expected: `The generated plan should reflect selected days: ${selectedDayLabels.join(', ')}.`,
+          evidence: { persona: persona.id, selectedDayLabels, bodySnippet: body.slice(-3000), screenshot: shot },
+        })
+      }
+      if (observed.serverErrors.length || observed.failedRequests.some((r) => !/telemetry/.test(r.url))) {
+        await addFinding({
+          title: `Study-plan persona triggered network failures: ${persona.id}`,
+          severity: 'wrong',
+          surface: 'study-plan',
+          page: '/study-plan',
+          expected: 'Persona study-plan generation should complete without failed non-telemetry requests.',
+          evidence: { persona: persona.id, observed, screenshot: shot },
+        })
+      }
+    } catch (error) {
+      await addFinding({
+        title: `Study-plan persona workflow crashed: ${persona.id}`,
+        severity: 'blocked',
+        surface: 'study-plan',
+        page: '/study-plan',
+        expected: 'Persona study-plan generation should complete through the real browser flow.',
+        evidence: { persona, error: String(error), observed, screenshot: shot || await screenshot(page, `persona-${persona.id}-crash`) },
+      })
+    } finally {
+      await context.close()
+    }
+  }
 }
 
 async function testQuickQuestion(browser) {
@@ -752,6 +995,14 @@ async function writeReport() {
     lines.push(`- Failures: ${pressure.failures}`)
     lines.push(`- p50/p95/p99: ${pressure.p50_ms}/${pressure.p95_ms}/${pressure.p99_ms} ms`)
   }
+  const personaEvents = events.filter((event) => event.type === 'persona_study_plan')
+  if (personaEvents.length) {
+    lines.push(``)
+    lines.push(`## Persona Study-Plan Summary`)
+    for (const event of personaEvents) {
+      lines.push(`- ${event.persona}: plan=${event.reachedPlanReview ? 'yes' : 'no'}, persona_match=${event.personaMatched ? 'yes' : 'no'}, schedule=${event.scheduleMentioned ? 'yes' : 'no'}, latency=${event.latency}ms`)
+    }
+  }
   await fs.writeFile(path.join(OUT_DIR, 'report.md'), `${lines.join('\n')}\n`)
   return json
 }
@@ -785,6 +1036,9 @@ async function main() {
     await testWebSocket(browser)
     await testStudyPlanRouting(browser)
     await testQuickQuestion(browser)
+    if (RUN_PERSONA_QA) {
+      await testStudyPlanPersonas(browser)
+    }
   } finally {
     await browser.close()
   }

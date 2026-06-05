@@ -44,6 +44,7 @@ from core.agents.study_plan_agent import (
     _has_level_signal,
     _has_timeline_signal,
     _parse_ask_user_block,
+    _parse_plan_json,
     _strip_ask_user_block,
     _build_curriculum_note,
 )
@@ -515,3 +516,29 @@ def test_T32_plan_review_parse_error_returns_retryable_error(monkeypatch):
     assert response.proposed_plan is None
     assert response.response_source == "llm_plan_review_parse_error_after_retry_fast"
     assert "没有生成完成" in response.content
+
+
+def test_T33_parse_plan_json_accepts_prose_wrapped_object():
+    _, plan = _parse_plan_json(
+        'Here is the plan:\n'
+        '{"title":"AP Calculus BC Plan","subject":"math","framework":"ap",'
+        '"estimated_hours":40,"units":[{"title":"Series","topics":["Taylor"],"estimated_minutes":300}]}\n'
+        'Use this schedule.'
+    )
+
+    assert plan is not None
+    assert plan["title"] == "AP Calculus BC Plan"
+    assert plan["units"][0]["title"] == "Series"
+
+
+def test_T34_parse_plan_json_unwraps_proposed_plan_payload():
+    _, plan = _parse_plan_json(
+        '```json\n'
+        '{"proposed_plan":{"title":"Wrapped Plan","subject":"math","framework":"ap",'
+        '"estimated_hours":20,"units":[{"title":"Polar","topics":["area"],"estimated_minutes":180}]}}\n'
+        '```'
+    )
+
+    assert plan is not None
+    assert plan["title"] == "Wrapped Plan"
+    assert plan["units"][0]["title"] == "Polar"

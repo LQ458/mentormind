@@ -98,27 +98,38 @@ def _parse_plan_json(full_content: str) -> tuple[str, Optional[Dict[str, Any]]]:
     thinking_process = ""
     proposed_plan = None
 
+    def parse_candidate(raw: str) -> Optional[Dict[str, Any]]:
+        candidate = (raw or "").strip()
+        if candidate.startswith("json"):
+            candidate = candidate[4:].strip()
+        try:
+            parsed = json.loads(candidate)
+        except Exception:
+            parsed = None
+        if parsed is None:
+            decoder = json.JSONDecoder()
+            for match in re.finditer(r"\{", candidate):
+                try:
+                    parsed, _ = decoder.raw_decode(candidate[match.start():])
+                    break
+                except json.JSONDecodeError:
+                    continue
+        if isinstance(parsed, dict) and isinstance(parsed.get("proposed_plan"), dict):
+            parsed = parsed["proposed_plan"]
+        return parsed if isinstance(parsed, dict) else None
+
     if "```json" in full_content:
         parts = full_content.split("```json")
         thinking_process = parts[0].strip()
         json_str = parts[1].split("```")[0].strip()
-        try:
-            proposed_plan = json.loads(json_str)
-        except Exception:
-            proposed_plan = None
+        proposed_plan = parse_candidate(json_str)
     elif "```" in full_content:
         parts = full_content.split("```")
         thinking_process = parts[0].strip()
-        try:
-            proposed_plan = json.loads(parts[1].strip())
-        except Exception:
-            proposed_plan = None
+        proposed_plan = parse_candidate(parts[1])
     else:
         thinking_process = full_content
-        try:
-            proposed_plan = json.loads(full_content.strip())
-        except Exception:
-            proposed_plan = None
+        proposed_plan = parse_candidate(full_content)
 
     return thinking_process, proposed_plan
 
