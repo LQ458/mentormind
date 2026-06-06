@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { AudioReady, NarrationLog } from '../../hooks/useBoardWebSocket'
 
 interface NarrationPlayerProps {
@@ -48,12 +48,37 @@ export default function NarrationPlayer({
   const [cursor, setCursor] = useState(0)
   const [speed, setSpeed] = useState<number>(1)
 
-  const currentTrack = cursor < audioQueue.length ? audioQueue[cursor] : null
+  const orderedAudioQueue = useMemo(() => {
+    if (!narrationLog?.length || !audioByElementId) return audioQueue
+
+    const seen = new Set<string>()
+    const ordered: AudioReady[] = []
+
+    for (const entry of narrationLog) {
+      const id = entry.element_id
+      if (!id) continue
+      const audio = audioByElementId[id]
+      if (!audio || seen.has(id)) continue
+      ordered.push(audio)
+      seen.add(id)
+    }
+
+    for (const audio of audioQueue) {
+      const key = audio.element_id || audio.audio_path
+      if (key && seen.has(key)) continue
+      ordered.push(audio)
+      if (key) seen.add(key)
+    }
+
+    return ordered
+  }, [audioByElementId, audioQueue, narrationLog])
+
+  const currentTrack = cursor < orderedAudioQueue.length ? orderedAudioQueue[cursor] : null
 
   // Reset cursor if the queue is shortened (e.g., board cleared)
   useEffect(() => {
-    if (cursor > audioQueue.length) setCursor(audioQueue.length)
-  }, [audioQueue.length, cursor])
+    if (cursor > orderedAudioQueue.length) setCursor(orderedAudioQueue.length)
+  }, [orderedAudioQueue.length, cursor])
 
   // Resolve backend-served audio through the Next media proxy. Older board
   // sessions may still contain /api/files paths emitted before the proxy URL fix.

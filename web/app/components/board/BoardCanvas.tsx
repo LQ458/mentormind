@@ -8,6 +8,7 @@ import { getRenderer } from './elements'
 interface BoardCanvasProps {
   state: BoardWSState
   paused?: boolean
+  activeElementId?: string | null
 }
 
 function backgroundClass(bg: BoardBackground | undefined): string {
@@ -67,6 +68,7 @@ interface ElementSectionProps {
   element: BoardElement
   index: number
   reducedMotion: boolean
+  isActiveNarration: boolean
 }
 
 /**
@@ -79,6 +81,7 @@ const ElementSection = React.memo(function ElementSection({
   element: el,
   index: idx,
   reducedMotion,
+  isActiveNarration,
 }: ElementSectionProps) {
   const Renderer = getRenderer(el.element_type)
   const anim = entryVariants(el.style.animation, reducedMotion)
@@ -87,6 +90,7 @@ const ElementSection = React.memo(function ElementSection({
   return (
     <motion.section
       data-element-index={idx}
+      data-element-id={el.element_id}
       data-element-type={el.element_type}
       data-element-state={el.state || 'normal'}
       initial={anim.initial as any}
@@ -101,6 +105,9 @@ const ElementSection = React.memo(function ElementSection({
         highlighted
           ? 'ring-2 ring-amber-300/80 shadow-[0_0_28px_rgba(253,224,71,0.35)] border-amber-300/40'
           : '',
+        isActiveNarration
+          ? 'ring-2 ring-sky-300/80 shadow-[0_0_24px_rgba(56,189,248,0.30)] border-sky-300/50'
+          : '',
         dim ? 'opacity-45' : '',
       ].join(' ')}
     >
@@ -114,6 +121,7 @@ const ElementSection = React.memo(function ElementSection({
 }, (prev, next) => {
   if (prev.reducedMotion !== next.reducedMotion) return false
   if (prev.index !== next.index) return false
+  if (prev.isActiveNarration !== next.isActiveNarration) return false
   const a = prev.element
   const b = next.element
   if (a === b) return true
@@ -128,7 +136,7 @@ const ElementSection = React.memo(function ElementSection({
   return true
 })
 
-export default function BoardCanvas({ state, paused = false }: BoardCanvasProps) {
+export default function BoardCanvas({ state, paused = false, activeElementId = null }: BoardCanvasProps) {
   const background: BoardBackground = state.board?.background || 'dark_board'
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const userScrolledUpRef = useRef(false)
@@ -147,7 +155,9 @@ export default function BoardCanvas({ state, paused = false }: BoardCanvasProps)
     userScrolledUpRef.current = distanceFromBottom > 80
   }
 
-  // Auto-scroll to newest element when not paused and user hasn't scrolled up.
+  // Auto-scroll to newest element only before narration starts. During playback
+  // the active narration controls viewport focus so generated widgets do not run
+  // ahead of the spoken teaching.
   useEffect(() => {
     const node = scrollRef.current
     if (!node) return
@@ -156,12 +166,25 @@ export default function BoardCanvas({ state, paused = false }: BoardCanvasProps)
     lastCountRef.current = count
     if (!grew) return
     if (paused) return
+    if (activeElementId) return
     if (userScrolledUpRef.current) return
     // Smooth scroll the newest item into view from the bottom.
     requestAnimationFrame(() => {
       node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' })
     })
-  }, [elements.length, paused])
+  }, [activeElementId, elements.length, paused])
+
+  useEffect(() => {
+    if (!activeElementId || paused) return
+    const node = scrollRef.current
+    if (!node) return
+    const target = node.querySelector<HTMLElement>(`[data-element-id="${activeElementId}"]`)
+    if (!target) return
+    userScrolledUpRef.current = false
+    requestAnimationFrame(() => {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }, [activeElementId, paused])
 
   // Reset the "user scrolled up" flag whenever the lesson resumes, so we catch
   // up to the freshest content immediately.
@@ -195,6 +218,7 @@ export default function BoardCanvas({ state, paused = false }: BoardCanvasProps)
                 element={el}
                 index={idx}
                 reducedMotion={reducedMotion}
+                isActiveNarration={el.element_id === activeElementId}
               />
             ))}
           </AnimatePresence>

@@ -42,6 +42,7 @@ function BoardSessionInner() {
   const [shareStatus, setShareStatus] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [activeNarration, setActiveNarration] = useState<string | null>(null)
+  const [activeNarrationElementId, setActiveNarrationElementId] = useState<string | null>(null)
   const [chatOpen, setChatOpen] = useState(true)
   const [displayPrefs, setDisplayPrefs] = useBoardDisplayPrefs()
   const fullscreenRef = useRef<HTMLDivElement | null>(null)
@@ -274,11 +275,13 @@ function BoardSessionInner() {
   const title = state.board?.title || state.board?.topic || (language === 'zh' ? 'AI 板书课' : 'AI Board Lesson')
   const topic = state.board?.topic
 
-  const onPlaybackStart = useCallback((_elementId: string | null, text: string) => {
+  const onPlaybackStart = useCallback((elementId: string | null, text: string) => {
     setActiveNarration(text)
+    setActiveNarrationElementId(elementId)
   }, [])
-  const onPlaybackEnd = useCallback(() => {
+  const onPlaybackEnd = useCallback((elementId: string | null) => {
     setActiveNarration(null)
+    setActiveNarrationElementId(prev => (prev === elementId ? null : prev))
   }, [])
 
   const lessonDone = state.status === 'done'
@@ -493,7 +496,7 @@ function BoardSessionInner() {
             className={`relative flex-1 min-w-0 ${displayPrefs.highContrast ? 'board-high-contrast' : ''} ${isFullscreen ? 'bg-slate-950 p-4' : ''}`}
             style={boardFontScaleStyle(displayPrefs)}
           >
-            <BoardCanvas state={state} paused={paused} />
+            <BoardCanvas state={state} paused={paused} activeElementId={activeNarrationElementId} />
             {showFullscreenHint && (
               <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-slate-900/85 border border-slate-600 text-sm text-slate-100 shadow-lg z-50 pointer-events-none">
                 {language === 'zh' ? '按 Esc 退出全屏' : 'Press Esc to exit fullscreen'}

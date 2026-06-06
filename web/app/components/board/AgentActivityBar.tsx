@@ -67,14 +67,14 @@ export default function AgentActivityBar({ activity }: AgentActivityBarProps) {
             ev.kind === 'start'
               ? humanize(ev.task) || '…'
               : ev.kind === 'error'
-                ? (humanize(ev.error) || 'failed')
+                ? 'refining this step'
                 : humanize(ev.result)
           const text = raw.length > 80 ? `${raw.slice(0, 77)}…` : raw
           const palette =
             ev.kind === 'start'
               ? 'border-sky-400/60 bg-sky-500/20 text-sky-100'
               : ev.kind === 'error'
-                ? 'border-rose-400/60 bg-rose-500/20 text-rose-100'
+                ? 'border-amber-400/60 bg-amber-500/20 text-amber-100'
                 : 'border-emerald-400/60 bg-emerald-500/20 text-emerald-100'
           return (
             <motion.div
