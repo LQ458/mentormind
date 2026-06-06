@@ -394,6 +394,20 @@ async function analyzeLesson(record) {
       message: `Internal error text was visible: ${displayMetrics.internalErrorExcerpt || 'no excerpt captured'}`,
     })
   }
+  if (displayMetrics.rawMarkupVisible) {
+    issues.push({
+      type: 'raw_markup_visible',
+      severity: 'visual',
+      message: `Raw markup text was visible: ${displayMetrics.rawMarkupExcerpt || 'no excerpt captured'}`,
+    })
+  }
+  if (displayMetrics.footerOverBoard) {
+    issues.push({
+      type: 'footer_overlaps_board',
+      severity: 'visual',
+      message: `Bottom controls overlap the board by ${displayMetrics.footerOverlapPx}px.`,
+    })
+  }
   if (record.observed.failedRequests.length || record.observed.serverErrors.length) {
     issues.push({
       type: 'network_display_error',
@@ -434,6 +448,15 @@ async function collectDisplayMetrics(page) {
     const root = document.documentElement
     const bodyText = document.body?.innerText || ''
     const internalMatch = bodyText.match(/(?:Validation failed|parse failed|Unterminated string|Traceback|JSONDecodeError|Pydantic|tool 'invoke_|Exception:|Error:)/i)
+    const rawMarkupMatch = bodyText.match(/<\/?(?:b|strong|i|em|br|p|ul|ol|li|span|div|code)[^>]*>/i)
+    const boardRect = document.querySelector('.board-canvas')?.getBoundingClientRect()
+    const footerRect = document.querySelector('footer')?.getBoundingClientRect()
+    let footerOverlapPx = 0
+    if (boardRect && footerRect) {
+      const overlapX = Math.max(0, Math.min(boardRect.right, footerRect.right) - Math.max(boardRect.left, footerRect.left))
+      const overlapY = Math.max(0, Math.min(boardRect.bottom, footerRect.bottom) - Math.max(boardRect.top, footerRect.top))
+      if (overlapX > 20 && overlapY > 8) footerOverlapPx = Math.round(overlapY)
+    }
     const candidates = [...document.querySelectorAll('main [class*="rounded"], main canvas, main [data-testid], aside [class*="rounded"]')]
       .map((el) => {
         const r = el.getBoundingClientRect()
@@ -462,6 +485,10 @@ async function collectDisplayMetrics(page) {
       visibleCards: candidates.length,
       internalErrorTextVisible: Boolean(internalMatch),
       internalErrorExcerpt: internalMatch ? bodyText.slice(Math.max(0, internalMatch.index - 80), internalMatch.index + 220) : '',
+      rawMarkupVisible: Boolean(rawMarkupMatch),
+      rawMarkupExcerpt: rawMarkupMatch ? bodyText.slice(Math.max(0, rawMarkupMatch.index - 80), rawMarkupMatch.index + 220) : '',
+      footerOverBoard: footerOverlapPx > 0,
+      footerOverlapPx,
     }
   })
 }
