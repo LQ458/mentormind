@@ -8,6 +8,7 @@ import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '../components/AuthContext'
 import { PageHead } from '../components/design/primitives'
 import { MathText } from '../components/MathText'
+import ReportIssueButton from '../components/ReportIssueButton'
 import { SUBJECTS } from '../lib/subjects'
 import { FRAMEWORKS, getFramework } from '../lib/frameworks'
 import { getCourseSuggestions } from '../lib/course-suggestions'
@@ -1659,31 +1660,52 @@ export default function StudyPlanPage() {
       {/* ── CHATTING PHASE ──────────────────────────────────────────────────── */}
       {phase === 'chatting' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-gray-900">
               {uiLanguage === 'zh' ? '和 Mina 确认计划' : 'Confirm the plan with Mina'}
             </h2>
-            <button
-              onClick={() => {
-                setPhase('selecting')
-                setSelectedSubject(null)
-                setSelectedFramework(null)
-                setSelectedCourse(null)
-                setIntake(defaultIntake())
-                setChatMessages([])
-                setChatStage('opening')
-                setUserInput('')
-                setProposedPlan(null)
-                setPlanFeedback('')
-                setCreatedPlanId(null)
-                setAutoSaveStatus('idle')
-                clearStudyPlanDraft()
-                clearContexts()
-              }}
-              className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
-            >
-              {uiLanguage === 'zh' ? '← 重新选择' : '← Back'}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <ReportIssueButton
+                surface="study_plan_generation"
+                compact
+                label={uiLanguage === 'zh' ? '报告生成问题' : 'Report plan issue'}
+                severity={error ? 'blocked' : 'confusing'}
+                snapshot={{
+                  phase,
+                  selected_subject: selectedSubject,
+                  selected_framework: selectedFramework,
+                  selected_course: selectedCourse,
+                  chat_stage: chatStage,
+                  chat_message_count: chatMessages.length,
+                  context_count: contexts.length,
+                  is_typing: isTyping,
+                  has_streaming_content: Boolean(streamingContent),
+                  has_proposed_plan: Boolean(proposedPlan),
+                  error: error || undefined,
+                }}
+              />
+              <button
+                onClick={() => {
+                  setPhase('selecting')
+                  setSelectedSubject(null)
+                  setSelectedFramework(null)
+                  setSelectedCourse(null)
+                  setIntake(defaultIntake())
+                  setChatMessages([])
+                  setChatStage('opening')
+                  setUserInput('')
+                  setProposedPlan(null)
+                  setPlanFeedback('')
+                  setCreatedPlanId(null)
+                  setAutoSaveStatus('idle')
+                  clearStudyPlanDraft()
+                  clearContexts()
+                }}
+                className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                {uiLanguage === 'zh' ? '← 重新选择' : '← Back'}
+              </button>
+            </div>
           </div>
 
           {/* Subject + Framework badge */}
@@ -1892,13 +1914,34 @@ export default function StudyPlanPage() {
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-5">
             {/* Plan header */}
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-blue-600">
-                  {uiLanguage === 'zh' ? '拟定学习计划' : 'Proposed Study Plan'}
-                </span>
-                <span className="text-xs text-gray-400">
-                  {uiLanguage === 'zh' ? '确认后保存' : 'Saved after confirmation'}
-                </span>
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-blue-600">
+                    {uiLanguage === 'zh' ? '拟定学习计划' : 'Proposed Study Plan'}
+                  </span>
+                  <span className="text-xs text-gray-400">
+                    {uiLanguage === 'zh' ? '确认后保存' : 'Saved after confirmation'}
+                  </span>
+                </div>
+                <ReportIssueButton
+                  surface="study_plan_review"
+                  compact
+                  label={uiLanguage === 'zh' ? '报告计划问题' : 'Report plan issue'}
+                  severity="wrong"
+                  snapshot={{
+                    phase,
+                    selected_subject: selectedSubject,
+                    selected_framework: selectedFramework,
+                    selected_course: selectedCourse,
+                    proposed_title: proposedPlan.title,
+                    proposed_subject: proposedPlan.subject,
+                    proposed_framework: proposedPlan.framework,
+                    estimated_hours: proposedPlan.estimated_hours,
+                    unit_count: proposedPlan.units.length,
+                    learner_tier: proposedPlan.learner_tier,
+                    plan_feedback_len: planFeedback.length,
+                  }}
+                />
               </div>
               <h2 className="text-xl font-bold text-gray-900">{proposedPlan.title}</h2>
               <div className="flex flex-wrap gap-3 mt-2 text-sm text-gray-600">

@@ -16,15 +16,21 @@ MentorMind is a Compound AI System that "understands, reconstructs, and teaches"
 
 ## Feedback, Error Collection, and AI Triage
 
-MentorMind has two first-party feedback entry points for beta testing:
+MentorMind has three first-party feedback entry points for beta testing:
 
 1. **Global quick feedback**
-   - Entry: the message icon in the topbar.
+   - Entry: the visible fixed `Report / 报告问题` button on every page, plus the message icon in the topbar.
    - UI: `web/app/components/FeedbackHub.tsx`.
    - Use cases: bug report, function feedback, feeling feedback, or general feedback.
    - Storage: sends a `feedback_moment` telemetry event to `POST /telemetry/event`, stored in the `telemetry_events` table.
 
-2. **Moment-level report**
+2. **Surface-local report**
+   - Entry: `ReportIssueButton` mounted on high-risk flows, including board lessons and study-plan generation/review.
+   - UI: `web/app/components/ReportIssueButton.tsx` opening `FeedbackHub` with a surface-specific snapshot.
+   - Use cases: "this board lesson is mismatched", "plan generation failed", "this generated plan is wrong."
+   - Storage: same `feedback_moment` telemetry path, with `payload.surface` and `payload.context.app_snapshot` identifying the flow.
+
+3. **Moment-level report**
    - Entry: `Mark this moment / 标记这一刻` on specific answer cards, currently wired on `/ask`.
    - UI: `web/app/components/FeedbackMoment.tsx`.
    - Use cases: "this answer/step/UI state is wrong right here."
@@ -43,6 +49,7 @@ Both feedback paths automatically attach bounded debugging context from `web/app
 Automatic error collection:
 
 - `error_console`: global browser errors and unhandled promise rejections
+- React render crashes are captured by `ErrorBoundary`, which also shows a local report button with the crash context.
 - `error_network`: failed `fetch` requests with method, path, status code, and duration
 - `ws_close`: WebSocket close events where implemented
 - `long_task`: browser jank signals

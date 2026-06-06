@@ -61,14 +61,17 @@ Leave `NEXT_PUBLIC_BACKEND_WS_URL` blank in same-origin production so WebSockets
 
 ## Feedback and Error Collection
 
-The frontend has two first-party feedback entry points:
+The frontend has three first-party feedback/report entry points:
 
-- `FeedbackHub`: opened by the topbar message icon for bug, function, feeling, and general feedback.
-- `FeedbackMoment`: placed on exact answer moments, currently on `/ask`.
+- `ReportIssueButton`: visible fixed `Report / 报告问题` button on every page, plus local buttons on important flows such as board lessons and study-plan generation/review.
+- `FeedbackHub`: the shared modal opened by the fixed button, topbar icon, and local report buttons. It captures bug, function, feeling, and general feedback.
+- `FeedbackMoment`: compact inline marker for exact answer moments, currently on `/ask`.
 
-Both send `feedback_moment` telemetry events through `app/lib/telemetry.ts` to `POST /api/backend/telemetry/event`, including a bounded context snapshot: route, viewport, browser, user note, expected behavior, recent breadcrumbs, recent failed network calls, WebSocket errors, and surface-specific app state.
+All paths send `feedback_moment` telemetry events through `app/lib/telemetry.ts` to `POST /api/backend/telemetry/event`, including a bounded context snapshot: route, viewport, browser, user note, expected behavior, recent breadcrumbs, recent failed network calls, WebSocket errors, and surface-specific app state.
 
-When adding a new major surface, prefer adding a local `FeedbackMoment` to the exact user-visible card/turn/error banner instead of relying only on the global feedback icon.
+`ErrorBoundary` also records React render crashes as `error_console` telemetry and shows a local report button with the error context.
+
+When adding a new major surface, add a local `ReportIssueButton` or `FeedbackMoment` to the exact user-visible card/turn/error banner instead of relying only on the global fixed button.
 
 ## Upload UX
 

@@ -1,16 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertTriangle, Bug, Check, Heart, Lightbulb, MessageSquare, Send, X } from 'lucide-react'
 import { useLanguage } from './LanguageContext'
 import { getTelemetryContextSnapshot, track } from '../lib/telemetry'
+import type { FeedbackKind, FeedbackLaunchContext, FeedbackSeverity } from './feedbackEvents'
 
-type FeedbackKind = 'bug' | 'function' | 'feeling' | 'general'
-type Severity = 'blocked' | 'wrong' | 'confusing' | 'slow' | 'visual' | 'idea'
+type Severity = FeedbackSeverity
 
 interface FeedbackHubProps {
   open: boolean
   onClose: () => void
+  launchContext?: FeedbackLaunchContext | null
 }
 
 const KIND_OPTIONS: Array<{
@@ -69,7 +70,7 @@ function makeInteractionId(kind: FeedbackKind): string {
   return `global-${kind}-${Date.now().toString(36)}-${random}`
 }
 
-export default function FeedbackHub({ open, onClose }: FeedbackHubProps) {
+export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHubProps) {
   const { language } = useLanguage()
   const lang = language === 'zh' ? 'zh' : 'en'
   const [kind, setKind] = useState<FeedbackKind>('bug')
@@ -77,6 +78,12 @@ export default function FeedbackHub({ open, onClose }: FeedbackHubProps) {
   const [message, setMessage] = useState('')
   const [expected, setExpected] = useState('')
   const [submitted, setSubmitted] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setKind(launchContext?.feedbackKind || 'bug')
+    setSeverity(launchContext?.severity || 'confusing')
+  }, [launchContext, open])
 
   if (!open) return null
 
@@ -87,16 +94,18 @@ export default function FeedbackHub({ open, onClose }: FeedbackHubProps) {
     const expectedBehavior = expected.trim()
     track('feedback_moment', {
       schema: 'mentormind.feedback_hub.v1',
-      source: 'global_feedback_button',
+      source: launchContext?.surface ? 'local_report_button' : 'global_feedback_button',
       feedback_kind: kind,
-      surface: 'global',
-      interaction_id: makeInteractionId(kind),
+      surface: launchContext?.surface || 'global',
+      interaction_id: launchContext?.interactionId || makeInteractionId(kind),
       severity,
       user_note: userNote.slice(0, 1200),
       expected_behavior: expectedBehavior.slice(0, 1200),
       context: getTelemetryContextSnapshot({
+        ...(launchContext?.snapshot || {}),
         feedback_kind: kind,
         severity,
+        report_surface: launchContext?.surface || 'global',
         has_user_note: userNote.length > 0,
         has_expected_behavior: expectedBehavior.length > 0,
       }),
@@ -254,4 +263,3 @@ export default function FeedbackHub({ open, onClose }: FeedbackHubProps) {
     </div>
   )
 }
-

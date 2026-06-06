@@ -14,6 +14,7 @@ import AgentActivityBar from '../../components/board/AgentActivityBar'
 import SummaryPanel from '../../components/board/SummaryPanel'
 import AuthGate from '../../components/AuthGate'
 import BoardDisplaySettings, { useBoardDisplayPrefs, boardFontScaleStyle } from '../../components/board/BoardDisplaySettings'
+import ReportIssueButton from '../../components/ReportIssueButton'
 import { useKeyboardShortcut } from '../../hooks/useKeyboardShortcut'
 import { useFullscreen } from '../../hooks/useFullscreen'
 import { track } from '../../lib/telemetry'
@@ -433,6 +434,23 @@ function BoardSessionInner() {
             >
               {language === 'zh' ? '分享' : 'Share'}
             </button>
+            <ReportIssueButton
+              surface="board_lesson"
+              compact
+              label={language === 'zh' ? '报告课堂问题' : 'Report lesson issue'}
+              className="border-amber-500/70 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25"
+              severity={state.error ? 'blocked' : 'confusing'}
+              snapshot={{
+                board_session_id: sessionId,
+                status: state.status,
+                element_count: state.elementOrder.length,
+                audio_queue_count: state.audioQueue.length,
+                narration_count: state.narrationLog.length,
+                active_element_id: activeNarrationElementId,
+                has_error: Boolean(state.error),
+                error: state.error || undefined,
+              }}
+            />
             {lessonDone && (
               <Link
                 href="/study-plan"

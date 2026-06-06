@@ -19,20 +19,29 @@ Already present:
 - Exit survey and admin feedback pages.
 - Unit/integration/load tests under `backend/tests`, `tests/unit`, `tests/integration`, and `tests/load`.
 
+Current state:
+
+- `ReportIssueButton` provides a visible fixed `Report / 报告问题` entry on every page.
+- Local report buttons are mounted on `/board/[sessionId]`, `/study-plan` Mina generation, and `/study-plan` plan review.
+- `FeedbackMoment` is implemented on `/ask` answer cards.
+- `FeedbackHub` is the shared modal opened by the fixed button, topbar icon, and local report buttons.
+- `ErrorBoundary` records React render crashes as `error_console` telemetry and shows a local report button with crash context.
+
 Current gap:
 
-- Moment-level feedback is implemented on `/ask`, and global quick feedback is implemented from the topbar. The remaining product gap is coverage: the same moment-report component still needs to be placed on study-plan chat turns, seminar turns, upload error banners, and board lesson cards.
+- More local report buttons should still be placed on seminar turns, upload error banners, and individual board lesson cards/AI replies.
 - Telemetry, feedback, and survey rows are correlated by `session_id`, but there is no generated issue-packet export command yet.
 - E2E testing is not organized around product journeys like quick question, study plan, upload, seminar, and board lesson.
 
 ## Interaction Feedback Primitive
 
-Add an inline "mark this moment" affordance to answer cards, plan chat turns, seminar turns, upload failures, and board lesson events.
+Add an inline or local "report this moment" affordance to answer cards, plan chat turns, seminar turns, upload failures, and board lesson events.
 
 Current implemented path:
 
 - `FeedbackMoment` renders a compact "mark this moment" button on `/ask` answer cards.
-- `FeedbackHub` renders a global quick-feedback modal from the topbar message icon.
+- `ReportIssueButton` renders the fixed global report button and local report buttons on board/study-plan flows.
+- `FeedbackHub` renders a global quick-feedback modal from the fixed button, local buttons, or topbar message icon.
 - The global modal accepts bug reports, function feedback, feeling feedback, and general feedback.
 - Clicking it sends a `feedback_moment` telemetry event.
 - The event is stored in the `telemetry_events` table through `POST /telemetry/event`.
@@ -70,14 +79,14 @@ Capture this payload:
 }
 ```
 
-Global feedback uses the same storage path with:
+Global and local report buttons use the same storage path with:
 
 ```json
 {
   "schema": "mentormind.feedback_hub.v1",
-  "source": "global_feedback_button",
+  "source": "global_feedback_button | local_report_button",
   "feedback_kind": "bug | function | feeling | general",
-  "surface": "global",
+  "surface": "global | board_lesson | study_plan_generation | study_plan_review | ...",
   "severity": "blocked | wrong | confusing | slow | visual | idea",
   "user_note": "This felt too much like reading a presentation.",
   "expected_behavior": "Mina should ask me first, then probe my answer.",
@@ -183,7 +192,7 @@ Curriculum work:
 
 Engineering work that agents can handle:
 
-- Extend `FeedbackMoment` to study-plan chat, seminar turns, upload error banners, and board lesson cards.
+- Extend `ReportIssueButton`/`FeedbackMoment` to seminar turns, upload error banners, individual board lesson cards, and AI reply cards.
 - Build packet export script.
 - Add Playwright specs for the five journeys.
 - Add screenshot diff checks for the four viewports.
@@ -191,7 +200,7 @@ Engineering work that agents can handle:
 
 ## Recommended Next Build Order
 
-1. Add `FeedbackMoment` on upload error banners, study-plan chat turns, seminar turns, and board lesson cards.
+1. Add local report buttons on upload error banners, seminar turns, individual board lesson cards, and AI reply cards.
 2. Export feedback packets from telemetry plus survey rows.
 3. Add Playwright quick-question problem/discussion specs.
 4. Add Playwright feedback-hub specs for bug/function/feeling/general categories.

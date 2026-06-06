@@ -1,6 +1,8 @@
 'use client'
 
 import React from 'react'
+import ReportIssueButton from './ReportIssueButton'
+import { track } from '../lib/telemetry'
 
 interface ErrorBoundaryProps {
   children: React.ReactNode
@@ -23,6 +25,11 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
     this.props.onError?.(error, info)
     if (typeof window !== 'undefined') {
       console.error('[ErrorBoundary]', error, info.componentStack)
+      track('error_console', {
+        source: 'error_boundary',
+        message: error.message.slice(0, 256),
+        kind: 'react_render',
+      })
     }
   }
 
@@ -65,6 +72,18 @@ function DefaultFallback({ error, reset }: { error: Error; reset: () => void }) 
               >
                 返回首页 / Home
               </a>
+            </div>
+            <div className="mt-3">
+              <ReportIssueButton
+                surface="error_boundary"
+                compact
+                label="报告这个错误 / Report this error"
+                severity="blocked"
+                snapshot={{
+                  error_message: error.message.slice(0, 400),
+                  area: 'react_error_boundary',
+                }}
+              />
             </div>
           </div>
         </div>

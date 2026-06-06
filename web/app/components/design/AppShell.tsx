@@ -11,15 +11,15 @@ import SurveyTrigger from '../SurveyTrigger'
 import ExitSurvey, { SURVEY_KEY } from '../ExitSurvey'
 import PWAClient from '../PWAClient'
 import FeedbackHub from '../FeedbackHub'
-
-export const OPEN_SURVEY_EVENT = 'mm:open-survey'
-export const OPEN_FEEDBACK_EVENT = 'mm:open-feedback'
+import ReportIssueButton from '../ReportIssueButton'
+import { OPEN_FEEDBACK_EVENT, OPEN_SURVEY_EVENT, type FeedbackLaunchContext } from '../feedbackEvents'
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || '/'
   const [mobileOpen, setMobileOpen] = useState(false)
   const [surveyOpen, setSurveyOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedbackContext, setFeedbackContext] = useState<FeedbackLaunchContext | null>(null)
   const openMenu = useCallback(() => setMobileOpen(true), [])
   const closeMenu = useCallback(() => setMobileOpen(false), [])
   const isPublicHome = pathname === '/'
@@ -56,8 +56,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   // Listen for the global feedback event (fired by Topbar feedback button).
   React.useEffect(() => {
-    if (isPublicHome) return
-    const handler = () => setFeedbackOpen(true)
+    const handler = (event: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail as FeedbackLaunchContext : null
+      setFeedbackContext(detail || null)
+      setFeedbackOpen(true)
+    }
     window.addEventListener(OPEN_FEEDBACK_EVENT, handler)
     return () => window.removeEventListener(OPEN_FEEDBACK_EVENT, handler)
   }, [isPublicHome])
@@ -66,6 +69,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="min-h-screen bg-[var(--bg)]">
         <ErrorBoundary>{children}</ErrorBoundary>
+        <FeedbackHub
+          open={feedbackOpen}
+          launchContext={feedbackContext}
+          onClose={() => {
+            setFeedbackOpen(false)
+            setFeedbackContext(null)
+          }}
+        />
+        <ReportIssueButton
+          surface="public_home"
+          snapshot={{ area: 'public_home', page: pathname }}
+          fixed
+        />
         <PWAClient />
       </div>
     )
@@ -90,7 +106,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <SurveyTrigger onTrigger={() => setSurveyOpen(true)} />
       {/* Controlled survey modal */}
       <ExitSurvey open={surveyOpen} onClose={() => setSurveyOpen(false)} />
-      <FeedbackHub open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+      <FeedbackHub
+        open={feedbackOpen}
+        launchContext={feedbackContext}
+        onClose={() => {
+          setFeedbackOpen(false)
+          setFeedbackContext(null)
+        }}
+      />
+      <ReportIssueButton
+        surface="global"
+        snapshot={{ area: 'app_shell', page: pathname }}
+        fixed
+      />
       <PWAClient />
     </div>
   )
