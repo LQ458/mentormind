@@ -1,16 +1,14 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../../_auth'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
 export async function GET(req: NextRequest) {
   try {
-    const headers: Record<string, string> = {}
-    const auth = req.headers.get('Authorization')
-    if (auth) headers.Authorization = auth
     const res = await fetch(`${BACKEND_URL}/admin/metrics`, {
       method: 'GET',
-      headers,
+      headers: backendHeaders(req),
       cache: 'no-store',
     })
     const data = await res.json().catch(() => ({}))

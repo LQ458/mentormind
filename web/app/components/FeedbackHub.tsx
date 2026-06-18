@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Bug, Check, Heart, Lightbulb, MessageSquare, Send, X } from 'lucide-react'
 import { useLanguage } from './LanguageContext'
-import { getTelemetryContextSnapshot, track } from '../lib/telemetry'
+import { getTelemetryContextSnapshot, trackNow } from '../lib/telemetry'
 import type { FeedbackKind, FeedbackLaunchContext, FeedbackSeverity } from './feedbackEvents'
 
 type Severity = FeedbackSeverity
@@ -70,6 +70,11 @@ function makeInteractionId(kind: FeedbackKind): string {
   return `global-${kind}-${Date.now().toString(36)}-${random}`
 }
 
+function makeReportId(kind: FeedbackKind, surface: string): string {
+  const safeSurface = surface.replace(/[^a-z0-9_-]+/gi, '-').slice(0, 24) || 'global'
+  return `fb-${safeSurface}-${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+}
+
 export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHubProps) {
   const { language } = useLanguage()
   const lang = language === 'zh' ? 'zh' : 'en'
@@ -78,25 +83,46 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
   const [message, setMessage] = useState('')
   const [expected, setExpected] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [submittedReportId, setSubmittedReportId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
     setKind(launchContext?.feedbackKind || 'bug')
     setSeverity(launchContext?.severity || 'confusing')
+    setSubmitted(false)
+    setSubmitting(false)
+    setSubmitError(null)
+    setSubmittedReportId(null)
   }, [launchContext, open])
 
   if (!open) return null
 
   const selectedKind = KIND_OPTIONS.find((item) => item.value === kind) || KIND_OPTIONS[0]
 
-  const submit = () => {
+  const submit = async () => {
+    if (submitting) return
     const userNote = message.trim()
     const expectedBehavior = expected.trim()
-    track('feedback_moment', {
+    if (!userNote && !expectedBehavior) {
+      setSubmitError(
+        lang === 'zh'
+          ? '写一句也可以。这样我们才能把这条反馈变成可复现的问题。'
+          : 'Add one short note so we can turn this into a reproducible issue.',
+      )
+      return
+    }
+    setSubmitting(true)
+    setSubmitError(null)
+    const surface = launchContext?.surface || 'global'
+    const reportId = makeReportId(kind, surface)
+    const ok = await trackNow('feedback_moment', {
       schema: 'mentormind.feedback_hub.v1',
       source: launchContext?.surface ? 'local_report_button' : 'global_feedback_button',
+      report_id: reportId,
       feedback_kind: kind,
-      surface: launchContext?.surface || 'global',
+      surface,
       interaction_id: launchContext?.interactionId || makeInteractionId(kind),
       severity,
       user_note: userNote.slice(0, 1200),
@@ -105,11 +131,22 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
         ...(launchContext?.snapshot || {}),
         feedback_kind: kind,
         severity,
-        report_surface: launchContext?.surface || 'global',
+        report_surface: surface,
+        report_id: reportId,
         has_user_note: userNote.length > 0,
         has_expected_behavior: expectedBehavior.length > 0,
       }),
     })
+    setSubmitting(false)
+    if (!ok) {
+      setSubmitError(
+        lang === 'zh'
+          ? '暂时没发出去。请稍后再试，或者保留这段文字。'
+          : 'Could not send this yet. Please try again in a moment.',
+      )
+      return
+    }
+    setSubmittedReportId(reportId)
     setSubmitted(true)
     setMessage('')
     setExpected('')
@@ -159,6 +196,11 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
             <div className="text-sm font-semibold text-gray-900">
               {lang === 'zh' ? '已记录，会和错误线索一起进入分析队列。' : 'Recorded with the debugging context.'}
             </div>
+            {submittedReportId && (
+              <div className="mt-2 rounded-lg bg-gray-50 px-2 py-1 font-mono text-xs text-gray-500">
+                {submittedReportId}
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-4 px-5 py-5">
@@ -222,7 +264,10 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
 
             <textarea
               value={message}
-              onChange={(event) => setMessage(event.target.value)}
+              onChange={(event) => {
+                setMessage(event.target.value)
+                if (submitError) setSubmitError(null)
+              }}
               rows={4}
               placeholder={
                 lang === 'zh'
@@ -234,11 +279,20 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
 
             <textarea
               value={expected}
-              onChange={(event) => setExpected(event.target.value)}
+              onChange={(event) => {
+                setExpected(event.target.value)
+                if (submitError) setSubmitError(null)
+              }}
               rows={3}
               placeholder={lang === 'zh' ? '你希望它怎么做？可选' : 'What should have happened instead? Optional'}
               className="w-full resize-none rounded-xl border border-gray-300 px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-blue-400"
             />
+
+            {submitError && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                {submitError}
+              </div>
+            )}
 
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
               <button
@@ -251,10 +305,13 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
               <button
                 type="button"
                 onClick={submit}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700"
+                disabled={submitting}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
               >
                 <Send size={16} />
-                {lang === 'zh' ? '发送反馈' : 'Send feedback'}
+                {submitting
+                  ? (lang === 'zh' ? '发送中…' : 'Sending…')
+                  : (lang === 'zh' ? '发送反馈' : 'Send feedback')}
               </button>
             </div>
           </div>

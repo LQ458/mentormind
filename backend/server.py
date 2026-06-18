@@ -23,7 +23,6 @@ from sqlalchemy.orm import Session
 import uvicorn
 from dotenv import load_dotenv
 import tempfile
-import shutil
 import re
 import uuid
 
@@ -173,9 +172,12 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     print(f"❌ Validation error on {request.method} {request.url}: {exc.errors()}")
     body_excerpt = await _safe_request_body_excerpt(request)
     print(f"📋 Request body: {body_excerpt or 'empty'}")
+    content = {"detail": exc.errors()}
+    if os.getenv("MENTORMIND_DEBUG_VALIDATION_BODY", "false").lower() == "true":
+        content["body"] = body_excerpt
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors(), "body": body_excerpt}
+        content=content,
     )
 
 # Add auth error handler
@@ -184,8 +186,9 @@ async def auth_exception_handler(request: Request, exc: HTTPException):
     """Log authentication errors for debugging"""
     if exc.status_code == 401:
         auth_header = request.headers.get("authorization", "missing")
+        auth_scheme = auth_header.split(" ", 1)[0] if auth_header != "missing" else "missing"
         print(f"🔐 Auth failed on {request.method} {request.url}")
-        print(f"📋 Auth header: {auth_header[:50]}..." if len(auth_header) > 50 else f"📋 Auth header: {auth_header}")
+        print(f"📋 Auth header: scheme={auth_scheme}, length={0 if auth_header == 'missing' else len(auth_header)}")
         print(f"❌ Auth error: {exc.detail}")
     return JSONResponse(
         status_code=exc.status_code,
@@ -2475,6 +2478,26 @@ def _celery_queue_has_worker(queue_name: str) -> bool:
         logger.warning("Celery worker inspection failed for queue %s: %s", queue_name, exc)
     return False
 
+
+def _save_upload_with_limit(file: UploadFile, dest_path: str, max_bytes: int) -> int:
+    """Persist an upload while enforcing a hard size cap."""
+    total = 0
+    chunk_size = 1024 * 1024
+    with open(dest_path, "wb") as buffer:
+        while True:
+            chunk = file.file.read(chunk_size)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File too large; max {max_bytes // (1024 * 1024)} MiB",
+                )
+            buffer.write(chunk)
+    return total
+
+
 @app.post("/ingest/audio")
 async def ingest_audio(
     file: UploadFile = File(...),
@@ -2502,15 +2525,14 @@ async def ingest_audio(
             raise HTTPException(status_code=400, detail=f"Unsupported format: {file.content_type}")
 
         suffix = os.path.splitext(file.filename or ".wav")[1] or ".wav"
-        job_id = f"asr_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        job_id = f"asr_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         
         # Save to shared volume for background worker access
         upload_dir = os.path.join(config.DATA_DIR, "uploads")
         os.makedirs(upload_dir, exist_ok=True)
         tmp_path = os.path.join(upload_dir, f"{job_id}{suffix}")
 
-        with open(tmp_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        _save_upload_with_limit(file, tmp_path, max_bytes=100 * 1024 * 1024)
 
         # Dispatch task to Celery
         if process.lower() != "true":
@@ -2585,15 +2607,14 @@ async def ingest_image(
             raise HTTPException(status_code=400, detail=f"Unsupported format: {file.content_type}")
 
         suffix = os.path.splitext(file.filename or ".jpg")[1] or ".jpg"
-        job_id = f"ocr_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        job_id = f"ocr_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
         # Save to shared volume
         upload_dir = os.path.join(config.DATA_DIR, "uploads")
         os.makedirs(upload_dir, exist_ok=True)
         tmp_path = os.path.join(upload_dir, f"{job_id}{suffix}")
 
-        with open(tmp_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        _save_upload_with_limit(file, tmp_path, max_bytes=25 * 1024 * 1024)
 
         is_pdf = (file.content_type or "").lower() == "application/pdf" or suffix.lower() == ".pdf"
         if is_pdf:
@@ -2678,8 +2699,13 @@ async def serve_media(file_path: str):
         if file_path.startswith(prefix):
             file_path = file_path[len(prefix):]
             break
-    abs_path = os.path.normpath(os.path.join(config.DATA_DIR, file_path))
-    if not abs_path.startswith(os.path.normpath(config.DATA_DIR)) or not os.path.exists(abs_path):
+    data_root = os.path.abspath(config.DATA_DIR)
+    abs_path = os.path.abspath(os.path.normpath(os.path.join(data_root, file_path)))
+    try:
+        inside_data_root = os.path.commonpath([data_root, abs_path]) == data_root
+    except ValueError:
+        inside_data_root = False
+    if not inside_data_root or not os.path.exists(abs_path):
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(abs_path)
 
@@ -2911,12 +2937,17 @@ def record_video_engagement(
 
 @app.get("/admin/metrics")
 def get_admin_metrics(
+    current_user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
     """
     Return comprehensive video generation metrics for all lessons.
     Shows creation times, quality scores, costs, and performance data.
+    Admin-gated because lesson metadata can include internal generation details.
     """
+    if (current_user.role or "").lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
     try:
         from database.models.lesson import Lesson
         from database.models.user import UserLesson
@@ -4638,9 +4669,9 @@ async def post_seminar_audio_turn(
         raise HTTPException(status_code=400, detail=f"Unsupported format: {file.content_type}")
     suffix = os.path.splitext(file.filename or ".webm")[1] or ".webm"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(file.file, tmp)
         tmp_path = tmp.name
     try:
+        _save_upload_with_limit(file, tmp_path, max_bytes=50 * 1024 * 1024)
         result = await asyncio.wait_for(
             transcribe_with_local_model_result(tmp_path, language),
             timeout=float(os.getenv("SEMINAR_ASR_TIMEOUT_SECONDS", "30")),
@@ -6375,6 +6406,160 @@ async def get_admin_telemetry_aggregate(
             "start_date": start_date,
             "end_date": end_date,
             "event_type": event_type,
+        },
+    }
+
+
+def _admin_only(current_user: User) -> None:
+    if (current_user.role or "").lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+
+def _parse_admin_date_param(name: str, value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Invalid {name}")
+
+
+def _payload_str(payload: Dict[str, Any], key: str, max_len: int = 240) -> str:
+    value = payload.get(key)
+    if value is None:
+        return ""
+    return str(value)[:max_len]
+
+
+def _feedback_report_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
+    payload = event.payload or {}
+    context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
+    app_snapshot = context.get("app_snapshot") if isinstance(context.get("app_snapshot"), dict) else {}
+    recent_events = context.get("recent_events") if isinstance(context.get("recent_events"), list) else []
+    recent_errors = context.get("recent_errors") if isinstance(context.get("recent_errors"), list) else []
+    return {
+        "id": event.id,
+        "created_at": event.created_at.isoformat() if event.created_at else None,
+        "user_id": event.user_id,
+        "session_id": event.session_id,
+        "page": event.page,
+        "url": event.url,
+        "viewport_w": event.viewport_w,
+        "viewport_h": event.viewport_h,
+        "source": _payload_str(payload, "source"),
+        "surface": _payload_str(payload, "surface"),
+        "feedback_kind": _payload_str(payload, "feedback_kind"),
+        "severity": _payload_str(payload, "severity"),
+        "interaction_id": _payload_str(payload, "interaction_id", 255),
+        "report_id": _payload_str(payload, "report_id", 80),
+        "user_note": _payload_str(payload, "user_note", 1200),
+        "expected_behavior": _payload_str(payload, "expected_behavior", 1200),
+        "route": str(context.get("route") or event.page or "")[:240],
+        "captured_url": str(context.get("url") or event.url or "")[:512],
+        "recent_events": recent_events[:10],
+        "recent_errors": recent_errors[:5],
+        "app_snapshot": app_snapshot,
+    }
+
+
+def _feedback_report_matches(
+    row: Dict[str, Any],
+    *,
+    surface: Optional[str],
+    kind: Optional[str],
+    severity: Optional[str],
+) -> bool:
+    if surface and row.get("surface") != surface:
+        return False
+    if kind and row.get("feedback_kind") != kind:
+        return False
+    if severity and row.get("severity") != severity:
+        return False
+    return True
+
+
+@app.get("/admin/feedback/reports")
+async def get_admin_feedback_reports(
+    limit: int = 50,
+    offset: int = 0,
+    surface: Optional[str] = None,
+    kind: Optional[str] = None,
+    severity: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List quick feedback reports captured as feedback_moment telemetry."""
+    _admin_only(current_user)
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    start_dt = _parse_admin_date_param("start_date", start_date)
+    end_dt = _parse_admin_date_param("end_date", end_date)
+
+    q = db.query(TelemetryEvent).filter(TelemetryEvent.event_type == "feedback_moment")
+    if start_dt:
+        q = q.filter(TelemetryEvent.created_at >= start_dt)
+    if end_dt:
+        q = q.filter(TelemetryEvent.created_at <= end_dt)
+
+    raw_limit = min(max(limit + offset + 1000, 1000), 5000)
+    events = q.order_by(TelemetryEvent.created_at.desc()).limit(raw_limit).all()
+    rows = [
+        row for row in (_feedback_report_to_dict(event) for event in events)
+        if _feedback_report_matches(row, surface=surface, kind=kind, severity=severity)
+    ]
+    return {
+        "total": len(rows),
+        "rows": rows[offset:offset + limit],
+        "limit": limit,
+        "offset": offset,
+        "truncated": len(events) >= raw_limit,
+        "filters": {
+            "surface": surface,
+            "kind": kind,
+            "severity": severity,
+            "start_date": start_date,
+            "end_date": end_date,
+        },
+    }
+
+
+@app.get("/admin/feedback/reports/aggregate")
+async def get_admin_feedback_reports_aggregate(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Aggregate quick feedback reports by surface, kind, severity, and page."""
+    _admin_only(current_user)
+    start_dt = _parse_admin_date_param("start_date", start_date)
+    end_dt = _parse_admin_date_param("end_date", end_date)
+
+    q = db.query(TelemetryEvent).filter(TelemetryEvent.event_type == "feedback_moment")
+    if start_dt:
+        q = q.filter(TelemetryEvent.created_at >= start_dt)
+    if end_dt:
+        q = q.filter(TelemetryEvent.created_at <= end_dt)
+
+    from collections import Counter
+    events = q.order_by(TelemetryEvent.created_at.desc()).limit(5000).all()
+    rows = [_feedback_report_to_dict(event) for event in events]
+    by_surface = Counter(row.get("surface") or "unknown" for row in rows)
+    by_kind = Counter(row.get("feedback_kind") or "unknown" for row in rows)
+    by_severity = Counter(row.get("severity") or "unknown" for row in rows)
+    by_page = Counter(row.get("page") or row.get("route") or "unknown" for row in rows)
+    return {
+        "total": len(rows),
+        "surface_distribution": dict(by_surface.most_common(50)),
+        "kind_distribution": dict(by_kind.most_common(20)),
+        "severity_distribution": dict(by_severity.most_common(20)),
+        "page_distribution": dict(by_page.most_common(50)),
+        "truncated": len(events) >= 5000,
+        "filters": {
+            "start_date": start_date,
+            "end_date": end_date,
         },
     }
 

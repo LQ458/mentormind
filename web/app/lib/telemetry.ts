@@ -128,6 +128,22 @@ function send(payload: TelemetryPayload): void {
   }
 }
 
+async function sendInteractive(payload: TelemetryPayload): Promise<boolean> {
+  try {
+    const res = await fetch(TELEMETRY_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    })
+    if (!res.ok) return false
+    const data = await res.json().catch(() => ({}))
+    return data?.ok !== false
+  } catch {
+    return false
+  }
+}
+
 function safeString(value: unknown, max = 180): string {
   if (value === null || value === undefined) return ''
   return String(value).slice(0, max)
@@ -241,6 +257,31 @@ export function track(
     send(event)
   } catch {
     // swallow
+  }
+}
+
+export async function trackNow(
+  type: EventType,
+  payload?: Record<string, unknown>,
+  meta?: TrackMeta,
+): Promise<boolean> {
+  try {
+    if (typeof window === 'undefined') return false
+    const session_id = getOrCreateSessionId()
+    const event: TelemetryPayload = {
+      session_id,
+      event_type: type,
+      page: meta?.page ?? window.location.pathname,
+      url: meta?.url ?? window.location.href,
+      viewport_w: window.innerWidth,
+      viewport_h: window.innerHeight,
+    }
+    if (typeof meta?.latency_ms === 'number') event.latency_ms = meta.latency_ms
+    if (payload && Object.keys(payload).length > 0) event.payload = payload
+    rememberEvent(event)
+    return await sendInteractive(event)
+  } catch {
+    return false
   }
 }
 
