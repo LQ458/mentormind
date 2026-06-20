@@ -49,7 +49,7 @@ export default function Topbar({ onMenuClick, menuOpen = false }: { onMenuClick?
       <button
         type="button"
         className="md:hidden p-1.5 -ml-1 rounded-lg text-[var(--ink-muted)] hover:bg-[var(--surface-2)]"
-        aria-label="Open menu"
+        aria-label={language === 'zh' ? '打开菜单' : 'Open menu'}
         aria-expanded={menuOpen}
         aria-controls="app-sidebar"
         onClick={onMenuClick}
@@ -101,7 +101,7 @@ export default function Topbar({ onMenuClick, menuOpen = false }: { onMenuClick?
         <MessageSquare size={18} />
       </button>
 
-      <div className="lang-toggle" role="group" aria-label="Language">
+      <div className="lang-toggle" role="group" aria-label={language === 'zh' ? '语言' : 'Language'}>
         <button
           type="button"
           className={language === 'en' ? 'on' : ''}
@@ -121,7 +121,7 @@ export default function Topbar({ onMenuClick, menuOpen = false }: { onMenuClick?
       <NotificationsPanel />
 
       {isLoaded && isSignedIn && (
-        <button className="avatar-btn" type="button" aria-label="Account">
+        <button className="avatar-btn" type="button" aria-label={language === 'zh' ? '账户' : 'Account'}>
           {initial}
         </button>
       )}

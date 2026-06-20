@@ -132,7 +132,7 @@ export default function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean;
     : user?.fullName || user?.username || 'Guest'
   const role = !isLoaded
     ? lang === 'zh' ? '请稍候' : 'Please wait'
-    : 'Learner'
+    : lang === 'zh' ? '学员' : 'Learner'
 
   const isActive = (href: string) => {
     if (href === '/dashboard') return pathname === '/dashboard' || pathname === '/'
