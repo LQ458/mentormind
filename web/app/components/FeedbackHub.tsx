@@ -91,7 +91,9 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submittedReportId, setSubmittedReportId] = useState<string | null>(null)
   const [submittedMode, setSubmittedMode] = useState<SubmissionMode | null>(null)
+  const [submittedSummary, setSubmittedSummary] = useState<string | null>(null)
   const [reportIdCopied, setReportIdCopied] = useState(false)
+  const [summaryCopied, setSummaryCopied] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -102,7 +104,9 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     setSubmitError(null)
     setSubmittedReportId(null)
     setSubmittedMode(null)
+    setSubmittedSummary(null)
     setReportIdCopied(false)
+    setSummaryCopied(false)
     setMessage('')
     setExpected('')
   }, [launchContext, open])
@@ -134,6 +138,41 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     } catch {
       setReportIdCopied(false)
     }
+  }
+
+  const copySubmittedSummary = async () => {
+    if (!submittedSummary || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return
+    try {
+      await navigator.clipboard.writeText(submittedSummary)
+      setSummaryCopied(true)
+      window.setTimeout(() => setSummaryCopied(false), 1400)
+    } catch {
+      setSummaryCopied(false)
+    }
+  }
+
+  const makeSubmittedSummary = (
+    mode: SubmissionMode,
+    reportId: string,
+    userNote: string,
+    expectedBehavior: string,
+    surface: string,
+  ): string => {
+    const severityLabel = SEVERITIES.find((item) => item.value === severity)
+    const page = typeof window === 'undefined' ? '' : window.location.pathname
+    return [
+      lang === 'zh' ? 'MentorMind 反馈' : 'MentorMind feedback',
+      `ID: ${reportId}`,
+      `${lang === 'zh' ? '状态' : 'Status'}: ${mode === 'queued'
+        ? (lang === 'zh' ? '已暂存待重试' : 'Queued for retry')
+        : (lang === 'zh' ? '已记录' : 'Recorded')}`,
+      `${lang === 'zh' ? '类型' : 'Type'}: ${lang === 'zh' ? selectedKind.zh : selectedKind.en}`,
+      `${lang === 'zh' ? '严重度' : 'Severity'}: ${severityLabel ? (lang === 'zh' ? severityLabel.zh : severityLabel.en) : severity}`,
+      `${lang === 'zh' ? '位置' : 'Surface'}: ${surface}`,
+      page ? `${lang === 'zh' ? '页面' : 'Page'}: ${page}` : '',
+      userNote ? `${lang === 'zh' ? '反馈' : 'Note'}: ${userNote}` : '',
+      expectedBehavior ? `${lang === 'zh' ? '期望' : 'Expected'}: ${expectedBehavior}` : '',
+    ].filter(Boolean).join('\n')
   }
 
   const submit = async () => {
@@ -184,6 +223,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     if (result === 'queued') {
       setSubmittedReportId(reportId)
       setSubmittedMode('queued')
+      setSubmittedSummary(makeSubmittedSummary('queued', reportId, userNote, expectedBehavior, surface))
       setSubmitted(true)
       setMessage('')
       setExpected('')
@@ -191,6 +231,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     }
     setSubmittedReportId(reportId)
     setSubmittedMode('recorded')
+    setSubmittedSummary(makeSubmittedSummary('recorded', reportId, userNote, expectedBehavior, surface))
     setSubmitted(true)
     setMessage('')
     setExpected('')
@@ -254,22 +295,34 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
                   : 'Thanks. This helps turn tester feedback into fixable issues.')}
             </div>
             {submittedReportId && (
-              <div className="mt-4 flex w-full max-w-md flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+              <div className="mt-4 flex w-full max-w-md flex-col items-stretch gap-2">
                 <div className="min-w-0 flex-1 rounded-lg bg-gray-50 px-3 py-2 font-mono text-xs text-gray-600">
                   <span className="block truncate" title={submittedReportId}>
                     {submittedReportId}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={copyReportId}
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                >
-                  <Copy size={13} />
-                  {reportIdCopied
-                    ? (lang === 'zh' ? '已复制' : 'Copied')
-                    : (lang === 'zh' ? '复制编号' : 'Copy ID')}
-                </button>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={copyReportId}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    <Copy size={13} />
+                    {reportIdCopied
+                      ? (lang === 'zh' ? '已复制' : 'Copied')
+                      : (lang === 'zh' ? '复制编号' : 'Copy ID')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={copySubmittedSummary}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    <Copy size={13} />
+                    {summaryCopied
+                      ? (lang === 'zh' ? '已复制' : 'Copied')
+                      : (lang === 'zh' ? '复制摘要' : 'Copy summary')}
+                  </button>
+                </div>
               </div>
             )}
             <button
