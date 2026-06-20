@@ -301,6 +301,15 @@ function hasAuthSession() {
   return Boolean(authSession?.token)
 }
 
+function isExpectedUnauthedProbe(msg) {
+  const text = msg.text()
+  const location = msg.location()
+  return msg.type() === 'error'
+    && /status of 401/i.test(text)
+    && /\/api\/backend\/users\/me(?:\?|$)/.test(location?.url || '')
+    && !hasAuthSession()
+}
+
 async function screenshot(page, name) {
   const file = path.join(OUT_DIR, `${sanitizeName(name)}.png`)
   await page.screenshot({ path: file, fullPage: true })
@@ -338,6 +347,9 @@ async function createObservedPage(browser, viewport) {
   }
   page.on('console', (msg) => {
     if (msg.type() === 'error') {
+      if (isExpectedUnauthedProbe(msg)) {
+        return
+      }
       observed.consoleErrors.push({ text: msg.text().slice(0, 1000), location: msg.location() })
     }
   })
@@ -896,6 +908,11 @@ async function testQuickQuestion(browser) {
 }
 
 async function testQuickQuestionUploadForms(browser) {
+  if (!hasAuthSession()) {
+    events.push({ type: 'quick_question_upload', status: 'not_run', reason: 'auth_not_available' })
+    return
+  }
+
   const generatedTextFixture = path.join(OUT_DIR, 'quick-question-text-fixture.txt')
   await fs.writeFile(
     generatedTextFixture,
