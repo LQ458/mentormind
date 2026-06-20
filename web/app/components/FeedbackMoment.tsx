@@ -44,6 +44,20 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
   const [error, setError] = useState<string | null>(null)
   const [submittedReportId, setSubmittedReportId] = useState<string | null>(null)
   const [submittedMode, setSubmittedMode] = useState<SubmissionMode | null>(null)
+  const hasDraft = note.trim().length > 0 || expected.trim().length > 0
+
+  const requestClose = () => {
+    if (submitting) return
+    if (hasDraft) {
+      const confirmed = window.confirm(
+        lang === 'zh'
+          ? '这条反馈还没记录，确定关闭吗？'
+          : 'This feedback has not been recorded yet. Close anyway?',
+      )
+      if (!confirmed) return
+    }
+    setOpen(false)
+  }
 
   const submit = async () => {
     if (submitting) return
@@ -145,8 +159,9 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
             </div>
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={requestClose}
               className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+              disabled={submitting}
               aria-label={lang === 'zh' ? '关闭' : 'Close'}
             >
               <X size={14} />
