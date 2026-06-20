@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { backendHeaders } from '../../_auth'
 
 // Force Next.js to NEVER cache this route or buffer the response
 export const dynamic = 'force-dynamic'
@@ -12,15 +13,12 @@ export async function GET(
         const url = `${process.env.BACKEND_URL || 'http://localhost:8000'}/job-stream/${id}`
         console.log(`[job-stream proxy] Fetching SSE from: ${url}`)
 
-        // Forward auth token to backend
-        const authHeader = request.headers.get('Authorization')
-        const headers: Record<string, string> = {
+        // Forward auth token to backend. EventSource cannot set custom headers,
+        // so the proxy also derives Authorization from the session cookie.
+        const headers = backendHeaders(request, {
             'Accept': 'text/event-stream',
             'Cache-Control': 'no-store, no-cache, must-revalidate',
-        }
-        if (authHeader) {
-            headers.Authorization = authHeader
-        }
+        })
 
         // Fetch from backend using native Node.js fetch (passes streams through)
         const backendResponse = await fetch(url, {

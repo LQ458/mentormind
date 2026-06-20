@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../../_auth'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -15,14 +16,10 @@ export async function GET(
         console.log(`[job-status proxy] Fetching: ${url}`)
 
         // Prevent Next.js fetch() from caching the "processing" state
-        const authHeader = request.headers.get('Authorization')
-        const headers: Record<string, string> = {
+        const headers = backendHeaders(request, {
             'Content-Type': 'application/json',
             'Cache-Control': 'no-store, no-cache, must-revalidate'
-        }
-        if (authHeader) {
-            headers.Authorization = authHeader
-        }
+        })
         const backendResponse = await fetch(url, {
             method: 'GET',
             headers,

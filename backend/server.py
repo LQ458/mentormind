@@ -1843,32 +1843,40 @@ def get_lessons(
     search: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
+    current_user: User = Depends(get_current_user),
     lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
-    """List published lessons.  Pass ``?search=`` for full-text search."""
-    if search:
-        lessons = lesson_storage.search_lessons(
-            search,
-            language=language,
-            student_level=student_level,
-            limit=limit,
-        )
-        return {"success": True, "lessons": lessons, "total": len(lessons)}
+    """List lessons owned by the current user. Pass ``?search=`` for local filtering."""
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    query_limit = min(max(limit + offset, 100), 1000)
+    lessons = lesson_storage.get_lessons_by_user(str(current_user.id), limit=query_limit)
 
-    lessons, total = lesson_storage.get_all_lessons(
-        language=language,
-        student_level=student_level,
-        difficulty=difficulty,
-        limit=limit,
-        offset=offset,
-    )
-    return {"success": True, "lessons": lessons, "total": total}
+    def _matches_filter(lesson: Dict[str, Any]) -> bool:
+        if language and lesson.get("language") != language:
+            return False
+        if student_level and lesson.get("student_level") != student_level:
+            return False
+        if difficulty and lesson.get("difficulty_level") != difficulty:
+            return False
+        if search:
+            needle = search.lower()
+            haystack = " ".join(
+                str(lesson.get(field) or "")
+                for field in ("title", "topic", "description")
+            ).lower()
+            if needle not in haystack:
+                return False
+        return True
+
+    filtered = [lesson for lesson in lessons if _matches_filter(lesson)]
+    return {"success": True, "lessons": filtered[offset:offset + limit], "total": len(filtered)}
 
 
 @app.get("/lessons/{lesson_id}")
 def get_lesson_detail(
     lesson_id: str,
-    current_user: Optional[User] = Depends(get_optional_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
@@ -1876,12 +1884,11 @@ def get_lesson_detail(
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=True)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
+    if str(lesson.get("user_id") or "") != str(current_user.id):
+        raise HTTPException(status_code=403, detail="You do not have permission to view this lesson")
 
-    lesson_state = None
-    profile = None
-    if current_user:
-        lesson_state = lesson_storage.get_lesson_state(str(current_user.id), lesson_id)
-        profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+    lesson_state = lesson_storage.get_lesson_state(str(current_user.id), lesson_id)
+    profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
 
     lesson["process_layer"] = _build_process_layer(lesson, lesson_state, profile)
     if lesson_state:
@@ -1893,14 +1900,14 @@ def get_lesson_detail(
 @app.delete("/lessons/{lesson_id}")
 def delete_lesson(
     lesson_id: str,
-    current_user: Optional[User] = Depends(get_optional_user),
+    current_user: User = Depends(get_current_user),
     lesson_storage: LessonStorageSQL = Depends(get_lesson_storage),
 ):
-    """Delete a lesson if it exists and belongs to the current user when authenticated."""
+    """Delete a lesson if it exists and belongs to the current user."""
     lesson = lesson_storage.get_lesson(lesson_id, include_relationships=False)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    if current_user and lesson.get("user_id") and lesson.get("user_id") != str(current_user.id):
+    if str(lesson.get("user_id") or "") != str(current_user.id):
         raise HTTPException(status_code=403, detail="You do not have permission to delete this lesson")
     if not lesson_storage.delete_lesson(lesson_id):
         raise HTTPException(status_code=500, detail="Failed to delete lesson")
@@ -2439,7 +2446,7 @@ async def create_class(
 
 
 @app.get("/job-status/{job_id}")
-async def get_job_status(job_id: str):
+async def get_job_status(job_id: str, current_user: User = Depends(get_current_user)):
     """Check status of a Celery job and return result from Redis if completed"""
     from celery.result import AsyncResult
     from celery_app import celery_app, _redis_client
@@ -2485,7 +2492,7 @@ async def get_job_status(job_id: str):
     return response
 
 @app.get("/job-stream/{job_id}")
-async def stream_job_status(job_id: str):
+async def stream_job_status(job_id: str, current_user: User = Depends(get_current_user)):
     """Server-Sent Events (SSE) stream for job status updates"""
     async def event_generator():
         from celery.result import AsyncResult
