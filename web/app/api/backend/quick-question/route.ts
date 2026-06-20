@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { backendHeaders } from '../_auth'
+import { backendJsonResponse, proxyFailureResponse } from '../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -12,10 +13,9 @@ export async function POST(req: NextRequest) {
       headers,
       body: JSON.stringify(body),
     })
-    const data = await res.json().catch(() => ({}))
-    return NextResponse.json(data, { status: res.status })
+    return await backendJsonResponse(res, 'quick-question proxy')
   } catch (err) {
     console.error('[quick-question proxy] error:', err)
-    return NextResponse.json({ error: 'Failed to reach quick question service' }, { status: 502 })
+    return proxyFailureResponse('Failed to answer quick question')
   }
 }

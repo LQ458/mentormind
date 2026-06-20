@@ -1,10 +1,27 @@
 import { NextResponse } from 'next/server'
 
 const MAX_LOG_DETAIL = 2000
+const SECRET_KEY_PATTERN = '(?:access[_-]?token|api[_-]?key|authorization|cookie|id[_-]?token|jwt|password|refresh[_-]?token|secret|set-cookie|token)'
+
+function redactSensitiveText(value: string): string {
+  return value
+    .replace(
+      new RegExp(`("${SECRET_KEY_PATTERN}"\\s*:\\s*)"[^"]*"`, 'gi'),
+      '$1"[redacted]"',
+    )
+    .replace(
+      new RegExp(`\\b(${SECRET_KEY_PATTERN})\\s*[:=]\\s*[^\\s,;&]+`, 'gi'),
+      '$1=[redacted]',
+    )
+    .replace(
+      new RegExp(`([?&]${SECRET_KEY_PATTERN}=)[^&#\\s]+`, 'gi'),
+      '$1[redacted]',
+    )
+}
 
 function safeText(value: unknown): string {
   if (value === null || value === undefined) return ''
-  return String(value).replace(/\s+/g, ' ').slice(0, MAX_LOG_DETAIL)
+  return redactSensitiveText(String(value)).replace(/\s+/g, ' ').slice(0, MAX_LOG_DETAIL)
 }
 
 export function logBackendProxyError(scope: string, status: number | null, detail: unknown): void {
