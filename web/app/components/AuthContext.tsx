@@ -40,15 +40,6 @@ const AuthCtx = createContext<AuthContextValue>({
 const TOKEN_KEY = 'mm_token'
 const USER_KEY = 'mm_user'
 
-function persistSessionCookie(token: string) {
-  try {
-    const secure = window.location.protocol === 'https:' ? '; Secure' : ''
-    document.cookie = `${TOKEN_KEY}=${encodeURIComponent(token)}; Path=/; Max-Age=${60 * 60 * 24 * 30}; SameSite=Lax${secure}`
-  } catch {
-    // ignore cookie failures; localStorage remains the client fallback
-  }
-}
-
 function clearSessionCookie() {
   try {
     const secure = window.location.protocol === 'https:' ? '; Secure' : ''
@@ -106,7 +97,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       localStorage.setItem(TOKEN_KEY, data.token)
       localStorage.setItem(USER_KEY, JSON.stringify(u))
-      persistSessionCookie(data.token)
       setUser(u)
       return u
     },
