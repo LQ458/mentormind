@@ -28,6 +28,15 @@ interface FeedbackReportRow {
   id: string
   created_at: string
   user_id?: string | null
+  tester?: {
+    id?: string
+    username?: string
+    email?: string
+    role?: string
+    language_preference?: string
+    created_at?: string | null
+    last_login_at?: string | null
+  } | null
   session_id?: string | null
   page?: string | null
   url?: string | null
@@ -190,6 +199,14 @@ function formatBuild(build?: Record<string, unknown>): string {
   return [sha, tag].filter(Boolean).join(' / ') || '—'
 }
 
+function formatTester(r: FeedbackReportRow): string {
+  const username = r.tester?.username || ''
+  const email = r.tester?.email || ''
+  const userId = r.user_id || ''
+  if (username && email) return `${username} / ${email}`
+  return username || email || userId || '—'
+}
+
 function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextResponse | null): string {
   const page = r.page || r.route || '—'
   const url = r.captured_url || r.url || '—'
@@ -203,6 +220,9 @@ function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextRes
     `- Report ID: ${r.report_id || r.id}`,
     `- Created: ${r.created_at}`,
     `- Source: ${r.source || '—'}`,
+    `- Tester: ${formatTester(r)}`,
+    `- User ID: ${r.user_id || '—'}`,
+    `- Session ID: ${r.session_id || '—'}`,
     `- Surface: ${r.surface || '—'}`,
     `- Kind: ${r.feedback_kind || '—'}`,
     `- Severity: ${r.severity || '—'}`,
@@ -228,6 +248,9 @@ function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextRes
     '',
     '## Build',
     codeBlock(r.build),
+    '',
+    '## Tester',
+    codeBlock(r.tester),
   ]
   if (context) {
     lines.push(
@@ -267,14 +290,17 @@ async function copyText(text: string): Promise<boolean> {
 
 function downloadReportCsv(rows: FeedbackReportRow[]) {
   const headers = [
-    'id', 'report_id', 'created_at', 'source', 'surface', 'feedback_kind', 'severity', 'page',
-    'user_note', 'expected_behavior', 'captured_url', 'build', 'recent_errors', 'app_snapshot',
+    'id', 'report_id', 'created_at', 'source', 'tester_username', 'tester_email', 'user_id', 'session_id',
+    'surface', 'feedback_kind', 'severity', 'page', 'user_note', 'expected_behavior', 'captured_url',
+    'build', 'recent_errors', 'app_snapshot',
   ]
   const lines = [headers.join(',')]
   for (const r of rows) {
     lines.push([
-      r.id, r.report_id || '', r.created_at, r.source || '', r.surface || '', r.feedback_kind || '', r.severity || '',
-      r.page || r.route || '', r.user_note || '', r.expected_behavior || '', r.captured_url || r.url || '',
+      r.id, r.report_id || '', r.created_at, r.source || '',
+      r.tester?.username || '', r.tester?.email || '', r.user_id || '', r.session_id || '',
+      r.surface || '', r.feedback_kind || '', r.severity || '', r.page || r.route || '',
+      r.user_note || '', r.expected_behavior || '', r.captured_url || r.url || '',
       compactJson(r.build), compactJson(r.recent_errors), compactJson(r.app_snapshot),
     ].map(csvEscape).join(','))
   }
@@ -597,6 +623,7 @@ export default function AdminFeedbackPage() {
                       <Th>{lang === 'zh' ? '分数' : 'Score'}</Th>
                       <Th>{lang === 'zh' ? '严重度' : 'Severity'}</Th>
                       <Th>{lang === 'zh' ? '表面' : 'Surface'}</Th>
+                      <Th>{lang === 'zh' ? '测试者' : 'Tester'}</Th>
                       <Th>Build</Th>
                       <Th>{lang === 'zh' ? '描述' : 'Note'}</Th>
                       <Th>{lang === 'zh' ? '原因' : 'Reasons'}</Th>
@@ -612,6 +639,7 @@ export default function AdminFeedbackPage() {
                             <Td>{r.priority_score ?? 0}</Td>
                             <Td>{r.severity || '—'}</Td>
                             <Td>{r.surface || r.page || r.route || '—'}</Td>
+                            <Td>{formatTester(r)}</Td>
                             <Td>{formatBuild(r.build)}</Td>
                             <Td>
                               <span style={{ display: 'block', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -652,7 +680,7 @@ export default function AdminFeedbackPage() {
                           {isPriorityOpen && (
                             <tr key={`priority-${r.id}-detail`}>
                               <td
-                                colSpan={7}
+                                colSpan={8}
                                 style={{
                                   background: 'var(--surface-2, #f5f7fa)',
                                   padding: 16,
@@ -660,10 +688,13 @@ export default function AdminFeedbackPage() {
                                 }}
                               >
                                 <DetailBlock label="Report ID" value={r.report_id || r.id} />
+                                <DetailBlock label={lang === 'zh' ? '测试者' : 'Tester'} value={formatTester(r)} />
+                                <DetailBlock label="Session ID" value={r.session_id || ''} />
                                 <DetailBlock label={lang === 'zh' ? '用户描述' : 'User note'} value={r.user_note} />
                                 <DetailBlock label={lang === 'zh' ? '期望行为' : 'Expected behavior'} value={r.expected_behavior} />
                                 <DetailBlock label="Build" value={formatBuild(r.build)} />
                                 <DetailBlock label="URL" value={r.captured_url || r.url || ''} />
+                                <JsonBlock label={lang === 'zh' ? '测试者信息' : 'Tester metadata'} value={r.tester} />
                                 <JsonBlock label="Build metadata" value={r.build} />
                                 <JsonBlock label={lang === 'zh' ? '最近错误' : 'Recent errors'} value={r.recent_errors} />
                                 <JsonBlock label={lang === 'zh' ? '页面快照' : 'App snapshot'} value={r.app_snapshot} />
@@ -757,6 +788,7 @@ export default function AdminFeedbackPage() {
                     <tr style={{ background: 'var(--surface-2, #f5f7fa)' }}>
                       <Th>{lang === 'zh' ? '时间' : 'When'}</Th>
                       <Th>{lang === 'zh' ? '来源' : 'Source'}</Th>
+                      <Th>{lang === 'zh' ? '测试者' : 'Tester'}</Th>
                       <Th>Build</Th>
                       <Th>{lang === 'zh' ? '表面' : 'Surface'}</Th>
                       <Th>{lang === 'zh' ? '类型' : 'Kind'}</Th>
@@ -775,6 +807,7 @@ export default function AdminFeedbackPage() {
                           <tr style={{ borderTop: '1px solid var(--line, #e8ecf0)' }}>
                             <Td>{formatDate(r.created_at)}</Td>
                             <Td>{r.source || '—'}</Td>
+                            <Td>{formatTester(r)}</Td>
                             <Td>{formatBuild(r.build)}</Td>
                             <Td>{r.surface || '—'}</Td>
                             <Td>{r.feedback_kind || '—'}</Td>
@@ -822,7 +855,7 @@ export default function AdminFeedbackPage() {
                           {isOpen && (
                             <tr key={`${r.id}-detail`}>
                               <td
-                                colSpan={10}
+                                colSpan={11}
                                 style={{
                                   background: 'var(--surface-2, #f5f7fa)',
                                   padding: 16,
@@ -832,6 +865,14 @@ export default function AdminFeedbackPage() {
                                 <DetailBlock
                                   label={lang === 'zh' ? 'Report ID' : 'Report ID'}
                                   value={r.report_id || r.id}
+                                />
+                                <DetailBlock
+                                  label={lang === 'zh' ? '测试者' : 'Tester'}
+                                  value={formatTester(r)}
+                                />
+                                <DetailBlock
+                                  label="Session ID"
+                                  value={r.session_id || ''}
                                 />
                                 <DetailBlock
                                   label={lang === 'zh' ? '用户描述' : 'User note'}
@@ -848,6 +889,10 @@ export default function AdminFeedbackPage() {
                                 <DetailBlock
                                   label="URL"
                                   value={r.captured_url || r.url || ''}
+                                />
+                                <JsonBlock
+                                  label={lang === 'zh' ? '测试者信息' : 'Tester metadata'}
+                                  value={r.tester}
                                 />
                                 <JsonBlock
                                   label="Build metadata"

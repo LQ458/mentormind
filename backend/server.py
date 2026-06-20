@@ -6967,7 +6967,30 @@ def _admin_safe_url(value: Any, max_len: int = 512) -> str:
     return _redact_url_for_telemetry(value, max_len) or ""
 
 
-def _feedback_report_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
+def _admin_user_summary(user: Any) -> Dict[str, Any]:
+    def _iso(value: Any) -> Optional[str]:
+        return value.isoformat() if hasattr(value, "isoformat") else None
+
+    return {
+        "id": str(getattr(user, "id", "") or ""),
+        "username": str(getattr(user, "username", "") or ""),
+        "email": str(getattr(user, "email", "") or ""),
+        "role": str(getattr(user, "role", "") or ""),
+        "language_preference": str(getattr(user, "language_preference", "") or ""),
+        "created_at": _iso(getattr(user, "created_at", None)),
+        "last_login_at": _iso(getattr(user, "last_login_at", None)),
+    }
+
+
+def _feedback_report_user_summaries(db: Session, events: List[TelemetryEvent]) -> Dict[str, Dict[str, Any]]:
+    user_ids = sorted({str(event.user_id) for event in events if getattr(event, "user_id", None)})
+    if not user_ids:
+        return {}
+    users = db.query(User).filter(User.id.in_(user_ids)).all()
+    return {str(user.id): _admin_user_summary(user) for user in users}
+
+
+def _feedback_report_to_dict(event: TelemetryEvent, tester: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     payload = event.payload or {}
     context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
     build = context.get("build") if isinstance(context.get("build"), dict) else {}
@@ -6978,6 +7001,7 @@ def _feedback_report_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
         "id": event.id,
         "created_at": event.created_at.isoformat() if event.created_at else None,
         "user_id": event.user_id,
+        "tester": tester,
         "session_id": event.session_id,
         "page": _admin_safe_url(event.page, 240) or str(event.page or "")[:240],
         "url": _admin_safe_url(event.url, 512),
@@ -7151,8 +7175,12 @@ async def get_admin_feedback_reports(
 
     raw_limit = min(max(limit + offset + 1000, 1000), 5000)
     events = q.order_by(TelemetryEvent.created_at.desc()).limit(raw_limit).all()
+    testers = _feedback_report_user_summaries(db, events)
     rows = [
-        row for row in (_feedback_report_to_dict(event) for event in events)
+        row for row in (
+            _feedback_report_to_dict(event, testers.get(str(event.user_id or "")))
+            for event in events
+        )
         if _feedback_report_matches(row, source=source, surface=surface, kind=kind, severity=severity)
     ]
     unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
@@ -7203,12 +7231,13 @@ async def get_admin_feedback_report_context(
         q = q.filter(TelemetryEvent.created_at <= report_event.created_at + timedelta(minutes=5))
     events = q.order_by(TelemetryEvent.created_at.asc()).limit(limit).all()
     rows = [_telemetry_context_event_to_dict(event) for event in events]
+    testers = _feedback_report_user_summaries(db, [report_event])
     error_rows = [
         row for row in rows
         if row.get("event_type") in {"error_console", "error_network", "ws_close"}
     ]
     return {
-        "report": _feedback_report_to_dict(report_event),
+        "report": _feedback_report_to_dict(report_event, testers.get(str(report_event.user_id or ""))),
         "events": rows,
         "errors": error_rows,
         "event_count": len(rows),
@@ -7240,7 +7269,11 @@ async def get_admin_feedback_reports_aggregate(
 
     from collections import Counter
     events = q.order_by(TelemetryEvent.created_at.desc()).limit(5000).all()
-    rows = [_feedback_report_to_dict(event) for event in events]
+    testers = _feedback_report_user_summaries(db, events)
+    rows = [
+        _feedback_report_to_dict(event, testers.get(str(event.user_id or "")))
+        for event in events
+    ]
     unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
     priority_reports = _feedback_report_priority_queue(rows)
     by_source = Counter(row.get("source") or "unknown" for row in rows)

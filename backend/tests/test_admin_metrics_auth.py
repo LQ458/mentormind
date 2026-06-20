@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -215,3 +216,38 @@ def test_feedback_report_admin_urls_redact_query_and_fragment():
     assert data["build"]["sha"] == "abc123"
     assert data["build"]["image_tag"] == "prod"
     assert data["build"]["sessionToken"] == "[redacted]"
+
+
+def test_feedback_report_includes_safe_tester_summary():
+    tester = SimpleNamespace(
+        id="user-1",
+        username="tester_one",
+        email="tester@example.com",
+        role="student",
+        language_preference="zh",
+        created_at=datetime(2026, 6, 20, 8, 0, 0),
+        last_login_at=datetime(2026, 6, 20, 9, 0, 0),
+        hashed_password="do-not-include",
+    )
+    event = SimpleNamespace(
+        id="evt-3",
+        created_at=None,
+        user_id="user-1",
+        session_id="session-1",
+        page="/study-plan",
+        url="/study-plan",
+        viewport_w=390,
+        viewport_h=844,
+        payload={},
+    )
+
+    summary = server._admin_user_summary(tester)
+    data = server._feedback_report_to_dict(event, tester=summary)
+
+    assert data["tester"]["id"] == "user-1"
+    assert data["tester"]["username"] == "tester_one"
+    assert data["tester"]["email"] == "tester@example.com"
+    assert data["tester"]["language_preference"] == "zh"
+    assert data["tester"]["created_at"] == "2026-06-20T08:00:00"
+    assert data["tester"]["last_login_at"] == "2026-06-20T09:00:00"
+    assert "hashed_password" not in data["tester"]
