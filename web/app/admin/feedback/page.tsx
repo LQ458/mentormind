@@ -199,6 +199,13 @@ function codeBlock(value: unknown): string {
   return `${fence}json\n${text}\n${fence}`
 }
 
+function textBlock(value: string | null | undefined): string {
+  const text = String(value || '').trim()
+  if (!text) return '—'
+  const fence = markdownFence(text)
+  return `${fence}text\n${text}\n${fence}`
+}
+
 function formatBuild(build?: Record<string, unknown>): string {
   if (!build) return '—'
   const sha = typeof build.sha === 'string' ? build.sha : ''
@@ -263,10 +270,10 @@ function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextRes
     `- Build: ${formatBuild(r.build)}`,
     '',
     '## User note',
-    r.user_note || '—',
+    textBlock(r.user_note),
     '',
     '## Expected behavior',
-    r.expected_behavior || '—',
+    textBlock(r.expected_behavior),
     '',
     '## Reproduction checklist',
     `- Start at: ${url}`,
