@@ -306,6 +306,11 @@ function safeUrlPath(value: unknown): string | undefined {
   }
 }
 
+function isExpectedAuthProbeFailure(method: string, urlPath: string | undefined, status: number): boolean {
+  if (method !== 'GET' || status !== 401 || !urlPath) return false
+  return urlPath.split('?')[0] === '/api/backend/users/me'
+}
+
 function browserFamily(): string {
   if (typeof navigator === 'undefined') return 'unknown'
   const ua = navigator.userAgent || ''
@@ -483,7 +488,11 @@ export function initTelemetry(): void {
         const isTelemetryRequest = !!urlPath && urlPath.includes('/api/backend/telemetry/event')
         try {
           const response = await originalFetch(input, init)
-          if (!isTelemetryRequest && response.status >= 400) {
+          if (
+            !isTelemetryRequest &&
+            response.status >= 400 &&
+            !isExpectedAuthProbeFailure(method, urlPath, response.status)
+          ) {
             const elapsed = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt)
             track('error_network', {
               source: 'fetch',
