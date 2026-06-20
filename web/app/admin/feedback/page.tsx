@@ -58,6 +58,8 @@ interface FeedbackListResponse {
 interface FeedbackReportsResponse {
   rows?: FeedbackReportRow[]
   total?: number
+  unique_reports?: number
+  duplicate_reports?: number
   truncated?: boolean
   error?: string
 }
@@ -79,6 +81,7 @@ interface FeedbackReportsAggregateResponse {
   total?: number
   unique_reports?: number
   duplicate_reports?: number
+  source_distribution?: Record<string, number>
   surface_distribution?: Record<string, number>
   kind_distribution?: Record<string, number>
   severity_distribution?: Record<string, number>
@@ -177,6 +180,7 @@ function reportMarkdown(r: FeedbackReportRow): string {
     '## Summary',
     `- Report ID: ${r.report_id || r.id}`,
     `- Created: ${r.created_at}`,
+    `- Source: ${r.source || '—'}`,
     `- Surface: ${r.surface || '—'}`,
     `- Kind: ${r.feedback_kind || '—'}`,
     `- Severity: ${r.severity || '—'}`,
@@ -221,13 +225,13 @@ async function copyText(text: string): Promise<boolean> {
 
 function downloadReportCsv(rows: FeedbackReportRow[]) {
   const headers = [
-    'id', 'report_id', 'created_at', 'surface', 'feedback_kind', 'severity', 'page',
+    'id', 'report_id', 'created_at', 'source', 'surface', 'feedback_kind', 'severity', 'page',
     'user_note', 'expected_behavior', 'captured_url', 'recent_errors', 'app_snapshot',
   ]
   const lines = [headers.join(',')]
   for (const r of rows) {
     lines.push([
-      r.id, r.report_id || '', r.created_at, r.surface || '', r.feedback_kind || '', r.severity || '',
+      r.id, r.report_id || '', r.created_at, r.source || '', r.surface || '', r.feedback_kind || '', r.severity || '',
       r.page || r.route || '', r.user_note || '', r.expected_behavior || '', r.captured_url || r.url || '',
       compactJson(r.recent_errors), compactJson(r.app_snapshot),
     ].map(csvEscape).join(','))
@@ -253,6 +257,7 @@ export default function AdminFeedbackPage() {
   const [reportsAggregate, setReportsAggregate] = useState<FeedbackReportsAggregateResponse | null>(null)
   const [reports, setReports] = useState<FeedbackReportRow[]>([])
   const [reportsTotal, setReportsTotal] = useState(0)
+  const [reportsUniqueTotal, setReportsUniqueTotal] = useState(0)
   const [rows, setRows] = useState<FeedbackRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -262,6 +267,7 @@ export default function AdminFeedbackPage() {
   const [examFilter, setExamFilter] = useState<string>('')
   const [pmfFilter, setPmfFilter] = useState<string>('')
   const [langFilter, setLangFilter] = useState<string>('')
+  const [sourceFilter, setSourceFilter] = useState<string>('')
   const [surfaceFilter, setSurfaceFilter] = useState<string>('')
   const [kindFilter, setKindFilter] = useState<string>('')
   const [severityFilter, setSeverityFilter] = useState<string>('')
@@ -286,6 +292,7 @@ export default function AdminFeedbackPage() {
       const reportParams = new URLSearchParams()
       reportParams.set('limit', '80')
       reportParams.set('offset', '0')
+      if (sourceFilter) reportParams.set('source', sourceFilter)
       if (surfaceFilter) reportParams.set('surface', surfaceFilter)
       if (kindFilter) reportParams.set('kind', kindFilter)
       if (severityFilter) reportParams.set('severity', severityFilter)
@@ -310,6 +317,7 @@ export default function AdminFeedbackPage() {
         setReportsAggregate(null)
         setReports([])
         setReportsTotal(0)
+        setReportsUniqueTotal(0)
         setRows([])
         return
       }
@@ -322,6 +330,7 @@ export default function AdminFeedbackPage() {
       setReportsAggregate(reportAggData)
       setReports(reportListData.rows || [])
       setReportsTotal(reportListData.total || 0)
+      setReportsUniqueTotal(reportListData.unique_reports ?? reportListData.total ?? 0)
       setAggregate(aggData)
       setRows(listData.rows || [])
     } catch (err) {
@@ -335,7 +344,7 @@ export default function AdminFeedbackPage() {
   useEffect(() => {
     fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [examFilter, pmfFilter, langFilter, surfaceFilter, kindFilter, severityFilter])
+  }, [examFilter, pmfFilter, langFilter, sourceFilter, surfaceFilter, kindFilter, severityFilter])
 
   const examOptions = useMemo(() => {
     const seen = new Set<string>()
@@ -343,6 +352,15 @@ export default function AdminFeedbackPage() {
     Object.keys(aggregate?.exam_distribution || {}).forEach((k) => seen.add(k))
     return Array.from(seen).filter(Boolean).sort()
   }, [rows, aggregate])
+
+  const sourceOptions = useMemo(() => {
+    const seen = new Set<string>()
+    reports.forEach((r) => {
+      if (r.source) seen.add(r.source)
+    })
+    Object.keys(reportsAggregate?.source_distribution || {}).forEach((k) => seen.add(k))
+    return Array.from(seen).filter(Boolean).sort()
+  }, [reports, reportsAggregate])
 
   const surfaceOptions = useMemo(() => {
     const seen = new Set<string>()
@@ -441,6 +459,10 @@ export default function AdminFeedbackPage() {
                 value={String(reportsTotal)}
               />
               <KpiCard
+                label={lang === 'zh' ? '筛选去重' : 'Filtered unique'}
+                value={String(reportsUniqueTotal)}
+              />
+              <KpiCard
                 label={lang === 'zh' ? '重复上报' : 'Duplicates'}
                 value={String(reportsAggregate?.duplicate_reports ?? 0)}
               />
@@ -463,6 +485,10 @@ export default function AdminFeedbackPage() {
               }}
             >
               <DistCard
+                title={lang === 'zh' ? '来源' : 'Source'}
+                dist={reportsAggregate?.source_distribution}
+              />
+              <DistCard
                 title={lang === 'zh' ? '问题表面' : 'Surface'}
                 dist={reportsAggregate?.surface_distribution}
               />
@@ -477,6 +503,12 @@ export default function AdminFeedbackPage() {
             </div>
 
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '16px 0 12px' }}>
+              <FilterSelect
+                label={lang === 'zh' ? '来源' : 'Source'}
+                value={sourceFilter}
+                onChange={setSourceFilter}
+                options={sourceOptions}
+              />
               <FilterSelect
                 label={lang === 'zh' ? '表面' : 'Surface'}
                 value={surfaceFilter}
@@ -513,6 +545,7 @@ export default function AdminFeedbackPage() {
                   <thead>
                     <tr style={{ background: 'var(--surface-2, #f5f7fa)' }}>
                       <Th>{lang === 'zh' ? '时间' : 'When'}</Th>
+                      <Th>{lang === 'zh' ? '来源' : 'Source'}</Th>
                       <Th>{lang === 'zh' ? '表面' : 'Surface'}</Th>
                       <Th>{lang === 'zh' ? '类型' : 'Kind'}</Th>
                       <Th>{lang === 'zh' ? '严重度' : 'Severity'}</Th>
@@ -529,6 +562,7 @@ export default function AdminFeedbackPage() {
                         <Fragment key={r.id}>
                           <tr style={{ borderTop: '1px solid var(--line, #e8ecf0)' }}>
                             <Td>{formatDate(r.created_at)}</Td>
+                            <Td>{r.source || '—'}</Td>
                             <Td>{r.surface || '—'}</Td>
                             <Td>{r.feedback_kind || '—'}</Td>
                             <Td>{r.severity || '—'}</Td>
@@ -565,7 +599,7 @@ export default function AdminFeedbackPage() {
                           {isOpen && (
                             <tr key={`${r.id}-detail`}>
                               <td
-                                colSpan={8}
+                                colSpan={9}
                                 style={{
                                   background: 'var(--surface-2, #f5f7fa)',
                                   padding: 16,

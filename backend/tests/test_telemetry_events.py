@@ -32,3 +32,26 @@ def test_feedback_report_unique_key_dedupes_explicit_report_ids_only():
         == server._feedback_report_unique_key({"id": "2", "report_id": "qa-abc"})
     )
     assert server._feedback_report_unique_key({"id": "1", "report_id": ""}) != server._feedback_report_unique_key({"id": "2"})
+
+
+def test_feedback_report_matches_supports_source_filter():
+    row = {
+        "source": "prod_autopilot_qa",
+        "surface": "study-plan",
+        "feedback_kind": "bug",
+        "severity": "blocked",
+    }
+    assert server._feedback_report_matches(
+        row,
+        source="prod_autopilot_qa",
+        surface="study-plan",
+        kind="bug",
+        severity="blocked",
+    )
+    assert not server._feedback_report_matches(
+        row,
+        source="local_report_button",
+        surface="study-plan",
+        kind="bug",
+        severity="blocked",
+    )

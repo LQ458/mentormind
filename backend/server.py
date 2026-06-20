@@ -6779,10 +6779,13 @@ def _feedback_report_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
 def _feedback_report_matches(
     row: Dict[str, Any],
     *,
+    source: Optional[str],
     surface: Optional[str],
     kind: Optional[str],
     severity: Optional[str],
 ) -> bool:
+    if source and row.get("source") != source:
+        return False
     if surface and row.get("surface") != surface:
         return False
     if kind and row.get("feedback_kind") != kind:
@@ -6804,6 +6807,7 @@ def _feedback_report_unique_key(row: Dict[str, Any]) -> str:
 async def get_admin_feedback_reports(
     limit: int = 50,
     offset: int = 0,
+    source: Optional[str] = None,
     surface: Optional[str] = None,
     kind: Optional[str] = None,
     severity: Optional[str] = None,
@@ -6829,15 +6833,19 @@ async def get_admin_feedback_reports(
     events = q.order_by(TelemetryEvent.created_at.desc()).limit(raw_limit).all()
     rows = [
         row for row in (_feedback_report_to_dict(event) for event in events)
-        if _feedback_report_matches(row, surface=surface, kind=kind, severity=severity)
+        if _feedback_report_matches(row, source=source, surface=surface, kind=kind, severity=severity)
     ]
+    unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
     return {
         "total": len(rows),
+        "unique_reports": len(unique_report_keys),
+        "duplicate_reports": max(0, len(rows) - len(unique_report_keys)),
         "rows": rows[offset:offset + limit],
         "limit": limit,
         "offset": offset,
         "truncated": len(events) >= raw_limit,
         "filters": {
+            "source": source,
             "surface": surface,
             "kind": kind,
             "severity": severity,
@@ -6869,6 +6877,7 @@ async def get_admin_feedback_reports_aggregate(
     events = q.order_by(TelemetryEvent.created_at.desc()).limit(5000).all()
     rows = [_feedback_report_to_dict(event) for event in events]
     unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
+    by_source = Counter(row.get("source") or "unknown" for row in rows)
     by_surface = Counter(row.get("surface") or "unknown" for row in rows)
     by_kind = Counter(row.get("feedback_kind") or "unknown" for row in rows)
     by_severity = Counter(row.get("severity") or "unknown" for row in rows)
@@ -6877,6 +6886,7 @@ async def get_admin_feedback_reports_aggregate(
         "total": len(rows),
         "unique_reports": len(unique_report_keys),
         "duplicate_reports": max(0, len(rows) - len(unique_report_keys)),
+        "source_distribution": dict(by_source.most_common(50)),
         "surface_distribution": dict(by_surface.most_common(50)),
         "kind_distribution": dict(by_kind.most_common(20)),
         "severity_distribution": dict(by_severity.most_common(20)),
