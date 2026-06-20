@@ -325,9 +325,10 @@ python -m pytest tests/test_telemetry_events.py -q
 # Upload validation regression
 python -m pytest tests/integration/test_ingest_upload_errors.py -q
 
-# Production autopilot QA, after installing web deps
+# Production autopilot QA, after installing web deps and Chromium
 cd web
-BASE_URL=https://mentormind.cloud QA_INVITE_CODE=<invite-code> node ../scripts/prod-autopilot-qa.mjs
+pnpm run qa:install-browsers
+BASE_URL=https://mentormind.cloud QA_INVITE_CODE=<invite-code> pnpm run qa:prod
 
 # Frontend type check
 pnpm exec tsc --noEmit

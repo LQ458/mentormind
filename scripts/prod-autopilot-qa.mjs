@@ -1,9 +1,23 @@
 #!/usr/bin/env node
 
-import { chromium } from 'playwright'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import { performance } from 'node:perf_hooks'
+
+function loadPlaywright() {
+  try {
+    const requireFromCwd = createRequire(path.join(process.cwd(), 'package.json'))
+    return requireFromCwd('playwright')
+  } catch (error) {
+    const message = error?.code === 'MODULE_NOT_FOUND'
+      ? 'Playwright is not installed in the current working directory. Run this from web/ after pnpm install, or install web dependencies first.'
+      : `Could not load Playwright from ${process.cwd()}: ${error?.message || error}`
+    throw new Error(message)
+  }
+}
+
+const { chromium } = loadPlaywright()
 
 const BASE_URL = (process.env.BASE_URL || 'https://mentormind.cloud').replace(/\/$/, '')
 const RUN_ID = `prod-autopilot-${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 8)}`
@@ -198,6 +212,10 @@ async function addFinding({ title, severity = 'wrong', surface = 'global', page 
     })
   }
   return finding
+}
+
+function hasAuthSession() {
+  return Boolean(authSession?.token)
 }
 
 async function screenshot(page, name) {
@@ -666,6 +684,10 @@ async function testStudyPlanPersonas(browser) {
 }
 
 async function testQuickQuestion(browser) {
+  if (!hasAuthSession()) {
+    events.push({ type: 'quick_question_discussion', status: 'not_run', reason: 'auth_not_available' })
+    return
+  }
   const { context, page, observed } = await createObservedPage(browser, { name: 'desktop', size: { width: 1365, height: 900 } })
   try {
     await page.goto(`${BASE_URL}/ask`, { waitUntil: 'networkidle', timeout: 45000 })
@@ -710,7 +732,7 @@ async function testQuickQuestion(browser) {
     const latency = Math.round(performance.now() - started)
     const body = await page.locator('body').innerText()
     const shot = await screenshot(page, 'ask-discussion-result')
-    events.push({ type: 'quick_question_discussion', latency, bodySnippet: body.slice(-3000), observed, screenshot: shot })
+    events.push({ type: 'quick_question_discussion', status: 'passed', latency, bodySnippet: body.slice(-3000), observed, screenshot: shot })
     await postTelemetry('interaction', '/ask', {
       schema: 'mentormind.prod_autopilot_quick_question.v1',
       mode: 'discussion_probe',
@@ -948,6 +970,10 @@ async function testQuickQuestionUploadForms(browser) {
 }
 
 async function testStudyPlanRouting(browser) {
+  if (!hasAuthSession()) {
+    events.push({ type: 'study_plan_routing', status: 'not_run', reason: 'auth_not_available' })
+    return
+  }
   const { context, page, observed } = await createObservedPage(browser, { name: 'desktop', size: { width: 1365, height: 900 } })
   try {
     await page.goto(`${BASE_URL}/study-plan`, { waitUntil: 'networkidle', timeout: 45000 })
@@ -960,7 +986,7 @@ async function testStudyPlanRouting(browser) {
     await page.waitForTimeout(1200)
     const url = page.url()
     const shotAfter = await screenshot(page, 'study-plan-after-click')
-    events.push({ type: 'study_plan_routing', clicked, url, observed, screenshot_before: shotBefore, screenshot_after: shotAfter })
+    events.push({ type: 'study_plan_routing', status: 'checked', clicked, url, observed, screenshot_before: shotBefore, screenshot_after: shotAfter })
     if (clicked && /\/create(?:$|[/?#])/.test(url)) {
       await addFinding({
         title: 'Study-plan create entry still routes to /create',
@@ -1866,6 +1892,7 @@ function buildRunSummary(allEvents, allFindings) {
     ),
   })))
   add('quick_question_discussion_text', allEvents.filter((event) => event.type === 'quick_question_discussion').map((event) => ({
+    status: event.status,
     success: /轮到你|Your Turn|反方|Counterpoint|追问|Probe|整理成短答|Draft/i.test(event.bodySnippet || '')
       && !/学习计划没有生成完成|deterministic|fallback/i.test(event.bodySnippet || ''),
   })))
@@ -1877,6 +1904,7 @@ function buildRunSummary(allEvents, allFindings) {
     success: Boolean(event.reachedPlanReview && event.personaMatched && event.scheduleMentioned && !event.usedFallback),
   })))
   add('study_plan_routing', allEvents.filter((event) => event.type === 'study_plan_routing').map((event) => ({
+    status: event.status,
     success: Boolean(event.clicked && !/\/create(?:$|[/?#])/.test(event.url || '')),
   })))
   add('websocket', allEvents.filter((event) => event.type === 'websocket_smoke').map((event) => ({
@@ -1937,7 +1965,7 @@ async function main() {
         userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
       },
     ]
-    const routes = ['/', '/ask', '/study-plan', '/seminar']
+    const routes = hasAuthSession() ? ['/', '/ask', '/study-plan', '/seminar'] : ['/']
     for (const viewport of viewports) {
       for (const route of routes) {
         await checkPage(browser, route, viewport)
