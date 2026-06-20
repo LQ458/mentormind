@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { ArrowRight, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../../components/AuthContext'
 import { useLanguage } from '../../components/LanguageContext'
@@ -14,7 +13,6 @@ function getRedirectTarget(): string {
 }
 
 export default function LoginPage() {
-  const router = useRouter()
   const { isLoaded, isSignedIn, loginWithInvite } = useAuth()
   const { language } = useLanguage()
   const [inviteCode, setInviteCode] = useState('')
@@ -26,8 +24,8 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return
-    router.replace(getRedirectTarget())
-  }, [isLoaded, isSignedIn, router])
+    window.location.replace(getRedirectTarget())
+  }, [isLoaded, isSignedIn])
 
   const isRegister = inviteCode.trim().length > 0
   const canSubmit = username.trim().length >= 2 && password.trim().length >= 4
@@ -51,7 +49,7 @@ export default function LoginPage() {
     setSubmitting(true)
     try {
       await loginWithInvite(code || undefined, uname, pwd, language)
-      router.push(getRedirectTarget())
+      window.location.assign(getRedirectTarget())
     } catch (err: any) {
       const msg = err?.message || ''
       if (msg.includes('403') || msg.includes('Invalid invite')) {

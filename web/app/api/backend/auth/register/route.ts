@@ -10,11 +10,11 @@ export async function POST(req: NextRequest) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  const text = await res.text();
   let data;
   try {
-    data = await res.json();
-  } catch (err) {
-    const text = await res.text();
+    data = text ? JSON.parse(text) : {};
+  } catch {
     data = { detail: text || 'Internal Server Error' };
   }
   return NextResponse.json(data, { status: res.status });
