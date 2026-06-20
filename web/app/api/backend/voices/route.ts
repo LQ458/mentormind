@@ -1,6 +1,5 @@
 export const dynamic = 'force-dynamic';
-import { NextResponse } from 'next/server'
-import { backendErrorResponse, logBackendProxyError, proxyFailureResponse } from '../_proxyErrors'
+import { backendErrorResponse, backendJsonResponse, logBackendProxyError, proxyFailureResponse } from '../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -19,8 +18,7 @@ export async function GET() {
             return backendErrorResponse('Failed to fetch voices', response.status)
         }
 
-        const data = await response.json()
-        return NextResponse.json(data)
+        return await backendJsonResponse(response, 'voices proxy')
     } catch (error) {
         console.error('Failed to fetch voices:', error)
         return proxyFailureResponse('Failed to fetch voices')
