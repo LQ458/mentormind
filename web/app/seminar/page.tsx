@@ -153,7 +153,8 @@ export default function SeminarPage() {
       const localBackend = isLocal ? 'ws://localhost:8000' : sameOrigin
       const base = configured || localBackend
       const path = `${base.replace(/\/$/, '')}/ws/seminar/${activeRoom.id}`
-      const ws = new WebSocket(token ? `${path}?token=${encodeURIComponent(token)}` : path)
+      const needsQueryToken = Boolean(configured || isLocal)
+      const ws = new WebSocket(needsQueryToken && token ? `${path}?token=${encodeURIComponent(token)}` : path)
       wsRef.current = ws
       ws.onmessage = (event) => {
         try {

@@ -849,9 +849,9 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
       if (!token) return null
       return `ws://${hostname}:8000/ws/board/${sessionId}?token=${encodeURIComponent(token)}`
     }
-    // Production: same-origin WS relies on nginx routing /ws/ to backend:8000.
-    // Without that nginx rule WS upgrades slam into the Next frontend and crash it.
-    return withToken(`${scheme}://${hostname}`)
+    // Production same-origin WS uses HttpOnly cookies through nginx /ws/ routing.
+    // Keep bearer tokens out of the URL because access logs record query strings.
+    return `${scheme}://${window.location.host}/ws/board/${sessionId}`
   }, [sessionId, token, backendWsUrl])
 
   const connect = useCallback(() => {
