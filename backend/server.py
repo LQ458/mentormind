@@ -6521,6 +6521,7 @@ class TelemetryEventPayload(BaseModel):
 TELEMETRY_MAX_RAW_BYTES = 64 * 1024
 TELEMETRY_URL_KEYS = {"url", "captured_url", "href"}
 TELEMETRY_REDACTED_VALUE = "[redacted]"
+TELEMETRY_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,254}$")
 
 
 def _redact_url_for_telemetry(value: Any, max_len: int = 512) -> Optional[str]:
@@ -6544,6 +6545,15 @@ def _redact_url_for_telemetry(value: Any, max_len: int = 512) -> Optional[str]:
         return redacted[:max_len]
     except Exception:
         return raw.split("?", 1)[0].split("#", 1)[0][:max_len]
+
+
+def _sanitize_telemetry_session_id(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    session_id = value.strip()
+    if not TELEMETRY_SESSION_ID_RE.fullmatch(session_id):
+        return None
+    return session_id
 
 
 def _is_sensitive_telemetry_key(key: Any) -> bool:
@@ -6661,10 +6671,10 @@ async def post_telemetry_event(
         raise HTTPException(status_code=400, detail="Body must be a JSON object")
 
     event_type = body.get("event_type")
-    session_id = body.get("session_id")
+    session_id = _sanitize_telemetry_session_id(body.get("session_id"))
     if not isinstance(event_type, str) or event_type not in ALLOWED_EVENT_TYPES:
         raise HTTPException(status_code=400, detail="Unknown event_type")
-    if not isinstance(session_id, str) or not session_id:
+    if not session_id:
         raise HTTPException(status_code=400, detail="session_id required")
 
     def _str_or_none(v, max_len: int) -> Optional[str]:
@@ -6692,7 +6702,7 @@ async def post_telemetry_event(
 
     event = TelemetryEvent(
         user_id=str(current_user.id) if current_user else None,
-        session_id=session_id[:255],
+        session_id=session_id,
         event_type=event_type[:64],
         page=_str_or_none(body.get("page"), 64),
         url=_redact_url_for_telemetry(body.get("url"), 512),

@@ -28,6 +28,17 @@ def test_redact_url_for_telemetry_strips_query_and_fragment_values():
     assert server._redact_url_for_telemetry("/dashboard") == "/dashboard"
 
 
+def test_sanitize_telemetry_session_id_accepts_only_safe_client_ids():
+    assert server._sanitize_telemetry_session_id("550e8400-e29b-41d4-a716-446655440000")
+    assert server._sanitize_telemetry_session_id(" tlm-lx3e4f-abc12345 ") == "tlm-lx3e4f-abc12345"
+    assert server._sanitize_telemetry_session_id("ssr") == "ssr"
+    assert server._sanitize_telemetry_session_id("x") is None
+    assert server._sanitize_telemetry_session_id("bad session") is None
+    assert server._sanitize_telemetry_session_id("../secret") is None
+    assert server._sanitize_telemetry_session_id("a" * 256) is None
+    assert server._sanitize_telemetry_session_id(None) is None
+
+
 def test_sanitize_telemetry_payload_redacts_sensitive_keys_before_storage():
     payload = {
         "user_note": "x" * 1300,
