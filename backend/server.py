@@ -224,6 +224,11 @@ def _redact_url_for_logs(value: Any, max_len: int = 512) -> str:
         return redacted[:max_len]
 
 
+def _require_admin(current_user: User) -> None:
+    if (getattr(current_user, "role", None) or "").lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+
 async def _safe_request_body_excerpt(request: Request, max_bytes: int = 2000) -> Optional[str]:
     """Return a bounded validation-debug body excerpt without crashing on uploads."""
     content_type = request.headers.get("content-type", "")
@@ -2132,8 +2137,9 @@ async def health_check():
 
 @app.get("/health/detailed")
 @track_async_performance("health_check_detailed", "monitoring")
-async def detailed_health_check():
+async def detailed_health_check(current_user: User = Depends(get_current_user)):
     """Comprehensive health check with performance metrics"""
+    _require_admin(current_user)
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
@@ -2146,6 +2152,7 @@ async def detailed_health_check():
 @track_async_performance("get_performance_metrics", "monitoring")
 async def get_performance_metrics(operation_type: Optional[str] = None, current_user: User = Depends(get_current_user)):
     """Get performance metrics summary"""
+    _require_admin(current_user)
     return {
         "summary": monitor.get_performance_summary(operation_type),
         "celery_workers": celery_monitor.check_worker_status(),
@@ -2156,6 +2163,7 @@ async def get_performance_metrics(operation_type: Optional[str] = None, current_
 @track_async_performance("get_lesson_generation_metrics", "monitoring")
 async def get_lesson_generation_metrics(current_user: User = Depends(get_current_user)):
     """Get lesson generation specific metrics"""
+    _require_admin(current_user)
     return {
         "lesson_operations": monitor.get_performance_summary("lesson"),
         "video_operations": monitor.get_performance_summary("video"), 
@@ -2166,7 +2174,7 @@ async def get_lesson_generation_metrics(current_user: User = Depends(get_current
 @track_async_performance("get_detailed_job_status", "monitoring")
 async def get_detailed_job_status(job_id: str, current_user: User = Depends(get_current_user)):
     """Enhanced job status with performance metrics"""
-    basic_status = await get_job_status(job_id)
+    basic_status = await get_job_status(job_id, current_user=current_user)
     job_metrics = celery_monitor.get_job_metrics(job_id)
     
     return {
@@ -2179,6 +2187,7 @@ async def get_detailed_job_status(job_id: str, current_user: User = Depends(get_
 @track_async_performance("get_quality_analytics", "monitoring")
 async def get_content_quality_analytics(timeframe_days: int = 7, current_user: User = Depends(get_current_user)):
     """Get AI-evaluated content quality analytics"""
+    _require_admin(current_user)
     try:
         import redis
         redis_client = redis.Redis.from_url(_redis_url(1), decode_responses=True)
@@ -2209,6 +2218,7 @@ async def evaluate_content_quality(
     current_user: User = Depends(get_current_user),
 ):
     """AI evaluation of educational content quality"""
+    _require_admin(current_user)
     try:
         # evaluator, _ = create_content_evaluator(api_client)  # Temporarily disabled
         # 
@@ -2255,6 +2265,7 @@ async def evaluate_content_quality(
 @track_async_performance("get_lesson_quality", "monitoring")
 async def get_lesson_quality(lesson_id: str, current_user: User = Depends(get_current_user)):
     """Get quality evaluation for a specific lesson"""
+    _require_admin(current_user)
     try:
         import redis
         redis_client = redis.Redis.from_url(_redis_url(1), decode_responses=True)
@@ -3063,8 +3074,7 @@ def get_admin_metrics(
     Shows creation times, quality scores, costs, and performance data.
     Admin-gated because lesson metadata can include internal generation details.
     """
-    if (current_user.role or "").lower() != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+    _require_admin(current_user)
 
     try:
         from database.models.lesson import Lesson
@@ -3169,6 +3179,7 @@ def get_admin_metrics(
 @app.get("/admin/ops/queues")
 def get_ops_queue_depths(current_user: User = Depends(get_current_user)):
     """Return lightweight queue and active-session visibility for VPS ops."""
+    _require_admin(current_user)
     redis_client = _redis_for_limits()
     queue_names = ["orchestration", "rendering", "heavy_ml"]
     queues = []
@@ -6674,8 +6685,7 @@ async def get_admin_telemetry_aggregate(
 
 
 def _admin_only(current_user: User) -> None:
-    if (current_user.role or "").lower() != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+    _require_admin(current_user)
 
 
 def _parse_admin_date_param(name: str, value: Optional[str]) -> Optional[datetime]:
