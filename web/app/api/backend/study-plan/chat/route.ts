@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../../_auth'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 const CHAT_TIMEOUT_MS = Number(process.env.STUDY_PLAN_CHAT_TIMEOUT_MS || 75000)
@@ -53,10 +54,7 @@ export async function POST(req: NextRequest) {
     })
     const res = await fetch(`${BACKEND_URL}/study-plan/chat`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: req.headers.get('Authorization') || '',
-      },
+      headers: backendHeaders(req, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
       signal: controller.signal,
     })

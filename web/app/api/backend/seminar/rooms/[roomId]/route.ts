@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../../../_auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,9 +10,7 @@ export async function GET(
   { params }: { params: { roomId: string } },
 ) {
   try {
-    const headers: Record<string, string> = {}
-    const auth = req.headers.get('Authorization')
-    if (auth) headers.Authorization = auth
+    const headers = backendHeaders(req)
     const res = await fetch(`${BACKEND_URL}/seminar/rooms/${params.roomId}`, {
       headers,
       cache: 'no-store',

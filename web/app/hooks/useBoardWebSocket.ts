@@ -830,11 +830,15 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
   }, [sessionId, token, buildSnapshot])
 
   const buildUrl = useCallback((): string | null => {
-    if (!token) return null
     const envUrl = backendWsUrl || process.env.NEXT_PUBLIC_BACKEND_WS_URL
+    const withToken = (base: string) => {
+      const cleanBase = base.replace(/\/$/, '')
+      const path = `${cleanBase}/ws/board/${sessionId}`
+      return token ? `${path}?token=${encodeURIComponent(token)}` : path
+    }
     if (envUrl) {
-      const base = envUrl.replace(/\/$/, '')
-      return `${base}/ws/board/${sessionId}?token=${encodeURIComponent(token)}`
+      if (!token) return null
+      return withToken(envUrl)
     }
     if (typeof window === 'undefined') return null
     const { hostname, protocol } = window.location
@@ -842,11 +846,12 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
     const isDev = hostname === 'localhost' || hostname === '127.0.0.1'
     if (isDev) {
       // Dev backend never has TLS — always use plain ws://
+      if (!token) return null
       return `ws://${hostname}:8000/ws/board/${sessionId}?token=${encodeURIComponent(token)}`
     }
     // Production: same-origin WS relies on nginx routing /ws/ to backend:8000.
     // Without that nginx rule WS upgrades slam into the Next frontend and crash it.
-    return `${scheme}://${hostname}/ws/board/${sessionId}?token=${encodeURIComponent(token)}`
+    return withToken(`${scheme}://${hostname}`)
   }, [sessionId, token, backendWsUrl])
 
   const connect = useCallback(() => {
@@ -1009,7 +1014,7 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
   }, [buildUrl, sessionId])
 
   useEffect(() => {
-    if (!enabled || !token) return
+    if (!enabled) return
     closedByUserRef.current = false
     attemptsRef.current = 0
     connect()
@@ -1021,7 +1026,7 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
         try { ws.close() } catch {}
       }
     }
-  }, [enabled, token, connect])
+  }, [enabled, connect])
 
   const sendAction = useCallback((msg: BoardClientAction) => {
     const ws = wsRef.current

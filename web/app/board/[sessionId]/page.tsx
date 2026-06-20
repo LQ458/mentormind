@@ -73,15 +73,14 @@ function BoardSessionInner() {
           return
         }
         // Auth can return null briefly right after sign-in; retry with backoff.
+        // In production, same-origin WebSockets can still authenticate through
+        // HttpOnly cookies, so a missing JS token should not block the board.
         if (attempt < 5) {
           const delay = Math.min(2000, 200 * Math.pow(2, attempt))
           timer = setTimeout(() => { void tryFetch(attempt + 1) }, delay)
         } else {
-          setTokenError(
-            language === 'zh'
-              ? '未能获取登录凭证，请刷新页面重试。'
-              : 'Could not obtain an auth token — please refresh the page.',
-          )
+          setToken(null)
+          setTokenError(null)
         }
       } catch (err) {
         if (cancelled) return
@@ -99,7 +98,7 @@ function BoardSessionInner() {
   const { state, sendAction, sendUserMessage, hydrate } = useBoardWebSocket({
     sessionId,
     token,
-    enabled: Boolean(token && sessionId),
+    enabled: Boolean(isSignedIn && sessionId),
   })
 
   // Resume banner state — populated when /board/{id}/state returns a saved
@@ -119,14 +118,16 @@ function BoardSessionInner() {
   // visual continuity on refresh / re-entry. The WS itself will pick up where
   // the in-memory backend session left off (or start fresh if it's gone).
   useEffect(() => {
-    if (!sessionId || !token) return
+    if (!sessionId || !isSignedIn) return
     if (restoreAttemptedRef.current) return
     restoreAttemptedRef.current = true
     let cancelled = false
     void (async () => {
       try {
+        const headers: Record<string, string> = {}
+        if (token) headers.Authorization = `Bearer ${token}`
         const res = await fetch(`/api/backend/board/${sessionId}/state`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers,
         })
         if (cancelled) return
         if (res.status === 404) return
@@ -150,7 +151,7 @@ function BoardSessionInner() {
       }
     })()
     return () => { cancelled = true }
-  }, [sessionId, token, hydrate])
+  }, [sessionId, token, isSignedIn, hydrate])
 
   const handleDiscardResume = useCallback(() => {
     setBannerDismissed(true)
@@ -158,14 +159,13 @@ function BoardSessionInner() {
     // Best-effort: ask backend to drop the saved snapshot if such an endpoint
     // exists. We don't await — failure just means the next refresh will still
     // see the snapshot, which the user can dismiss again.
-    if (token && sessionId) {
+    if (isSignedIn && sessionId) {
       try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (token) headers.Authorization = `Bearer ${token}`
         void fetch(`/api/backend/board/${sessionId}/save`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
+          headers,
           body: JSON.stringify({ state: { elements: {}, element_order: [] }, status: 'idle' }),
           keepalive: true,
         }).catch(() => {})
@@ -173,7 +173,7 @@ function BoardSessionInner() {
         // swallow
       }
     }
-  }, [sessionId, token])
+  }, [sessionId, token, isSignedIn])
 
   const handlePauseToggle = useCallback(() => {
     const next = !paused

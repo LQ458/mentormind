@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
+import { backendHeaders } from '../../_auth'
 
 const BACKEND = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -7,10 +8,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const res = await fetch(`${BACKEND}/billing/create-checkout-session`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: req.headers.get('Authorization') || '',
-    },
+    headers: backendHeaders(req, { 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
   });
   const data = await res.json();

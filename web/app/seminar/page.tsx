@@ -145,14 +145,15 @@ export default function SeminarPage() {
     if (!activeRoom || !isSignedIn) return
     let closed = false
     void getToken().then((token) => {
-      if (!token || closed || typeof window === 'undefined') return
+      if (closed || typeof window === 'undefined') return
       const configured = process.env.NEXT_PUBLIC_BACKEND_WS_URL
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      if (!token && (configured || isLocal)) return
       const sameOrigin = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`
-      const localBackend = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-        ? 'ws://localhost:8000'
-        : sameOrigin
+      const localBackend = isLocal ? 'ws://localhost:8000' : sameOrigin
       const base = configured || localBackend
-      const ws = new WebSocket(`${base.replace(/\/$/, '')}/ws/seminar/${activeRoom.id}?token=${encodeURIComponent(token)}`)
+      const path = `${base.replace(/\/$/, '')}/ws/seminar/${activeRoom.id}`
+      const ws = new WebSocket(token ? `${path}?token=${encodeURIComponent(token)}` : path)
       wsRef.current = ws
       ws.onmessage = (event) => {
         try {

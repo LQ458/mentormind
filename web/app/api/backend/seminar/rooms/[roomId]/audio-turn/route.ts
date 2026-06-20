@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../../../../_auth'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 const AUDIO_TIMEOUT_MS = Number(process.env.SEMINAR_AUDIO_TIMEOUT_MS || 60000)
@@ -11,9 +12,7 @@ export async function POST(
   const timeout = setTimeout(() => controller.abort(), AUDIO_TIMEOUT_MS)
   try {
     const body = await req.formData()
-    const headers: Record<string, string> = {}
-    const auth = req.headers.get('Authorization')
-    if (auth) headers.Authorization = auth
+    const headers = backendHeaders(req)
     const res = await fetch(`${BACKEND_URL}/seminar/rooms/${params.roomId}/audio-turn`, {
       method: 'POST',
       headers,

@@ -46,6 +46,21 @@ def _log_study_plan_chat(message: str, *args) -> None:
     logger.info(rendered)
     print(f"🧭 {rendered}", flush=True)
 
+
+def _websocket_auth_token(websocket: WebSocket) -> Optional[str]:
+    """Resolve auth for WebSocket clients.
+
+    Query tokens support older clients and non-browser tooling. Same-origin
+    browser WebSockets can rely on HttpOnly cookies, which keeps tokens out of
+    JavaScript storage.
+    """
+    return (
+        websocket.query_params.get("token")
+        or websocket.cookies.get("mm_token")
+        or websocket.cookies.get("better-auth.session_token")
+        or websocket.cookies.get("session_token")
+    )
+
 # Add current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -4992,7 +5007,7 @@ async def seminar_room_websocket(websocket: WebSocket, room_id: str):
     separate room broker now, while keeping the client contract compatible with
     a later Redis pub/sub upgrade.
     """
-    token = websocket.query_params.get("token", "")
+    token = _websocket_auth_token(websocket)
     db = SessionLocal()
     try:
       if not token:
@@ -7267,8 +7282,8 @@ async def board_websocket(websocket: WebSocket, session_id: str):
         except Exception:
             pass
 
-    # Authenticate via token query parameter
-    token = websocket.query_params.get("token")
+    # Authenticate via query token or same-origin HttpOnly session cookie.
+    token = _websocket_auth_token(websocket)
     if not token:
         await _reject(4001, "Missing auth token")
         return

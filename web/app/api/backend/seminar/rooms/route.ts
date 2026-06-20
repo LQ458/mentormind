@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../../_auth'
 
 export const dynamic = 'force-dynamic'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
 function authHeaders(req: NextRequest, json = false): Record<string, string> {
-  const headers: Record<string, string> = {}
-  const auth = req.headers.get('Authorization')
-  if (auth) headers.Authorization = auth
+  const headers = backendHeaders(req)
   if (json) headers['Content-Type'] = 'application/json'
   return headers
 }

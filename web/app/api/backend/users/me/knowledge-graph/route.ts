@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
+import { backendHeaders } from '../../../_auth'
 
 const BACKEND = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -8,7 +9,7 @@ export async function GET(req: NextRequest) {
   const language = url.searchParams.get('language');
   const target = `${BACKEND}/users/me/knowledge-graph${language ? `?language=${encodeURIComponent(language)}` : ''}`;
   const res = await fetch(target, {
-    headers: { Authorization: req.headers.get('Authorization') || '' },
+    headers: backendHeaders(req),
     cache: 'no-store',
   });
   const text = await res.text();

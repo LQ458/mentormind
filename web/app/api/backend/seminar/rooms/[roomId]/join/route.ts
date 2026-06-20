@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../../../../_auth'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -8,9 +9,7 @@ export async function POST(
 ) {
   try {
     const body = await req.json().catch(() => ({}))
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    const auth = req.headers.get('Authorization')
-    if (auth) headers.Authorization = auth
+    const headers = backendHeaders(req, { 'Content-Type': 'application/json' })
     const res = await fetch(`${BACKEND_URL}/seminar/rooms/${params.roomId}/join`, {
       method: 'POST',
       headers,

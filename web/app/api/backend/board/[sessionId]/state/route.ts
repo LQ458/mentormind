@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../../../_auth'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -12,9 +13,7 @@ export async function GET(
     const res = await fetch(`${BACKEND_URL}/board/${sessionId}/state`, {
       method: 'GET',
       cache: 'no-store',
-      headers: {
-        Authorization: req.headers.get('Authorization') || '',
-      },
+      headers: backendHeaders(req),
     })
     const data = await res.json().catch(() => ({}))
     return NextResponse.json(data, {
