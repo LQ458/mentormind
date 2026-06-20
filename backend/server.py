@@ -6970,6 +6970,7 @@ def _admin_safe_url(value: Any, max_len: int = 512) -> str:
 def _feedback_report_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
     payload = event.payload or {}
     context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
+    build = context.get("build") if isinstance(context.get("build"), dict) else {}
     app_snapshot = context.get("app_snapshot") if isinstance(context.get("app_snapshot"), dict) else {}
     recent_events = context.get("recent_events") if isinstance(context.get("recent_events"), list) else []
     recent_errors = context.get("recent_errors") if isinstance(context.get("recent_errors"), list) else []
@@ -6992,6 +6993,7 @@ def _feedback_report_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
         "expected_behavior": _payload_str(payload, "expected_behavior", 1200),
         "route": _admin_safe_url(context.get("route") or event.page, 240),
         "captured_url": _admin_safe_url(context.get("url") or event.url, 512),
+        "build": _sanitize_admin_context_value(build),
         "recent_events": _sanitize_admin_context_value(recent_events[:10]),
         "recent_errors": _sanitize_admin_context_value(recent_errors[:5]),
         "app_snapshot": _sanitize_admin_context_value(app_snapshot),

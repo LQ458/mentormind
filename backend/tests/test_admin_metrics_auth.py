@@ -195,6 +195,11 @@ def test_feedback_report_admin_urls_redact_query_and_fragment():
         payload={
             "source": "inline_feedback_moment",
             "context": {
+                "build": {
+                    "sha": "abc123",
+                    "image_tag": "prod",
+                    "sessionToken": "secret-session-token",
+                },
                 "route": "/study-plan/abc?token=route-token",
                 "url": "https://mentormind.cloud/study-plan/abc?token=url-token#hash",
             },
@@ -207,3 +212,6 @@ def test_feedback_report_admin_urls_redact_query_and_fragment():
     assert data["url"] == "/study-plan?...#..."
     assert data["route"] == "/study-plan/abc?..."
     assert data["captured_url"] == "/study-plan/abc?...#..."
+    assert data["build"]["sha"] == "abc123"
+    assert data["build"]["image_tag"] == "prod"
+    assert data["build"]["sessionToken"] == "[redacted]"

@@ -45,6 +45,7 @@ interface FeedbackReportRow {
   expected_behavior?: string
   recent_events?: Array<Record<string, unknown>>
   recent_errors?: Array<Record<string, unknown>>
+  build?: Record<string, unknown>
   app_snapshot?: Record<string, unknown>
   priority_score?: number
   priority_reasons?: string[]
@@ -182,6 +183,13 @@ function codeBlock(value: unknown): string {
   return `\`\`\`json\n${text}\n\`\`\``
 }
 
+function formatBuild(build?: Record<string, unknown>): string {
+  if (!build) return '—'
+  const sha = typeof build.sha === 'string' ? build.sha : ''
+  const tag = typeof build.image_tag === 'string' ? build.image_tag : ''
+  return [sha, tag].filter(Boolean).join(' / ') || '—'
+}
+
 function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextResponse | null): string {
   const page = r.page || r.route || '—'
   const url = r.captured_url || r.url || '—'
@@ -201,6 +209,7 @@ function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextRes
     `- Page: ${page}`,
     `- URL: ${url}`,
     `- Viewport: ${viewport}`,
+    `- Build: ${formatBuild(r.build)}`,
     '',
     '## User note',
     r.user_note || '—',
@@ -216,6 +225,9 @@ function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextRes
     '',
     '## App snapshot',
     codeBlock(r.app_snapshot),
+    '',
+    '## Build',
+    codeBlock(r.build),
   ]
   if (context) {
     lines.push(
@@ -256,14 +268,14 @@ async function copyText(text: string): Promise<boolean> {
 function downloadReportCsv(rows: FeedbackReportRow[]) {
   const headers = [
     'id', 'report_id', 'created_at', 'source', 'surface', 'feedback_kind', 'severity', 'page',
-    'user_note', 'expected_behavior', 'captured_url', 'recent_errors', 'app_snapshot',
+    'user_note', 'expected_behavior', 'captured_url', 'build', 'recent_errors', 'app_snapshot',
   ]
   const lines = [headers.join(',')]
   for (const r of rows) {
     lines.push([
       r.id, r.report_id || '', r.created_at, r.source || '', r.surface || '', r.feedback_kind || '', r.severity || '',
       r.page || r.route || '', r.user_note || '', r.expected_behavior || '', r.captured_url || r.url || '',
-      compactJson(r.recent_errors), compactJson(r.app_snapshot),
+      compactJson(r.build), compactJson(r.recent_errors), compactJson(r.app_snapshot),
     ].map(csvEscape).join(','))
   }
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
@@ -585,6 +597,7 @@ export default function AdminFeedbackPage() {
                       <Th>{lang === 'zh' ? '分数' : 'Score'}</Th>
                       <Th>{lang === 'zh' ? '严重度' : 'Severity'}</Th>
                       <Th>{lang === 'zh' ? '表面' : 'Surface'}</Th>
+                      <Th>Build</Th>
                       <Th>{lang === 'zh' ? '描述' : 'Note'}</Th>
                       <Th>{lang === 'zh' ? '原因' : 'Reasons'}</Th>
                       <Th>{lang === 'zh' ? '操作' : ''}</Th>
@@ -599,6 +612,7 @@ export default function AdminFeedbackPage() {
                             <Td>{r.priority_score ?? 0}</Td>
                             <Td>{r.severity || '—'}</Td>
                             <Td>{r.surface || r.page || r.route || '—'}</Td>
+                            <Td>{formatBuild(r.build)}</Td>
                             <Td>
                               <span style={{ display: 'block', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {r.user_note || r.expected_behavior || '—'}
@@ -638,7 +652,7 @@ export default function AdminFeedbackPage() {
                           {isPriorityOpen && (
                             <tr key={`priority-${r.id}-detail`}>
                               <td
-                                colSpan={6}
+                                colSpan={7}
                                 style={{
                                   background: 'var(--surface-2, #f5f7fa)',
                                   padding: 16,
@@ -648,7 +662,9 @@ export default function AdminFeedbackPage() {
                                 <DetailBlock label="Report ID" value={r.report_id || r.id} />
                                 <DetailBlock label={lang === 'zh' ? '用户描述' : 'User note'} value={r.user_note} />
                                 <DetailBlock label={lang === 'zh' ? '期望行为' : 'Expected behavior'} value={r.expected_behavior} />
+                                <DetailBlock label="Build" value={formatBuild(r.build)} />
                                 <DetailBlock label="URL" value={r.captured_url || r.url || ''} />
+                                <JsonBlock label="Build metadata" value={r.build} />
                                 <JsonBlock label={lang === 'zh' ? '最近错误' : 'Recent errors'} value={r.recent_errors} />
                                 <JsonBlock label={lang === 'zh' ? '页面快照' : 'App snapshot'} value={r.app_snapshot} />
                                 {contextErrorByReportId[r.id] && (
@@ -741,6 +757,7 @@ export default function AdminFeedbackPage() {
                     <tr style={{ background: 'var(--surface-2, #f5f7fa)' }}>
                       <Th>{lang === 'zh' ? '时间' : 'When'}</Th>
                       <Th>{lang === 'zh' ? '来源' : 'Source'}</Th>
+                      <Th>Build</Th>
                       <Th>{lang === 'zh' ? '表面' : 'Surface'}</Th>
                       <Th>{lang === 'zh' ? '类型' : 'Kind'}</Th>
                       <Th>{lang === 'zh' ? '严重度' : 'Severity'}</Th>
@@ -758,6 +775,7 @@ export default function AdminFeedbackPage() {
                           <tr style={{ borderTop: '1px solid var(--line, #e8ecf0)' }}>
                             <Td>{formatDate(r.created_at)}</Td>
                             <Td>{r.source || '—'}</Td>
+                            <Td>{formatBuild(r.build)}</Td>
                             <Td>{r.surface || '—'}</Td>
                             <Td>{r.feedback_kind || '—'}</Td>
                             <Td>{r.severity || '—'}</Td>
@@ -804,7 +822,7 @@ export default function AdminFeedbackPage() {
                           {isOpen && (
                             <tr key={`${r.id}-detail`}>
                               <td
-                                colSpan={9}
+                                colSpan={10}
                                 style={{
                                   background: 'var(--surface-2, #f5f7fa)',
                                   padding: 16,
@@ -824,8 +842,16 @@ export default function AdminFeedbackPage() {
                                   value={r.expected_behavior}
                                 />
                                 <DetailBlock
+                                  label="Build"
+                                  value={formatBuild(r.build)}
+                                />
+                                <DetailBlock
                                   label="URL"
                                   value={r.captured_url || r.url || ''}
+                                />
+                                <JsonBlock
+                                  label="Build metadata"
+                                  value={r.build}
                                 />
                                 <JsonBlock
                                   label={lang === 'zh' ? '最近错误' : 'Recent errors'}
