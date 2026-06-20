@@ -149,6 +149,81 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+SENSITIVE_LOG_KEYS = {
+    "authorization",
+    "auth",
+    "cookie",
+    "invite",
+    "invite_code",
+    "jwt",
+    "mm_token",
+    "passcode",
+    "password",
+    "refresh_token",
+    "secret",
+    "session_token",
+    "token",
+}
+
+
+def _is_sensitive_log_key(key: Any) -> bool:
+    normalized = str(key).lower().replace("-", "_")
+    return normalized in SENSITIVE_LOG_KEYS or normalized.endswith("_token") or normalized.endswith("_secret")
+
+
+def _redact_sensitive_log_data(value: Any, depth: int = 0) -> Any:
+    if depth >= 5:
+        return "[truncated]"
+    if isinstance(value, dict):
+        clean: Dict[str, Any] = {}
+        for key, item in value.items():
+            safe_key = str(key)
+            clean[safe_key] = "[redacted]" if _is_sensitive_log_key(safe_key) else _redact_sensitive_log_data(item, depth + 1)
+        return clean
+    if isinstance(value, list):
+        return [_redact_sensitive_log_data(item, depth + 1) for item in value[:20]]
+    return value
+
+
+def _redact_sensitive_log_text(text: str) -> str:
+    clean = text
+    for key in SENSITIVE_LOG_KEYS:
+        key_pattern = re.escape(key).replace("_", "[-_]")
+        clean = re.sub(
+            rf'("{key_pattern}"\s*:\s*)"[^"]*"',
+            r'\1"[redacted]"',
+            clean,
+            flags=re.IGNORECASE,
+        )
+        clean = re.sub(
+            rf"((?:^|[?&#\s]){key_pattern}=)[^&\s]+",
+            r"\1[redacted]",
+            clean,
+            flags=re.IGNORECASE,
+        )
+    clean = re.sub(r"(Bearer\s+)[A-Za-z0-9._~+/=-]+", r"\1[redacted]", clean, flags=re.IGNORECASE)
+    return clean
+
+
+def _redact_url_for_logs(value: Any, max_len: int = 512) -> str:
+    raw = str(value or "")
+    try:
+        parsed = urlsplit(raw)
+        redacted = parsed.path or "/"
+        if parsed.query:
+            redacted += "?..."
+        if parsed.fragment:
+            redacted += "#..."
+        return redacted[:max_len]
+    except Exception:
+        redacted = raw.split("?", 1)[0].split("#", 1)[0] or raw
+        if "?" in raw:
+            redacted += "?..."
+        if "#" in raw:
+            redacted += "#..."
+        return redacted[:max_len]
+
+
 async def _safe_request_body_excerpt(request: Request, max_bytes: int = 2000) -> Optional[str]:
     """Return a bounded validation-debug body excerpt without crashing on uploads."""
     content_type = request.headers.get("content-type", "")
@@ -160,7 +235,15 @@ async def _safe_request_body_excerpt(request: Request, max_bytes: int = 2000) ->
         return f"[body unavailable: {type(exc).__name__}]"
     if not body:
         return None
-    excerpt = body[:max_bytes].decode("utf-8", errors="replace")
+    excerpt_bytes = body[:max_bytes]
+    excerpt = excerpt_bytes.decode("utf-8", errors="replace")
+    if "application/json" in content_type and len(body) <= max_bytes:
+        try:
+            excerpt = json.dumps(_redact_sensitive_log_data(json.loads(excerpt)), ensure_ascii=False)
+        except Exception:
+            excerpt = _redact_sensitive_log_text(excerpt)
+    else:
+        excerpt = _redact_sensitive_log_text(excerpt)
     if len(body) > max_bytes:
         excerpt += "... [truncated]"
     return excerpt
@@ -169,7 +252,7 @@ async def _safe_request_body_excerpt(request: Request, max_bytes: int = 2000) ->
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Log validation errors for debugging"""
-    print(f"❌ Validation error on {request.method} {request.url}: {exc.errors()}")
+    print(f"❌ Validation error on {request.method} {_redact_url_for_logs(request.url)}: {exc.errors()}")
     body_excerpt = await _safe_request_body_excerpt(request)
     print(f"📋 Request body: {body_excerpt or 'empty'}")
     content = {"detail": exc.errors()}
@@ -187,7 +270,7 @@ async def auth_exception_handler(request: Request, exc: HTTPException):
     if exc.status_code == 401:
         auth_header = request.headers.get("authorization", "missing")
         auth_scheme = auth_header.split(" ", 1)[0] if auth_header != "missing" else "missing"
-        print(f"🔐 Auth failed on {request.method} {request.url}")
+        print(f"🔐 Auth failed on {request.method} {_redact_url_for_logs(request.url)}")
         print(f"📋 Auth header: scheme={auth_scheme}, length={0 if auth_header == 'missing' else len(auth_header)}")
         print(f"❌ Auth error: {exc.detail}")
     return JSONResponse(
