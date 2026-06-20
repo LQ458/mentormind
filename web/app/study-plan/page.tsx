@@ -1410,6 +1410,7 @@ export default function StudyPlanPage() {
   const planReviewValidationError = proposedPlan
     ? findPlanFrameworkConflict(proposedPlan, selectedFramework, uiLanguage === 'zh' ? 'zh' : 'en')
     : null
+  const shouldShowPlannerWorkflow = authLoaded && (!isSignedIn || !plansLoading || myPlans.length > 0)
 
   return (
     <div className="space-y-8">
@@ -1530,7 +1531,7 @@ export default function StudyPlanPage() {
         </div>
       )}
 
-      {phase === 'selecting' && (
+      {shouldShowPlannerWorkflow && phase === 'selecting' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <button
             type="button"
@@ -1572,7 +1573,7 @@ export default function StudyPlanPage() {
       )}
 
       {/* ── CREATE NEW PLAN ───────────────────────────────────────────────── */}
-      {myPlans.length > 0 && phase === 'selecting' && (
+      {shouldShowPlannerWorkflow && myPlans.length > 0 && phase === 'selecting' && (
         <div className="border-t border-gray-200 pt-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-1">
             {uiLanguage === 'zh' ? '创建新计划' : 'Create New Plan'}
@@ -1586,6 +1587,7 @@ export default function StudyPlanPage() {
       )}
 
       {/* Phase indicator (unified for every framework, including Gaokao) */}
+      {shouldShowPlannerWorkflow && (
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         {[
           { key: 'selecting', label: uiLanguage === 'zh' ? '1. 选择科目' : '1. Select' },
@@ -1608,9 +1610,10 @@ export default function StudyPlanPage() {
           </div>
         ))}
       </div>
+      )}
 
       {/* ── SELECTING PHASE ─────────────────────────────────────────────────── */}
-      {phase === 'selecting' && (
+      {shouldShowPlannerWorkflow && phase === 'selecting' && (
         <div className="space-y-8">
           {/* Framework picker — always visible. Each card has its own icon + accent
               so Gaokao / IB / A-Level read as distinct modules from the start. */}
@@ -1821,7 +1824,7 @@ export default function StudyPlanPage() {
       )}
 
       {/* ── INTAKE PHASE ──────────────────────────────────────────────────── */}
-      {phase === 'intake' && (
+      {shouldShowPlannerWorkflow && phase === 'intake' && (
         <div className="space-y-5 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -2036,7 +2039,7 @@ export default function StudyPlanPage() {
       )}
 
       {/* ── CHATTING PHASE ──────────────────────────────────────────────────── */}
-      {phase === 'chatting' && (
+      {shouldShowPlannerWorkflow && phase === 'chatting' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-gray-900">
@@ -2287,7 +2290,7 @@ export default function StudyPlanPage() {
       )}
 
       {/* ── PLAN REVIEW PHASE ───────────────────────────────────────────────── */}
-      {phase === 'plan_review' && proposedPlan && (
+      {shouldShowPlannerWorkflow && phase === 'plan_review' && proposedPlan && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-5">
             {/* Plan header */}
@@ -2517,7 +2520,7 @@ export default function StudyPlanPage() {
       )}
 
       {/* ── CREATING PHASE ──────────────────────────────────────────────────── */}
-      {phase === 'creating' && (
+      {shouldShowPlannerWorkflow && phase === 'creating' && (
         <div className="flex flex-col items-center justify-center py-20 space-y-4">
           <div className="animate-spin w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full" />
           <p className="text-lg font-medium text-gray-800">
@@ -2530,7 +2533,7 @@ export default function StudyPlanPage() {
       )}
 
       {/* ── DONE PHASE ──────────────────────────────────────────────────────── */}
-      {phase === 'done' && (
+      {shouldShowPlannerWorkflow && phase === 'done' && (
         <div className="flex flex-col items-center justify-center py-20 space-y-4">
           <div className="text-5xl">✅</div>
           <p className="text-xl font-semibold text-gray-900">
