@@ -48,6 +48,9 @@ interface TelemetryBreadcrumb {
   payload?: Record<string, unknown>
 }
 
+export type TrackNowResult = 'recorded' | 'queued' | 'rejected'
+type SendInteractiveResult = 'recorded' | 'retry' | 'rejected'
+
 const TELEMETRY_ENDPOINT = '/api/backend/telemetry/event'
 const SESSION_KEY = 'mm_telemetry_session_id'
 const RECENT_EVENTS_KEY = 'mm_telemetry_recent_events_v1'
@@ -147,7 +150,7 @@ function send(payload: TelemetryPayload): void {
   }
 }
 
-async function sendInteractive(payload: TelemetryPayload): Promise<boolean> {
+async function sendInteractive(payload: TelemetryPayload): Promise<SendInteractiveResult> {
   try {
     const res = await fetch(TELEMETRY_ENDPOINT, {
       method: 'POST',
@@ -155,11 +158,15 @@ async function sendInteractive(payload: TelemetryPayload): Promise<boolean> {
       body: JSON.stringify(payload),
       keepalive: true,
     })
-    if (!res.ok) return false
+    if (!res.ok) {
+      return res.status === 408 || res.status === 429 || res.status >= 500
+        ? 'retry'
+        : 'rejected'
+    }
     const data = await res.json().catch(() => ({}))
-    return data?.ok !== false && data?.recorded !== false
+    return data?.ok !== false && data?.recorded !== false ? 'recorded' : 'retry'
   } catch {
-    return false
+    return 'retry'
   }
 }
 
@@ -258,8 +265,8 @@ async function flushPendingFeedbackEvents(): Promise<void> {
   try {
     const remaining: TelemetryPayload[] = []
     for (const event of pending) {
-      const ok = await sendInteractive(event)
-      if (!ok) remaining.push(event)
+      const result = await sendInteractive(event)
+      if (result === 'retry') remaining.push(event)
     }
     writePendingFeedbackEvents(remaining)
     if (remaining.length > 0) schedulePendingFeedbackFlush(60000)
@@ -415,9 +422,9 @@ export async function trackNow(
   type: EventType,
   payload?: Record<string, unknown>,
   meta?: TrackMeta,
-): Promise<boolean> {
+): Promise<TrackNowResult> {
   try {
-    if (typeof window === 'undefined') return false
+    if (typeof window === 'undefined') return 'rejected'
     const session_id = getOrCreateSessionId()
     const event: TelemetryPayload = {
       session_id,
@@ -430,17 +437,17 @@ export async function trackNow(
     if (typeof meta?.latency_ms === 'number') event.latency_ms = meta.latency_ms
     if (payload && Object.keys(payload).length > 0) event.payload = payload
     rememberEvent(event)
-    const ok = await sendInteractive(event)
-    if (!ok) {
+    const result = await sendInteractive(event)
+    if (result === 'retry') {
       queuePendingFeedbackEvent(event)
-      return false
+      return 'queued'
     }
-    if (type === 'feedback_moment') {
+    if (result === 'recorded' && type === 'feedback_moment') {
       void flushPendingFeedbackEvents().catch(() => {})
     }
-    return true
+    return result
   } catch {
-    return false
+    return 'rejected'
   }
 }
 

@@ -56,7 +56,7 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
     setSubmitting(true)
     setError(null)
     const reportId = makeReportId(surface, interactionId)
-    const ok = await trackNow('feedback_moment', {
+    const result = await trackNow('feedback_moment', {
       schema: 'mentormind.feedback_moment.v1',
       source: 'inline_feedback_moment',
       surface,
@@ -77,7 +77,11 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
       }),
     })
     setSubmitting(false)
-    if (!ok) {
+    if (result === 'rejected') {
+      setError(lang === 'zh' ? '这条反馈没有被服务器接受，请刷新页面后再试。' : 'This feedback was not accepted. Refresh and try again.')
+      return
+    }
+    if (result === 'queued') {
       setSubmittedReportId(reportId)
       setSubmittedMode('queued')
       setSubmitted(true)

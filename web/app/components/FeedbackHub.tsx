@@ -138,7 +138,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     setSubmitError(null)
     const surface = launchContext?.surface || 'global'
     const reportId = makeReportId(kind, surface)
-    const ok = await trackNow('feedback_moment', {
+    const result = await trackNow('feedback_moment', {
       schema: 'mentormind.feedback_hub.v1',
       source: launchContext?.surface ? 'local_report_button' : 'global_feedback_button',
       report_id: reportId,
@@ -159,7 +159,15 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
       }),
     })
     setSubmitting(false)
-    if (!ok) {
+    if (result === 'rejected') {
+      setSubmitError(
+        lang === 'zh'
+          ? '这条反馈没有被服务器接受。请刷新页面后再试一次。'
+          : 'This feedback was not accepted. Refresh the page and try again.',
+      )
+      return
+    }
+    if (result === 'queued') {
       setSubmittedReportId(reportId)
       setSubmittedMode('queued')
       setSubmitted(true)
