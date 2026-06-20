@@ -667,6 +667,10 @@ const STUDY_PLAN_PERSONAS = [
 ]
 
 async function testStudyPlanPersonas(browser) {
+  if (!hasAuthSession()) {
+    events.push({ type: 'persona_study_plan', status: 'not_run', reason: 'auth_not_available' })
+    return
+  }
   const personas = STUDY_PLAN_PERSONAS.slice(0, Math.max(0, PERSONA_LIMIT))
   for (const persona of personas) {
     const { context, page, observed } = await createObservedPage(browser, { name: `persona-${persona.id}`, size: { width: 1365, height: 900 } })
@@ -1768,19 +1772,33 @@ async function captureVisualManualReview(browser) {
     try {
       await page.goto(`${BASE_URL}${target.route}`, { waitUntil: 'networkidle', timeout: 45000 })
       await page.waitForTimeout(900)
-      const metrics = await page.evaluate(() => ({
-        bodyTextLength: document.body?.innerText?.trim().length || 0,
-        scrollWidth: document.documentElement.scrollWidth,
-        clientWidth: document.documentElement.clientWidth,
-        viewport: { width: window.innerWidth, height: window.innerHeight },
-        h1: document.querySelector('h1')?.textContent?.trim() || '',
-      }))
+      const metrics = await page.evaluate(() => {
+        const text = document.body?.innerText?.trim() || ''
+        return {
+          bodyTextLength: text.length,
+          authGateHint: /进入 MentorMind|登录并开始|用户名|密码|Sign in|Log in|Login/i.test(text),
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+          h1: document.querySelector('h1')?.textContent?.trim() || '',
+        }
+      })
+      const authGate = !hasAuthSession() && metrics.authGateHint
       const shot = await screenshot(page, `manual-review-${target.viewport.name}-${target.route}`)
-      screenshots.push({ route: target.route, viewport: target.viewport.name, screenshot: shot, metrics, observed })
+      screenshots.push({
+        route: target.route,
+        viewport: target.viewport.name,
+        status: authGate ? 'not_run' : 'checked',
+        reason: authGate ? 'auth_not_available' : undefined,
+        screenshot: shot,
+        metrics,
+        observed,
+      })
     } catch (error) {
       screenshots.push({
         route: target.route,
         viewport: target.viewport.name,
+        status: 'checked',
         error: String(error),
         metrics: null,
         observed,
@@ -1789,20 +1807,24 @@ async function captureVisualManualReview(browser) {
       await context.close()
     }
   }
+  const checkedScreenshots = screenshots.filter((item) => item.status !== 'not_run')
   const success = screenshots.every((item) => (
-    item.metrics
+    item.status === 'not_run'
+    || (item.metrics
     && item.metrics.bodyTextLength >= 80
     && item.metrics.scrollWidth <= item.metrics.clientWidth + 8
     && !item.observed.serverErrors.length
-    && !item.error
+    && !item.error)
   ))
+  const status = checkedScreenshots.length === 0 ? 'not_run' : success ? 'passed' : 'failed'
   events.push({
     type: 'visual_manual_review',
-    status: success ? 'passed' : 'failed',
+    status,
+    reason: status === 'not_run' ? 'auth_not_available' : undefined,
     screenshots,
     note: 'Screenshots captured for human visual inspection; success also checks visible content, no horizontal overflow, and no 5xx subrequests.',
   })
-  if (!success) {
+  if (status === 'failed') {
     await addFinding({
       title: 'Visual manual review capture found layout/network risk',
       severity: 'visual',
@@ -1947,7 +1969,11 @@ async function writeReport() {
     lines.push(``)
     lines.push(`## Persona Study-Plan Summary`)
     for (const event of personaEvents) {
-      lines.push(`- ${event.persona}: plan=${event.reachedPlanReview ? 'yes' : 'no'}, persona_match=${event.personaMatched ? 'yes' : 'no'}, schedule=${event.scheduleMentioned ? 'yes' : 'no'}, latency=${event.latency}ms`)
+      if (event.status === 'not_run') {
+        lines.push(`- not_run (${event.reason || 'unknown'})`)
+      } else {
+        lines.push(`- ${event.persona}: plan=${event.reachedPlanReview ? 'yes' : 'no'}, persona_match=${event.personaMatched ? 'yes' : 'no'}, schedule=${event.scheduleMentioned ? 'yes' : 'no'}, latency=${event.latency}ms`)
+      }
     }
   }
   const uploadEvents = events.filter((event) => event.type === 'quick_question_upload')
@@ -2044,6 +2070,7 @@ function buildRunSummary(allEvents, allFindings) {
     success: event.status === 'passed' || event.status === 'controlled_rejection',
   })))
   add('study_plan_personas', allEvents.filter((event) => event.type === 'persona_study_plan').map((event) => ({
+    status: event.status,
     success: Boolean(event.reachedPlanReview && event.personaMatched && event.scheduleMentioned && !event.usedFallback),
   })))
   add('study_plan_routing', allEvents.filter((event) => event.type === 'study_plan_routing').map((event) => ({
