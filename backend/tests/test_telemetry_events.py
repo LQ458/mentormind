@@ -24,3 +24,11 @@ def test_redact_url_for_telemetry_strips_query_and_fragment_values():
     )
     assert server._redact_url_for_telemetry("/study-plan?source=quick-question") == "/study-plan?..."
     assert server._redact_url_for_telemetry("/dashboard") == "/dashboard"
+
+
+def test_feedback_report_unique_key_dedupes_explicit_report_ids_only():
+    assert (
+        server._feedback_report_unique_key({"id": "1", "report_id": "qa-abc"})
+        == server._feedback_report_unique_key({"id": "2", "report_id": "qa-abc"})
+    )
+    assert server._feedback_report_unique_key({"id": "1", "report_id": ""}) != server._feedback_report_unique_key({"id": "2"})

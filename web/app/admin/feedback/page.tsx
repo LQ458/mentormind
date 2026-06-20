@@ -77,6 +77,8 @@ interface AggregateResponse {
 
 interface FeedbackReportsAggregateResponse {
   total?: number
+  unique_reports?: number
+  duplicate_reports?: number
   surface_distribution?: Record<string, number>
   kind_distribution?: Record<string, number>
   severity_distribution?: Record<string, number>
@@ -431,8 +433,16 @@ export default function AdminFeedbackPage() {
                 value={String(reportsAggregate?.total ?? reportsTotal)}
               />
               <KpiCard
+                label={lang === 'zh' ? '去重问题数' : 'Unique reports'}
+                value={String(reportsAggregate?.unique_reports ?? reportsTotal)}
+              />
+              <KpiCard
                 label={lang === 'zh' ? '当前筛选命中' : 'Filtered matches'}
                 value={String(reportsTotal)}
+              />
+              <KpiCard
+                label={lang === 'zh' ? '重复上报' : 'Duplicates'}
+                value={String(reportsAggregate?.duplicate_reports ?? 0)}
               />
               <KpiCard
                 label={lang === 'zh' ? '最近严重问题' : 'Blocked / wrong'}

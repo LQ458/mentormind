@@ -6792,6 +6792,14 @@ def _feedback_report_matches(
     return True
 
 
+def _feedback_report_unique_key(row: Dict[str, Any]) -> str:
+    """Stable key for triage counts; only collapse reports with explicit ids."""
+    report_id = str(row.get("report_id") or "").strip()
+    if report_id:
+        return f"report:{report_id}"
+    return f"event:{row.get('id')}"
+
+
 @app.get("/admin/feedback/reports")
 async def get_admin_feedback_reports(
     limit: int = 50,
@@ -6860,12 +6868,15 @@ async def get_admin_feedback_reports_aggregate(
     from collections import Counter
     events = q.order_by(TelemetryEvent.created_at.desc()).limit(5000).all()
     rows = [_feedback_report_to_dict(event) for event in events]
+    unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
     by_surface = Counter(row.get("surface") or "unknown" for row in rows)
     by_kind = Counter(row.get("feedback_kind") or "unknown" for row in rows)
     by_severity = Counter(row.get("severity") or "unknown" for row in rows)
     by_page = Counter(row.get("page") or row.get("route") or "unknown" for row in rows)
     return {
         "total": len(rows),
+        "unique_reports": len(unique_report_keys),
+        "duplicate_reports": max(0, len(rows) - len(unique_report_keys)),
         "surface_distribution": dict(by_surface.most_common(50)),
         "kind_distribution": dict(by_kind.most_common(20)),
         "severity_distribution": dict(by_severity.most_common(20)),
