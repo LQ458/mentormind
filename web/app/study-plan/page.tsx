@@ -295,6 +295,36 @@ function studyPlanCreateErrorMessage(data: any, fallbackLang: 'zh' | 'en'): stri
   return fallbackLang === 'zh' ? '计划创建失败，请重试。' : 'Failed to create plan. Please try again.'
 }
 
+function examTimelinePlaceholder(framework: string | null, lang: 'zh' | 'en'): string {
+  if (lang === 'zh') {
+    if (framework === 'ap') return '例如：2026年5月 AP 考试，或还有3个月'
+    if (framework === 'gaokao') return '例如：2026年6月高考，或还有3个月'
+    if (framework === 'ib') return '例如：2026年5月 IB 大考，或还有3个月'
+    if (framework === 'a_level') return '例如：2026年5-6月 A Level，或还有3个月'
+    return '例如：2026年5月，或3个月后'
+  }
+  if (framework === 'ap') return 'e.g. AP exam in May 2026, or in 3 months'
+  if (framework === 'gaokao') return 'e.g. Gaokao in June 2026, or in 3 months'
+  if (framework === 'ib') return 'e.g. IB exams in May 2026, or in 3 months'
+  if (framework === 'a_level') return 'e.g. A Level exams in May-June 2026, or in 3 months'
+  return 'e.g. May 2026, or in 3 months'
+}
+
+function targetScorePlaceholder(framework: string | null, lang: 'zh' | 'en'): string {
+  if (lang === 'zh') {
+    if (framework === 'ap') return '例如：5分，或从3分提升到4分'
+    if (framework === 'gaokao') return '例如：数学130+ / 总分650+'
+    if (framework === 'ib') return '例如：HL 7分 / 总分40+'
+    if (framework === 'a_level') return '例如：A* / AAB'
+    return '例如：90%+ / 期末A'
+  }
+  if (framework === 'ap') return 'e.g. 5, or improve from 3 to 4'
+  if (framework === 'gaokao') return 'e.g. Math 130+ / total 650+'
+  if (framework === 'ib') return 'e.g. HL 7 / total 40+'
+  if (framework === 'a_level') return 'e.g. A* / AAB'
+  return 'e.g. 90%+ / final exam A'
+}
+
 // ── Message renderer (matches /create pattern) ───────────────────────────────
 
 function AssistantMessage({ content }: { content: string }) {
@@ -1784,7 +1814,7 @@ export default function StudyPlanPage() {
               <input
                 value={intake.examTimeline}
                 onChange={(e) => setIntake((prev) => ({ ...prev, examTimeline: e.target.value }))}
-                placeholder={uiLanguage === 'zh' ? '例如：2026年5月，或3个月后' : 'e.g. May 2026, or in 3 months'}
+                placeholder={examTimelinePlaceholder(selectedFramework, uiLanguage === 'zh' ? 'zh' : 'en')}
                 className="h-11 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               />
             </label>
@@ -1796,7 +1826,7 @@ export default function StudyPlanPage() {
               <input
                 value={intake.targetScore}
                 onChange={(e) => setIntake((prev) => ({ ...prev, targetScore: e.target.value }))}
-                placeholder={uiLanguage === 'zh' ? '例如：AP 5分 / IB 7分 / 高考130+' : 'e.g. AP 5 / IB 7 / A* / 90%+'}
+                placeholder={targetScorePlaceholder(selectedFramework, uiLanguage === 'zh' ? 'zh' : 'en')}
                 className="h-11 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               />
             </label>
