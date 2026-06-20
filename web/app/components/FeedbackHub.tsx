@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Bug, Check, Heart, Lightbulb, MessageSquare, Send, X } from 'lucide-react'
+import { AlertTriangle, Bug, Check, Copy, Heart, Lightbulb, MessageSquare, Send, X } from 'lucide-react'
 import { useLanguage } from './LanguageContext'
 import { getTelemetryContextSnapshot, trackNow } from '../lib/telemetry'
 import type { FeedbackKind, FeedbackLaunchContext, FeedbackSeverity } from './feedbackEvents'
@@ -91,6 +91,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submittedReportId, setSubmittedReportId] = useState<string | null>(null)
   const [submittedMode, setSubmittedMode] = useState<SubmissionMode | null>(null)
+  const [reportIdCopied, setReportIdCopied] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -101,6 +102,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     setSubmitError(null)
     setSubmittedReportId(null)
     setSubmittedMode(null)
+    setReportIdCopied(false)
     setMessage('')
     setExpected('')
   }, [launchContext, open])
@@ -108,6 +110,17 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
   if (!open) return null
 
   const selectedKind = KIND_OPTIONS.find((item) => item.value === kind) || KIND_OPTIONS[0]
+
+  const copyReportId = async () => {
+    if (!submittedReportId || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return
+    try {
+      await navigator.clipboard.writeText(submittedReportId)
+      setReportIdCopied(true)
+      window.setTimeout(() => setReportIdCopied(false), 1400)
+    } catch {
+      setReportIdCopied(false)
+    }
+  }
 
   const submit = async () => {
     if (submitting) return
@@ -152,10 +165,6 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
       setSubmitted(true)
       setMessage('')
       setExpected('')
-      window.setTimeout(() => {
-        setSubmitted(false)
-        onClose()
-      }, 4200)
       return
     }
     setSubmittedReportId(reportId)
@@ -163,10 +172,6 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     setSubmitted(true)
     setMessage('')
     setExpected('')
-    window.setTimeout(() => {
-      setSubmitted(false)
-      onClose()
-    }, 2600)
   }
 
   return (
@@ -227,10 +232,31 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
                   : 'Thanks. This helps turn tester feedback into fixable issues.')}
             </div>
             {submittedReportId && (
-              <div className="mt-2 rounded-lg bg-gray-50 px-2 py-1 font-mono text-xs text-gray-500">
-                {submittedReportId}
+              <div className="mt-4 flex w-full max-w-md flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+                <div className="min-w-0 flex-1 rounded-lg bg-gray-50 px-3 py-2 font-mono text-xs text-gray-600">
+                  <span className="block truncate" title={submittedReportId}>
+                    {submittedReportId}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={copyReportId}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  <Copy size={13} />
+                  {reportIdCopied
+                    ? (lang === 'zh' ? '已复制' : 'Copied')
+                    : (lang === 'zh' ? '复制编号' : 'Copy ID')}
+                </button>
               </div>
             )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              {lang === 'zh' ? '完成' : 'Done'}
+            </button>
           </div>
         ) : (
           <div className="space-y-4 px-5 py-5">
