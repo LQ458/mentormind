@@ -208,6 +208,7 @@ Important deployment variables:
 - `BACKEND_URL`: Next.js server-side proxy target, usually `http://backend:8000` in Docker or `http://localhost:8000` locally.
 - `NEXT_PUBLIC_BACKEND_WS_URL`: leave blank for same-origin production WebSockets through nginx `/ws/`.
 - `NEXT_PUBLIC_AUDIO_INGEST_POLL_MINUTES`: frontend audio-transcription polling window.
+- `MENTORMIND_ADMIN_USERS`: optional comma/space-separated user ids, usernames, or emails allowed to view `/admin/feedback` and `/admin/metrics`.
 - `NEXT_PUBLIC_SHOW_TWEAKS`: set `true` only when you want the tweaks panel visible outside local dev.
 
 ## Quick Start

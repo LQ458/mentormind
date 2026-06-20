@@ -57,6 +57,7 @@ services:
       DATABASE_URL: postgresql://mentormind:mentormind@postgres:5432/mentormind_metadata
       CELERY_BROKER_URL: redis://redis:6379/0
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      MENTORMIND_ADMIN_USERS: ${MENTORMIND_ADMIN_USERS:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
       UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}

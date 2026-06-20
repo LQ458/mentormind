@@ -25,6 +25,42 @@ def test_admin_metrics_rejects_non_admin_before_db_access():
     assert exc_info.value.status_code == 403
 
 
+def test_admin_allowlist_accepts_configured_username(monkeypatch):
+    monkeypatch.setenv("MENTORMIND_ADMIN_USERS", "owner_user")
+    user = SimpleNamespace(
+        id="user-1",
+        username="owner_user",
+        email="owner@example.com",
+        role="student",
+    )
+
+    server._require_admin(user)
+
+
+def test_admin_allowlist_accepts_configured_email_case_insensitive(monkeypatch):
+    monkeypatch.setenv("MENTORMIND_ADMIN_USERS", "Owner@Example.com")
+    user = SimpleNamespace(
+        id="user-1",
+        username="owner_user",
+        email="owner@example.com",
+        role="student",
+    )
+
+    server._require_admin(user)
+
+
+def test_admin_allowlist_accepts_configured_user_id(monkeypatch):
+    monkeypatch.setenv("MENTORMIND_ADMIN_USERS", "user-1")
+    user = SimpleNamespace(
+        id="user-1",
+        username="ordinary_user",
+        email="ordinary@example.com",
+        role="student",
+    )
+
+    server._require_admin(user)
+
+
 @pytest.mark.parametrize(
     "invoke",
     [

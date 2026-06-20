@@ -239,8 +239,33 @@ def _redact_url_for_logs(value: Any, max_len: int = 512) -> str:
         return redacted[:max_len]
 
 
+def _configured_admin_identifiers() -> set[str]:
+    raw = os.getenv("MENTORMIND_ADMIN_USERS", "")
+    if not raw:
+        return set()
+    return {
+        item.strip().lower()
+        for item in re.split(r"[\s,;]+", raw)
+        if item.strip()
+    }
+
+
+def _is_configured_admin(current_user: User) -> bool:
+    allowed = _configured_admin_identifiers()
+    if not allowed:
+        return False
+    identifiers = {
+        str(getattr(current_user, "id", "") or "").lower(),
+        str(getattr(current_user, "username", "") or "").lower(),
+        str(getattr(current_user, "email", "") or "").lower(),
+    }
+    identifiers.discard("")
+    return bool(identifiers & allowed)
+
+
 def _require_admin(current_user: User) -> None:
-    if (getattr(current_user, "role", None) or "").lower() != "admin":
+    is_role_admin = (getattr(current_user, "role", None) or "").lower() == "admin"
+    if not is_role_admin and not _is_configured_admin(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
