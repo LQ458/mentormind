@@ -178,13 +178,13 @@ function codeBlock(value: unknown): string {
   return `\`\`\`json\n${text}\n\`\`\``
 }
 
-function reportMarkdown(r: FeedbackReportRow): string {
+function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextResponse | null): string {
   const page = r.page || r.route || '—'
   const url = r.captured_url || r.url || '—'
   const titleParts = [r.severity, r.surface || page].filter(Boolean).join(' / ')
   const title = titleParts || r.report_id || r.id
   const viewport = r.viewport_w && r.viewport_h ? `${r.viewport_w}x${r.viewport_h}` : '—'
-  return [
+  const lines = [
     `# ${title}`,
     '',
     '## Summary',
@@ -212,7 +212,23 @@ function reportMarkdown(r: FeedbackReportRow): string {
     '',
     '## App snapshot',
     codeBlock(r.app_snapshot),
-  ].join('\n')
+  ]
+  if (context) {
+    lines.push(
+      '',
+      '## Same-session context',
+      `- Event count: ${context.event_count ?? context.events?.length ?? 0}`,
+      `- Error count: ${context.error_count ?? context.errors?.length ?? 0}`,
+      `- Truncated: ${context.truncated ? 'yes' : 'no'}`,
+      '',
+      '### Context errors',
+      codeBlock(context.errors),
+      '',
+      '### Context event timeline',
+      codeBlock(context.events),
+    )
+  }
+  return lines.join('\n')
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -396,19 +412,9 @@ export default function AdminFeedbackPage() {
 
   const likertMax = 5
 
-  const copyReport = async (report: FeedbackReportRow) => {
-    const ok = await copyText(reportMarkdown(report)).catch(() => false)
-    if (!ok) return
-    setCopiedReportId(report.id)
-    window.setTimeout(() => {
-      setCopiedReportId((current) => (current === report.id ? null : current))
-    }, 1800)
-  }
-
-  const loadReportContext = async (report: FeedbackReportRow) => {
+  const fetchReportContext = async (report: FeedbackReportRow) => {
     if (contextByReportId[report.id]) {
-      setExpandedReportId(report.id)
-      return
+      return contextByReportId[report.id]
     }
     setContextLoadingId(report.id)
     setContextErrorByReportId((prev) => ({ ...prev, [report.id]: '' }))
@@ -420,18 +426,34 @@ export default function AdminFeedbackPage() {
           ...prev,
           [report.id]: data.error || `HTTP ${res.status}`,
         }))
-        return
+        return null
       }
       setContextByReportId((prev) => ({ ...prev, [report.id]: data }))
-      setExpandedReportId(report.id)
+      return data
     } catch {
       setContextErrorByReportId((prev) => ({
         ...prev,
         [report.id]: lang === 'zh' ? '上下文加载失败' : 'Failed to load context',
       }))
+      return null
     } finally {
       setContextLoadingId((current) => (current === report.id ? null : current))
     }
+  }
+
+  const copyReport = async (report: FeedbackReportRow) => {
+    const context = await fetchReportContext(report)
+    const ok = await copyText(reportMarkdown(report, context)).catch(() => false)
+    if (!ok) return
+    setCopiedReportId(report.id)
+    window.setTimeout(() => {
+      setCopiedReportId((current) => (current === report.id ? null : current))
+    }, 1800)
+  }
+
+  const loadReportContext = async (report: FeedbackReportRow) => {
+    const context = await fetchReportContext(report)
+    if (context) setExpandedReportId(report.id)
   }
 
   return (
