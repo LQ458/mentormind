@@ -6559,12 +6559,17 @@ def _is_sensitive_telemetry_key(key: Any) -> bool:
             "bearertoken",
             "cookie",
             "idtoken",
+            "invite",
+            "invitecode",
+            "ip",
+            "ipaddress",
             "jwt",
             "password",
             "refreshtoken",
             "secret",
             "sessiontoken",
             "setcookie",
+            "useragent",
         }
         or compact.endswith("token")
         or compact.endswith("secret")
@@ -6884,23 +6889,6 @@ def _payload_str(payload: Dict[str, Any], key: str, max_len: int = 240) -> str:
     return str(value)[:max_len]
 
 
-_ADMIN_REDACTED_KEYS = {
-    "access_token",
-    "authorization",
-    "cookie",
-    "id_token",
-    "ip",
-    "ip_address",
-    "jwt",
-    "password",
-    "refresh_token",
-    "secret",
-    "set_cookie",
-    "token",
-    "user_agent",
-}
-
-
 def _sanitize_admin_context_value(value: Any, *, depth: int = 0) -> Any:
     """Bound feedback triage context and remove high-risk identifiers."""
     if value is None or isinstance(value, (bool, int, float)):
@@ -6919,7 +6907,7 @@ def _sanitize_admin_context_value(value: Any, *, depth: int = 0) -> Any:
         for key, nested_value in list(value.items())[:80]:
             safe_key = str(key)[:80]
             normalized = safe_key.lower().replace("-", "_")
-            if normalized in _ADMIN_REDACTED_KEYS:
+            if _is_sensitive_telemetry_key(safe_key):
                 clean[safe_key] = "[redacted]"
             elif normalized in TELEMETRY_URL_KEYS:
                 clean[safe_key] = _redact_url_for_telemetry(nested_value, 512)

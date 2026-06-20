@@ -68,6 +68,11 @@ def test_sanitize_telemetry_payload_redacts_sensitive_keys_before_storage():
     assert safe["context"]["events"][0]["status"] == 500
 
 
+def test_sensitive_telemetry_key_detection_covers_admin_context_identifiers():
+    for key in ["apiKey", "clientSecret", "sessionToken", "user_agent", "ipAddress", "inviteCode"]:
+        assert server._is_sensitive_telemetry_key(key)
+
+
 def test_feedback_report_unique_key_dedupes_explicit_report_ids_only():
     assert (
         server._feedback_report_unique_key({"id": "1", "report_id": "qa-abc"})
