@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { backendHeaders } from '../../_auth'
-import { backendErrorResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
+import { backendErrorResponse, backendJsonResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -26,8 +26,7 @@ export async function POST(request: NextRequest) {
             return backendErrorResponse('Image upload failed', backendResponse.status)
         }
 
-        const data = await backendResponse.json()
-        return NextResponse.json(data)
+        return await backendJsonResponse(backendResponse, 'image ingest proxy')
     } catch (error) {
         console.error('Image ingest proxy streaming error:', error)
         return proxyFailureResponse('Failed to proxy image upload')

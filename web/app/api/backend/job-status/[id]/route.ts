@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { backendHeaders } from '../../_auth'
-import { backendErrorResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
+import { backendErrorResponse, backendJsonResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -33,9 +33,9 @@ export async function GET(
             return backendErrorResponse('Failed to get job status', backendResponse.status)
         }
 
-        const data = await backendResponse.json()
-        console.log(`[job-status proxy] Backend returned status: ${data.status}`)
-        return NextResponse.json(data)
+        const data = await backendResponse.clone().json().catch(() => null)
+        console.log(`[job-status proxy] Backend returned status: ${data?.status ?? 'unknown'}`)
+        return await backendJsonResponse(backendResponse, 'job-status proxy')
     } catch (error) {
         console.error('Job status proxy error:', error)
         return proxyFailureResponse('Failed to get job status')

@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { backendHeaders } from '../../_auth'
-import { backendErrorResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
+import { backendErrorResponse, backendJsonResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
 import http from 'http'
 import https from 'https'
 
@@ -51,8 +51,7 @@ export async function POST(request: NextRequest) {
             return backendErrorResponse('Audio upload failed', backendResponse.status)
         }
 
-        const data = await backendResponse.json()
-        return NextResponse.json(data)
+        return await backendJsonResponse(backendResponse, 'audio ingest proxy')
     } catch (error) {
         console.error('Audio ingest proxy streaming error:', error)
         return proxyFailureResponse('Failed to proxy audio upload')
