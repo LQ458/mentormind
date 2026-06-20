@@ -536,6 +536,31 @@ def _build_curriculum_note(detection: SubjectDetection) -> str:
     return fallback_notes.get(framework, "")
 
 
+def _plan_json_language_contract(language: str) -> str:
+    """Field-level language contract for study-plan JSON values."""
+    if language.startswith("zh"):
+        return (
+            "JSON value language contract:\n"
+            "- Write all learner-facing JSON string values in Chinese, including title, course_name display text, "
+            "pedagogy_profile values, weekly_schedule focus, engagement_hooks, unit titles, descriptions, topics, "
+            "and learning_objectives.\n"
+            "- Keep official abbreviations and exam/framework names such as AP, IB, A Level, FRQ, DBQ, IA, SAT, ACT, "
+            "course codes, formulas, and standard symbols unchanged when needed.\n"
+            "- If official curriculum units are supplied in English, translate each unit title into natural Chinese "
+            "and optionally keep the official English title in parentheses. Do not leave descriptions or objectives "
+            "as English sentences.\n"
+            "- Use Chinese day labels in weekly_schedule.day, such as 周一、周三、周五."
+        )
+    return (
+        "JSON value language contract:\n"
+        "- Write all learner-facing JSON string values in English, including title, course_name display text, "
+        "pedagogy_profile values, weekly_schedule focus, engagement_hooks, unit titles, descriptions, topics, "
+        "and learning_objectives.\n"
+        "- Keep official non-English exam terms only when they are standard, and add a concise English gloss when useful.\n"
+        "- Use short English day labels in weekly_schedule.day, such as Mon, Wed, Fri."
+    )
+
+
 # Phrases that mean "stop asking and just generate"
 _START_SIGNALS = [
     "just start", "start generating", "start", "generate", "go", "begin",
@@ -908,6 +933,7 @@ Keep total response ≤ 60 words excluding the ask_user block.
                 "Keep the response in English but include the Chinese term in parentheses "
                 "for any 高考-specific topic, e.g., 'derivatives (导数)', '解析几何 (analytic geometry)'."
             )
+        json_language_contract = _plan_json_language_contract(language)
 
         prompt = f"""{lang_instr}
 
@@ -918,6 +944,7 @@ Student's subject/framework input: {subject_input}
 Diagnostic answers: {diagnostic_summary}
 {curriculum_note}
 {bilingual_terminology_hint}
+{json_language_contract}
 
 Infer one learner_tier from the diagnostic answers:
 - accelerated: already strong, bored by basics, aiming high, wants challenge.
@@ -971,6 +998,7 @@ Student input: {subject_input}
 Diagnostic answers: {diagnostic_summary}
 {curriculum_note}
 {bilingual_terminology_hint}
+{json_language_contract}
 
 Create a compact full-course study plan with 6-10 units. Use the official curriculum units when provided.
 Adapt to learner_tier: accelerated, standard, scaffolded, or foundation_rebuild.

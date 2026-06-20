@@ -47,6 +47,7 @@ from core.agents.study_plan_agent import (
     _parse_plan_json,
     _strip_ask_user_block,
     _build_curriculum_note,
+    _plan_json_language_contract,
     _build_weekly_schedule,
     _extract_requested_study_days,
 )
@@ -145,6 +146,16 @@ def test_T10_no_forced_zh_for_gaokao():
     assert 'output_language = "zh"' not in src
     # The bilingual hint helper must remain (so en+gaokao still gets terminology)
     assert "bilingual_terminology_hint" in src
+
+
+def test_T10b_zh_plan_json_contract_localizes_student_fields():
+    contract = _plan_json_language_contract("zh")
+    assert "title" in contract
+    assert "unit titles" in contract
+    assert "learning_objectives" in contract
+    assert "AP" in contract
+    assert "周一" in contract
+    assert "Do not leave descriptions or objectives as English sentences" in contract
 
 
 # ── Module-singleton state-leak fix (T11) ───────────────────────────────────
