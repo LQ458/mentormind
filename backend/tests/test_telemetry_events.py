@@ -28,6 +28,46 @@ def test_redact_url_for_telemetry_strips_query_and_fragment_values():
     assert server._redact_url_for_telemetry("/dashboard") == "/dashboard"
 
 
+def test_sanitize_telemetry_payload_redacts_sensitive_keys_before_storage():
+    payload = {
+        "user_note": "x" * 1300,
+        "password": "do-not-store",
+        "context": {
+            "url": "https://mentormind.cloud/study-plan?token=url-token#frag",
+            "app_snapshot": {
+                "access_token": "secret-access-token",
+                "apiKey": "secret-api-key",
+                "safe_value": "kept",
+                "headers": {
+                    "Authorization": "Bearer raw-token",
+                    "content_type": "application/json",
+                },
+            },
+            "events": [
+                {
+                    "refresh-token": "refresh-secret",
+                    "url": "/board/abc?invite=secret",
+                    "status": 500,
+                }
+            ],
+        },
+    }
+
+    safe = server._sanitize_telemetry_payload("feedback_moment", payload)
+
+    assert safe["user_note"] == "x" * 1200
+    assert safe["password"] == "[redacted]"
+    assert safe["context"]["url"] == "/study-plan?...#..."
+    assert safe["context"]["app_snapshot"]["access_token"] == "[redacted]"
+    assert safe["context"]["app_snapshot"]["apiKey"] == "[redacted]"
+    assert safe["context"]["app_snapshot"]["safe_value"] == "kept"
+    assert safe["context"]["app_snapshot"]["headers"]["Authorization"] == "[redacted]"
+    assert safe["context"]["app_snapshot"]["headers"]["content_type"] == "application/json"
+    assert safe["context"]["events"][0]["refresh-token"] == "[redacted]"
+    assert safe["context"]["events"][0]["url"] == "/board/abc?..."
+    assert safe["context"]["events"][0]["status"] == 500
+
+
 def test_feedback_report_unique_key_dedupes_explicit_report_ids_only():
     assert (
         server._feedback_report_unique_key({"id": "1", "report_id": "qa-abc"})

@@ -80,6 +80,8 @@ const SAFE_BREADCRUMB_KEYS = new Set([
 let queue: TelemetryPayload[] = []
 let initialized = false
 let fetchInstrumented = false
+let feedbackFlushInFlight = false
+let feedbackFlushTimer: number | null = null
 
 function safeUUID(): string {
   try {
@@ -196,20 +198,43 @@ function queuePendingFeedbackEvent(event: TelemetryPayload): void {
       event,
     ]
     writePendingFeedbackEvents(next)
+    schedulePendingFeedbackFlush(15000)
   } catch {
     // swallow
   }
 }
 
 async function flushPendingFeedbackEvents(): Promise<void> {
+  if (feedbackFlushInFlight) return
   const pending = readPendingFeedbackEvents()
   if (pending.length === 0) return
-  const remaining: TelemetryPayload[] = []
-  for (const event of pending) {
-    const ok = await sendInteractive(event)
-    if (!ok) remaining.push(event)
+  feedbackFlushInFlight = true
+  try {
+    const remaining: TelemetryPayload[] = []
+    for (const event of pending) {
+      const ok = await sendInteractive(event)
+      if (!ok) remaining.push(event)
+    }
+    writePendingFeedbackEvents(remaining)
+    if (remaining.length > 0) schedulePendingFeedbackFlush(60000)
+  } finally {
+    feedbackFlushInFlight = false
   }
-  writePendingFeedbackEvents(remaining)
+}
+
+function schedulePendingFeedbackFlush(delayMs = 5000): void {
+  if (typeof window === 'undefined') return
+  try {
+    if (feedbackFlushTimer !== null) {
+      window.clearTimeout(feedbackFlushTimer)
+    }
+    feedbackFlushTimer = window.setTimeout(() => {
+      feedbackFlushTimer = null
+      void flushPendingFeedbackEvents().catch(() => {})
+    }, delayMs)
+  } catch {
+    // swallow
+  }
 }
 
 function safeString(value: unknown, max = 180): string {
@@ -434,6 +459,9 @@ export function initTelemetry(): void {
 
     void flushPendingFeedbackEvents().catch(() => {})
 
+    window.addEventListener('online', () => schedulePendingFeedbackFlush(1000))
+    window.addEventListener('focus', () => schedulePendingFeedbackFlush(2000))
+
     // Global error capture — record only what's safe (no user input).
     window.addEventListener('error', (ev) => {
       try {
@@ -497,11 +525,17 @@ export function initTelemetry(): void {
       try {
         if (document.visibilityState === 'hidden') {
           flush()
+        } else if (document.visibilityState === 'visible') {
+          schedulePendingFeedbackFlush(2000)
         }
       } catch {
         // swallow
       }
     })
+
+    window.setInterval(() => {
+      schedulePendingFeedbackFlush(1000)
+    }, 60000)
   } catch {
     // swallow
   }

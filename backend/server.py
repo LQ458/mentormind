@@ -6485,6 +6485,7 @@ class TelemetryEventPayload(BaseModel):
 
 TELEMETRY_MAX_RAW_BYTES = 64 * 1024
 TELEMETRY_URL_KEYS = {"url", "captured_url", "href"}
+TELEMETRY_REDACTED_VALUE = "[redacted]"
 
 
 def _redact_url_for_telemetry(value: Any, max_len: int = 512) -> Optional[str]:
@@ -6508,6 +6509,94 @@ def _redact_url_for_telemetry(value: Any, max_len: int = 512) -> Optional[str]:
         return redacted[:max_len]
     except Exception:
         return raw.split("?", 1)[0].split("#", 1)[0][:max_len]
+
+
+def _is_sensitive_telemetry_key(key: Any) -> bool:
+    raw = str(key or "")
+    normalized = raw.lower().replace("-", "_")
+    compact = re.sub(r"[^a-z0-9]+", "", raw.lower())
+    return (
+        _is_sensitive_log_key(normalized)
+        or compact in {
+            "accesstoken",
+            "apikey",
+            "authorization",
+            "bearertoken",
+            "cookie",
+            "idtoken",
+            "jwt",
+            "password",
+            "refreshtoken",
+            "secret",
+            "sessiontoken",
+            "setcookie",
+        }
+        or compact.endswith("token")
+        or compact.endswith("secret")
+    )
+
+
+def _telemetry_string_cap(event_type: str, key: str) -> int:
+    if event_type == "survey_response" and key == "freeText":
+        return 4000
+    if event_type == "feedback_moment" and key in {"user_note", "expected_behavior"}:
+        return 1200
+    return 8000
+
+
+def _sanitize_telemetry_payload_value(value: Any, *, max_string: int, depth: int = 0) -> Any:
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value[:max_string]
+    if depth >= 4:
+        return str(value)[:max_string]
+    if isinstance(value, list):
+        return [
+            _sanitize_telemetry_payload_value(item, max_string=max_string, depth=depth + 1)
+            for item in value[:24]
+        ]
+    if isinstance(value, dict):
+        clean: Dict[str, Any] = {}
+        for key, nested_value in list(value.items())[:60]:
+            safe_key = str(key)[:80]
+            normalized_key = safe_key.lower()
+            if _is_sensitive_telemetry_key(safe_key):
+                clean[safe_key] = TELEMETRY_REDACTED_VALUE
+            elif normalized_key in TELEMETRY_URL_KEYS:
+                clean[safe_key] = _redact_url_for_telemetry(nested_value, max_string)
+            else:
+                clean[safe_key] = _sanitize_telemetry_payload_value(
+                    nested_value,
+                    max_string=max_string,
+                    depth=depth + 1,
+                )
+        return clean
+    return str(value)[:max_string]
+
+
+def _sanitize_telemetry_payload(event_type: str, raw_payload: Dict[str, Any]) -> Dict[str, Any]:
+    safe_payload: Dict[str, Any] = {}
+    for key, value in raw_payload.items():
+        safe_key = str(key)[:80]
+        normalized_key = safe_key.lower()
+        if _is_sensitive_telemetry_key(safe_key):
+            safe_payload[safe_key] = TELEMETRY_REDACTED_VALUE
+            continue
+
+        cap = _telemetry_string_cap(event_type, safe_key)
+        if isinstance(value, str):
+            safe_payload[safe_key] = (
+                _redact_url_for_telemetry(value, cap)
+                if normalized_key in TELEMETRY_URL_KEYS
+                else value[:cap]
+            )
+        else:
+            safe_payload[safe_key] = _sanitize_telemetry_payload_value(
+                value,
+                max_string=1200 if event_type == "feedback_moment" else cap,
+            )
+    return safe_payload
 
 
 @app.post("/telemetry/event")
@@ -6553,52 +6642,10 @@ async def post_telemetry_event(
         except Exception:
             return None
 
-    # Defense-in-depth: clamp every string field inside `payload` so a future
-    # event_type with large strings cannot blow up the row. Special case
-    # `survey_response.freeText` to 4000 (matches the client cap).
+    # Defense-in-depth: clamp every string field inside `payload`, redact
+    # sensitive keys before storage, and strip URL query values.
     raw_payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
-
-    def _sanitize_payload_value(value: Any, *, max_string: int, depth: int = 0) -> Any:
-        if value is None or isinstance(value, (bool, int, float)):
-            return value
-        if isinstance(value, str):
-            return value[:max_string]
-        if depth >= 4:
-            return str(value)[:max_string]
-        if isinstance(value, list):
-            return [
-                _sanitize_payload_value(item, max_string=max_string, depth=depth + 1)
-                for item in value[:24]
-            ]
-        if isinstance(value, dict):
-            clean: Dict[str, Any] = {}
-            for key, nested_value in list(value.items())[:60]:
-                safe_key = str(key)[:80]
-                if safe_key in TELEMETRY_URL_KEYS:
-                    clean[safe_key] = _redact_url_for_telemetry(nested_value, max_string)
-                else:
-                    clean[safe_key] = _sanitize_payload_value(
-                        nested_value,
-                        max_string=max_string,
-                        depth=depth + 1,
-                    )
-            return clean
-        return str(value)[:max_string]
-
-    safe_payload: Dict[str, Any] = {}
-    for k, v in raw_payload.items():
-        if isinstance(v, str):
-            cap = 8000
-            if event_type == "survey_response" and k == "freeText":
-                cap = 4000
-            if event_type == "feedback_moment" and k in {"user_note", "expected_behavior"}:
-                cap = 1200
-            safe_payload[k] = _redact_url_for_telemetry(v, cap) if k in TELEMETRY_URL_KEYS else v[:cap]
-        else:
-            safe_payload[k] = _sanitize_payload_value(
-                v,
-                max_string=1200 if event_type == "feedback_moment" else 8000,
-            )
+    safe_payload = _sanitize_telemetry_payload(event_type, raw_payload)
 
     user_agent = request.headers.get("user-agent")
     client_host = request.client.host if request.client else None
