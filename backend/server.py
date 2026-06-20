@@ -16,7 +16,6 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Req
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
@@ -214,10 +213,28 @@ async def log_requests(request: Request, call_next):
         print(f"❌ [BACKEND] Request failed: {request.method} {request.url.path} - {e}")
         raise e
 
-# Mount static files (audio/video)
+PUBLIC_MEDIA_PREFIXES = ("audio/", "videos/", "board-audio/")
+
+
+def _normalize_public_media_path(file_path: str) -> Optional[str]:
+    raw_path = (file_path or "").replace("\\", "/").lstrip("/")
+    for prefix in ("api/files/", "media/"):
+        if raw_path.startswith(prefix):
+            raw_path = raw_path[len(prefix):]
+            break
+
+    normalized_path = os.path.normpath(raw_path).replace("\\", "/")
+    if normalized_path in ("", "."):
+        return None
+    if normalized_path.startswith("../") or normalized_path.startswith("/"):
+        return None
+    if not normalized_path.startswith(PUBLIC_MEDIA_PREFIXES):
+        return None
+    return normalized_path
+
+
 if os.path.exists(config.DATA_DIR):
-    app.mount("/api/files", StaticFiles(directory=config.DATA_DIR), name="files")
-    print(f"📂 Mounted static files from: {config.DATA_DIR}")
+    print(f"📂 Public media root configured: {config.DATA_DIR}")
 else:
     print(f"⚠️ Data directory not found: {config.DATA_DIR}")
 
@@ -2701,16 +2718,17 @@ async def ingest_image(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/files/{file_path:path}", include_in_schema=False)
 @app.get("/media/{file_path:path}")
 async def serve_media(file_path: str):
     """Serve generated media files"""
     from fastapi.responses import FileResponse
-    for prefix in ("api/files/", "/api/files/"):
-        if file_path.startswith(prefix):
-            file_path = file_path[len(prefix):]
-            break
+    normalized_path = _normalize_public_media_path(file_path)
+    if normalized_path is None:
+        raise HTTPException(status_code=404, detail="File not found")
+
     data_root = os.path.abspath(config.DATA_DIR)
-    abs_path = os.path.abspath(os.path.normpath(os.path.join(data_root, file_path)))
+    abs_path = os.path.abspath(os.path.normpath(os.path.join(data_root, normalized_path)))
     try:
         inside_data_root = os.path.commonpath([data_root, abs_path]) == data_root
     except ValueError:
