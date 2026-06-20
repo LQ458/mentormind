@@ -226,6 +226,12 @@ function redactedTesterForIssue(r: FeedbackReportRow): Record<string, unknown> |
   }
 }
 
+function adminAccessRequiredMessage(lang: string): string {
+  return lang === 'zh'
+    ? '需要管理员权限。请使用管理员账号登录后再查看反馈数据。'
+    : 'Admin access required. Sign in with an admin account to view feedback data.'
+}
+
 function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextResponse | null): string {
   const page = r.page || r.route || '—'
   const url = r.captured_url || r.url || '—'
@@ -403,7 +409,7 @@ export default function AdminFeedbackPage() {
         setStatusCode(failedResponse.status)
         const message = await responseErrorMessage(failedResponse)
         if (failedResponse.status === 401 || failedResponse.status === 403) {
-          setError(lang === 'zh' ? '需要管理员权限' : 'Sign in required (admin only)')
+          setError('admin_access_required')
         } else {
           setError(message)
         }
@@ -549,7 +555,7 @@ export default function AdminFeedbackPage() {
             fontSize: 13,
           }}
         >
-          {error}
+          {statusCode === 401 || statusCode === 403 ? adminAccessRequiredMessage(lang) : error}
           {statusCode != null && <span style={{ marginLeft: 8 }}>(HTTP {statusCode})</span>}
         </div>
       )}
