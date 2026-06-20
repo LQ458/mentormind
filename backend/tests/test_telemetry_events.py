@@ -3,6 +3,9 @@ import sys
 from datetime import datetime
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
+
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BACKEND_ROOT = os.path.abspath(os.path.join(HERE, ".."))
@@ -82,6 +85,73 @@ def test_sanitize_telemetry_payload_redacts_sensitive_keys_before_storage():
 def test_sensitive_telemetry_key_detection_covers_admin_context_identifiers():
     for key in ["apiKey", "clientSecret", "sessionToken", "user_agent", "ipAddress", "inviteCode"]:
         assert server._is_sensitive_telemetry_key(key)
+
+
+def valid_feedback_moment_payload(**overrides):
+    payload = {
+        "source": "inline_feedback_moment",
+        "feedback_kind": "bug",
+        "severity": "wrong",
+        "surface": "study_plan_review",
+        "interaction_id": "study-plan:review-1",
+        "report_id": "fm-study_plan-review-abc123",
+        "user_note": "Plan generation failed.",
+        "expected_behavior": "",
+        "context": {},
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_validate_feedback_moment_payload_accepts_official_payloads_and_normalizes_choices():
+    payload = valid_feedback_moment_payload(
+        source="INLINE_FEEDBACK_MOMENT",
+        feedback_kind="BUG",
+        severity="WRONG",
+    )
+
+    server._validate_feedback_moment_payload(payload)
+
+    assert payload["source"] == "inline_feedback_moment"
+    assert payload["feedback_kind"] == "bug"
+    assert payload["severity"] == "wrong"
+
+
+def test_validate_feedback_moment_payload_accepts_all_official_sources():
+    for source in server.FEEDBACK_MOMENT_ALLOWED_SOURCES:
+        payload = valid_feedback_moment_payload(source=source)
+        server._validate_feedback_moment_payload(payload)
+
+
+def test_validate_feedback_moment_payload_accepts_error_context_without_note():
+    payload = valid_feedback_moment_payload(
+        user_note="",
+        expected_behavior="",
+        context={"recent_errors": [{"event_type": "error_network"}]},
+    )
+
+    server._validate_feedback_moment_payload(payload)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"user_note": "", "expected_behavior": "", "context": {}},
+        {"source": "random_script"},
+        {"feedback_kind": "other"},
+        {"severity": "urgent"},
+        {"surface": "../secret"},
+        {"report_id": "bad report id"},
+        {"interaction_id": "<script>alert(1)</script>"},
+    ],
+)
+def test_validate_feedback_moment_payload_rejects_empty_or_unstructured_reports(overrides):
+    payload = valid_feedback_moment_payload(**overrides)
+
+    with pytest.raises(HTTPException) as exc:
+        server._validate_feedback_moment_payload(payload)
+
+    assert exc.value.status_code == 400
 
 
 def test_feedback_report_unique_key_dedupes_explicit_report_ids_only():

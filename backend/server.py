@@ -10,7 +10,7 @@ import os
 import sys
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Set, Tuple
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -6548,6 +6548,23 @@ TELEMETRY_MAX_RAW_BYTES = 64 * 1024
 TELEMETRY_URL_KEYS = {"url", "captured_url", "href"}
 TELEMETRY_REDACTED_VALUE = "[redacted]"
 TELEMETRY_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,254}$")
+FEEDBACK_MOMENT_ALLOWED_SOURCES = {
+    "global_feedback_button",
+    "inline_feedback_moment",
+    "local_report_button",
+    "prod_autopilot_qa",
+}
+FEEDBACK_MOMENT_ALLOWED_KINDS = {"bug", "function", "feeling", "general"}
+FEEDBACK_MOMENT_ALLOWED_SEVERITIES = {
+    "blocked",
+    "confusing",
+    "idea",
+    "quality",
+    "slow",
+    "visual",
+    "wrong",
+}
+FEEDBACK_MOMENT_SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$")
 
 
 def _redact_url_for_telemetry(value: Any, max_len: int = 512) -> Optional[str]:
@@ -6675,6 +6692,59 @@ def _sanitize_telemetry_payload(event_type: str, raw_payload: Dict[str, Any]) ->
     return safe_payload
 
 
+def _feedback_moment_payload_choice(
+    payload: Dict[str, Any],
+    key: str,
+    allowed: Set[str],
+) -> str:
+    value = str(payload.get(key) or "").strip().lower()
+    if value not in allowed:
+        raise HTTPException(status_code=400, detail=f"Invalid feedback {key}")
+    payload[key] = value
+    return value
+
+
+def _feedback_moment_safe_token(
+    payload: Dict[str, Any],
+    key: str,
+    *,
+    required: bool,
+) -> str:
+    value = str(payload.get(key) or "").strip()
+    if not value:
+        if required:
+            raise HTTPException(status_code=400, detail=f"Invalid feedback {key}")
+        return ""
+    if not FEEDBACK_MOMENT_SAFE_TOKEN_RE.fullmatch(value):
+        raise HTTPException(status_code=400, detail=f"Invalid feedback {key}")
+    payload[key] = value
+    return value
+
+
+def _feedback_moment_has_repro_signal(payload: Dict[str, Any]) -> bool:
+    if str(payload.get("user_note") or "").strip():
+        return True
+    if str(payload.get("expected_behavior") or "").strip():
+        return True
+    context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
+    recent_errors = context.get("recent_errors") if isinstance(context, dict) else None
+    if isinstance(recent_errors, list) and len(recent_errors) > 0:
+        return True
+    return False
+
+
+def _validate_feedback_moment_payload(payload: Dict[str, Any]) -> None:
+    """Keep no-auth feedback reports structured enough for admin triage."""
+    _feedback_moment_payload_choice(payload, "source", FEEDBACK_MOMENT_ALLOWED_SOURCES)
+    _feedback_moment_payload_choice(payload, "feedback_kind", FEEDBACK_MOMENT_ALLOWED_KINDS)
+    _feedback_moment_payload_choice(payload, "severity", FEEDBACK_MOMENT_ALLOWED_SEVERITIES)
+    _feedback_moment_safe_token(payload, "surface", required=True)
+    _feedback_moment_safe_token(payload, "report_id", required=True)
+    _feedback_moment_safe_token(payload, "interaction_id", required=False)
+    if not _feedback_moment_has_repro_signal(payload):
+        raise HTTPException(status_code=400, detail="Feedback report needs a note or error context")
+
+
 @app.post("/telemetry/event")
 @limiter.limit("60/minute")
 async def post_telemetry_event(
@@ -6722,6 +6792,8 @@ async def post_telemetry_event(
     # sensitive keys before storage, and strip URL query values.
     raw_payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
     safe_payload = _sanitize_telemetry_payload(event_type, raw_payload)
+    if event_type == "feedback_moment":
+        _validate_feedback_moment_payload(safe_payload)
 
     user_agent = request.headers.get("user-agent")
     client_host = request.client.host if request.client else None
