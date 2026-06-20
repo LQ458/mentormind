@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { backendHeaders } from '../../../../../_auth'
+import { proxyFailureResponse } from '../../../../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -23,9 +24,6 @@ export async function POST(
     return NextResponse.json(data, { status: backendResponse.status });
   } catch (error) {
     console.error('API proxy error:', error);
-    return NextResponse.json(
-      { error: 'Failed to mark unit complete', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    );
+    return proxyFailureResponse('Failed to mark unit complete');
   }
 }

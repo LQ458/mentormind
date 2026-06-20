@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { backendHeaders } from '../../_auth'
+import { backendErrorResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
 
 export const dynamic = 'force-dynamic';
 
@@ -22,21 +23,15 @@ export async function DELETE(
 
         if (!backendResponse.ok) {
             const errorText = await backendResponse.text()
-            console.error('Backend delete error:', errorText)
-            return NextResponse.json(
-                { error: 'Failed to delete lesson on backend', details: errorText },
-                { status: backendResponse.status }
-            )
+            logBackendProxyError('lesson delete proxy', backendResponse.status, errorText)
+            return backendErrorResponse('Failed to delete lesson', backendResponse.status)
         }
 
         const response = await backendResponse.json()
         return NextResponse.json(response)
     } catch (error) {
         console.error('API proxy error:', error)
-        return NextResponse.json(
-            { error: 'Failed to proxy delete request', details: error instanceof Error ? error.message : 'Unknown error' },
-            { status: 500 }
-        )
+        return proxyFailureResponse('Failed to delete lesson')
     }
 }
 

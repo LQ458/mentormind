@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { backendHeaders } from '../_auth'
+import { backendErrorResponse, logBackendProxyError, proxyFailureResponse } from '../_proxyErrors'
 
 export const dynamic = 'force-dynamic';
 
@@ -16,10 +17,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(resultsData, { status: backendResponse.status })
   } catch (error) {
     console.error('Failed to get backend results:', error)
-    return NextResponse.json(
-      { error: 'Failed to get results', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 502 },
-    )
+    return proxyFailureResponse('Failed to get results')
   }
 }
 
@@ -35,16 +33,15 @@ export async function POST(request: NextRequest) {
     })
 
     if (!backendResponse.ok) {
-      throw new Error(`Backend results error: ${backendResponse.status}`)
+      const errorText = await backendResponse.text()
+      logBackendProxyError('results create proxy', backendResponse.status, errorText)
+      return backendErrorResponse('Failed to get results', backendResponse.status)
     }
 
     const resultsData = await backendResponse.json()
     return NextResponse.json(resultsData)
   } catch (error) {
     console.error('Failed to get backend results:', error)
-    return NextResponse.json(
-      { error: 'Failed to get results', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    )
+    return proxyFailureResponse('Failed to get results')
   }
 }

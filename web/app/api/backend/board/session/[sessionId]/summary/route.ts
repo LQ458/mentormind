@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { backendHeaders } from '../../../../_auth'
+import { proxyFailureResponse } from '../../../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -25,9 +26,6 @@ export async function POST(
     return NextResponse.json(data, { status: res.status })
   } catch (err) {
     console.error('[board summary proxy] error:', err)
-    return NextResponse.json(
-      { error: 'Failed to request summary', details: err instanceof Error ? err.message : 'Unknown error' },
-      { status: 502 },
-    )
+    return proxyFailureResponse('Failed to request summary')
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { backendHeaders } from '../../../../_auth'
+import { proxyFailureResponse } from '../../../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -21,12 +22,6 @@ export async function DELETE(
     return NextResponse.json(data, { status: backendResponse.status })
   } catch (error) {
     console.error('[study-plan/unit delete proxy] error:', error)
-    return NextResponse.json(
-      {
-        error: 'Failed to delete study plan lesson',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 },
-    )
+    return proxyFailureResponse('Failed to delete study plan lesson')
   }
 }

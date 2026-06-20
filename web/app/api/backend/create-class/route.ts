@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server'
 import { backendHeaders } from '../_auth'
+import { backendErrorResponse, logBackendProxyError, proxyFailureResponse } from '../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -30,17 +31,14 @@ export async function POST(request: NextRequest) {
 
         if (!backendResponse.ok) {
             const errorText = await backendResponse.text()
-            console.error('create-class backend error:', errorText)
-            throw new Error(`Backend error: ${backendResponse.status}`)
+            logBackendProxyError('create-class proxy', backendResponse.status, errorText)
+            return backendErrorResponse('Failed to create class', backendResponse.status)
         }
 
         const data = await backendResponse.json()
         return NextResponse.json(data)
     } catch (error) {
         console.error('create-class proxy error:', error)
-        return NextResponse.json(
-            { error: 'Failed to create class', details: error instanceof Error ? error.message : 'Unknown error' },
-            { status: 500 }
-        )
+        return proxyFailureResponse('Failed to create class')
     }
 }
