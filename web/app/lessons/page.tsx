@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '../components/LanguageContext'
 import { useAuth } from '../components/AuthContext'
+import { getSubject } from '../lib/subjects'
+import { getFramework } from '../lib/frameworks'
 import {
   ArrowRight,
   CheckCircle2,
@@ -59,23 +61,66 @@ interface LibraryResponse {
 
 // ---- Helpers -------------------------------------------------------------
 
+function normalizeStatus(status: string): string {
+  return status.toLowerCase().trim()
+}
+
 function statusKind(status: string): 'ok' | 'accent' | 'warn' | '' {
-  if (status === 'completed') return 'ok'
-  if (status === 'in_progress') return 'accent'
+  const normalized = normalizeStatus(status)
+  if (normalized === 'completed' || normalized === 'ready') return 'ok'
+  if (
+    normalized === 'in_progress' ||
+    normalized === 'generating' ||
+    normalized === 'pending' ||
+    normalized === 'queued' ||
+    normalized === 'processing'
+  ) {
+    return 'accent'
+  }
+  if (normalized === 'failed' || normalized === 'error') return 'warn'
   return ''
 }
 
 function statusLabel(status: string, lang: 'en' | 'zh'): string {
+  const normalized = normalizeStatus(status)
   if (lang === 'zh') {
-    if (status === 'completed') return '已完成'
-    if (status === 'in_progress') return '进行中'
-    if (status === 'not_started') return '未开始'
-    return status
+    const labels: Record<string, string> = {
+      completed: '已完成',
+      in_progress: '进行中',
+      not_started: '未开始',
+      ready: '可学习',
+      generating: '生成中',
+      pending: '等待生成',
+      queued: '排队中',
+      processing: '处理中',
+      failed: '生成失败',
+      error: '生成失败',
+    }
+    return labels[normalized] ?? '未知状态'
   }
-  if (status === 'completed') return 'Completed'
-  if (status === 'in_progress') return 'In progress'
-  if (status === 'not_started') return 'Not started'
-  return status
+  const labels: Record<string, string> = {
+    completed: 'Completed',
+    in_progress: 'In progress',
+    not_started: 'Not started',
+    ready: 'Ready',
+    generating: 'Generating',
+    pending: 'Pending',
+    queued: 'Queued',
+    processing: 'Processing',
+    failed: 'Failed',
+    error: 'Failed',
+  }
+  return labels[normalized] ?? normalized.replace(/[_-]+/g, ' ').replace(/^\w/, (char) => char.toUpperCase())
+}
+
+function subjectLabel(subject: string, lang: 'en' | 'zh'): string {
+  const meta = getSubject(subject)
+  return lang === 'zh' ? meta?.labelZh ?? subject : meta?.label ?? subject
+}
+
+function frameworkLabel(framework: string, lang: 'en' | 'zh'): string {
+  const meta = getFramework(framework)
+  return lang === 'zh' ? meta?.labelZh ?? framework.toUpperCase() : meta?.label ?? framework.toUpperCase()
 }
 
 // ---- Unit Card -----------------------------------------------------------
@@ -258,11 +303,11 @@ function PlanSection({
             {plan.title}
           </h2>
           <span className="chip" style={{ fontSize: 11 }}>
-            {plan.subject}
+            {subjectLabel(plan.subject, lang)}
           </span>
           {plan.framework && (
             <span className="chip" style={{ fontSize: 11 }}>
-              {plan.framework}
+              {frameworkLabel(plan.framework, lang)}
             </span>
           )}
           <span className="muted" style={{ fontSize: 12 }}>
