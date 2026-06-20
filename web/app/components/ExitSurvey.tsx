@@ -1,12 +1,15 @@
 'use client'
 
-import { useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { X } from 'lucide-react'
 import { useLanguage } from './LanguageContext'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { track, getOrCreateSessionId } from '../lib/telemetry'
 
 const SURVEY_KEY = 'mm-survey-dismissed'
+const PENDING_SURVEY_KEY = 'mm_pending_exit_surveys_v1'
+const PENDING_SURVEY_LIMIT = 5
+const PENDING_SURVEY_MAX_BYTES = 64 * 1024
 
 // ---------- Option constants (values are stable backend keys) ----------
 
@@ -103,6 +106,131 @@ const TRADEOFF_OPTIONS = [
 
 type TradeoffKey = typeof TRADEOFF_OPTIONS[number]['key']
 
+type ExitSurveyPayload = {
+  exam: string
+  school_year: string
+  prior_tools: string[]
+  likert: Record<LikertKey, number>
+  pmf_score: PmfValue | 'not'
+  nps: number
+  pain_point: string
+  feature_request: string
+  other_feedback: string
+  contact_email: string
+  language: 'zh' | 'en'
+  session_id: string
+  partial: boolean
+  submitted_at: string
+  queued_at?: string
+}
+
+function surveyStorage(): Storage | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.sessionStorage
+  } catch {
+    return null
+  }
+}
+
+function isExitSurveyPayload(value: unknown): value is ExitSurveyPayload {
+  if (!value || typeof value !== 'object') return false
+  const payload = value as Record<string, unknown>
+  return (
+    typeof payload.session_id === 'string' &&
+    typeof payload.language === 'string' &&
+    typeof payload.submitted_at === 'string' &&
+    typeof payload.partial === 'boolean'
+  )
+}
+
+function readPendingSurveyPayloads(): ExitSurveyPayload[] {
+  const storage = surveyStorage()
+  if (!storage) return []
+  try {
+    const raw = storage.getItem(PENDING_SURVEY_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed)
+      ? parsed.filter(isExitSurveyPayload).slice(-PENDING_SURVEY_LIMIT)
+      : []
+  } catch {
+    return []
+  }
+}
+
+function writePendingSurveyPayloads(payloads: ExitSurveyPayload[]): void {
+  const storage = surveyStorage()
+  if (!storage) return
+  try {
+    let bounded = payloads.slice(-PENDING_SURVEY_LIMIT)
+    let text = JSON.stringify(bounded)
+    while (text.length > PENDING_SURVEY_MAX_BYTES && bounded.length > 0) {
+      bounded = bounded.slice(1)
+      text = JSON.stringify(bounded)
+    }
+    if (bounded.length === 0) {
+      storage.removeItem(PENDING_SURVEY_KEY)
+    } else {
+      storage.setItem(PENDING_SURVEY_KEY, text)
+    }
+  } catch {
+    // Feedback fallback storage should never interrupt the user.
+  }
+}
+
+function surveyPayloadKey(payload: ExitSurveyPayload): string {
+  return [
+    payload.session_id,
+    payload.partial ? 'partial' : 'complete',
+    payload.pmf_score,
+    payload.nps,
+    payload.pain_point.slice(0, 120),
+    payload.feature_request.slice(0, 80),
+  ].join(':')
+}
+
+function queuePendingSurveyPayload(payload: ExitSurveyPayload): void {
+  try {
+    const key = surveyPayloadKey(payload)
+    const pending = readPendingSurveyPayloads()
+    const next = [
+      ...pending.filter((item) => surveyPayloadKey(item) !== key),
+      { ...payload, queued_at: new Date().toISOString() },
+    ]
+    writePendingSurveyPayloads(next)
+  } catch {
+    // Losing the fallback buffer is unfortunate, but must not block exit.
+  }
+}
+
+async function submitSurveyPayload(payload: ExitSurveyPayload): Promise<boolean> {
+  try {
+    const res = await fetch('/api/backend/feedback/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    })
+    if (!res.ok) return false
+    const data = await res.json().catch(() => ({}))
+    return data?.success !== false && data?.ok !== false && data?.recorded !== false
+  } catch {
+    return false
+  }
+}
+
+async function flushPendingSurveyPayloads(): Promise<void> {
+  const pending = readPendingSurveyPayloads()
+  if (pending.length === 0) return
+
+  const remaining: ExitSurveyPayload[] = []
+  for (const payload of pending) {
+    const sent = await submitSurveyPayload(payload)
+    if (!sent) remaining.push(payload)
+  }
+  writePendingSurveyPayloads(remaining)
+}
+
 // ---------- Component ----------
 
 interface ExitSurveyProps {
@@ -149,6 +277,11 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
   const [submitting, setSubmitting] = useState(false)
 
   const scaleLabels = lang === 'zh' ? SCALE_LABELS_ZH : SCALE_LABELS_EN
+
+  useEffect(() => {
+    if (!open) return
+    void flushPendingSurveyPayloads().catch(() => {})
+  }, [open])
 
   // ---- Validation ----
   const page1Valid = !!exam && !!schoolYear && priorTools.length >= 1
@@ -201,22 +334,23 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
   }
 
   const postPayload = async (partial: boolean) => {
-    const payload = buildPayload(partial)
-    try {
-      await fetch('/api/backend/feedback/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        keepalive: true,
-      })
-    } catch {
-      // best-effort
+    const payload: ExitSurveyPayload = {
+      ...buildPayload(partial),
+      partial,
+      submitted_at: new Date().toISOString(),
+    }
+    void flushPendingSurveyPayloads().catch(() => {})
+    const sent = await submitSurveyPayload(payload)
+    if (!sent) {
+      queuePendingSurveyPayload(payload)
     }
     // Backwards-compatible analytics event
     try {
       track('survey_response', {
         pmf: payload.pmf_score,
         nps: payload.nps,
+        partial,
+        queued: !sent,
       })
     } catch {
       // ignore
