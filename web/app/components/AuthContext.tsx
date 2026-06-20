@@ -40,6 +40,20 @@ const AuthCtx = createContext<AuthContextValue>({
 const TOKEN_KEY = 'mm_token'
 const USER_KEY = 'mm_user'
 
+function toAuthUser(data: any): AuthUser | null {
+  if (!data?.id) return null
+  const username = String(data.username || '')
+  const fullName = String(data.full_name || data.fullName || username || '')
+  const firstName = String(data.first_name || data.firstName || fullName || username || '')
+  return {
+    id: String(data.id),
+    username,
+    email: String(data.email || (username ? `${username}@mentormind.local` : '')),
+    firstName,
+    fullName,
+  }
+}
+
 function clearSessionCookie() {
   try {
     const secure = window.location.protocol === 'https:' ? '; Secure' : ''
@@ -54,17 +68,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoaded, setIsLoaded] = useState(false)
 
   useEffect(() => {
-    try {
-      const token = localStorage.getItem(TOKEN_KEY)
-      const savedUser = localStorage.getItem(USER_KEY)
-      if (token && savedUser) {
-        setUser(JSON.parse(savedUser))
+    let cancelled = false
+
+    const load = async () => {
+      try {
+        const token = localStorage.getItem(TOKEN_KEY)
+        const savedUser = localStorage.getItem(USER_KEY)
+        if (token && savedUser) {
+          const parsedUser = JSON.parse(savedUser)
+          if (!cancelled) setUser(parsedUser)
+          if (!cancelled) setIsLoaded(true)
+          return
+        }
+      } catch {
+        localStorage.removeItem(TOKEN_KEY)
+        localStorage.removeItem(USER_KEY)
       }
-    } catch {
-      localStorage.removeItem(TOKEN_KEY)
-      localStorage.removeItem(USER_KEY)
+
+      try {
+        const res = await fetch('/api/backend/users/me', { cache: 'no-store' })
+        if (!res.ok) return
+        const data = await res.json()
+        const hydratedUser = toAuthUser(data)
+        if (!cancelled && hydratedUser) setUser(hydratedUser)
+      } catch {
+        // Missing or expired HttpOnly session; stay signed out.
+      } finally {
+        if (!cancelled) setIsLoaded(true)
+      }
     }
-    setIsLoaded(true)
+
+    void load()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const loginWithInvite = useCallback(

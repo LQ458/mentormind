@@ -1,11 +1,12 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
+import { backendHeaders } from '../../_auth';
 
 const BACKEND = process.env.BACKEND_URL || 'http://localhost:8000';
 
 export async function GET(req: NextRequest) {
   const res = await fetch(`${BACKEND}/users/me`, {
-    headers: { Authorization: req.headers.get('Authorization') || '' },
+    headers: backendHeaders(req),
   });
   const data = await res.json();
   return NextResponse.json(data, { status: res.status });
@@ -16,8 +17,7 @@ export async function PATCH(req: NextRequest) {
   const res = await fetch(`${BACKEND}/users/me`, {
     method: 'PATCH',
     headers: {
-      'Content-Type': 'application/json',
-      Authorization: req.headers.get('Authorization') || '',
+      ...backendHeaders(req, { 'Content-Type': 'application/json' }),
     },
     body: JSON.stringify(body),
   });
