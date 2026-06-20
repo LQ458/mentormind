@@ -2356,6 +2356,7 @@ async def analyze_topics(
 @app.post("/debug/generation/pipeline")
 async def debug_generation_pipeline(request: GenerationDebugRequest, current_user: User = Depends(get_current_user)):
     """Inspect syllabus, storyboard, render-plan, and validation artifacts without rendering."""
+    _require_admin(current_user)
     try:
         pipeline = RobustVideoGenerationPipeline()
         bundle = await pipeline.build_generation_bundle(
@@ -2375,6 +2376,7 @@ async def debug_generation_pipeline(request: GenerationDebugRequest, current_use
 @app.post("/debug/generation/video-script")
 async def debug_generation_video_script(request: GenerationDebugRequest, current_user: User = Depends(get_current_user)):
     """Inspect the final validated renderer payload without kicking off a Celery job."""
+    _require_admin(current_user)
     try:
         generator = VideoScriptGenerator()
         script = await generator.generate_script(

@@ -33,6 +33,14 @@ def test_admin_metrics_rejects_non_admin_before_db_access():
         lambda user: server.get_lesson_generation_metrics(current_user=user),
         lambda user: server.get_content_quality_analytics(current_user=user),
         lambda user: server.get_lesson_quality("lesson-1", current_user=user),
+        lambda user: server.debug_generation_pipeline(
+            server.GenerationDebugRequest(topic="calculus", content="limits"),
+            current_user=user,
+        ),
+        lambda user: server.debug_generation_video_script(
+            server.GenerationDebugRequest(topic="calculus", content="limits"),
+            current_user=user,
+        ),
     ],
 )
 def test_ops_and_monitoring_endpoints_reject_non_admin_before_work(invoke):
