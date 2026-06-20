@@ -1353,15 +1353,19 @@ export default function StudyPlanPage() {
               return (
                 <div
                   key={p.id}
-                  onClick={() => router.push(`/study-plan/${p.id}`)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') router.push(`/study-plan/${p.id}`)
-                  }}
-                  className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 text-left hover:border-blue-300 hover:shadow-md transition-all group cursor-pointer"
+                  className="group relative"
                 >
-                  <div className="flex items-start justify-between gap-3 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/study-plan/${p.id}`)}
+                    className="w-full bg-white rounded-xl shadow-sm border border-gray-200 p-5 text-left hover:border-blue-300 hover:shadow-md transition-all"
+                    aria-label={
+                      uiLanguage === 'zh'
+                        ? `打开学习计划：${p.title}`
+                        : `Open study plan: ${p.title}`
+                    }
+                  >
+                  <div className="flex items-start justify-between gap-3 pr-10 mb-3">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-xl">{subjectObj?.icon ?? '📚'}</span>
                       <h3 className="text-sm font-semibold text-gray-900 truncate group-hover:text-blue-600 transition-colors">
@@ -1381,18 +1385,6 @@ export default function StudyPlanPage() {
                         ? uiLanguage === 'zh' ? '进行中' : 'Active'
                         : p.status}
                     </span>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        void deleteExistingPlan(p.id)
-                      }}
-                      disabled={deletingPlanIds.has(p.id)}
-                      className="rounded-lg border border-gray-200 p-1.5 text-gray-400 hover:border-red-200 hover:text-red-600 disabled:opacity-50"
-                      title={uiLanguage === 'zh' ? '删除' : 'Delete'}
-                    >
-                      <Trash2 size={14} />
-                    </button>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
                     <span>{uiLanguage === 'zh' ? subjectObj?.labelZh : subjectObj?.label}</span>
@@ -1413,6 +1405,24 @@ export default function StudyPlanPage() {
                       />
                     </div>
                   </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void deleteExistingPlan(p.id)
+                    }}
+                    disabled={deletingPlanIds.has(p.id)}
+                    className="absolute right-4 top-4 rounded-lg border border-gray-200 bg-white p-1.5 text-gray-400 hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+                    title={uiLanguage === 'zh' ? '删除' : 'Delete'}
+                    aria-label={
+                      uiLanguage === 'zh'
+                        ? `删除学习计划：${p.title}`
+                        : `Delete study plan: ${p.title}`
+                    }
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               )
             })}
