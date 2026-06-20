@@ -610,12 +610,14 @@ class StudyPlanAgent:
         language: str,
         preselected_subject: Optional[str] = None,
         preselected_framework: Optional[str] = None,
+        preselected_course: Optional[str] = None,
     ) -> Optional[SubjectDetection]:
         """Detection scoped to a single call — no shared mutable state on self.
         When the frontend has already collected a subject/framework choice via
         the picker UI, those are AUTHORITATIVE: we still run keyword detection
         for course_id matching, but the explicit user choice always wins for
-        framework/subject."""
+        framework/subject. If the frontend also sends an exact course chip, that
+        course is authoritative too."""
         user_messages = [m for m in history if m["role"] == "user"]
         first_user = user_messages[0]["content"] if user_messages else ""
 
@@ -647,6 +649,15 @@ class StudyPlanAgent:
                 if preselected_subject:
                     detection.subject = preselected_subject
 
+            if preselected_course:
+                from core.agents.subject_detector import _detect_course
+                selected_course = _detect_course(preselected_course.lower(), framework=preselected_framework)
+                if selected_course:
+                    detection.course_id = selected_course["id"]
+                    detection.course_name = selected_course.get("name")
+                    detection.framework = preselected_framework or selected_course.get("_framework") or detection.framework
+                    detection.subject = preselected_subject or selected_course.get("subject") or detection.subject
+
             # If the user-selected framework changed and we don't have a course_id
             # for it, scan the chat history for an explicit course mention in
             # that framework's catalog.
@@ -676,6 +687,7 @@ class StudyPlanAgent:
         language: str = "en",
         preselected_subject: Optional[str] = None,
         preselected_framework: Optional[str] = None,
+        preselected_course: Optional[str] = None,
     ) -> PlanResponse:
         """Determines the next move in the study plan conversation."""
 
@@ -684,15 +696,15 @@ class StudyPlanAgent:
 
         # If user says "just start" at any stage → go straight to plan_review then lock
         if current_stage != PlanStage.OPENING and _wants_to_start(last_user):
-            detection = await self._detect_for(history, language, preselected_subject, preselected_framework)
+            detection = await self._detect_for(history, language, preselected_subject, preselected_framework, preselected_course)
             return await self._handle_plan_review(history, language, lang_instruction, detection, fast=True)
 
         if current_stage == PlanStage.OPENING:
-            return await self._handle_opening(history, language, lang_instruction, preselected_subject, preselected_framework)
+            return await self._handle_opening(history, language, lang_instruction, preselected_subject, preselected_framework, preselected_course)
         elif current_stage == PlanStage.DIAGNOSTIC:
-            return await self._handle_diagnostic(history, language, lang_instruction, preselected_subject, preselected_framework)
+            return await self._handle_diagnostic(history, language, lang_instruction, preselected_subject, preselected_framework, preselected_course)
         elif current_stage == PlanStage.PLAN_REVIEW:
-            detection = await self._detect_for(history, language, preselected_subject, preselected_framework)
+            detection = await self._detect_for(history, language, preselected_subject, preselected_framework, preselected_course)
             return await self._handle_plan_review(history, language, lang_instruction, detection)
         elif current_stage == PlanStage.LOCKED:
             return await self._handle_co_creation(history, language, lang_instruction)
@@ -710,6 +722,7 @@ class StudyPlanAgent:
         lang_instr,
         preselected_subject: Optional[str] = None,
         preselected_framework: Optional[str] = None,
+        preselected_course: Optional[str] = None,
     ) -> PlanResponse:
         """Stage 1: Ask what subject and exam framework the student is preparing for."""
         if history and history[-1]["role"] == "user":
@@ -720,6 +733,7 @@ class StudyPlanAgent:
                 lang_instr,
                 preselected_subject,
                 preselected_framework,
+                preselected_course,
             )
 
         content = (
@@ -737,13 +751,14 @@ class StudyPlanAgent:
         lang_instr,
         preselected_subject: Optional[str] = None,
         preselected_framework: Optional[str] = None,
+        preselected_course: Optional[str] = None,
     ) -> PlanResponse:
         """Stage 2: Diagnostic — dynamic AI-driven Q&A capped at MAX_DIAGNOSTIC_TURNS.
         The LLM may emit a structured ```ask_user {...}``` block to surface clickable
         option chips; otherwise the model just asks a free-form question or signals
         readiness via the start-signal phrases."""
         diagnostic_turns = _count_diagnostic_turns(history)
-        detection = await self._detect_for(history, language, preselected_subject, preselected_framework)
+        detection = await self._detect_for(history, language, preselected_subject, preselected_framework, preselected_course)
 
         # Hard cap: after MAX_DIAGNOSTIC_TURNS turns, force plan generation
         if diagnostic_turns >= MAX_DIAGNOSTIC_TURNS:

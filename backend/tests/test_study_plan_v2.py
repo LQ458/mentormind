@@ -261,6 +261,7 @@ def test_T21_get_next_response_accepts_preselected_kwargs():
     sig = inspect.signature(StudyPlanAgent.get_next_response)
     assert "preselected_subject" in sig.parameters
     assert "preselected_framework" in sig.parameters
+    assert "preselected_course" in sig.parameters
 
 
 def test_T22_preselected_framework_overrides_detection():
@@ -294,6 +295,27 @@ def test_T23_preselected_clears_stale_ap_course_id():
     # Curriculum note should be IB-flavoured, not AP
     note = _build_curriculum_note(detection)
     assert "OFFICIAL AP CURRICULUM" not in note
+
+
+def test_T23b_preselected_course_overrides_conflicting_free_text():
+    """The exact course chip should anchor catalog selection even when the
+    student's free text includes conflicting score jargon from another system."""
+    agent = StudyPlanAgent()
+    history = [{"role": "user", "content": "I need a 130+ plan and keep mentioning 高考 by mistake"}]
+    detection = asyncio.run(
+        agent._detect_for(
+            history,
+            "en",
+            preselected_subject="math",
+            preselected_framework="ap",
+            preselected_course="AP Calculus BC",
+        )
+    )
+    assert detection is not None
+    assert detection.framework == "ap"
+    assert detection.subject == "math"
+    assert detection.course_id == "ap_calculus_bc"
+    assert detection.course_name == "AP Calculus BC"
 
 
 def test_T24_preselected_ap_chip_flow_marks_deterministic_sources():

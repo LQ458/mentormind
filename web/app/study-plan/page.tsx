@@ -816,6 +816,7 @@ export default function StudyPlanPage() {
           request_id: requestId,
           subject: selectedSubject,
           framework: selectedFramework,
+          course: selectedCourse,
           language: uiLanguage === 'zh' ? 'zh' : 'en',
         }),
       })
@@ -1026,6 +1027,7 @@ export default function StudyPlanPage() {
           request_id: requestId,
           subject: selectedSubject,
           framework: selectedFramework,
+          course: selectedCourse,
           language: uiLanguage === 'zh' ? 'zh' : 'en',
         }),
       })
@@ -1166,6 +1168,7 @@ export default function StudyPlanPage() {
               request_id: requestId,
               subject: selectedSubject,
               framework: selectedFramework,
+              course: selectedCourse,
               language: uiLanguage === 'zh' ? 'zh' : 'en',
             }),
           })

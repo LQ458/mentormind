@@ -3542,6 +3542,7 @@ class StudyPlanChatRequest(BaseModel):
     # when they are missing.
     subject: Optional[str] = None
     framework: Optional[str] = None
+    course: Optional[str] = None
 
 
 class StudyPlanChatResponse(BaseModel):
@@ -4167,6 +4168,7 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
                 language=req.language,
                 preselected_subject=req.subject,
                 preselected_framework=req.framework,
+                preselected_course=req.course,
             ),
             timeout=float(os.getenv("STUDY_PLAN_CHAT_BACKEND_TIMEOUT_SECONDS", "75")),
         )
