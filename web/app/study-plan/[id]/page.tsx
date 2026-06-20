@@ -663,10 +663,22 @@ function QuizTab({ quiz, lang }: { quiz: Quiz; lang: 'zh' | 'en' }) {
   const score = submitted
     ? questions.filter(q => matchesAnswer(answers[q.id] ?? '', q.correct_answer)).length
     : 0
+  const answeredCount = questions.filter(q => (answers[q.id] ?? '').trim().length > 0).length
+  const remainingCount = Math.max(questions.length - answeredCount, 0)
+  const allAnswered = remainingCount === 0
 
   const displayQuestions = showAll ? questions : [questions[currentIdx]]
 
-  const handleSubmit = () => setSubmitted(true)
+  const handleSubmit = () => {
+    if (!allAnswered) {
+      const firstUnansweredIdx = questions.findIndex(q => !(answers[q.id] ?? '').trim())
+      if (!showAll && firstUnansweredIdx >= 0) {
+        setCurrentIdx(firstUnansweredIdx)
+      }
+      return
+    }
+    setSubmitted(true)
+  }
   const handleReset = () => {
     setAnswers({})
     setSubmitted(false)
@@ -801,13 +813,22 @@ function QuizTab({ quiz, lang }: { quiz: Quiz; lang: 'zh' | 'en' }) {
       )}
 
       {!submitted && (
-        <button
-          onClick={handleSubmit}
-          disabled={Object.keys(answers).length === 0}
-          className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium transition-colors"
-        >
-          {lang === 'zh' ? '提交答案' : 'Submit Answers'}
-        </button>
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500 text-center">
+            {allAnswered
+              ? (lang === 'zh' ? '已完成全部题目，可以提交。' : 'All questions answered. Ready to submit.')
+              : (lang === 'zh'
+                  ? `还剩 ${remainingCount} 题未作答。`
+                  : `${remainingCount} question${remainingCount === 1 ? '' : 's'} left to answer.`)}
+          </p>
+          <button
+            onClick={handleSubmit}
+            disabled={!allAnswered}
+            className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium transition-colors"
+          >
+            {lang === 'zh' ? '提交答案' : 'Submit Answers'}
+          </button>
+        </div>
       )}
     </div>
   )
