@@ -424,6 +424,7 @@ export default function StudyPlanPage() {
   }[]>([])
   const [plansLoading, setPlansLoading] = useState(true)
   const [deletingPlanIds, setDeletingPlanIds] = useState<Set<string>>(new Set())
+  const [plannerOpen, setPlannerOpen] = useState(false)
 
   // Fetch existing study plans
   useEffect(() => {
@@ -1410,7 +1411,9 @@ export default function StudyPlanPage() {
   const planReviewValidationError = proposedPlan
     ? findPlanFrameworkConflict(proposedPlan, selectedFramework, uiLanguage === 'zh' ? 'zh' : 'en')
     : null
-  const shouldShowPlannerWorkflow = authLoaded && (!isSignedIn || !plansLoading || myPlans.length > 0)
+  const shouldShowPlannerEntry = authLoaded && (!isSignedIn || !plansLoading || myPlans.length > 0)
+  const shouldShowPlannerWorkflow =
+    shouldShowPlannerEntry && (myPlans.length === 0 || plannerOpen || phase !== 'selecting')
 
   return (
     <div className="space-y-8">
@@ -1531,10 +1534,11 @@ export default function StudyPlanPage() {
         </div>
       )}
 
-      {shouldShowPlannerWorkflow && phase === 'selecting' && (
+      {shouldShowPlannerEntry && phase === 'selecting' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <button
             type="button"
+            onClick={() => setPlannerOpen(true)}
             className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-5 text-left shadow-sm transition hover:border-blue-300"
           >
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-700">
