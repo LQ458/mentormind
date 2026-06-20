@@ -62,6 +62,7 @@ const SEVERITIES: Array<{ value: Severity; en: string; zh: string }> = [
   { value: 'confusing', en: 'Confusing', zh: '困惑' },
   { value: 'slow', en: 'Slow', zh: '太慢' },
   { value: 'visual', en: 'Visual', zh: '界面' },
+  { value: 'quality', en: 'Quality', zh: '质量' },
   { value: 'idea', en: 'Idea', zh: '建议' },
 ]
 

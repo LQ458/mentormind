@@ -404,7 +404,7 @@ export default function AdminFeedbackPage() {
                 label={lang === 'zh' ? '严重度' : 'Severity'}
                 value={severityFilter}
                 onChange={setSeverityFilter}
-                options={['blocked', 'wrong', 'confusing', 'slow', 'visual', 'idea']}
+                options={['blocked', 'wrong', 'confusing', 'slow', 'visual', 'quality', 'idea']}
               />
             </div>
 

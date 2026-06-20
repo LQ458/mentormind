@@ -4,7 +4,7 @@ export const OPEN_SURVEY_EVENT = 'mm:open-survey'
 export const OPEN_FEEDBACK_EVENT = 'mm:open-feedback'
 
 export type FeedbackKind = 'bug' | 'function' | 'feeling' | 'general'
-export type FeedbackSeverity = 'blocked' | 'wrong' | 'confusing' | 'slow' | 'visual' | 'idea'
+export type FeedbackSeverity = 'blocked' | 'wrong' | 'confusing' | 'slow' | 'visual' | 'quality' | 'idea'
 
 export interface FeedbackLaunchContext {
   surface?: string

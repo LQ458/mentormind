@@ -4,8 +4,9 @@ import { useState } from 'react'
 import { Check, Flag, Send, X } from 'lucide-react'
 import { useLanguage } from './LanguageContext'
 import { getTelemetryContextSnapshot, trackNow } from '../lib/telemetry'
+import type { FeedbackSeverity } from './feedbackEvents'
 
-type Severity = 'confusing' | 'blocked' | 'wrong' | 'slow' | 'visual'
+type Severity = Exclude<FeedbackSeverity, 'idea'>
 
 interface FeedbackMomentProps {
   surface: string
@@ -19,6 +20,7 @@ const SEVERITIES: Array<{ value: Severity; en: string; zh: string }> = [
   { value: 'wrong', en: 'Wrong', zh: '内容不对' },
   { value: 'slow', en: 'Slow', zh: '太慢' },
   { value: 'visual', en: 'Visual', zh: '界面问题' },
+  { value: 'quality', en: 'Quality', zh: '质量不够' },
 ]
 
 const FEEDBACK_TEXT_LIMIT = 1200
