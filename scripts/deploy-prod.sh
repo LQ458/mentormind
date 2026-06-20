@@ -34,18 +34,20 @@ usage() {
 Usage: ./scripts/deploy-prod.sh [command]
 
 Commands:
-  check     Validate shell, env file, and rendered compose config
-  config    Validate compose and print services/images without env values
-  smoke     Test the public /ws/ WebSocket upgrade path
-  deploy    Build changed app images and start/update all production services
-  build     Build backend, frontend, and nginx images only
-  up        Start/update services without rebuilding
-  restart   Restart app services without rebuilding images
-  ps        Show service status
-  logs      Tail production logs
-  down      Stop production services
+  check                       Validate shell, env file, and rendered compose config
+  config                      Validate compose and print services/images without env values
+  smoke                       Test the public /ws/ WebSocket upgrade path
+  deploy [all|backend|frontend|nginx]
+                              Build app images and start/update production services
+  build [all|backend|frontend|nginx]
+                              Build selected app images only
+  up                          Start/update services without rebuilding
+  restart                     Restart app services without rebuilding images
+  ps                          Show service status
+  logs                        Tail production logs
+  down                        Stop production services
 
-Default command: deploy
+Default command: deploy all
 
 Environment overrides:
   MENTORMIND_ENV_FILE=/path/to/.env
@@ -114,13 +116,52 @@ smoke_test() {
   python3 "$PROJECT_DIR/scripts/ws-smoke-test.py" "$public_url"
 }
 
+normalize_target() {
+  local target="${1:-all}"
+  case "$target" in
+    all|backend|frontend|nginx)
+      printf '%s\n' "$target"
+      ;;
+    *)
+      echo "Unknown target '$target'. Use all, backend, frontend, or nginx." >&2
+      exit 1
+      ;;
+  esac
+}
+
 build_images() {
-  compose build backend frontend nginx
+  local target
+  target="$(normalize_target "${1:-all}")"
+
+  case "$target" in
+    all)
+      compose build backend frontend nginx
+      ;;
+    backend|frontend|nginx)
+      compose build "$target"
+      ;;
+  esac
 }
 
 deploy() {
-  build_images
-  compose up -d --remove-orphans
+  local target
+  target="$(normalize_target "${1:-all}")"
+
+  build_images "$target"
+  case "$target" in
+    all)
+      compose up -d --remove-orphans
+      ;;
+    backend)
+      compose up -d backend celery-orchestration celery-rendering celery-heavy-ml
+      ;;
+    frontend)
+      compose up -d frontend nginx
+      ;;
+    nginx)
+      compose up -d nginx
+      ;;
+  esac
   compose ps
 }
 
@@ -136,11 +177,11 @@ case "${1:-deploy}" in
     ;;
   deploy)
     require_prereqs
-    deploy
+    deploy "${2:-all}"
     ;;
   build)
     require_prereqs
-    build_images
+    build_images "${2:-all}"
     ;;
   up)
     require_prereqs
