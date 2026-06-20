@@ -12,9 +12,9 @@ export async function GET(
     { params }: { params: { id: string } }
 ) {
     try {
-        const { id } = params
+        const id = encodeURIComponent(params.id)
         const url = `${BACKEND_URL}/job-status/${id}`
-        console.log(`[job-status proxy] Fetching: ${url}`)
+        console.info('[job-status proxy] fetching status')
 
         // Prevent Next.js fetch() from caching the "processing" state
         const headers = backendHeaders(request, {
@@ -33,8 +33,6 @@ export async function GET(
             return backendErrorResponse('Failed to get job status', backendResponse.status)
         }
 
-        const data = await backendResponse.clone().json().catch(() => null)
-        console.log(`[job-status proxy] Backend returned status: ${data?.status ?? 'unknown'}`)
         return await backendJsonResponse(backendResponse, 'job-status proxy')
     } catch (error) {
         console.error('Job status proxy error:', error)

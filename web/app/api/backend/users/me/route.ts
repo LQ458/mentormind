@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { backendHeaders } from '../../_auth';
-import { proxyFailureResponse } from '../../_proxyErrors';
+import { backendJsonResponse, proxyFailureResponse } from '../../_proxyErrors';
 
 const BACKEND = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -10,8 +10,7 @@ export async function GET(req: NextRequest) {
     const res = await fetch(`${BACKEND}/users/me`, {
       headers: backendHeaders(req),
     });
-    const data = await res.json().catch(() => ({}));
-    return NextResponse.json(data, { status: res.status });
+    return await backendJsonResponse(res, 'users/me read proxy');
   } catch (err) {
     console.error('[users/me proxy] error:', err);
     return proxyFailureResponse('Failed to fetch current user');
@@ -28,8 +27,7 @@ export async function PATCH(req: NextRequest) {
       },
       body: JSON.stringify(body),
     });
-    const data = await res.json().catch(() => ({}));
-    return NextResponse.json(data, { status: res.status });
+    return await backendJsonResponse(res, 'users/me update proxy');
   } catch (err) {
     console.error('[users/me proxy] error:', err);
     return proxyFailureResponse('Failed to update current user');
