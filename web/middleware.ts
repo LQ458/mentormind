@@ -15,6 +15,8 @@ const PROTECTED_PREFIXES = [
   '/board-replay',
   '/board-test',
   '/dev-form',
+  '/simple',
+  '/today',
   '/admin',
 ]
 
