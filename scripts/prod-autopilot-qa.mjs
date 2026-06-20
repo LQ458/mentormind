@@ -382,6 +382,12 @@ async function checkPage(browser, route, viewport) {
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
       buttons: [...document.querySelectorAll('button')].slice(0, 20).map((b) => b.textContent?.trim()).filter(Boolean),
+      inputs: [...document.querySelectorAll('input')].slice(0, 12).map((input) => ({
+        type: input.getAttribute('type') || '',
+        placeholder: input.getAttribute('placeholder') || '',
+        autocomplete: input.getAttribute('autocomplete') || '',
+        name: input.getAttribute('name') || '',
+      })),
     }))
     const latency = Math.round(performance.now() - started)
     events.push({ type: 'page_check', route, viewport: viewport.name, status, latency, finalUrl, metrics, observed, screenshot: shot })
@@ -428,6 +434,24 @@ async function checkPage(browser, route, viewport) {
         expected: 'Primary pages should render meaningful visible content.',
         evidence: { status, finalUrl, viewport: viewport.name, metrics, screenshot: shot },
       })
+    }
+    if (route === '/' && !hasAuthSession() && viewport.name === 'iphone') {
+      const inputText = JSON.stringify(metrics.inputs || []).toLowerCase()
+      const hasUsername = /username|用户名/.test(inputText)
+      const hasPassword = (metrics.inputs || []).some((input) => (
+        input.type === 'password' || /password|密码/.test(`${input.placeholder} ${input.autocomplete}`.toLowerCase())
+      ))
+      const hasInvite = /invite|邀请码/.test(inputText)
+      if (!(hasUsername && hasPassword && hasInvite)) {
+        await addFinding({
+          title: 'Production home page does not expose direct tester login fields on mobile',
+          severity: 'blocked',
+          surface: 'auth',
+          page: '/',
+          expected: 'The public home page should show username, password, and invite-code fields so testers can start without hunting for login.',
+          evidence: { status, finalUrl, viewport: viewport.name, metrics, screenshot: shot },
+        })
+      }
     }
     if (metrics.scrollWidth > metrics.clientWidth + 8) {
       await addFinding({
