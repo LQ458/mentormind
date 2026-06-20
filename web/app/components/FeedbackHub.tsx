@@ -67,6 +67,7 @@ const SEVERITIES: Array<{ value: Severity; en: string; zh: string }> = [
 ]
 
 const FEEDBACK_TEXT_LIMIT = 1200
+type SubmissionMode = 'recorded' | 'queued'
 
 function makeInteractionId(kind: FeedbackKind): string {
   const random = Math.random().toString(36).slice(2, 8)
@@ -89,6 +90,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submittedReportId, setSubmittedReportId] = useState<string | null>(null)
+  const [submittedMode, setSubmittedMode] = useState<SubmissionMode | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -98,6 +100,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     setSubmitting(false)
     setSubmitError(null)
     setSubmittedReportId(null)
+    setSubmittedMode(null)
     setMessage('')
     setExpected('')
   }, [launchContext, open])
@@ -144,14 +147,19 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     })
     setSubmitting(false)
     if (!ok) {
-      setSubmitError(
-        lang === 'zh'
-          ? '暂时没发出去；已在本次浏览器会话暂存，会自动重试。也可以稍后再点一次发送。'
-          : 'Could not send this yet. It is saved for this browser session and will retry automatically.',
-      )
+      setSubmittedReportId(reportId)
+      setSubmittedMode('queued')
+      setSubmitted(true)
+      setMessage('')
+      setExpected('')
+      window.setTimeout(() => {
+        setSubmitted(false)
+        onClose()
+      }, 4200)
       return
     }
     setSubmittedReportId(reportId)
+    setSubmittedMode('recorded')
     setSubmitted(true)
     setMessage('')
     setExpected('')
@@ -195,11 +203,28 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
 
         {submitted ? (
           <div className="flex min-h-[260px] flex-col items-center justify-center px-5 py-10 text-center">
-            <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
-              <Check size={22} />
+            <div className={`mb-3 flex h-11 w-11 items-center justify-center rounded-full ${
+              submittedMode === 'queued' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
+            }`}>
+              {submittedMode === 'queued' ? <AlertTriangle size={22} /> : <Check size={22} />}
             </div>
             <div className="text-sm font-semibold text-gray-900">
-              {lang === 'zh' ? '已记录，会和错误线索一起进入分析队列。' : 'Recorded with the debugging context.'}
+              {submittedMode === 'queued'
+                ? (lang === 'zh'
+                  ? '已暂存，会自动重试发送。'
+                  : 'Saved locally and will retry automatically.')
+                : (lang === 'zh'
+                  ? '已记录，会和错误线索一起进入分析队列。'
+                  : 'Recorded with the debugging context.')}
+            </div>
+            <div className="mt-1 max-w-sm text-xs leading-5 text-gray-500">
+              {submittedMode === 'queued'
+                ? (lang === 'zh'
+                  ? '网络或服务短暂不可用时，这条反馈仍会留在本次浏览器会话里。'
+                  : 'If the network or service is temporarily unavailable, this report stays in this browser session.')
+                : (lang === 'zh'
+                  ? '谢谢，这会帮助我们把测试反馈整理成可修复的问题。'
+                  : 'Thanks. This helps turn tester feedback into fixable issues.')}
             </div>
             {submittedReportId && (
               <div className="mt-2 rounded-lg bg-gray-50 px-2 py-1 font-mono text-xs text-gray-500">

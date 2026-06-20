@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Flag, Send, X } from 'lucide-react'
+import { AlertTriangle, Check, Flag, Send, X } from 'lucide-react'
 import { useLanguage } from './LanguageContext'
 import { getTelemetryContextSnapshot, trackNow } from '../lib/telemetry'
 import type { FeedbackSeverity } from './feedbackEvents'
@@ -24,6 +24,7 @@ const SEVERITIES: Array<{ value: Severity; en: string; zh: string }> = [
 ]
 
 const FEEDBACK_TEXT_LIMIT = 1200
+type SubmissionMode = 'recorded' | 'queued'
 
 function makeReportId(surface: string, interactionId: string): string {
   const safeSurface = surface.replace(/[^a-z0-9_-]+/gi, '-').slice(0, 24) || 'moment'
@@ -42,6 +43,7 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submittedReportId, setSubmittedReportId] = useState<string | null>(null)
+  const [submittedMode, setSubmittedMode] = useState<SubmissionMode | null>(null)
 
   const submit = async () => {
     if (submitting) return
@@ -76,14 +78,17 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
     })
     setSubmitting(false)
     if (!ok) {
-      setError(
-        lang === 'zh'
-          ? '暂时没发出去；已在本次会话暂存，会自动重试。'
-          : 'Could not send it yet. It is saved for this session and will retry automatically.',
-      )
+      setSubmittedReportId(reportId)
+      setSubmittedMode('queued')
+      setSubmitted(true)
+      setOpen(false)
+      setNote('')
+      setExpected('')
+      window.setTimeout(() => setSubmitted(false), 4200)
       return
     }
     setSubmittedReportId(reportId)
+    setSubmittedMode('recorded')
     setSubmitted(true)
     setOpen(false)
     setNote('')
@@ -92,12 +97,24 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
   }
 
   if (submitted) {
+    const queued = submittedMode === 'queued'
     return (
-      <div className="inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
-        <Check size={13} />
-        <span>{lang === 'zh' ? '已标记，后续可转成修复任务' : 'Marked for triage'}</span>
+      <div className={`inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-lg border px-3 py-1 text-xs font-medium ${
+        queued
+          ? 'border-amber-200 bg-amber-50 text-amber-800'
+          : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      }`}>
+        {queued ? <AlertTriangle size={13} /> : <Check size={13} />}
+        <span>
+          {queued
+            ? (lang === 'zh' ? '已暂存，会自动重试' : 'Saved locally; will retry')
+            : (lang === 'zh' ? '已标记，后续可转成修复任务' : 'Marked for triage')}
+        </span>
         {submittedReportId && (
-          <span className="max-w-[11rem] truncate font-mono text-[11px] text-emerald-600" title={submittedReportId}>
+          <span
+            className={`max-w-[11rem] truncate font-mono text-[11px] ${queued ? 'text-amber-700' : 'text-emerald-600'}`}
+            title={submittedReportId}
+          >
             {submittedReportId}
           </span>
         )}
