@@ -1,34 +1,53 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
+import { backendErrorResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
 
 const BACKEND = process.env.BACKEND_URL || 'http://localhost:8000';
 
-export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const res = await fetch(`${BACKEND}/auth/invite`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  let data;
+async function readBackendJson(res: Response): Promise<Record<string, unknown> | null> {
+  const text = await res.text()
+  if (!text) return {}
   try {
-    data = text ? JSON.parse(text) : {};
+    const parsed = JSON.parse(text)
+    return parsed && typeof parsed === 'object' ? parsed : {}
   } catch {
-    data = { detail: text || 'Internal Server Error' };
+    logBackendProxyError('auth/invite proxy', res.status, text)
+    return null
   }
+}
 
-  if (data?.success && data?.token) {
-    const response = NextResponse.json(data, { status: res.status });
-    response.cookies.set('mm_token', data.token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 30,
-      path: '/',
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const res = await fetch(`${BACKEND}/auth/invite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     });
-    return response;
-  }
+    const data = await readBackendJson(res)
+    if (!data) {
+      const status = res.status >= 400 ? res.status : 502
+      return backendErrorResponse('Auth service returned an invalid response', status, {
+        code: 'invalid_backend_response',
+        detail: 'The backend returned an invalid response.',
+      })
+    }
 
-  return NextResponse.json(data, { status: res.status });
+    if (data?.success && typeof data?.token === 'string' && data.token) {
+      const response = NextResponse.json(data, { status: res.status });
+      response.cookies.set('mm_token', data.token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 30,
+        path: '/',
+      });
+      return response;
+    }
+
+    return NextResponse.json(data, { status: res.status });
+  } catch (err) {
+    console.error('[auth/invite proxy] error:', err)
+    return proxyFailureResponse('Failed to authenticate')
+  }
 }
