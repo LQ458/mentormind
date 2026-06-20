@@ -331,6 +331,8 @@ pnpm run qa:install-browsers
 BASE_URL=https://mentormind.cloud QA_INVITE_CODE=<invite-code> pnpm run qa:prod
 # Or reuse an existing tester account:
 BASE_URL=https://mentormind.cloud QA_USERNAME=<username> QA_PASSWORD=<password> pnpm run qa:prod
+# Outputs are written under web/.browser-sessions/prod-autopilot-qa/<run-id>/:
+# report.json, report.md, issues.md, plus screenshots.
 
 # Frontend type check
 pnpm exec tsc --noEmit

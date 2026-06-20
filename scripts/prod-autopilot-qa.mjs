@@ -2,6 +2,7 @@
 
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { performance } from 'node:perf_hooks'
 
@@ -56,6 +57,27 @@ function nowIso() {
 
 function sanitizeName(value) {
   return value.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '') || 'artifact'
+}
+
+function stableFindingKey({ title, surface, page, expected }) {
+  const seed = [
+    surface || 'global',
+    page || '/',
+    title || '',
+    expected || '',
+  ].join('\n')
+  return createHash('sha1').update(seed).digest('hex').slice(0, 12)
+}
+
+function boundedJson(value, maxLength = 5000) {
+  let text = ''
+  try {
+    text = JSON.stringify(value ?? {}, null, 2)
+  } catch {
+    text = String(value)
+  }
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, maxLength)}\n...[truncated ${text.length - maxLength} chars]`
 }
 
 function splitEnvList(value) {
@@ -188,8 +210,12 @@ async function ensureAuthSession() {
 }
 
 async function addFinding({ title, severity = 'wrong', surface = 'global', page = '/', expected = '', evidence = {}, report = true }) {
+  const bugKey = stableFindingKey({ title, surface, page, expected })
+  const reportId = `qa-${bugKey}`
   const finding = {
     id: `BUG-${String(findings.length + 1).padStart(3, '0')}`,
+    report_id: reportId,
+    bug_key: bugKey,
     title,
     severity,
     surface,
@@ -204,12 +230,15 @@ async function addFinding({ title, severity = 'wrong', surface = 'global', page 
       schema: 'mentormind.prod_autopilot_bug.v1',
       feedback_kind: 'bug',
       surface,
-      interaction_id: finding.id,
+      interaction_id: `${RUN_ID}:${finding.id}`,
+      report_id: reportId,
       severity,
       user_note: title,
       expected_behavior: expected,
       context: {
         run_id: RUN_ID,
+        bug_key: bugKey,
+        report_id: reportId,
         evidence,
         route: page,
         base_url: BASE_URL,
@@ -217,6 +246,43 @@ async function addFinding({ title, severity = 'wrong', surface = 'global', page 
     })
   }
   return finding
+}
+
+function findingIssueMarkdown(finding) {
+  const labels = [
+    `severity:${finding.severity}`,
+    `surface:${finding.surface}`,
+    'source:prod-autopilot-qa',
+  ]
+  return [
+    `# ${finding.title}`,
+    ``,
+    `## Summary`,
+    `- Report ID: ${finding.report_id}`,
+    `- Bug key: ${finding.bug_key}`,
+    `- Run ID: ${RUN_ID}`,
+    `- Severity: ${finding.severity}`,
+    `- Surface: ${finding.surface}`,
+    `- Page: ${finding.page}`,
+    `- Created: ${finding.created_at}`,
+    `- Labels: ${labels.join(', ')}`,
+    ``,
+    `## Expected behavior`,
+    finding.expected || 'n/a',
+    ``,
+    `## Evidence`,
+    `\`\`\`json`,
+    boundedJson(finding.evidence),
+    `\`\`\``,
+    ``,
+    `## Reproduction`,
+    `Run the production QA harness and inspect the report artifacts for \`${finding.id}\`:`,
+    `\`\`\`bash`,
+    `cd web`,
+    `BASE_URL=${BASE_URL} QA_USERNAME=<username> QA_PASSWORD=<password> pnpm run qa:prod`,
+    `\`\`\``,
+    ``,
+  ].join('\n')
 }
 
 function hasAuthSession() {
@@ -1805,11 +1871,13 @@ async function writeReport() {
   } else {
     for (const finding of findings) {
       lines.push(`### ${finding.id}: ${finding.title}`)
+      lines.push(`- Report ID: ${finding.report_id}`)
+      lines.push(`- Bug key: ${finding.bug_key}`)
       lines.push(`- Severity: ${finding.severity}`)
       lines.push(`- Surface: ${finding.surface}`)
       lines.push(`- Page: ${finding.page}`)
       lines.push(`- Expected: ${finding.expected || 'n/a'}`)
-      lines.push(`- Evidence: \`${JSON.stringify(finding.evidence).slice(0, 1600)}\``)
+      lines.push(`- Evidence: \`${boundedJson(finding.evidence, 1600).replace(/\n/g, ' ')}\``)
       lines.push(``)
     }
   }
@@ -1864,6 +1932,23 @@ async function writeReport() {
     }
   }
   await fs.writeFile(path.join(OUT_DIR, 'report.md'), `${lines.join('\n')}\n`)
+  const issueLines = [
+    `# MentorMind Production Autopilot QA Issues`,
+    ``,
+    `Run: \`${RUN_ID}\``,
+    `Base URL: ${BASE_URL}`,
+    ``,
+  ]
+  if (!findings.length) {
+    issueLines.push(`No issues generated for this run.`)
+  } else {
+    for (const finding of findings) {
+      issueLines.push(findingIssueMarkdown(finding))
+      issueLines.push(`---`)
+      issueLines.push(``)
+    }
+  }
+  await fs.writeFile(path.join(OUT_DIR, 'issues.md'), `${issueLines.join('\n')}\n`)
   return json
 }
 
