@@ -6966,6 +6966,83 @@ def _feedback_report_unique_key(row: Dict[str, Any]) -> str:
     return f"event:{row.get('id')}"
 
 
+_FEEDBACK_PRIORITY_SEVERITY_SCORE = {
+    "blocked": 100,
+    "wrong": 85,
+    "slow": 55,
+    "quality": 45,
+    "visual": 35,
+    "confusing": 30,
+    "idea": 10,
+}
+
+
+def _feedback_report_priority(row: Dict[str, Any]) -> Tuple[int, List[str]]:
+    """Rank feedback reports for admin triage without asking humans to scan raw rows."""
+    score = 0
+    reasons: List[str] = []
+    severity = str(row.get("severity") or "").lower()
+    severity_score = _FEEDBACK_PRIORITY_SEVERITY_SCORE.get(severity, 0)
+    if severity_score:
+        score += severity_score
+        reasons.append(f"severity:{severity}")
+
+    kind = str(row.get("feedback_kind") or "").lower()
+    if kind == "bug":
+        score += 20
+        reasons.append("bug")
+
+    recent_errors = row.get("recent_errors")
+    if isinstance(recent_errors, list) and recent_errors:
+        score += min(40, len(recent_errors) * 12)
+        reasons.append(f"errors:{len(recent_errors)}")
+
+    if row.get("user_note"):
+        score += 6
+        reasons.append("has_note")
+    if row.get("expected_behavior"):
+        score += 4
+        reasons.append("has_expected")
+
+    return score, reasons
+
+
+def _feedback_report_with_priority(row: Dict[str, Any]) -> Dict[str, Any]:
+    score, reasons = _feedback_report_priority(row)
+    ranked = dict(row)
+    ranked["priority_score"] = score
+    ranked["priority_reasons"] = reasons
+    return ranked
+
+
+def _feedback_report_priority_queue(rows: List[Dict[str, Any]], limit: int = 10) -> List[Dict[str, Any]]:
+    priority_by_key: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        ranked = _feedback_report_with_priority(row)
+        key = _feedback_report_unique_key(row)
+        current = priority_by_key.get(key)
+        if current is None or (
+            int(ranked.get("priority_score") or 0),
+            str(ranked.get("created_at") or ""),
+            str(ranked.get("id") or ""),
+        ) > (
+            int(current.get("priority_score") or 0),
+            str(current.get("created_at") or ""),
+            str(current.get("id") or ""),
+        ):
+            priority_by_key[key] = ranked
+
+    return sorted(
+        priority_by_key.values(),
+        key=lambda row: (
+            int(row.get("priority_score") or 0),
+            str(row.get("created_at") or ""),
+            str(row.get("id") or ""),
+        ),
+        reverse=True,
+    )[:limit]
+
+
 def _telemetry_context_event_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
     """Bounded event shape for admin bug triage context.
 
@@ -7104,6 +7181,7 @@ async def get_admin_feedback_reports_aggregate(
     events = q.order_by(TelemetryEvent.created_at.desc()).limit(5000).all()
     rows = [_feedback_report_to_dict(event) for event in events]
     unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
+    priority_reports = _feedback_report_priority_queue(rows)
     by_source = Counter(row.get("source") or "unknown" for row in rows)
     by_surface = Counter(row.get("surface") or "unknown" for row in rows)
     by_kind = Counter(row.get("feedback_kind") or "unknown" for row in rows)
@@ -7118,6 +7196,7 @@ async def get_admin_feedback_reports_aggregate(
         "kind_distribution": dict(by_kind.most_common(20)),
         "severity_distribution": dict(by_severity.most_common(20)),
         "page_distribution": dict(by_page.most_common(50)),
+        "priority_reports": priority_reports,
         "truncated": len(events) >= 5000,
         "filters": {
             "start_date": start_date,

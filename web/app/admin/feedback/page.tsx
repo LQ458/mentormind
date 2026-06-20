@@ -46,6 +46,8 @@ interface FeedbackReportRow {
   recent_events?: Array<Record<string, unknown>>
   recent_errors?: Array<Record<string, unknown>>
   app_snapshot?: Record<string, unknown>
+  priority_score?: number
+  priority_reasons?: string[]
 }
 
 interface FeedbackListResponse {
@@ -86,6 +88,7 @@ interface FeedbackReportsAggregateResponse {
   kind_distribution?: Record<string, number>
   severity_distribution?: Record<string, number>
   page_distribution?: Record<string, number>
+  priority_reports?: FeedbackReportRow[]
   truncated?: boolean
   error?: string
 }
@@ -462,6 +465,8 @@ export default function AdminFeedbackPage() {
     if (context) setExpandedReportId(report.id)
   }
 
+  const priorityReports = reportsAggregate?.priority_reports || []
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <PageHead
@@ -545,6 +550,126 @@ export default function AdminFeedbackPage() {
                 accent={(reportsAggregate?.severity_distribution?.blocked || 0) > 0 ? 'warn' : undefined}
               />
             </div>
+
+            {priorityReports.length > 0 && (
+              <div
+                style={{
+                  marginTop: 16,
+                  border: '1px solid var(--line, #e8ecf0)',
+                  borderRadius: 12,
+                  overflow: 'hidden',
+                  background: 'var(--surface, #fff)',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    alignItems: 'center',
+                    padding: '10px 12px',
+                    background: 'var(--surface-2, #f5f7fa)',
+                    borderBottom: '1px solid var(--line, #e8ecf0)',
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>
+                    {lang === 'zh' ? '建议优先处理' : 'Suggested triage queue'}
+                  </div>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    {lang === 'zh' ? '按阻塞、错误线索和可复现信息排序' : 'Ranked by severity, error clues, and reproducibility detail'}
+                  </div>
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <Th>{lang === 'zh' ? '分数' : 'Score'}</Th>
+                      <Th>{lang === 'zh' ? '严重度' : 'Severity'}</Th>
+                      <Th>{lang === 'zh' ? '表面' : 'Surface'}</Th>
+                      <Th>{lang === 'zh' ? '描述' : 'Note'}</Th>
+                      <Th>{lang === 'zh' ? '原因' : 'Reasons'}</Th>
+                      <Th>{lang === 'zh' ? '操作' : ''}</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {priorityReports.map((r) => {
+                      const isPriorityOpen = expandedReportId === r.id
+                      return (
+                        <Fragment key={`priority-${r.id}`}>
+                          <tr style={{ borderTop: '1px solid var(--line, #e8ecf0)' }}>
+                            <Td>{r.priority_score ?? 0}</Td>
+                            <Td>{r.severity || '—'}</Td>
+                            <Td>{r.surface || r.page || r.route || '—'}</Td>
+                            <Td>
+                              <span style={{ display: 'block', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {r.user_note || r.expected_behavior || '—'}
+                              </span>
+                            </Td>
+                            <Td>
+                              <span className="muted" style={{ fontSize: 12 }}>
+                                {(r.priority_reasons || []).join(', ') || '—'}
+                              </span>
+                            </Td>
+                            <Td>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  onClick={() => {
+                                    setExpandedReportId(isPriorityOpen ? null : r.id)
+                                    if (!isPriorityOpen) void fetchReportContext(r)
+                                  }}
+                                >
+                                  {isPriorityOpen
+                                    ? lang === 'zh' ? '收起' : 'Hide'
+                                    : lang === 'zh' ? '查看' : 'View'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  onClick={() => copyReport(r)}
+                                >
+                                  {copiedReportId === r.id
+                                    ? lang === 'zh' ? '已复制' : 'Copied'
+                                    : lang === 'zh' ? '复制 Issue' : 'Copy issue'}
+                                </button>
+                              </div>
+                            </Td>
+                          </tr>
+                          {isPriorityOpen && (
+                            <tr key={`priority-${r.id}-detail`}>
+                              <td
+                                colSpan={6}
+                                style={{
+                                  background: 'var(--surface-2, #f5f7fa)',
+                                  padding: 16,
+                                  borderTop: '1px solid var(--line, #e8ecf0)',
+                                }}
+                              >
+                                <DetailBlock label="Report ID" value={r.report_id || r.id} />
+                                <DetailBlock label={lang === 'zh' ? '用户描述' : 'User note'} value={r.user_note} />
+                                <DetailBlock label={lang === 'zh' ? '期望行为' : 'Expected behavior'} value={r.expected_behavior} />
+                                <DetailBlock label="URL" value={r.captured_url || r.url || ''} />
+                                <JsonBlock label={lang === 'zh' ? '最近错误' : 'Recent errors'} value={r.recent_errors} />
+                                <JsonBlock label={lang === 'zh' ? '页面快照' : 'App snapshot'} value={r.app_snapshot} />
+                                {contextErrorByReportId[r.id] && (
+                                  <DetailBlock
+                                    label={lang === 'zh' ? '上下文加载错误' : 'Context error'}
+                                    value={contextErrorByReportId[r.id]}
+                                  />
+                                )}
+                                {contextByReportId[r.id] && (
+                                  <FeedbackContextPanel context={contextByReportId[r.id]} lang={lang} />
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             <div
               style={{

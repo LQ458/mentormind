@@ -99,6 +99,72 @@ def test_feedback_report_matches_supports_source_filter():
     )
 
 
+def test_feedback_report_priority_prefers_blocked_bug_with_errors():
+    high = {
+        "severity": "blocked",
+        "feedback_kind": "bug",
+        "user_note": "The plan never finishes.",
+        "expected_behavior": "Show a failure state.",
+        "recent_errors": [{"event_type": "error_network"}, {"event_type": "ws_close"}],
+    }
+    low = {
+        "severity": "idea",
+        "feedback_kind": "general",
+        "user_note": "Maybe add more colors.",
+        "recent_errors": [],
+    }
+
+    high_score, high_reasons = server._feedback_report_priority(high)
+    low_score, low_reasons = server._feedback_report_priority(low)
+
+    assert high_score > low_score
+    assert "severity:blocked" in high_reasons
+    assert "bug" in high_reasons
+    assert "errors:2" in high_reasons
+    assert low_reasons == ["severity:idea", "has_note"]
+
+
+def test_feedback_report_priority_queue_dedupes_and_orders_newest_ties():
+    rows = [
+        {
+            "id": "newer-idea",
+            "created_at": "2026-06-20T09:00:00",
+            "severity": "idea",
+            "feedback_kind": "general",
+            "user_note": "Nice to have",
+        },
+        {
+            "id": "older-blocked",
+            "created_at": "2026-06-20T08:00:00",
+            "report_id": "same-bug",
+            "severity": "blocked",
+            "feedback_kind": "bug",
+            "recent_errors": [{"event_type": "error_network"}],
+        },
+        {
+            "id": "newer-blocked",
+            "created_at": "2026-06-20T10:00:00",
+            "report_id": "same-bug",
+            "severity": "blocked",
+            "feedback_kind": "bug",
+            "recent_errors": [{"event_type": "error_network"}],
+        },
+        {
+            "id": "older-idea",
+            "created_at": "2026-06-20T07:00:00",
+            "severity": "idea",
+            "feedback_kind": "general",
+            "user_note": "Nice to have",
+        },
+    ]
+
+    queue = server._feedback_report_priority_queue(rows, limit=3)
+
+    assert [row["id"] for row in queue] == ["newer-blocked", "newer-idea", "older-idea"]
+    assert queue[0]["priority_reasons"] == ["severity:blocked", "bug", "errors:1"]
+    assert [row.get("report_id") for row in queue].count("same-bug") == 1
+
+
 def test_feedback_context_event_shape_omits_ip_and_user_agent():
     row = server._telemetry_context_event_to_dict(
         SimpleNamespace(
