@@ -148,6 +148,75 @@ function compactJson(value: unknown): string {
   }
 }
 
+function prettyJson(value: unknown): string {
+  if (!value) return ''
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function codeBlock(value: unknown): string {
+  const text = prettyJson(value)
+  if (!text || text === '[]' || text === '{}') return '—'
+  return `\`\`\`json\n${text}\n\`\`\``
+}
+
+function reportMarkdown(r: FeedbackReportRow): string {
+  const page = r.page || r.route || '—'
+  const url = r.captured_url || r.url || '—'
+  const titleParts = [r.severity, r.surface || page].filter(Boolean).join(' / ')
+  const title = titleParts || r.report_id || r.id
+  const viewport = r.viewport_w && r.viewport_h ? `${r.viewport_w}x${r.viewport_h}` : '—'
+  return [
+    `# ${title}`,
+    '',
+    '## Summary',
+    `- Report ID: ${r.report_id || r.id}`,
+    `- Created: ${r.created_at}`,
+    `- Surface: ${r.surface || '—'}`,
+    `- Kind: ${r.feedback_kind || '—'}`,
+    `- Severity: ${r.severity || '—'}`,
+    `- Page: ${page}`,
+    `- URL: ${url}`,
+    `- Viewport: ${viewport}`,
+    '',
+    '## User note',
+    r.user_note || '—',
+    '',
+    '## Expected behavior',
+    r.expected_behavior || '—',
+    '',
+    '## Recent errors',
+    codeBlock(r.recent_errors),
+    '',
+    '## Recent events',
+    codeBlock(r.recent_events),
+    '',
+    '## App snapshot',
+    codeBlock(r.app_snapshot),
+  ].join('\n')
+}
+
+async function copyText(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return true
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  textarea.style.top = '0'
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
+  const ok = document.execCommand('copy')
+  textarea.remove()
+  return ok
+}
+
 function downloadReportCsv(rows: FeedbackReportRow[]) {
   const headers = [
     'id', 'report_id', 'created_at', 'surface', 'feedback_kind', 'severity', 'page',
@@ -198,6 +267,7 @@ export default function AdminFeedbackPage() {
   // Expanded row
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null)
+  const [copiedReportId, setCopiedReportId] = useState<string | null>(null)
 
   const fetchData = async () => {
     setLoading(true)
@@ -292,6 +362,15 @@ export default function AdminFeedbackPage() {
   }
 
   const likertMax = 5
+
+  const copyReport = async (report: FeedbackReportRow) => {
+    const ok = await copyText(reportMarkdown(report)).catch(() => false)
+    if (!ok) return
+    setCopiedReportId(report.id)
+    window.setTimeout(() => {
+      setCopiedReportId((current) => (current === report.id ? null : current))
+    }, 1800)
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -451,15 +530,26 @@ export default function AdminFeedbackPage() {
                             </Td>
                             <Td>{r.recent_errors?.length || 0}</Td>
                             <Td>
-                              <button
-                                type="button"
-                                className="btn btn-sm"
-                                onClick={() => setExpandedReportId(isOpen ? null : r.id)}
-                              >
-                                {isOpen
-                                  ? lang === 'zh' ? '收起' : 'Hide'
-                                  : lang === 'zh' ? '查看' : 'View'}
-                              </button>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  onClick={() => setExpandedReportId(isOpen ? null : r.id)}
+                                >
+                                  {isOpen
+                                    ? lang === 'zh' ? '收起' : 'Hide'
+                                    : lang === 'zh' ? '查看' : 'View'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  onClick={() => copyReport(r)}
+                                >
+                                  {copiedReportId === r.id
+                                    ? lang === 'zh' ? '已复制' : 'Copied'
+                                    : lang === 'zh' ? '复制 Issue' : 'Copy issue'}
+                                </button>
+                              </div>
                             </Td>
                           </tr>
                           {isOpen && (
