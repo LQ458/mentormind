@@ -328,6 +328,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
 
             <div className="space-y-1">
               <textarea
+                aria-label={lang === 'zh' ? '反馈内容' : 'Feedback details'}
                 value={message}
                 onChange={(event) => {
                   setMessage(event.target.value.slice(0, FEEDBACK_TEXT_LIMIT))
@@ -349,6 +350,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
 
             <div className="space-y-1">
               <textarea
+                aria-label={lang === 'zh' ? '期望结果' : 'Expected outcome'}
                 value={expected}
                 onChange={(event) => {
                   setExpected(event.target.value.slice(0, FEEDBACK_TEXT_LIMIT))
