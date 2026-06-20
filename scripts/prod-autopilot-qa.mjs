@@ -90,6 +90,35 @@ function splitEnvList(value) {
     .filter(Boolean)
 }
 
+function collectZhUiTextLeaks(route, text) {
+  const leaks = []
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (route === '/lessons' || route === '/study-plan') {
+    const rawMetadata = lines.filter((line) => /^(math|ap|ready)$/i.test(line))
+    if (rawMetadata.length) {
+      leaks.push({
+        kind: 'raw_metadata',
+        values: [...new Set(rawMetadata)],
+      })
+    }
+  }
+  if (route === '/admin/feedback') {
+    const rawAccessText = []
+    if (/Sign in required/i.test(text)) rawAccessText.push('Sign in required')
+    if (/admin only/i.test(text)) rawAccessText.push('admin only')
+    if (rawAccessText.length) {
+      leaks.push({
+        kind: 'raw_access_denial',
+        values: rawAccessText,
+      })
+    }
+  }
+  return leaks
+}
+
 function percentile(values, p) {
   if (!values.length) return null
   const sorted = [...values].sort((a, b) => a - b)
@@ -401,6 +430,8 @@ async function checkPage(browser, route, viewport) {
         name: input.getAttribute('name') || '',
       })),
     }))
+    const bodyText = await page.locator('body').innerText().catch(() => '')
+    const zhUiTextLeaks = collectZhUiTextLeaks(route, bodyText)
     const latency = Math.round(performance.now() - started)
     events.push({ type: 'page_check', route, viewport: viewport.name, status, latency, finalUrl, metrics, observed, screenshot: shot })
     await postTelemetry('interaction', route, {
@@ -483,6 +514,23 @@ async function checkPage(browser, route, viewport) {
         page: route,
         expected: 'Primary page subrequests should not return 5xx.',
         evidence: { status, finalUrl, viewport: viewport.name, serverErrors: observed.serverErrors, screenshot: shot },
+      })
+    }
+    for (const leak of zhUiTextLeaks) {
+      await addFinding({
+        title: `${route} leaks untranslated UI text in zh locale (${viewport.name})`,
+        severity: 'wrong',
+        surface: 'i18n',
+        page: route,
+        expected: 'Chinese UI should show localized user-facing labels, not raw enum values or backend access messages.',
+        evidence: {
+          status,
+          finalUrl,
+          viewport: viewport.name,
+          leak,
+          bodySnippet: bodyText.slice(0, 1800),
+          screenshot: shot,
+        },
       })
     }
   } catch (error) {
@@ -2135,7 +2183,7 @@ async function main() {
         userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
       },
     ]
-    const routes = hasAuthSession() ? ['/', '/ask', '/study-plan', '/seminar'] : ['/']
+    const routes = hasAuthSession() ? ['/', '/ask', '/study-plan', '/lessons', '/seminar', '/admin/feedback'] : ['/']
     for (const viewport of viewports) {
       for (const route of routes) {
         await checkPage(browser, route, viewport)
