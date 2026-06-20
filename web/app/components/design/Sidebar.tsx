@@ -91,8 +91,12 @@ export default function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean;
   useEffect(() => {
     let cancelled = false
     const load = async () => {
-      if (!isLoaded) return
+      if (!isLoaded) {
+        setPlansLoaded(false)
+        return
+      }
       if (!isSignedIn) {
+        setPlans([])
         setPlansLoaded(true)
         return
       }
@@ -123,8 +127,12 @@ export default function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean;
   const subjectRows = useMemo(() => aggregateSubjects(plans, lang), [plans, lang])
 
   const initial = (user?.firstName?.[0] || user?.username?.[0] || 'M').toUpperCase()
-  const displayName = user?.fullName || user?.username || 'Guest'
-  const role = 'Learner'
+  const displayName = !isLoaded
+    ? lang === 'zh' ? '正在确认登录' : 'Checking session'
+    : user?.fullName || user?.username || 'Guest'
+  const role = !isLoaded
+    ? lang === 'zh' ? '请稍候' : 'Please wait'
+    : 'Learner'
 
   const isActive = (href: string) => {
     if (href === '/dashboard') return pathname === '/dashboard' || pathname === '/'

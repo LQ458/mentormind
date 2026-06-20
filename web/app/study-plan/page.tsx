@@ -361,7 +361,7 @@ function AssistantMessage({ content }: { content: string }) {
 export default function StudyPlanPage() {
   const router = useRouter()
   const { language: uiLanguage } = useLanguage()
-  const { getToken, user, isLoaded: authLoaded, signOut } = useAuth()
+  const { getToken, user, isLoaded: authLoaded, isSignedIn, signOut } = useAuth()
 
   const audioInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -427,6 +427,16 @@ export default function StudyPlanPage() {
 
   // Fetch existing study plans
   useEffect(() => {
+    if (!authLoaded) return
+    if (!isSignedIn) {
+      setMyPlans([])
+      setPlansLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setPlansLoading(true)
+
     const fetchPlans = async () => {
       try {
         const token = await getToken()
@@ -435,17 +445,21 @@ export default function StudyPlanPage() {
 
         const res = await fetch('/api/backend/study-plan/my-plans', { headers })
         const data = await res.json()
+        if (cancelled) return
         if (data.success && data.plans) {
           setMyPlans(data.plans)
         }
       } catch {
         // silently ignore
       } finally {
-        setPlansLoading(false)
+        if (!cancelled) setPlansLoading(false)
       }
     }
     fetchPlans()
-  }, [getToken, createdPlanId])
+    return () => {
+      cancelled = true
+    }
+  }, [authLoaded, isSignedIn, getToken, createdPlanId])
 
   const deleteExistingPlan = useCallback(async (planId: string) => {
     const ok = window.confirm(
