@@ -156,7 +156,7 @@ function safeUrlPath(value: unknown): string | undefined {
     const url = new URL(raw, window.location.origin)
     return `${url.pathname}${url.search ? '?...' : ''}`
   } catch {
-    return raw.split('?')[0].slice(0, 240)
+    return raw.split('?')[0].split('#')[0].slice(0, 240)
   }
 }
 

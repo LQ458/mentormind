@@ -6560,8 +6560,7 @@ async def get_admin_telemetry_aggregate(
     Admin-gated via the `User.role` field. Falls back to summary-only if a
     bad date is passed.
     """
-    if (current_user.role or "").lower() != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+    _admin_only(current_user)
 
     from datetime import datetime as _dt
     from sqlalchemy import func as _fn, case as _case
@@ -7029,8 +7028,7 @@ async def get_admin_feedback(
     db: Session = Depends(get_db),
 ):
     """Paginated admin view of feedback responses with optional filters."""
-    if (current_user.role or "").lower() != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+    _admin_only(current_user)
 
     from datetime import datetime as _dt
     from sqlalchemy import func as _fn
@@ -7086,8 +7084,7 @@ async def get_admin_feedback_aggregate(
 ):
     """Aggregate counters for the feedback survey: PMF, NPS, likert means &
     distributions, exam/language breakdowns. Admin-gated."""
-    if (current_user.role or "").lower() != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+    _admin_only(current_user)
 
     from datetime import datetime as _dt
     from sqlalchemy import func as _fn

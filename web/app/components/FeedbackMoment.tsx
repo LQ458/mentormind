@@ -21,6 +21,8 @@ const SEVERITIES: Array<{ value: Severity; en: string; zh: string }> = [
   { value: 'visual', en: 'Visual', zh: '界面问题' },
 ]
 
+const FEEDBACK_TEXT_LIMIT = 1200
+
 export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMomentProps) {
   const { language } = useLanguage()
   const lang = language === 'zh' ? 'zh' : 'en'
@@ -49,8 +51,8 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
       interaction_id: interactionId,
       feedback_kind: 'bug',
       severity,
-      user_note: trimmedNote.slice(0, 1200),
-      expected_behavior: trimmedExpected.slice(0, 1200),
+      user_note: trimmedNote.slice(0, FEEDBACK_TEXT_LIMIT),
+      expected_behavior: trimmedExpected.slice(0, FEEDBACK_TEXT_LIMIT),
       context: getTelemetryContextSnapshot(snapshot),
     })
     setSubmitting(false)
@@ -118,14 +120,16 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
           </div>
           <textarea
             value={note}
-            onChange={(event) => setNote(event.target.value)}
+            onChange={(event) => setNote(event.target.value.slice(0, FEEDBACK_TEXT_LIMIT))}
+            maxLength={FEEDBACK_TEXT_LIMIT}
             rows={2}
             placeholder={lang === 'zh' ? '例如：Mina只讲了答案，没有让我回应。' : 'Example: Mina explained but never asked me to respond.'}
             className="mb-2 w-full resize-none rounded-lg border border-gray-300 px-3 py-2 leading-5 outline-none focus:ring-2 focus:ring-blue-400"
           />
           <textarea
             value={expected}
-            onChange={(event) => setExpected(event.target.value)}
+            onChange={(event) => setExpected(event.target.value.slice(0, FEEDBACK_TEXT_LIMIT))}
+            maxLength={FEEDBACK_TEXT_LIMIT}
             rows={2}
             placeholder={lang === 'zh' ? '你期待它怎么做？可选' : 'What should it have done instead? Optional'}
             className="w-full resize-none rounded-lg border border-gray-300 px-3 py-2 leading-5 outline-none focus:ring-2 focus:ring-blue-400"

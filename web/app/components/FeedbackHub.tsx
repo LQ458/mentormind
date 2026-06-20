@@ -65,6 +65,8 @@ const SEVERITIES: Array<{ value: Severity; en: string; zh: string }> = [
   { value: 'idea', en: 'Idea', zh: '建议' },
 ]
 
+const FEEDBACK_TEXT_LIMIT = 1200
+
 function makeInteractionId(kind: FeedbackKind): string {
   const random = Math.random().toString(36).slice(2, 8)
   return `global-${kind}-${Date.now().toString(36)}-${random}`
@@ -95,6 +97,8 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     setSubmitting(false)
     setSubmitError(null)
     setSubmittedReportId(null)
+    setMessage('')
+    setExpected('')
   }, [launchContext, open])
 
   if (!open) return null
@@ -125,8 +129,8 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
       surface,
       interaction_id: launchContext?.interactionId || makeInteractionId(kind),
       severity,
-      user_note: userNote.slice(0, 1200),
-      expected_behavior: expectedBehavior.slice(0, 1200),
+      user_note: userNote.slice(0, FEEDBACK_TEXT_LIMIT),
+      expected_behavior: expectedBehavior.slice(0, FEEDBACK_TEXT_LIMIT),
       context: getTelemetryContextSnapshot({
         ...(launchContext?.snapshot || {}),
         feedback_kind: kind,
@@ -262,31 +266,43 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
               {lang === 'zh' ? selectedKind.zhHint : selectedKind.enHint}
             </div>
 
-            <textarea
-              value={message}
-              onChange={(event) => {
-                setMessage(event.target.value)
-                if (submitError) setSubmitError(null)
-              }}
-              rows={4}
-              placeholder={
-                lang === 'zh'
-                  ? '直接说：哪里坏了、哪里不好用、哪里感觉不对，或者哪里做得好。可以很短。'
-                  : 'Say what broke, what felt awkward, what felt bad, or what worked well. Short is fine.'
-              }
-              className="w-full resize-none rounded-xl border border-gray-300 px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-blue-400"
-            />
+            <div className="space-y-1">
+              <textarea
+                value={message}
+                onChange={(event) => {
+                  setMessage(event.target.value.slice(0, FEEDBACK_TEXT_LIMIT))
+                  if (submitError) setSubmitError(null)
+                }}
+                maxLength={FEEDBACK_TEXT_LIMIT}
+                rows={4}
+                placeholder={
+                  lang === 'zh'
+                    ? '直接说：哪里坏了、哪里不好用、哪里感觉不对，或者哪里做得好。可以很短。'
+                    : 'Say what broke, what felt awkward, what felt bad, or what worked well. Short is fine.'
+                }
+                className="w-full resize-none rounded-xl border border-gray-300 px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-blue-400"
+              />
+              <div className="text-right text-xs text-gray-400">
+                {message.length}/{FEEDBACK_TEXT_LIMIT}
+              </div>
+            </div>
 
-            <textarea
-              value={expected}
-              onChange={(event) => {
-                setExpected(event.target.value)
-                if (submitError) setSubmitError(null)
-              }}
-              rows={3}
-              placeholder={lang === 'zh' ? '你希望它怎么做？可选' : 'What should have happened instead? Optional'}
-              className="w-full resize-none rounded-xl border border-gray-300 px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-blue-400"
-            />
+            <div className="space-y-1">
+              <textarea
+                value={expected}
+                onChange={(event) => {
+                  setExpected(event.target.value.slice(0, FEEDBACK_TEXT_LIMIT))
+                  if (submitError) setSubmitError(null)
+                }}
+                maxLength={FEEDBACK_TEXT_LIMIT}
+                rows={3}
+                placeholder={lang === 'zh' ? '你希望它怎么做？可选' : 'What should have happened instead? Optional'}
+                className="w-full resize-none rounded-xl border border-gray-300 px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-blue-400"
+              />
+              <div className="text-right text-xs text-gray-400">
+                {expected.length}/{FEEDBACK_TEXT_LIMIT}
+              </div>
+            </div>
 
             {submitError && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">

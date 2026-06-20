@@ -63,3 +63,24 @@ def test_detailed_health_check_rejects_non_admin_before_monitoring_work():
 
     assert exc_info.value.status_code == 403
     get_system_metrics.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "invoke",
+    [
+        lambda user: server.get_admin_telemetry_aggregate(current_user=user, db=None),
+        lambda user: server.get_admin_feedback_reports(current_user=user, db=None),
+        lambda user: server.get_admin_feedback_reports_aggregate(current_user=user, db=None),
+        lambda user: server.get_admin_feedback(current_user=user, db=None),
+        lambda user: server.get_admin_feedback_aggregate(current_user=user, db=None),
+    ],
+)
+def test_feedback_and_telemetry_admin_data_reject_non_admin_before_db_access(invoke):
+    user = SimpleNamespace(role="student")
+
+    with pytest.raises(HTTPException) as exc_info:
+        result = invoke(user)
+        if hasattr(result, "__await__"):
+            asyncio.run(result)
+
+    assert exc_info.value.status_code == 403

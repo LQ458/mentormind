@@ -103,7 +103,9 @@ const PMF_LABELS: Record<string, { en: string; zh: string }> = {
 
 function csvEscape(v: unknown): string {
   if (v === null || v === undefined) return ''
-  const s = typeof v === 'string' ? v : JSON.stringify(v)
+  let s = typeof v === 'string' ? v : JSON.stringify(v)
+  // Prevent tester-provided text from being interpreted as a spreadsheet formula.
+  if (typeof v === 'string' && /^[\s]*[=+\-@]/.test(s)) s = `'${s}`
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
   return s
 }
