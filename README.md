@@ -81,6 +81,7 @@ Production autopilot QA:
 
 - `scripts/prod-autopilot-qa.mjs` runs authenticated production journeys against `https://mentormind.cloud`, stores local reports under `web/.browser-sessions/prod-autopilot-qa/`, and auto-reports real findings as `feedback_moment` telemetry events with `schema = mentormind.prod_autopilot_bug.v1`.
 - It currently covers responsive primary routes, `/ask` discussion flow, study-plan create routing, WebSocket upgrade, malformed API requests, malformed upload requests, and a bounded low-concurrency pressure smoke.
+- To keep tester feedback clean, diagnostic QA breadcrumbs stay local by default. Use `QA_POST_DIAGNOSTICS=true` only when production telemetry needs the full QA trace, or `QA_POST_FINDINGS=false` for a fully local dry run.
 
 More detail is in `docs/ai-testing-feedback-architecture.md`.
 
@@ -331,6 +332,9 @@ pnpm run qa:install-browsers
 BASE_URL=https://mentormind.cloud QA_INVITE_CODE=<invite-code> pnpm run qa:prod
 # Or reuse an existing tester account:
 BASE_URL=https://mentormind.cloud QA_USERNAME=<username> QA_PASSWORD=<password> pnpm run qa:prod
+# By default only real findings are posted to feedback telemetry.
+# Optional: QA_POST_DIAGNOSTICS=true posts every diagnostic QA event too.
+# Optional: QA_POST_FINDINGS=false keeps the whole run local.
 # Outputs are written under web/.browser-sessions/prod-autopilot-qa/<run-id>/:
 # report.json, report.md, issues.md, plus screenshots.
 

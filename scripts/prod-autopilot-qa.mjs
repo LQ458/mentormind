@@ -46,6 +46,8 @@ const RUN_SEMINAR_QA = process.env.RUN_SEMINAR_QA !== 'false'
 const RUN_BOARD_QA = process.env.RUN_BOARD_QA !== 'false'
 const RUN_VISUAL_QA = process.env.RUN_VISUAL_QA !== 'false'
 const QA_RUN_UPLOAD_UI = process.env.QA_RUN_UPLOAD_UI !== 'false'
+const QA_POST_FINDINGS = process.env.QA_POST_FINDINGS !== 'false'
+const QA_POST_DIAGNOSTICS = process.env.QA_POST_DIAGNOSTICS === 'true'
 
 const findings = []
 const events = []
@@ -122,6 +124,16 @@ function compactTelemetryValue(value, depth = 0) {
 }
 
 async function postTelemetry(eventType, page, payload, latencyMs = null) {
+  const isFinding = eventType === 'feedback_moment'
+  if (isFinding && !QA_POST_FINDINGS) {
+    events.push({ type: 'telemetry_skipped', eventType, page, reason: 'QA_POST_FINDINGS=false' })
+    return true
+  }
+  if (!isFinding && !QA_POST_DIAGNOSTICS) {
+    events.push({ type: 'telemetry_skipped', eventType, page, reason: 'QA_POST_DIAGNOSTICS=false' })
+    return true
+  }
+
   const body = {
     session_id: RUN_ID,
     event_type: eventType,
