@@ -7383,6 +7383,60 @@ _SURVEY_LIKERT_KEYS = {
     "return_next_week",
 }
 _SURVEY_LANG_ALLOWED = {"en", "zh"}
+_SURVEY_CONTACT_EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,63}$")
+
+
+def _survey_optional_text(value: Any, max_len: int) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    value = value.strip()
+    if not value:
+        return None
+    return value[:max_len]
+
+
+def _sanitize_survey_contact_email(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    email = value.strip().lower()
+    if not email:
+        return None
+    if len(email) > 255 or not _SURVEY_CONTACT_EMAIL_RE.fullmatch(email):
+        raise HTTPException(status_code=400, detail="Invalid contact_email")
+    return email
+
+
+def _survey_has_substantive_answer(
+    *,
+    exam: Optional[str],
+    school_year: Optional[str],
+    prior_tools: List[str],
+    likert: Dict[str, int],
+    pmf_score: Optional[str],
+    nps: Optional[int],
+    pain_point: Optional[str],
+    feature_request: Optional[str],
+    other_feedback: Optional[str],
+    contact_email: Optional[str],
+) -> bool:
+    return any(
+        [
+            exam,
+            school_year,
+            prior_tools,
+            likert,
+            pmf_score,
+            nps is not None,
+            pain_point,
+            feature_request,
+            other_feedback,
+            contact_email,
+        ]
+    )
 
 
 @app.post("/feedback/submit")
@@ -7407,13 +7461,6 @@ async def post_feedback_submit(
         raise HTTPException(status_code=400, detail="Invalid JSON")
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="Body must be a JSON object")
-
-    def _trunc_str(v, max_len: int) -> Optional[str]:
-        if v is None:
-            return None
-        if not isinstance(v, str):
-            v = str(v)
-        return v[:max_len]
 
     # ---- Validation ---------------------------------------------------------
     pmf_score = body.get("pmf_score")
@@ -7454,7 +7501,9 @@ async def post_feedback_submit(
         for item in prior_tools_raw[:12]:
             if not isinstance(item, str):
                 continue
-            prior_tools_clean.append(item[:64])
+            clean_item = _survey_optional_text(item, 64)
+            if clean_item:
+                prior_tools_clean.append(clean_item)
 
     language_raw = body.get("language")
     if language_raw not in _SURVEY_LANG_ALLOWED:
@@ -7462,7 +7511,31 @@ async def post_feedback_submit(
     else:
         language_clean = language_raw
 
-    session_id = _trunc_str(body.get("session_id"), 255)
+    raw_session_id = body.get("session_id")
+    session_id = _sanitize_telemetry_session_id(raw_session_id)
+    if raw_session_id is not None and not session_id:
+        raise HTTPException(status_code=400, detail="Invalid session_id")
+
+    exam = _survey_optional_text(body.get("exam"), 64)
+    school_year = _survey_optional_text(body.get("school_year"), 64)
+    pain_point = _survey_optional_text(body.get("pain_point"), 4000)
+    feature_request = _survey_optional_text(body.get("feature_request"), 4000)
+    other_feedback = _survey_optional_text(body.get("other_feedback"), 4000)
+    contact_email = _sanitize_survey_contact_email(body.get("contact_email"))
+
+    if not _survey_has_substantive_answer(
+        exam=exam,
+        school_year=school_year,
+        prior_tools=prior_tools_clean,
+        likert=likert_clean,
+        pmf_score=pmf_score,
+        nps=nps_val,
+        pain_point=pain_point,
+        feature_request=feature_request,
+        other_feedback=other_feedback,
+        contact_email=contact_email,
+    ):
+        raise HTTPException(status_code=400, detail="Feedback response needs at least one answer")
 
     # ---- Auto-derive context from telemetry --------------------------------
     derived_board_lessons: Optional[int] = None
@@ -7520,22 +7593,22 @@ async def post_feedback_submit(
     response_row = SurveyResponse(
         user_id=str(current_user.id) if current_user else None,
         session_id=session_id,
-        exam=_trunc_str(body.get("exam"), 64),
-        school_year=_trunc_str(body.get("school_year"), 64),
+        exam=exam,
+        school_year=school_year,
         prior_tools=prior_tools_clean,
         likert=likert_clean,
         pmf_score=pmf_score,
         nps=nps_val,
-        pain_point=_trunc_str(body.get("pain_point"), 4000),
-        feature_request=_trunc_str(body.get("feature_request"), 4000),
-        other_feedback=_trunc_str(body.get("other_feedback"), 4000),
-        contact_email=_trunc_str(body.get("contact_email"), 255),
+        pain_point=pain_point,
+        feature_request=feature_request,
+        other_feedback=other_feedback,
+        contact_email=contact_email,
         language=language_clean,
         derived_session_minutes=derived_session_minutes,
         derived_board_lessons=derived_board_lessons,
         derived_plans_created=derived_plans_created,
-        user_agent=_trunc_str(user_agent, 512),
-        ip_address=_trunc_str(client_host, 45),
+        user_agent=_survey_optional_text(user_agent, 512),
+        ip_address=_survey_optional_text(client_host, 45),
     )
     try:
         db.add(response_row)

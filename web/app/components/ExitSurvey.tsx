@@ -124,6 +124,8 @@ type ExitSurveyPayload = {
   queued_at?: string
 }
 
+type SurveySubmitStatus = 'sent' | 'retry' | 'rejected'
+
 function surveyStorage(): Storage | null {
   if (typeof window === 'undefined') return null
   try {
@@ -203,7 +205,7 @@ function queuePendingSurveyPayload(payload: ExitSurveyPayload): void {
   }
 }
 
-async function submitSurveyPayload(payload: ExitSurveyPayload): Promise<boolean> {
+async function submitSurveyPayload(payload: ExitSurveyPayload): Promise<SurveySubmitStatus> {
   try {
     const res = await fetch('/api/backend/feedback/submit', {
       method: 'POST',
@@ -211,11 +213,18 @@ async function submitSurveyPayload(payload: ExitSurveyPayload): Promise<boolean>
       body: JSON.stringify(payload),
       keepalive: true,
     })
-    if (!res.ok) return false
+    if (!res.ok) {
+      if (res.status === 408 || res.status === 429 || res.status >= 500) {
+        return 'retry'
+      }
+      return 'rejected'
+    }
     const data = await res.json().catch(() => ({}))
     return data?.success !== false && data?.ok !== false && data?.recorded !== false
+      ? 'sent'
+      : 'rejected'
   } catch {
-    return false
+    return 'retry'
   }
 }
 
@@ -225,8 +234,8 @@ async function flushPendingSurveyPayloads(): Promise<void> {
 
   const remaining: ExitSurveyPayload[] = []
   for (const payload of pending) {
-    const sent = await submitSurveyPayload(payload)
-    if (!sent) remaining.push(payload)
+    const status = await submitSurveyPayload(payload)
+    if (status === 'retry') remaining.push(payload)
   }
   writePendingSurveyPayloads(remaining)
 }
@@ -342,8 +351,8 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
       submitted_at: new Date().toISOString(),
     }
     void flushPendingSurveyPayloads().catch(() => {})
-    const sent = await submitSurveyPayload(payload)
-    if (!sent) {
+    const status = await submitSurveyPayload(payload)
+    if (status === 'retry') {
       queuePendingSurveyPayload(payload)
     }
     // Backwards-compatible analytics event
@@ -352,7 +361,8 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
         pmf: payload.pmf_score ?? 'unanswered',
         nps: payload.nps,
         partial,
-        queued: !sent,
+        queued: status === 'retry',
+        rejected: status === 'rejected',
       })
     } catch {
       // ignore

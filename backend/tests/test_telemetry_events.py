@@ -42,6 +42,59 @@ def test_sanitize_telemetry_session_id_accepts_only_safe_client_ids():
     assert server._sanitize_telemetry_session_id(None) is None
 
 
+def test_sanitize_survey_contact_email_normalizes_valid_email():
+    assert server._sanitize_survey_contact_email(" Tester@Example.COM ") == "tester@example.com"
+    assert server._sanitize_survey_contact_email("") is None
+    assert server._sanitize_survey_contact_email(None) is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "not-an-email",
+        "tester @example.com",
+        "tester@example",
+        "tester@example.com\nbcc:evil@example.com",
+        "a" * 260 + "@example.com",
+    ],
+)
+def test_sanitize_survey_contact_email_rejects_invalid_email(value):
+    with pytest.raises(HTTPException) as exc:
+        server._sanitize_survey_contact_email(value)
+
+    assert exc.value.status_code == 400
+
+
+def test_survey_has_substantive_answer_rejects_blank_payload():
+    assert not server._survey_has_substantive_answer(
+        exam=None,
+        school_year=None,
+        prior_tools=[],
+        likert={},
+        pmf_score=None,
+        nps=None,
+        pain_point=None,
+        feature_request=None,
+        other_feedback=None,
+        contact_email=None,
+    )
+
+
+def test_survey_has_substantive_answer_accepts_partial_feedback_metadata():
+    assert server._survey_has_substantive_answer(
+        exam="other",
+        school_year="other",
+        prior_tools=[],
+        likert={},
+        pmf_score=None,
+        nps=None,
+        pain_point=None,
+        feature_request=None,
+        other_feedback="tradeoffs={}",
+        contact_email=None,
+    )
+
+
 def test_sanitize_telemetry_payload_redacts_sensitive_keys_before_storage():
     payload = {
         "user_note": "x" * 1300,
