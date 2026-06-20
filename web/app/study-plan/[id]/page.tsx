@@ -1277,9 +1277,9 @@ export default function StudyPlanPage() {
       if (!res.ok) throw new Error(`Status ${res.status}`)
       const data = await res.json()
       const fetched: PlanData = data.plan ?? data
-      // Preserve local "generating" status if polling is active — prevents
-      // a re-fetch (e.g. from token refresh) from briefly clobbering the
-      // generating indicator before the backend commit is visible.
+      // Preserve local "generating" only while the backend has not committed
+      // the dispatch yet. Once the server says ready/failed, trust it so users
+      // do not get trapped in a stale spinner.
       if (pollRef.current) {
         setPlan(prev => {
           if (!prev) return fetched
@@ -1287,8 +1287,12 @@ export default function StudyPlanPage() {
             ...fetched,
             units: fetched.units.map(u => {
               const prevUnit = prev.units.find(p => p.id === u.id)
-              if (prevUnit?.content_status === 'generating' && u.content_status !== 'generating') {
-                return { ...u, content_status: 'generating' as const }
+              if (prevUnit?.content_status === 'generating' && u.content_status === 'pending') {
+                return {
+                  ...u,
+                  content_status: 'generating' as const,
+                  generation_started_at: prevUnit.generation_started_at || u.generation_started_at,
+                }
               }
               return u
             }),
@@ -2012,10 +2016,19 @@ export default function StudyPlanPage() {
                 </p>
               )}
               {generationElapsedSeconds !== null && generationElapsedSeconds >= 120 && (
-                <div className="mx-auto max-w-md rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                  {lang === 'zh'
-                    ? '如果继续等待很久，可以稍后回来；若状态没有变化，请刷新后重试，或只生成“学习讲义/小测”。'
-                    : 'If this keeps taking a while, you can come back later. If the status does not change, refresh and retry with only Study Guide / Quiz.'}
+                <div className="mx-auto max-w-md rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 space-y-2">
+                  <p>
+                    {lang === 'zh'
+                      ? '如果继续等待很久，可以稍后回来；若状态没有变化，请刷新状态或稍后只生成“学习讲义/小测”。'
+                      : 'If this keeps taking a while, you can come back later. If the status does not change, refresh the status or retry later with only Study Guide / Quiz.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { void fetchPlan() }}
+                    className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                  >
+                    {lang === 'zh' ? '刷新状态' : 'Refresh status'}
+                  </button>
                 </div>
               )}
             </div>
