@@ -20,7 +20,6 @@ export default function HomePage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [showAuth, setShowAuth] = useState(false)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [ready, setReady] = useState(false)
@@ -31,13 +30,9 @@ export default function HomePage() {
     setReady(true)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const startLearning = () => {
-    if (isSignedIn) {
-      router.push('/study-plan')
-      return
-    }
-    setShowAuth(true)
-  }
+  useEffect(() => {
+    if (isLoaded && isSignedIn) router.replace('/study-plan')
+  }, [isLoaded, isSignedIn, router])
 
   const isRegister = inviteCode.trim().length > 0
   const canSubmit =
@@ -113,72 +108,63 @@ export default function HomePage() {
           MentorMind
         </h1>
 
-        {!showAuth && (
-          <button
-            type="button"
-            onClick={startLearning}
-            className="mt-10 inline-flex h-12 min-w-[168px] items-center justify-center rounded-lg bg-[var(--ink)] px-6 text-sm font-semibold text-[var(--bg)] shadow-sm transition hover:opacity-90"
-          >
-            {language === 'zh' ? '开始学习' : 'Start learning'}
-          </button>
-        )}
+        <form onSubmit={handleSubmit} className="mt-10 space-y-3 text-left">
+          <input
+            type="text"
+            value={username}
+            onChange={(e) => { setUsername(e.target.value); setError('') }}
+            placeholder={language === 'zh' ? '用户名' : 'Username'}
+            autoFocus
+            disabled={submitting}
+            autoComplete="username"
+            className="h-12 w-full rounded-lg border border-[var(--line-strong)] bg-white px-4 text-base outline-none transition focus:border-[var(--accent)]"
+          />
 
-        {showAuth && (
-          <form onSubmit={handleSubmit} className="mt-10 space-y-3 text-left">
+          <div className="relative">
             <input
-              type="text"
-              value={username}
-              onChange={(e) => { setUsername(e.target.value); setError('') }}
-              placeholder={language === 'zh' ? '用户名' : 'Username'}
-              autoFocus
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => { setPassword(e.target.value); setError('') }}
+              placeholder={language === 'zh' ? '密码' : 'Password'}
               disabled={submitting}
-              className="h-12 w-full rounded-lg border border-[var(--line-strong)] bg-white px-4 text-base outline-none transition focus:border-[var(--accent)]"
+              autoComplete={isRegister ? 'new-password' : 'current-password'}
+              className="h-12 w-full rounded-lg border border-[var(--line-strong)] bg-white px-4 pr-12 text-base outline-none transition focus:border-[var(--accent)]"
             />
-
-            <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => { setPassword(e.target.value); setError('') }}
-                placeholder={language === 'zh' ? '密码' : 'Password'}
-                disabled={submitting}
-                className="h-12 w-full rounded-lg border border-[var(--line-strong)] bg-white px-4 pr-12 text-base outline-none transition focus:border-[var(--accent)]"
-              />
-              <button
-                type="button"
-                tabIndex={-1}
-                onClick={() => setShowPassword((prev) => !prev)}
-                className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-md text-[var(--ink-muted)] hover:bg-[var(--surface-2)]"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-              >
-                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
-              </button>
-            </div>
-
-            <input
-              type="text"
-              value={inviteCode}
-              onChange={(e) => { setInviteCode(e.target.value); setError('') }}
-              placeholder={language === 'zh' ? '邀请码（首次注册）' : 'Invite code for registration'}
-              disabled={submitting}
-              className="h-12 w-full rounded-lg border border-[var(--line-strong)] bg-white px-4 text-base outline-none transition focus:border-[var(--accent)]"
-            />
-
-            {error && <p className="text-sm text-red-600">{error}</p>}
-
             <button
-              type="submit"
-              disabled={submitting || !canSubmit}
-              className="h-12 w-full rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              tabIndex={-1}
+              onClick={() => setShowPassword((prev) => !prev)}
+              className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-md text-[var(--ink-muted)] hover:bg-[var(--surface-2)]"
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
-              {submitting
-                ? (language === 'zh' ? '处理中...' : 'Processing...')
-                : isRegister
-                  ? (language === 'zh' ? '注册并开始' : 'Register and start')
-                  : (language === 'zh' ? '登录并开始' : 'Sign in and start')}
+              {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
             </button>
-          </form>
-        )}
+          </div>
+
+          <input
+            type="text"
+            value={inviteCode}
+            onChange={(e) => { setInviteCode(e.target.value); setError('') }}
+            placeholder={language === 'zh' ? '邀请码（首次注册）' : 'Invite code for registration'}
+            disabled={submitting}
+            autoComplete="one-time-code"
+            className="h-12 w-full rounded-lg border border-[var(--line-strong)] bg-white px-4 text-base outline-none transition focus:border-[var(--accent)]"
+          />
+
+          {error && <p className="text-sm text-red-600">{error}</p>}
+
+          <button
+            type="submit"
+            disabled={submitting || !canSubmit}
+            className="h-12 w-full rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {submitting
+              ? (language === 'zh' ? '处理中...' : 'Processing...')
+              : isRegister
+                ? (language === 'zh' ? '注册并开始' : 'Register and start')
+                : (language === 'zh' ? '登录并开始' : 'Sign in and start')}
+          </button>
+        </form>
       </div>
     </main>
   )
