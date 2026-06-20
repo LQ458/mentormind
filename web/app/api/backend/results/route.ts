@@ -12,30 +12,14 @@ export async function GET(request: NextRequest) {
       headers: backendHeaders(request),
     })
 
-    if (backendResponse.status === 401) {
-      return NextResponse.json({
-        success: true,
-        results: [],
-        total: 0,
-        timestamp: new Date().toISOString()
-      })
-    }
-
-    if (!backendResponse.ok) {
-      throw new Error(`Backend results error: ${backendResponse.status}`)
-    }
-
     const resultsData = await backendResponse.json()
-    return NextResponse.json(resultsData)
+    return NextResponse.json(resultsData, { status: backendResponse.status })
   } catch (error) {
     console.error('Failed to get backend results:', error)
-    // Return empty results if backend is unavailable
-    return NextResponse.json({
-      success: true,
-      results: [],
-      total: 0,
-      timestamp: new Date().toISOString()
-    })
+    return NextResponse.json(
+      { error: 'Failed to get results', details: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 502 },
+    )
   }
 }
 
