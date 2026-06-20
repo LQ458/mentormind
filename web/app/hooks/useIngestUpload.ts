@@ -47,6 +47,9 @@ const AUDIO_POLL_ATTEMPTS = Math.ceil((AUDIO_POLL_MINUTES * 60_000) / INGEST_POL
 
 function extractErrorDetail(data: any): string {
   const raw = data?.detail || data?.details || data?.error || data?.message || ''
+  if (raw && typeof raw === 'object') {
+    return extractErrorDetail(raw)
+  }
   if (typeof raw !== 'string') return String(raw || '')
   try {
     const parsed = JSON.parse(raw)
@@ -59,6 +62,7 @@ function extractErrorDetail(data: any): string {
 function classifyUploadFailure(status: number | null, data: any, fallback: string): UploadFailure {
   const detail = extractErrorDetail(data) || fallback
   const lower = detail.toLowerCase()
+  const code = typeof data?.code === 'string' ? data.code.toLowerCase() : ''
 
   if (status === 401 || status === 403 || lower.includes('authentication') || lower.includes('unauthorized')) {
     return { type: 'auth', detail }
@@ -87,7 +91,14 @@ function classifyUploadFailure(status: number | null, data: any, fallback: strin
   if (lower.includes('transcription') || lower.includes('whisper') || lower.includes('funasr') || lower.includes('asr')) {
     return { type: 'transcription_unavailable', detail }
   }
-  if (lower.includes('fetch') || lower.includes('network') || lower.includes('failed to proxy')) {
+  if (
+    status === 502 ||
+    code === 'proxy_unreachable' ||
+    lower.includes('fetch') ||
+    lower.includes('network') ||
+    lower.includes('failed to proxy') ||
+    lower.includes('could not reach backend')
+  ) {
     return { type: 'network', detail }
   }
   return { type: 'backend', detail }
