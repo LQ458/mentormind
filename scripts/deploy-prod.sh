@@ -15,7 +15,11 @@ export COMPOSE_DOCKER_CLI_BUILD="${COMPOSE_DOCKER_CLI_BUILD:-1}"
 
 infer_build_metadata() {
   if [ -z "${MENTORMIND_BUILD_SHA:-}" ] && command -v git >/dev/null 2>&1; then
-    MENTORMIND_BUILD_SHA="$(git -C "$PROJECT_DIR" rev-parse --short=12 HEAD 2>/dev/null || true)"
+    MENTORMIND_BUILD_SHA="$(
+      cd "$PROJECT_DIR" &&
+        git rev-parse --short=12 HEAD 2>/dev/null ||
+        true
+    )"
     export MENTORMIND_BUILD_SHA
   fi
 }
