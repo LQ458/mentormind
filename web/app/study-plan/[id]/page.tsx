@@ -2053,6 +2053,7 @@ export default function StudyPlanPage() {
                       containerRef={contentRef}
                       subject={plan.subject}
                       unitTitle={selectedUnit.title}
+                      language={lang}
                       getAuthHeaders={authHeaders}
                     />
                     <StatusBadge status={selectedUnit.content_status} isCompleted={selectedUnit.is_completed} lang={lang} />
@@ -2112,6 +2113,7 @@ export default function StudyPlanPage() {
                   containerRef={contentRef}
                   subject={plan.subject}
                   unitTitle={selectedUnit.title}
+                  language={lang}
                   getAuthHeaders={authHeaders}
                 />
               </div>
