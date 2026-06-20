@@ -1,15 +1,15 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../_auth'
 
 export const dynamic = 'force-dynamic';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('Authorization')
     // Call real backend results endpoint
     const backendResponse = await fetch(`${BACKEND_URL}/results`, {
-      headers: authHeader ? { Authorization: authHeader } : {},
+      headers: backendHeaders(request),
     })
 
     if (backendResponse.status === 401) {
@@ -39,18 +39,14 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const authHeader = request.headers.get('Authorization')
 
     // Call real backend results endpoint (POST)
     const backendResponse = await fetch(`${BACKEND_URL}/results`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(authHeader ? { Authorization: authHeader } : {}),
-      },
+      headers: backendHeaders(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     })
 

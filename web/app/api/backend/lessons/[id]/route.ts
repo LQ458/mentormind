@@ -1,22 +1,19 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../../_auth'
 
 export const dynamic = 'force-dynamic';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
 export async function DELETE(
-    request: Request,
+    request: NextRequest,
     { params }: { params: { id: string } }
 ) {
     try {
         const id = params.id
         console.log(`🗑️ Proxying delete request for lesson: ${id}`)
 
-        const authHeader = request.headers.get('Authorization')
-        const headers: Record<string, string> = {}
-        if (authHeader) {
-            headers.Authorization = authHeader
-        }
+        const headers = backendHeaders(request)
 
         const backendResponse = await fetch(`${BACKEND_URL}/lessons/${id}`, {
             method: 'DELETE',
@@ -44,16 +41,12 @@ export async function DELETE(
 }
 
 export async function GET(
-    request: Request,
+    request: NextRequest,
     { params }: { params: { id: string } }
 ) {
     try {
         const id = params.id
-        const authHeader = request.headers.get('Authorization')
-        const headers: Record<string, string> = {}
-        if (authHeader) {
-            headers.Authorization = authHeader
-        }
+        const headers = backendHeaders(request)
         const backendResponse = await fetch(`${BACKEND_URL}/lessons/${id}`, { headers })
 
         if (!backendResponse.ok) {

@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../../../../_auth'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -14,10 +15,9 @@ export async function POST(
       `${BACKEND_URL}/board/session/${sessionId}/summary`,
       {
         method: 'POST',
-        headers: {
+        headers: backendHeaders(request, {
           'Content-Type': 'application/json',
-          Authorization: request.headers.get('Authorization') || '',
-        },
+        }),
         body: JSON.stringify(body),
       },
     )

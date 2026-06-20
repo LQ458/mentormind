@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
+import { backendHeaders } from '../../_auth'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -14,15 +15,11 @@ export async function GET(
 
         console.log(`[Media Proxy] Fetching: ${BACKEND_URL}/media/${mediaPath}`);
 
-        // Forward auth token and range headers
-        const authHeader = request.headers.get('Authorization')
+        // Forward auth token/cookie and range headers
         const rangeHeader = request.headers.get('range') || ''
-        const requestHeaders: Record<string, string> = {
+        const requestHeaders = backendHeaders(request, {
             'Range': rangeHeader,
-        }
-        if (authHeader) {
-            requestHeaders.Authorization = authHeader
-        }
+        })
 
         // Call the FastAPI backend's media streaming endpoint
         // We pass the entire absolute path because the backend handles it that way

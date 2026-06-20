@@ -1,9 +1,10 @@
 export const dynamic = 'force-dynamic';
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../_auth'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
     try {
         const body = await request.json()
         const normalizedBody = {
@@ -19,13 +20,7 @@ export async function POST(request: Request) {
             target_audience: body.target_audience ?? body.targetAudience,
             difficulty_level: body.difficulty_level ?? body.difficultyLevel,
         }
-        const authHeader = request.headers.get('Authorization')
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-        }
-        if (authHeader) {
-            headers.Authorization = authHeader
-        }
+        const headers = backendHeaders(request, { 'Content-Type': 'application/json' })
 
         const backendResponse = await fetch(`${BACKEND_URL}/create-class`, {
             method: 'POST',

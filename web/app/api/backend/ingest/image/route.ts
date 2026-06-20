@@ -1,21 +1,14 @@
 export const dynamic = 'force-dynamic';
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../../_auth'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
     console.log('📬 [PROXY] Image ingest request received (Streaming Mode)')
     try {
         const contentType = request.headers.get('content-type') || ''
-        const authHeader = request.headers.get('Authorization')
-        
-        // Prepare headers for forwarding
-        const headers: Record<string, string> = {
-            'Content-Type': contentType,
-        }
-        if (authHeader) {
-            headers['Authorization'] = authHeader
-        }
+        const headers = backendHeaders(request, { 'Content-Type': contentType })
 
         // Zero-Copy Proxy: Stream the request body directly to the backend
         const backendResponse = await fetch(`${BACKEND_URL}/ingest/image`, {
