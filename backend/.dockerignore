@@ -8,6 +8,17 @@ __pycache__
 .gitignore
 data/videos
 data/audio
+data/board-audio
+data/cache
+data/images
+data/uploads
+data/user_media
+config/data/videos
+config/data/audio
+config/data/lessons
+logs
+.cache
+models
 *.log
 .pytest_cache
 .mypy_cache
