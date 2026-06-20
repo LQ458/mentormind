@@ -56,6 +56,7 @@ const RECENT_LIMIT = 24
 const FEEDBACK_CONTEXT_LIMIT = 10
 const PENDING_FEEDBACK_LIMIT = 8
 const PENDING_FEEDBACK_MAX_BYTES = 48 * 1024
+const SAFE_SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{2,254}$/
 
 const SAFE_BREADCRUMB_KEYS = new Set([
   'action',
@@ -95,11 +96,19 @@ function safeUUID(): string {
   return `tlm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+function normalizeSessionId(value: string | null): string | null {
+  const trimmed = (value || '').trim()
+  return SAFE_SESSION_ID_RE.test(trimmed) ? trimmed : null
+}
+
 export function getOrCreateSessionId(): string {
   if (typeof window === 'undefined') return 'ssr'
   try {
-    const existing = window.sessionStorage.getItem(SESSION_KEY)
-    if (existing) return existing
+    const existing = normalizeSessionId(window.sessionStorage.getItem(SESSION_KEY))
+    if (existing) {
+      window.sessionStorage.setItem(SESSION_KEY, existing)
+      return existing
+    }
     const fresh = safeUUID()
     window.sessionStorage.setItem(SESSION_KEY, fresh)
     return fresh
