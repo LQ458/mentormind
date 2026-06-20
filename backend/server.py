@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 import tempfile
 import re
 import uuid
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # Per-IP rate limiting for no-auth POSTs (slowapi)
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -3344,12 +3344,64 @@ STRIPE_PRICE_IDS = {
     "pro":        os.getenv("STRIPE_PRICE_PRO",        "price_pro_placeholder"),
     "enterprise": os.getenv("STRIPE_PRICE_ENTERPRISE", "price_enterprise_placeholder"),
 }
+ALLOWED_BILLING_PLANS = frozenset(STRIPE_PRICE_IDS.keys())
 
 
 class CheckoutSessionRequest(BaseModel):
     plan: str  # "basic" | "pro" | "enterprise"
     success_url: str = "http://localhost:3000/settings?checkout=success"
     cancel_url: str = "http://localhost:3000/settings?checkout=cancelled"
+
+
+def _checkout_allowed_origins() -> set[str]:
+    origins = {"http://localhost:3000", "http://localhost:3001"}
+    for env_name in ("PUBLIC_APP_URL", "NEXT_PUBLIC_APP_URL"):
+        value = os.getenv(env_name, "").strip()
+        if value:
+            parts = urlsplit(value)
+            if parts.scheme and parts.netloc:
+                origins.add(f"{parts.scheme}://{parts.netloc}")
+
+    for raw_origin in os.getenv("CORS_ORIGINS", "").split(","):
+        value = raw_origin.strip()
+        if not value:
+            continue
+        parts = urlsplit(value)
+        if parts.scheme and parts.netloc:
+            origins.add(f"{parts.scheme}://{parts.netloc}")
+
+    return origins
+
+
+def _validate_checkout_plan(plan: str) -> str:
+    normalized = (plan or "").strip().lower()
+    if normalized not in ALLOWED_BILLING_PLANS:
+        raise HTTPException(status_code=400, detail="Invalid billing plan")
+    return normalized
+
+
+def _validate_checkout_return_url(value: str, field_name: str) -> str:
+    raw = (value or "").strip()
+    try:
+        parts = urlsplit(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name}")
+
+    if parts.scheme not in {"http", "https"} or not parts.netloc:
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name}")
+
+    origin = f"{parts.scheme}://{parts.netloc}"
+    if origin not in _checkout_allowed_origins():
+        raise HTTPException(status_code=400, detail=f"{field_name} origin is not allowed")
+
+    return raw
+
+
+def _append_checkout_query(url: str, params: Dict[str, str]) -> str:
+    parts = urlsplit(url)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    query.extend(params.items())
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 @app.post("/billing/create-checkout-session")
@@ -3362,13 +3414,16 @@ async def create_checkout_session(
     Requires STRIPE_SECRET_KEY env var — returns a stub URL if not set.
     """
     stripe_key = os.getenv("STRIPE_SECRET_KEY")
-    price_id = STRIPE_PRICE_IDS.get(req.plan)
+    plan = _validate_checkout_plan(req.plan)
+    success_url = _validate_checkout_return_url(req.success_url, "success_url")
+    cancel_url = _validate_checkout_return_url(req.cancel_url, "cancel_url")
+    price_id = STRIPE_PRICE_IDS.get(plan)
     if not price_id or "placeholder" in price_id:
         # Graceful stub — no real Stripe key configured yet
         return {
             "success": True,
             "stub": True,
-            "checkout_url": f"{req.success_url}&plan={req.plan}&stub=true",
+            "checkout_url": _append_checkout_query(success_url, {"plan": plan, "stub": "true"}),
             "message": "Stripe not yet configured. Set STRIPE_SECRET_KEY to enable live checkout.",
         }
 
@@ -3380,9 +3435,9 @@ async def create_checkout_session(
             payment_method_types=["card"],
             line_items=[{"price": price_id, "quantity": 1}],
             mode="subscription",
-            success_url=req.success_url,
-            cancel_url=req.cancel_url,
-            metadata={"user_id": str(current_user.id), "plan": req.plan},
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={"user_id": str(current_user.id), "plan": plan},
         )
         return {"success": True, "stub": False, "checkout_url": session.url}
     except Exception as exc:
