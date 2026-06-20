@@ -106,6 +106,7 @@ def test_detailed_health_check_rejects_non_admin_before_monitoring_work():
     [
         lambda user: server.get_admin_telemetry_aggregate(current_user=user, db=None),
         lambda user: server.get_admin_feedback_reports(current_user=user, db=None),
+        lambda user: server.get_admin_feedback_report_context("evt-1", current_user=user, db=None),
         lambda user: server.get_admin_feedback_reports_aggregate(current_user=user, db=None),
         lambda user: server.get_admin_feedback(current_user=user, db=None),
         lambda user: server.get_admin_feedback_aggregate(current_user=user, db=None),

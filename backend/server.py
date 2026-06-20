@@ -6805,6 +6805,25 @@ def _feedback_report_unique_key(row: Dict[str, Any]) -> str:
     return f"event:{row.get('id')}"
 
 
+def _telemetry_context_event_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
+    """Bounded event shape for admin bug triage context.
+
+    Keep this useful for reproduction without exposing IP addresses or raw user
+    agent strings in the UI payload.
+    """
+    return {
+        "id": event.id,
+        "created_at": event.created_at.isoformat() if event.created_at else None,
+        "event_type": event.event_type,
+        "page": event.page,
+        "url": event.url,
+        "latency_ms": event.latency_ms,
+        "payload": event.payload or {},
+        "viewport_w": event.viewport_w,
+        "viewport_h": event.viewport_h,
+    }
+
+
 @app.get("/admin/feedback/reports")
 async def get_admin_feedback_reports(
     limit: int = 50,
@@ -6854,6 +6873,51 @@ async def get_admin_feedback_reports(
             "start_date": start_date,
             "end_date": end_date,
         },
+    }
+
+
+@app.get("/admin/feedback/reports/{event_id}/context")
+async def get_admin_feedback_report_context(
+    event_id: str,
+    limit: int = 120,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return bounded same-session telemetry around one feedback report."""
+    _admin_only(current_user)
+    limit = max(10, min(limit, 250))
+
+    report_event = (
+        db.query(TelemetryEvent)
+        .filter(
+            TelemetryEvent.id == event_id,
+            TelemetryEvent.event_type == "feedback_moment",
+        )
+        .first()
+    )
+    if not report_event:
+        raise HTTPException(status_code=404, detail="Feedback report not found")
+
+    q = db.query(TelemetryEvent).filter(TelemetryEvent.session_id == report_event.session_id)
+    if report_event.created_at:
+        q = q.filter(TelemetryEvent.created_at >= report_event.created_at - timedelta(minutes=30))
+        q = q.filter(TelemetryEvent.created_at <= report_event.created_at + timedelta(minutes=5))
+    events = q.order_by(TelemetryEvent.created_at.asc()).limit(limit).all()
+    rows = [_telemetry_context_event_to_dict(event) for event in events]
+    error_rows = [
+        row for row in rows
+        if row.get("event_type") in {"error_console", "error_network", "ws_close"}
+    ]
+    return {
+        "report": _feedback_report_to_dict(report_event),
+        "events": rows,
+        "errors": error_rows,
+        "event_count": len(rows),
+        "error_count": len(error_rows),
+        "window_minutes_before": 30,
+        "window_minutes_after": 5,
+        "limit": limit,
+        "truncated": len(rows) >= limit,
     }
 
 

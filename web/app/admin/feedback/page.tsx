@@ -90,6 +90,16 @@ interface FeedbackReportsAggregateResponse {
   error?: string
 }
 
+interface FeedbackReportContextResponse {
+  report?: FeedbackReportRow
+  events?: Array<Record<string, unknown>>
+  errors?: Array<Record<string, unknown>>
+  event_count?: number
+  error_count?: number
+  truncated?: boolean
+  error?: string
+}
+
 // ---------- Helpers ----------
 
 const LIKERT_LABELS: Record<string, { en: string; zh: string }> = {
@@ -276,6 +286,9 @@ export default function AdminFeedbackPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null)
   const [copiedReportId, setCopiedReportId] = useState<string | null>(null)
+  const [contextByReportId, setContextByReportId] = useState<Record<string, FeedbackReportContextResponse>>({})
+  const [contextLoadingId, setContextLoadingId] = useState<string | null>(null)
+  const [contextErrorByReportId, setContextErrorByReportId] = useState<Record<string, string>>({})
 
   const fetchData = async () => {
     setLoading(true)
@@ -390,6 +403,35 @@ export default function AdminFeedbackPage() {
     window.setTimeout(() => {
       setCopiedReportId((current) => (current === report.id ? null : current))
     }, 1800)
+  }
+
+  const loadReportContext = async (report: FeedbackReportRow) => {
+    if (contextByReportId[report.id]) {
+      setExpandedReportId(report.id)
+      return
+    }
+    setContextLoadingId(report.id)
+    setContextErrorByReportId((prev) => ({ ...prev, [report.id]: '' }))
+    try {
+      const res = await fetch(`/api/backend/admin/feedback/reports/${encodeURIComponent(report.id)}/context`)
+      const data = (await res.json().catch(() => ({}))) as FeedbackReportContextResponse
+      if (!res.ok) {
+        setContextErrorByReportId((prev) => ({
+          ...prev,
+          [report.id]: data.error || `HTTP ${res.status}`,
+        }))
+        return
+      }
+      setContextByReportId((prev) => ({ ...prev, [report.id]: data }))
+      setExpandedReportId(report.id)
+    } catch {
+      setContextErrorByReportId((prev) => ({
+        ...prev,
+        [report.id]: lang === 'zh' ? '上下文加载失败' : 'Failed to load context',
+      }))
+    } finally {
+      setContextLoadingId((current) => (current === report.id ? null : current))
+    }
   }
 
   return (
@@ -593,6 +635,16 @@ export default function AdminFeedbackPage() {
                                     ? lang === 'zh' ? '已复制' : 'Copied'
                                     : lang === 'zh' ? '复制 Issue' : 'Copy issue'}
                                 </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  onClick={() => loadReportContext(r)}
+                                  disabled={contextLoadingId === r.id}
+                                >
+                                  {contextLoadingId === r.id
+                                    ? lang === 'zh' ? '加载中' : 'Loading'
+                                    : lang === 'zh' ? '上下文' : 'Context'}
+                                </button>
                               </div>
                             </Td>
                           </tr>
@@ -634,6 +686,18 @@ export default function AdminFeedbackPage() {
                                   label={lang === 'zh' ? '页面快照' : 'App snapshot'}
                                   value={r.app_snapshot}
                                 />
+                                {contextErrorByReportId[r.id] && (
+                                  <DetailBlock
+                                    label={lang === 'zh' ? '上下文加载错误' : 'Context error'}
+                                    value={contextErrorByReportId[r.id]}
+                                  />
+                                )}
+                                {contextByReportId[r.id] && (
+                                  <FeedbackContextPanel
+                                    context={contextByReportId[r.id]}
+                                    lang={lang}
+                                  />
+                                )}
                               </td>
                             </tr>
                           )}
@@ -1050,6 +1114,53 @@ function JsonBlock({ label, value }: { label: string; value?: unknown }) {
       >
         {text}
       </pre>
+    </div>
+  )
+}
+
+function FeedbackContextPanel({
+  context,
+  lang,
+}: {
+  context: FeedbackReportContextResponse
+  lang: 'zh' | 'en'
+}) {
+  const events = context.events || []
+  const errors = context.errors || []
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        padding: 12,
+        border: '1px solid var(--line, #e8ecf0)',
+        borderRadius: 10,
+        background: 'var(--surface, #fff)',
+      }}
+    >
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+        <span style={{ fontSize: 12, fontWeight: 700 }}>
+          {lang === 'zh' ? '同会话上下文' : 'Same-session context'}
+        </span>
+        <span className="muted" style={{ fontSize: 12 }}>
+          {lang === 'zh' ? '事件' : 'Events'}: {context.event_count ?? events.length}
+        </span>
+        <span className="muted" style={{ fontSize: 12 }}>
+          {lang === 'zh' ? '错误' : 'Errors'}: {context.error_count ?? errors.length}
+        </span>
+        {context.truncated && (
+          <span style={{ fontSize: 12, color: 'var(--warn, #d97706)' }}>
+            {lang === 'zh' ? '已截断' : 'Truncated'}
+          </span>
+        )}
+      </div>
+      <JsonBlock
+        label={lang === 'zh' ? '上下文错误' : 'Context errors'}
+        value={errors}
+      />
+      <JsonBlock
+        label={lang === 'zh' ? '上下文事件时间线' : 'Context event timeline'}
+        value={events}
+      />
     </div>
   )
 }

@@ -1,5 +1,7 @@
 import os
 import sys
+from datetime import datetime
+from types import SimpleNamespace
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -55,3 +57,27 @@ def test_feedback_report_matches_supports_source_filter():
         kind="bug",
         severity="blocked",
     )
+
+
+def test_feedback_context_event_shape_omits_ip_and_user_agent():
+    row = server._telemetry_context_event_to_dict(
+        SimpleNamespace(
+            id="evt-1",
+            created_at=datetime(2026, 6, 20, 8, 0, 0),
+            event_type="error_console",
+            page="/study-plan",
+            url="/study-plan",
+            latency_ms=None,
+            payload={"message": "boom"},
+            viewport_w=390,
+            viewport_h=844,
+            ip_address="203.0.113.10",
+            user_agent="secret browser",
+        )
+    )
+
+    assert row["id"] == "evt-1"
+    assert row["event_type"] == "error_console"
+    assert row["payload"]["message"] == "boom"
+    assert "ip_address" not in row
+    assert "user_agent" not in row
