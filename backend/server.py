@@ -9,7 +9,7 @@ import logging
 import os
 import sys
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Request, WebSocket, WebSocketDisconnect
@@ -3506,6 +3506,9 @@ from core.board.storage import (
 
 study_plan_agent = StudyPlanAgent()
 STUDY_PLAN_DELETE_RETENTION_DAYS = 30
+STUDY_PLAN_UNIT_GENERATION_STALE_AFTER = timedelta(
+    minutes=int(os.getenv("STUDY_PLAN_UNIT_GENERATION_STALE_MINUTES", "10"))
+)
 
 
 def _active_study_plan_query(db: Session, user_id: str):
@@ -3557,6 +3560,42 @@ def _soft_delete_study_plan_unit(unit: StudyPlanUnit) -> None:
     unit.content_status = "deleted"
     unit.deleted_at = now
     unit.purge_after = now + timedelta(days=STUDY_PLAN_DELETE_RETENTION_DAYS)
+
+
+def _as_utc_datetime(value: Any) -> Optional[datetime]:
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _study_plan_unit_generation_is_stale(unit: Any, now: Optional[datetime] = None) -> bool:
+    if getattr(unit, "content_status", None) != "generating":
+        return False
+    reference = (
+        _as_utc_datetime(getattr(unit, "generation_started_at", None))
+        or _as_utc_datetime(getattr(unit, "updated_at", None))
+    )
+    if not reference:
+        return False
+    checked_at = _as_utc_datetime(now) or datetime.now(timezone.utc)
+    return checked_at - reference > STUDY_PLAN_UNIT_GENERATION_STALE_AFTER
+
+
+def _mark_stale_study_plan_unit_generations_failed(db: Session, units: List[Any]) -> int:
+    stale_count = 0
+    for unit in units:
+        if not _study_plan_unit_generation_is_stale(unit):
+            continue
+        logger.warning(f"Study plan unit {getattr(unit, 'id', 'unknown')} stuck generating; marking failed")
+        unit.content_status = "failed"
+        unit.generation_task_id = None
+        unit.generation_started_at = None
+        stale_count += 1
+    if stale_count:
+        db.commit()
+    return stale_count
 
 
 def _active_study_plan_unit_query(db: Session, plan_id: str):
@@ -5300,6 +5339,7 @@ async def get_study_plan(
         )
         if not plan:
             raise HTTPException(status_code=404, detail="Study plan not found")
+        _mark_stale_study_plan_unit_generations_failed(db, list(plan.units or []))
         return {"success": True, "plan": plan.to_dict(include_units=True)}
     except HTTPException:
         raise
@@ -5430,14 +5470,8 @@ async def generate_unit_content(
             except Exception as exc:
                 logger.warning(f"Unit content cache lookup failed: {exc}")
 
-        # Recovery: if stuck in 'generating' for over 10 minutes, reset
         if unit.content_status == "generating":
-            from datetime import datetime, timezone, timedelta
-            if unit.updated_at and (datetime.now(timezone.utc) - unit.updated_at.replace(tzinfo=timezone.utc)) > timedelta(minutes=10):
-                logger.warning(f"Unit {unit_id} stuck in 'generating' for >10min, resetting")
-                unit.content_status = "failed"
-                db.commit()
-            else:
+            if not _mark_stale_study_plan_unit_generations_failed(db, [unit]):
                 return {
                     "success": True,
                     "message": "Generation already in progress",
@@ -5592,6 +5626,7 @@ async def get_unit_content(
         unit = _active_study_plan_unit_query(db, plan_id).filter(StudyPlanUnit.id == unit_id).first()
         if not unit:
             raise HTTPException(status_code=404, detail="Unit not found")
+        _mark_stale_study_plan_unit_generations_failed(db, [unit])
 
         return {
             "success": True,
