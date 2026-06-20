@@ -7140,7 +7140,7 @@ def _feedback_report_to_dict(event: TelemetryEvent, tester: Optional[Dict[str, A
     app_snapshot = context.get("app_snapshot") if isinstance(context.get("app_snapshot"), dict) else {}
     recent_events = context.get("recent_events") if isinstance(context.get("recent_events"), list) else []
     recent_errors = context.get("recent_errors") if isinstance(context.get("recent_errors"), list) else []
-    return {
+    row = {
         "id": event.id,
         "created_at": event.created_at.isoformat() if event.created_at else None,
         "user_id": event.user_id,
@@ -7165,6 +7165,10 @@ def _feedback_report_to_dict(event: TelemetryEvent, tester: Optional[Dict[str, A
         "recent_errors": _sanitize_admin_context_value(recent_errors[:5]),
         "app_snapshot": _sanitize_admin_context_value(app_snapshot),
     }
+    score, reasons = _feedback_report_priority(row)
+    row["priority_score"] = score
+    row["priority_reasons"] = reasons
+    return row
 
 
 def _feedback_report_matches(

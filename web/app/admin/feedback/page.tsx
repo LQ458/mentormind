@@ -249,6 +249,7 @@ function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextRes
     `- Surface: ${r.surface || '—'}`,
     `- Kind: ${r.feedback_kind || '—'}`,
     `- Severity: ${r.severity || '—'}`,
+    `- Priority: ${r.priority_score ?? '—'}${r.priority_reasons?.length ? ` (${r.priority_reasons.join(', ')})` : ''}`,
     `- Page: ${page}`,
     `- URL: ${url}`,
     `- Viewport: ${viewport}`,

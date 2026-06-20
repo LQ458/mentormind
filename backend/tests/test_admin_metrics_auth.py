@@ -216,6 +216,8 @@ def test_feedback_report_admin_urls_redact_query_and_fragment():
     assert data["build"]["sha"] == "abc123"
     assert data["build"]["image_tag"] == "prod"
     assert data["build"]["sessionToken"] == "[redacted]"
+    assert data["priority_score"] >= 0
+    assert isinstance(data["priority_reasons"], list)
 
 
 def test_feedback_report_includes_safe_tester_summary():
