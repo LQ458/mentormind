@@ -329,6 +329,8 @@ python -m pytest tests/integration/test_ingest_upload_errors.py -q
 cd web
 pnpm run qa:install-browsers
 BASE_URL=https://mentormind.cloud QA_INVITE_CODE=<invite-code> pnpm run qa:prod
+# Or reuse an existing tester account:
+BASE_URL=https://mentormind.cloud QA_USERNAME=<username> QA_PASSWORD=<password> pnpm run qa:prod
 
 # Frontend type check
 pnpm exec tsc --noEmit

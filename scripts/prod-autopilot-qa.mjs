@@ -28,6 +28,8 @@ const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 90000)
 const RUN_PERSONA_QA = process.env.RUN_PERSONA_QA !== 'false'
 const PERSONA_LIMIT = Number(process.env.PERSONA_LIMIT || 4)
 const QA_INVITE_CODE = process.env.QA_INVITE_CODE || ''
+const QA_USERNAME_PROVIDED = Boolean(process.env.QA_USERNAME)
+const QA_PASSWORD_PROVIDED = Boolean(process.env.QA_PASSWORD)
 const QA_USERNAME = process.env.QA_USERNAME || `qa_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
 const QA_PASSWORD = process.env.QA_PASSWORD || `qa_${Math.random().toString(36).slice(2, 10)}`
 const QA_IMAGE_FIXTURE = process.env.QA_IMAGE_FIXTURE || ''
@@ -127,23 +129,24 @@ async function postTelemetry(eventType, page, payload, latencyMs = null) {
 
 async function ensureAuthSession() {
   if (authSession) return authSession
-  if (!QA_INVITE_CODE) {
-    events.push({ type: 'auth_skipped', reason: 'QA_INVITE_CODE not provided' })
+  const canLoginExistingAccount = QA_USERNAME_PROVIDED && QA_PASSWORD_PROVIDED
+  if (!QA_INVITE_CODE && !canLoginExistingAccount) {
+    events.push({ type: 'auth_skipped', reason: 'QA_INVITE_CODE or QA_USERNAME/QA_PASSWORD not provided' })
     return null
   }
-  const registerBody = {
-    invite_code: QA_INVITE_CODE,
+  const authBody = {
     username: QA_USERNAME,
     password: QA_PASSWORD,
     language: 'zh',
   }
+  if (QA_INVITE_CODE) authBody.invite_code = QA_INVITE_CODE
   let res = await fetch(`${BASE_URL}/api/backend/auth/invite`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(registerBody),
+    body: JSON.stringify(authBody),
   })
   let data = await res.json().catch(() => ({}))
-  if (res.status === 409) {
+  if (QA_INVITE_CODE && res.status === 409) {
     res = await fetch(`${BASE_URL}/api/backend/auth/invite`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -157,7 +160,9 @@ async function ensureAuthSession() {
       severity: 'blocked',
       surface: 'auth',
       page: '/auth',
-      expected: 'QA harness should be able to create or reuse a disposable account through invite auth.',
+      expected: QA_INVITE_CODE
+        ? 'QA harness should be able to create or reuse a disposable account through invite auth.'
+        : 'QA harness should be able to login with the provided QA_USERNAME and QA_PASSWORD.',
       evidence: { status: res.status, data, username: QA_USERNAME },
       report: true,
     })
