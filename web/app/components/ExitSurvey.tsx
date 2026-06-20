@@ -110,9 +110,9 @@ type ExitSurveyPayload = {
   exam: string
   school_year: string
   prior_tools: string[]
-  likert: Record<LikertKey, number>
-  pmf_score: PmfValue | 'not'
-  nps: number
+  likert: Partial<Record<LikertKey, number>>
+  pmf_score: PmfValue | null
+  nps: number | null
   pain_point: string
   feature_request: string
   other_feedback: string
@@ -303,19 +303,21 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
   }
 
   const buildPayload = (partial: boolean) => {
+    const likertPayload: Partial<Record<LikertKey, number>> = {}
+    for (const question of LIKERT_QUESTIONS) {
+      const value = likert[question.key]
+      if (typeof value === 'number' && value >= 1 && value <= 5) {
+        likertPayload[question.key] = value
+      }
+    }
+
     return {
       exam: exam ?? (partial ? 'other' : 'other'),
       school_year: schoolYear ?? (partial ? 'other' : 'other'),
       prior_tools: priorTools,
-      likert: {
-        plan_useful: likert.plan_useful ?? 0,
-        lesson_clarity: likert.lesson_clarity ?? 0,
-        latency_ok: likert.latency_ok ?? 0,
-        smooth: likert.smooth ?? 0,
-        return_next_week: likert.return_next_week ?? 0,
-      },
-      pmf_score: pmf ?? 'not',
-      nps: typeof nps === 'number' ? nps : 0,
+      likert: likertPayload,
+      pmf_score: pmf,
+      nps: typeof nps === 'number' ? nps : null,
       pain_point: painPoint.slice(0, 4000),
       feature_request: featureRequest.slice(0, 4000),
       other_feedback: [
@@ -347,7 +349,7 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
     // Backwards-compatible analytics event
     try {
       track('survey_response', {
-        pmf: payload.pmf_score,
+        pmf: payload.pmf_score ?? 'unanswered',
         nps: payload.nps,
         partial,
         queued: !sent,

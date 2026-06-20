@@ -13,7 +13,7 @@ interface FeedbackRow {
   school_year: string
   prior_tools: string[]
   language: string
-  pmf_score: string
+  pmf_score: string | null
   nps: number | null
   likert: Record<string, number>
   pain_point: string
@@ -98,6 +98,7 @@ interface FeedbackReportContextResponse {
   error_count?: number
   truncated?: boolean
   error?: string
+  detail?: string
 }
 
 // ---------- Helpers ----------
@@ -273,6 +274,11 @@ function downloadReportCsv(rows: FeedbackReportRow[]) {
   URL.revokeObjectURL(url)
 }
 
+async function responseErrorMessage(res: Response): Promise<string> {
+  const data = (await res.json().catch(() => ({}))) as { error?: string; detail?: string }
+  return data.error || data.detail || `HTTP ${res.status}`
+}
+
 // ---------- Page ----------
 
 export default function AdminFeedbackPage() {
@@ -333,14 +339,14 @@ export default function AdminFeedbackPage() {
         fetch(`/api/backend/admin/feedback?${params.toString()}`),
       ])
 
-      const authFailure = !listRes.ok ? listRes : !reportListRes.ok ? reportListRes : null
-      if (authFailure) {
-        setStatusCode(authFailure.status)
-        const data = (await authFailure.json().catch(() => ({}))) as { error?: string; detail?: string }
-        if (authFailure.status === 401 || authFailure.status === 403) {
+      const failedResponse = [reportAggRes, reportListRes, aggRes, listRes].find((res) => !res.ok)
+      if (failedResponse) {
+        setStatusCode(failedResponse.status)
+        const message = await responseErrorMessage(failedResponse)
+        if (failedResponse.status === 401 || failedResponse.status === 403) {
           setError(lang === 'zh' ? '需要管理员权限' : 'Sign in required (admin only)')
         } else {
-          setError(data.error || data.detail || `HTTP ${authFailure.status}`)
+          setError(message)
         }
         setAggregate(null)
         setReportsAggregate(null)
@@ -424,7 +430,7 @@ export default function AdminFeedbackPage() {
       if (!res.ok) {
         setContextErrorByReportId((prev) => ({
           ...prev,
-          [report.id]: data.error || `HTTP ${res.status}`,
+          [report.id]: data.error || data.detail || `HTTP ${res.status}`,
         }))
         return null
       }
