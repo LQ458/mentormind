@@ -222,8 +222,6 @@ function formatTester(r: FeedbackReportRow): string {
 }
 
 function formatTesterForIssue(r: FeedbackReportRow): string {
-  const username = r.tester?.username || ''
-  if (username) return `${username} (signed-in tester)`
   return r.user_id ? 'Signed-in tester (see admin dashboard)' : 'Anonymous tester'
 }
 
@@ -231,11 +229,8 @@ function redactedTesterForIssue(r: FeedbackReportRow): Record<string, unknown> |
   if (!r.tester && !r.user_id) return null
   return {
     signed_in: Boolean(r.user_id),
-    username: r.tester?.username || undefined,
     role: r.tester?.role || undefined,
     language_preference: r.tester?.language_preference || undefined,
-    created_at: r.tester?.created_at || undefined,
-    last_login_at: r.tester?.last_login_at || undefined,
     admin_lookup: 'Use Report ID in the admin feedback dashboard for full tester details.',
   }
 }
