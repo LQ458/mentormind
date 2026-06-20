@@ -76,7 +76,11 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
     })
     setSubmitting(false)
     if (!ok) {
-      setError(lang === 'zh' ? '暂时没记录成功，请再试一次。' : 'Could not record it yet. Please try again.')
+      setError(
+        lang === 'zh'
+          ? '暂时没发出去；已在本次会话暂存，会自动重试。'
+          : 'Could not send it yet. It is saved for this session and will retry automatically.',
+      )
       return
     }
     setSubmittedReportId(reportId)

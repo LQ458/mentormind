@@ -146,8 +146,8 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     if (!ok) {
       setSubmitError(
         lang === 'zh'
-          ? '暂时没发出去。请稍后再试，或者保留这段文字。'
-          : 'Could not send this yet. Please try again in a moment.',
+          ? '暂时没发出去；已在本次浏览器会话暂存，会自动重试。也可以稍后再点一次发送。'
+          : 'Could not send this yet. It is saved for this browser session and will retry automatically.',
       )
       return
     }

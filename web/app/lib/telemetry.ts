@@ -51,8 +51,11 @@ interface TelemetryBreadcrumb {
 const TELEMETRY_ENDPOINT = '/api/backend/telemetry/event'
 const SESSION_KEY = 'mm_telemetry_session_id'
 const RECENT_EVENTS_KEY = 'mm_telemetry_recent_events_v1'
+const PENDING_FEEDBACK_KEY = 'mm_pending_feedback_events_v1'
 const RECENT_LIMIT = 24
 const FEEDBACK_CONTEXT_LIMIT = 10
+const PENDING_FEEDBACK_LIMIT = 8
+const PENDING_FEEDBACK_MAX_BYTES = 48 * 1024
 
 const SAFE_BREADCRUMB_KEYS = new Set([
   'action',
@@ -138,10 +141,75 @@ async function sendInteractive(payload: TelemetryPayload): Promise<boolean> {
     })
     if (!res.ok) return false
     const data = await res.json().catch(() => ({}))
-    return data?.ok !== false
+    return data?.ok !== false && data?.recorded !== false
   } catch {
     return false
   }
+}
+
+function pendingFeedbackKey(event: TelemetryPayload): string {
+  const payload = event.payload || {}
+  const reportId = typeof payload.report_id === 'string' ? payload.report_id : ''
+  return reportId || `${event.session_id}:${event.event_type}:${event.page}:${event.url}`
+}
+
+function readPendingFeedbackEvents(): TelemetryPayload[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.sessionStorage.getItem(PENDING_FEEDBACK_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed)
+      ? parsed.filter((item) => item?.event_type === 'feedback_moment').slice(-PENDING_FEEDBACK_LIMIT)
+      : []
+  } catch {
+    return []
+  }
+}
+
+function writePendingFeedbackEvents(events: TelemetryPayload[]): void {
+  if (typeof window === 'undefined') return
+  try {
+    const bounded = events.slice(-PENDING_FEEDBACK_LIMIT)
+    let text = JSON.stringify(bounded)
+    let trimmed = bounded
+    while (text.length > PENDING_FEEDBACK_MAX_BYTES && trimmed.length > 0) {
+      trimmed = trimmed.slice(1)
+      text = JSON.stringify(trimmed)
+    }
+    if (trimmed.length === 0) {
+      window.sessionStorage.removeItem(PENDING_FEEDBACK_KEY)
+    } else {
+      window.sessionStorage.setItem(PENDING_FEEDBACK_KEY, text)
+    }
+  } catch {
+    // Losing the fallback buffer must not affect the app.
+  }
+}
+
+function queuePendingFeedbackEvent(event: TelemetryPayload): void {
+  if (event.event_type !== 'feedback_moment') return
+  try {
+    const existing = readPendingFeedbackEvents()
+    const key = pendingFeedbackKey(event)
+    const next = [
+      ...existing.filter((item) => pendingFeedbackKey(item) !== key),
+      event,
+    ]
+    writePendingFeedbackEvents(next)
+  } catch {
+    // swallow
+  }
+}
+
+async function flushPendingFeedbackEvents(): Promise<void> {
+  const pending = readPendingFeedbackEvents()
+  if (pending.length === 0) return
+  const remaining: TelemetryPayload[] = []
+  for (const event of pending) {
+    const ok = await sendInteractive(event)
+    if (!ok) remaining.push(event)
+  }
+  writePendingFeedbackEvents(remaining)
 }
 
 function safeString(value: unknown, max = 180): string {
@@ -279,7 +347,15 @@ export async function trackNow(
     if (typeof meta?.latency_ms === 'number') event.latency_ms = meta.latency_ms
     if (payload && Object.keys(payload).length > 0) event.payload = payload
     rememberEvent(event)
-    return await sendInteractive(event)
+    const ok = await sendInteractive(event)
+    if (!ok) {
+      queuePendingFeedbackEvent(event)
+      return false
+    }
+    if (type === 'feedback_moment') {
+      void flushPendingFeedbackEvents().catch(() => {})
+    }
+    return true
   } catch {
     return false
   }
@@ -344,6 +420,8 @@ export function initTelemetry(): void {
         }
       }) as typeof window.fetch
     }
+
+    void flushPendingFeedbackEvents().catch(() => {})
 
     // Global error capture — record only what's safe (no user input).
     window.addEventListener('error', (ev) => {
