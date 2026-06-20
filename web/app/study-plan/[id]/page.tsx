@@ -1804,12 +1804,16 @@ export default function StudyPlanPage() {
           </div>
         </div>
         <button
-          className="md:hidden inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600"
+          className={`md:hidden inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${
+            !selectedUnit && plan.units.length > 0
+              ? 'border-blue-200 bg-blue-50 text-blue-700'
+              : 'border-gray-200 bg-white text-gray-600'
+          }`}
           onClick={() => setSidebarOpen(v => !v)}
           aria-label={lang === 'zh' ? '展开或收起单元列表' : 'Toggle unit list'}
         >
           <span aria-hidden>☰</span>
-          <span>{lang === 'zh' ? '单元' : 'Units'}</span>
+          <span>{lang === 'zh' ? `单元 ${plan.units.length}` : `Units ${plan.units.length}`}</span>
         </button>
       </div>
 
@@ -1993,7 +1997,14 @@ export default function StudyPlanPage() {
           ) : !selectedUnit ? (
             <div className="flex flex-col items-center justify-center h-64 bg-white rounded-xl shadow-sm border border-gray-200 text-center p-8">
               <div className="text-4xl mb-3">📚</div>
-              <p className="text-gray-500 text-sm">{lang === 'zh' ? '请选择一个单元查看内容' : 'Select a unit from the left to view its content'}</p>
+              <p className="text-gray-500 text-sm">
+                <span className="md:hidden">
+                  {lang === 'zh' ? '点击右上角“单元”选择要学习的内容' : 'Tap Units in the top right to pick what to study'}
+                </span>
+                <span className="hidden md:inline">
+                  {lang === 'zh' ? '请选择一个单元查看内容' : 'Select a unit from the left to view its content'}
+                </span>
+              </p>
               {plan.units.length > 0 && (
                 <button
                   onClick={() => setSidebarOpen(true)}
