@@ -6802,6 +6802,10 @@ def _survey_response_admin_to_dict(response: SurveyResponse) -> Dict[str, Any]:
     return row
 
 
+def _admin_safe_url(value: Any, max_len: int = 512) -> str:
+    return _redact_url_for_telemetry(value, max_len) or ""
+
+
 def _feedback_report_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
     payload = event.payload or {}
     context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
@@ -6813,8 +6817,8 @@ def _feedback_report_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
         "created_at": event.created_at.isoformat() if event.created_at else None,
         "user_id": event.user_id,
         "session_id": event.session_id,
-        "page": event.page,
-        "url": event.url,
+        "page": _admin_safe_url(event.page, 240) or str(event.page or "")[:240],
+        "url": _admin_safe_url(event.url, 512),
         "viewport_w": event.viewport_w,
         "viewport_h": event.viewport_h,
         "source": _payload_str(payload, "source"),
@@ -6825,8 +6829,8 @@ def _feedback_report_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
         "report_id": _payload_str(payload, "report_id", 80),
         "user_note": _payload_str(payload, "user_note", 1200),
         "expected_behavior": _payload_str(payload, "expected_behavior", 1200),
-        "route": str(context.get("route") or event.page or "")[:240],
-        "captured_url": str(context.get("url") or event.url or "")[:512],
+        "route": _admin_safe_url(context.get("route") or event.page, 240),
+        "captured_url": _admin_safe_url(context.get("url") or event.url, 512),
         "recent_events": _sanitize_admin_context_value(recent_events[:10]),
         "recent_errors": _sanitize_admin_context_value(recent_errors[:5]),
         "app_snapshot": _sanitize_admin_context_value(app_snapshot),
@@ -6870,8 +6874,8 @@ def _telemetry_context_event_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
         "id": event.id,
         "created_at": event.created_at.isoformat() if event.created_at else None,
         "event_type": event.event_type,
-        "page": event.page,
-        "url": event.url,
+        "page": _admin_safe_url(event.page, 240) or str(event.page or "")[:240],
+        "url": _admin_safe_url(event.url, 512),
         "latency_ms": event.latency_ms,
         "payload": _sanitize_admin_context_value(event.payload or {}),
         "viewport_w": event.viewport_w,

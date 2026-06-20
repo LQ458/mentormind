@@ -174,3 +174,30 @@ def test_feedback_context_admin_payload_redacts_sensitive_fields():
     assert context["app_snapshot"]["access_token"] == "[redacted]"
     assert context["app_snapshot"]["safe_value"] == "kept"
     assert context["app_snapshot"]["url"] == "/study-plan?...#..."
+
+
+def test_feedback_report_admin_urls_redact_query_and_fragment():
+    event = SimpleNamespace(
+        id="evt-2",
+        created_at=None,
+        user_id=None,
+        session_id="session-1",
+        page="/study-plan?token=page-token",
+        url="https://mentormind.cloud/study-plan?invite=abc#frag",
+        viewport_w=390,
+        viewport_h=844,
+        payload={
+            "source": "inline_feedback_moment",
+            "context": {
+                "route": "/study-plan/abc?token=route-token",
+                "url": "https://mentormind.cloud/study-plan/abc?token=url-token#hash",
+            },
+        },
+    )
+
+    data = server._feedback_report_to_dict(event)
+
+    assert data["page"] == "/study-plan?..."
+    assert data["url"] == "/study-plan?...#..."
+    assert data["route"] == "/study-plan/abc?..."
+    assert data["captured_url"] == "/study-plan/abc?...#..."
