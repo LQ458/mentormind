@@ -220,7 +220,7 @@ export function getTelemetryContextSnapshot(appSnapshot?: Record<string, unknown
     captured_at: new Date().toISOString(),
     session_id: getOrCreateSessionId(),
     route: window.location.pathname,
-    url: window.location.href.slice(0, 512),
+    url: safeUrlPath(window.location.href),
     viewport: {
       width: window.innerWidth,
       height: window.innerHeight,
@@ -247,7 +247,7 @@ export function track(
       session_id,
       event_type: type,
       page: meta?.page ?? window.location.pathname,
-      url: meta?.url ?? window.location.href,
+      url: safeUrlPath(meta?.url ?? window.location.href),
       viewport_w: window.innerWidth,
       viewport_h: window.innerHeight,
     }
@@ -272,7 +272,7 @@ export async function trackNow(
       session_id,
       event_type: type,
       page: meta?.page ?? window.location.pathname,
-      url: meta?.url ?? window.location.href,
+      url: safeUrlPath(meta?.url ?? window.location.href),
       viewport_w: window.innerWidth,
       viewport_h: window.innerHeight,
     }

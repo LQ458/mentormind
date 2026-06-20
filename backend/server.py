@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 import tempfile
 import re
 import uuid
+from urllib.parse import urlsplit
 
 # Per-IP rate limiting for no-auth POSTs (slowapi)
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -6265,6 +6266,30 @@ class TelemetryEventPayload(BaseModel):
 
 
 TELEMETRY_MAX_RAW_BYTES = 64 * 1024
+TELEMETRY_URL_KEYS = {"url", "captured_url", "href"}
+
+
+def _redact_url_for_telemetry(value: Any, max_len: int = 512) -> Optional[str]:
+    """Keep route-level repro context without storing query values or fragments."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        parts = urlsplit(raw)
+        if parts.scheme and parts.netloc:
+            path = parts.path or "/"
+            redacted = path
+        else:
+            redacted = raw.split("?", 1)[0].split("#", 1)[0] or raw
+        if "?" in raw:
+            redacted += "?..."
+        if "#" in raw:
+            redacted += "#..."
+        return redacted[:max_len]
+    except Exception:
+        return raw.split("?", 1)[0].split("#", 1)[0][:max_len]
 
 
 @app.post("/telemetry/event")
@@ -6330,11 +6355,15 @@ async def post_telemetry_event(
         if isinstance(value, dict):
             clean: Dict[str, Any] = {}
             for key, nested_value in list(value.items())[:60]:
-                clean[str(key)[:80]] = _sanitize_payload_value(
-                    nested_value,
-                    max_string=max_string,
-                    depth=depth + 1,
-                )
+                safe_key = str(key)[:80]
+                if safe_key in TELEMETRY_URL_KEYS:
+                    clean[safe_key] = _redact_url_for_telemetry(nested_value, max_string)
+                else:
+                    clean[safe_key] = _sanitize_payload_value(
+                        nested_value,
+                        max_string=max_string,
+                        depth=depth + 1,
+                    )
             return clean
         return str(value)[:max_string]
 
@@ -6346,7 +6375,7 @@ async def post_telemetry_event(
                 cap = 4000
             if event_type == "feedback_moment" and k in {"user_note", "expected_behavior"}:
                 cap = 1200
-            safe_payload[k] = v[:cap]
+            safe_payload[k] = _redact_url_for_telemetry(v, cap) if k in TELEMETRY_URL_KEYS else v[:cap]
         else:
             safe_payload[k] = _sanitize_payload_value(
                 v,
@@ -6361,7 +6390,7 @@ async def post_telemetry_event(
         session_id=session_id[:255],
         event_type=event_type[:64],
         page=_str_or_none(body.get("page"), 64),
-        url=_str_or_none(body.get("url"), 512),
+        url=_redact_url_for_telemetry(body.get("url"), 512),
         latency_ms=_int_or_none(body.get("latency_ms")),
         payload=safe_payload,
         viewport_w=_int_or_none(body.get("viewport_w")),

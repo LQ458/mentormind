@@ -715,6 +715,8 @@ body {
   .main { padding: 8px 12px 80px; }
   .topbar { gap: 6px; }
   .topbar .page-title { max-width: 7ch; }
+  .topbar .icon-btn[aria-label="打开反馈"],
+  .topbar .icon-btn[aria-label="Open feedback"],
   .topbar .icon-btn[aria-label="发送反馈"],
   .topbar .icon-btn[aria-label="Send feedback"],
   .avatar-btn {
