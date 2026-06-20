@@ -143,8 +143,8 @@ function downloadCsv(rows: FeedbackRow[]) {
   const headers = [
     'id', 'created_at', 'exam', 'school_year', 'language', 'pmf_score', 'nps',
     'plan_useful', 'lesson_clarity', 'latency_ok', 'smooth', 'return_next_week',
-    'prior_tools', 'pain_point', 'feature_request', 'other_feedback', 'contact_email',
-    'derived_session_minutes', 'derived_board_lessons',
+    'prior_tools', 'pain_point', 'feature_request', 'other_feedback', 'contact_provided',
+    'derived_session_minutes', 'derived_board_lessons', 'admin_lookup',
   ]
   const lines = [headers.join(',')]
   for (const r of rows) {
@@ -153,8 +153,9 @@ function downloadCsv(rows: FeedbackRow[]) {
       r.likert?.plan_useful ?? '', r.likert?.lesson_clarity ?? '', r.likert?.latency_ok ?? '',
       r.likert?.smooth ?? '', r.likert?.return_next_week ?? '',
       (r.prior_tools || []).join('|'),
-      r.pain_point, r.feature_request, r.other_feedback, r.contact_email,
+      r.pain_point, r.feature_request, r.other_feedback, r.contact_email ? 'true' : 'false',
       r.derived_session_minutes ?? '', r.derived_board_lessons ?? '',
+      'Use feedback ID in the admin dashboard for contact details.',
     ].map(csvEscape).join(','))
   }
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
