@@ -561,6 +561,26 @@ def _plan_json_language_contract(language: str) -> str:
     )
 
 
+def _framework_exclusivity_contract(detection: Optional[SubjectDetection]) -> str:
+    """Prevent prompt-level cross-contamination between incompatible exams."""
+    framework = detection.framework if detection else None
+    if framework == "ap":
+        return (
+            "Framework exclusivity contract:\n"
+            "- The selected framework is AP. Treat AP as mutually exclusive with 高考/Gaokao.\n"
+            "- Do not include 高考, Gaokao, 全国卷, or Gaokao score targets such as 130+ in any JSON value.\n"
+            "- If diagnostic answers mention Gaokao-style targets, reinterpret them as general ambition only and keep the plan AP-only."
+        )
+    if framework == "gaokao":
+        return (
+            "Framework exclusivity contract:\n"
+            "- The selected framework is 高考/Gaokao. Treat Gaokao as mutually exclusive with AP/Advanced Placement.\n"
+            "- Do not include AP, Advanced Placement, College Board, FRQ, DBQ, or AP score targets in any JSON value.\n"
+            "- If diagnostic answers mention AP-style targets, reinterpret them as general ambition only and keep the plan Gaokao-only."
+        )
+    return ""
+
+
 # Phrases that mean "stop asking and just generate"
 _START_SIGNALS = [
     "just start", "start generating", "start", "generate", "go", "begin",
@@ -934,6 +954,7 @@ Keep total response ≤ 60 words excluding the ask_user block.
                 "for any 高考-specific topic, e.g., 'derivatives (导数)', '解析几何 (analytic geometry)'."
             )
         json_language_contract = _plan_json_language_contract(language)
+        framework_exclusivity_contract = _framework_exclusivity_contract(detection)
 
         prompt = f"""{lang_instr}
 
@@ -945,6 +966,7 @@ Diagnostic answers: {diagnostic_summary}
 {curriculum_note}
 {bilingual_terminology_hint}
 {json_language_contract}
+{framework_exclusivity_contract}
 
 Infer one learner_tier from the diagnostic answers:
 - accelerated: already strong, bored by basics, aiming high, wants challenge.
@@ -999,6 +1021,7 @@ Diagnostic answers: {diagnostic_summary}
 {curriculum_note}
 {bilingual_terminology_hint}
 {json_language_contract}
+{framework_exclusivity_contract}
 
 Create a compact full-course study plan with 6-10 units. Use the official curriculum units when provided.
 Adapt to learner_tier: accelerated, standard, scaffolded, or foundation_rebuild.

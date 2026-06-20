@@ -47,6 +47,7 @@ from core.agents.study_plan_agent import (
     _parse_plan_json,
     _strip_ask_user_block,
     _build_curriculum_note,
+    _framework_exclusivity_contract,
     _plan_json_language_contract,
     _build_weekly_schedule,
     _extract_requested_study_days,
@@ -67,6 +68,21 @@ def test_T2_gaokao_catalog_loads():
     assert "courses" in cat
     assert len(cat["courses"]) >= 5
     assert any(c["id"] == "gaokao_math" for c in cat["courses"])
+
+
+def test_T2b_framework_exclusivity_contract_blocks_ap_gaokao_mix():
+    ap_contract = _framework_exclusivity_contract(
+        SubjectDetection(subject="math", framework="ap", difficulty="intermediate", topics=[], confidence=1.0)
+    )
+    gaokao_contract = _framework_exclusivity_contract(
+        SubjectDetection(subject="math", framework="gaokao", difficulty="intermediate", topics=[], confidence=1.0)
+    )
+
+    assert "mutually exclusive" in ap_contract
+    assert "高考" in ap_contract
+    assert "130+" in ap_contract
+    assert "Advanced Placement" in gaokao_contract
+    assert "College Board" in gaokao_contract
 
 
 def test_T3_ib_catalog_loads_with_levels():

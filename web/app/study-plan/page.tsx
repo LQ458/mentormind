@@ -277,6 +277,31 @@ function findPlanFrameworkConflict(plan: ProposedPlan, selectedFramework: string
   return null
 }
 
+function findFrameworkInputConflict(
+  framework: string | null,
+  textParts: Array<string | null | undefined>,
+  lang: 'zh' | 'en',
+): string | null {
+  const normalizedFramework = (framework || '').toLowerCase()
+  const blob = textParts.filter(Boolean).join(' ').toLowerCase()
+  if (!blob) return null
+
+  const hasGaokaoMarker = /(高考|gaokao|全国卷|数学\s*130\+|总分\s*650\+|(?:^|[^\d])130\+(?:$|[^\d]))/i.test(blob)
+  const hasApMarker = /(^|[^a-z])ap([^a-z]|$)|advanced\s+placement|college\s+board|frq|dbq/i.test(blob)
+
+  if (normalizedFramework === 'ap' && hasGaokaoMarker) {
+    return lang === 'zh'
+      ? '你当前选择的是 AP，但输入里出现了高考/130+目标。请返回上一步切换到高考，或把目标改成 AP 分数（例如 5 分）。'
+      : 'You selected AP, but the details mention Gaokao/130+ targets. Switch the framework to Gaokao, or use an AP target such as 5.'
+  }
+  if (normalizedFramework === 'gaokao' && hasApMarker) {
+    return lang === 'zh'
+      ? '你当前选择的是高考，但输入里出现了 AP/College Board 内容。请返回上一步切换到 AP，或删除 AP 目标。'
+      : 'You selected Gaokao, but the details mention AP/College Board content. Switch the framework to AP, or remove the AP target.'
+  }
+  return null
+}
+
 function studyPlanCreateErrorMessage(data: any, fallbackLang: 'zh' | 'en'): string {
   const detail = data?.detail
   const code = typeof detail === 'object' ? detail.error : ''
@@ -942,6 +967,21 @@ export default function StudyPlanPage() {
   const startChatFromIntake = () => {
     if (intake.studyDays.length === 0) {
       setError(uiLanguage === 'zh' ? '请至少选择一个每周学习日。' : 'Choose at least one study day.')
+      return
+    }
+    const inputConflict = findFrameworkInputConflict(
+      selectedFramework,
+      [
+        selectedCourse,
+        intake.foundation,
+        intake.examTimeline,
+        intake.targetScore,
+        intake.weakAreas,
+      ],
+      uiLanguage === 'zh' ? 'zh' : 'en',
+    )
+    if (inputConflict) {
+      setError(inputConflict)
       return
     }
     const subject = SUBJECTS.find((s) => s.id === selectedSubject)
