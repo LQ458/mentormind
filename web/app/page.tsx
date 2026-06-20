@@ -6,12 +6,6 @@ import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from './components/AuthContext'
 import { useLanguage } from './components/LanguageContext'
 
-function detectBrowserLang(): 'zh' | 'en' {
-  if (typeof window === 'undefined') return 'zh'
-  const nav = window.navigator.language || ''
-  return nav.startsWith('zh') ? 'zh' : 'en'
-}
-
 function inviteCodeFromUrl(): string {
   if (typeof window === 'undefined') return ''
   const params = new URLSearchParams(window.location.search)
@@ -36,12 +30,10 @@ export default function HomePage() {
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    const browserLang = detectBrowserLang()
-    if (language !== browserLang) setLanguage(browserLang)
     const code = inviteCodeFromUrl()
     if (code) setInviteCode(code)
     setReady(true)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (isLoaded && isSignedIn) router.replace('/study-plan')

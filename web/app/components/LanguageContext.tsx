@@ -22,6 +22,15 @@ interface LanguageContextType {
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined)
 
+function isSupportedLanguage(value: string | null): value is Language {
+    return value === 'en' || value === 'zh'
+}
+
+function detectBrowserLanguage(): Language {
+    if (typeof window === 'undefined') return 'en'
+    return (window.navigator.language || '').startsWith('zh') ? 'zh' : 'en'
+}
+
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
     const [language, setLanguageState] = useState<Language>('en')
     const [contentLanguage, setContentLanguageState] = useState<Language>('en')
@@ -29,16 +38,23 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 
     // Load language preferences from localStorage on mount
     useEffect(() => {
-        const savedUiLang = localStorage.getItem('app-language') as Language
-        const savedContentLang = localStorage.getItem('content-language') as Language
+        const savedUiLang = localStorage.getItem('app-language')
+        const savedContentLang = localStorage.getItem('content-language')
         const savedOverride = localStorage.getItem('content-language-override') === 'true'
+        const nextUiLang = isSupportedLanguage(savedUiLang) ? savedUiLang : detectBrowserLanguage()
 
-        if (savedUiLang && (savedUiLang === 'en' || savedUiLang === 'zh')) {
-            setLanguageState(savedUiLang)
-        }
-        if (savedContentLang && (savedContentLang === 'en' || savedContentLang === 'zh')) {
+        setLanguageState(nextUiLang)
+        localStorage.setItem('app-language', nextUiLang)
+        document.documentElement.lang = nextUiLang === 'zh' ? 'zh-CN' : 'en'
+
+        if (isSupportedLanguage(savedContentLang)) {
             setContentLanguageState(savedContentLang)
             setIsContentLanguageOverridden(savedOverride)
+        } else {
+            setContentLanguageState(nextUiLang)
+            setIsContentLanguageOverridden(false)
+            localStorage.setItem('content-language', nextUiLang)
+            localStorage.setItem('content-language-override', 'false')
         }
     }, [])
 
