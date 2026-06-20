@@ -207,6 +207,25 @@ function formatTester(r: FeedbackReportRow): string {
   return username || email || userId || '—'
 }
 
+function formatTesterForIssue(r: FeedbackReportRow): string {
+  const username = r.tester?.username || ''
+  if (username) return `${username} (signed-in tester)`
+  return r.user_id ? 'Signed-in tester (see admin dashboard)' : 'Anonymous tester'
+}
+
+function redactedTesterForIssue(r: FeedbackReportRow): Record<string, unknown> | null {
+  if (!r.tester && !r.user_id) return null
+  return {
+    signed_in: Boolean(r.user_id),
+    username: r.tester?.username || undefined,
+    role: r.tester?.role || undefined,
+    language_preference: r.tester?.language_preference || undefined,
+    created_at: r.tester?.created_at || undefined,
+    last_login_at: r.tester?.last_login_at || undefined,
+    admin_lookup: 'Use Report ID in the admin feedback dashboard for full tester details.',
+  }
+}
+
 function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextResponse | null): string {
   const page = r.page || r.route || '—'
   const url = r.captured_url || r.url || '—'
@@ -220,9 +239,7 @@ function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextRes
     `- Report ID: ${r.report_id || r.id}`,
     `- Created: ${r.created_at}`,
     `- Source: ${r.source || '—'}`,
-    `- Tester: ${formatTester(r)}`,
-    `- User ID: ${r.user_id || '—'}`,
-    `- Session ID: ${r.session_id || '—'}`,
+    `- Tester: ${formatTesterForIssue(r)}`,
     `- Surface: ${r.surface || '—'}`,
     `- Kind: ${r.feedback_kind || '—'}`,
     `- Severity: ${r.severity || '—'}`,
@@ -250,7 +267,7 @@ function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextRes
     codeBlock(r.build),
     '',
     '## Tester',
-    codeBlock(r.tester),
+    codeBlock(redactedTesterForIssue(r)),
   ]
   if (context) {
     lines.push(
