@@ -2,6 +2,7 @@
 
 import React from 'react'
 import ReportIssueButton from './ReportIssueButton'
+import { useLanguage } from './LanguageContext'
 import { track } from '../lib/telemetry'
 
 interface ErrorBoundaryProps {
@@ -45,15 +46,22 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
 }
 
 function DefaultFallback({ error, reset }: { error: Error; reset: () => void }) {
+  const { language } = useLanguage()
+  const lang = language === 'zh' ? 'zh' : 'en'
+
   return (
     <div className="min-h-[60vh] flex items-center justify-center p-6">
       <div className="max-w-md w-full rounded-xl border border-rose-200 bg-rose-50 p-6 shadow-sm">
         <div className="flex items-start gap-3">
           <span className="text-3xl" aria-hidden>⚠️</span>
           <div className="flex-1">
-            <h2 className="text-lg font-semibold text-rose-900">出错了 / Something went wrong</h2>
+            <h2 className="text-lg font-semibold text-rose-900">
+              {lang === 'zh' ? '出错了' : 'Something went wrong'}
+            </h2>
             <p className="text-sm text-rose-700 mt-1">
-              页面渲染时遇到错误。可以尝试重试，或返回首页。
+              {lang === 'zh'
+                ? '页面渲染时遇到错误。可以重试，或把错误发给我们。'
+                : 'The page hit a rendering error. You can retry or send us the error.'}
             </p>
             <pre className="mt-3 text-xs bg-white/70 border border-rose-100 rounded p-2 overflow-auto max-h-32 text-rose-800">
               {error.message}
@@ -64,20 +72,20 @@ function DefaultFallback({ error, reset }: { error: Error; reset: () => void }) 
                 onClick={reset}
                 className="px-4 py-2 rounded-md bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition-colors"
               >
-                重试 / Retry
+                {lang === 'zh' ? '重试' : 'Retry'}
               </button>
               <a
                 href="/"
                 className="px-4 py-2 rounded-md bg-white border border-rose-200 text-rose-700 text-sm font-medium hover:bg-rose-100 transition-colors"
               >
-                返回首页 / Home
+                {lang === 'zh' ? '返回首页' : 'Home'}
               </a>
             </div>
             <div className="mt-3">
               <ReportIssueButton
                 surface="error_boundary"
                 compact
-                label="报告这个错误 / Report this error"
+                label={lang === 'zh' ? '报告这个错误' : 'Report this error'}
                 severity="blocked"
                 snapshot={{
                   error_message: error.message.slice(0, 400),
