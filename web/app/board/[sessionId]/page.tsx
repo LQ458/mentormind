@@ -15,6 +15,7 @@ import SummaryPanel from '../../components/board/SummaryPanel'
 import AuthGate from '../../components/AuthGate'
 import BoardDisplaySettings, { useBoardDisplayPrefs, boardFontScaleStyle } from '../../components/board/BoardDisplaySettings'
 import ReportIssueButton from '../../components/ReportIssueButton'
+import { FeedbackMoment } from '../../components/FeedbackMoment'
 import { useKeyboardShortcut } from '../../hooks/useKeyboardShortcut'
 import { useFullscreen } from '../../hooks/useFullscreen'
 import { track } from '../../lib/telemetry'
@@ -567,6 +568,24 @@ function BoardSessionInner() {
                           : (language === 'zh' ? 'AI 老师' : 'AI Teacher')}
                       </div>
                       <div className="whitespace-pre-wrap break-words">{m.text}</div>
+                      {m.role === 'assistant' && (
+                        <div className="mt-2">
+                          <FeedbackMoment
+                            surface="board_teacher_reply"
+                            interactionId={`board-teacher-reply-${sessionId}-${m.timestamp}-${i}`}
+                            snapshot={{
+                              board_session_id: sessionId,
+                              board_status: state.status,
+                              message_index: i,
+                              message_length: m.text.length,
+                              element_count: state.elementOrder.length,
+                              has_board: Boolean(state.board),
+                              lesson_title: title,
+                              active_narration_element_id: activeNarrationElementId,
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                   ))
                 )}

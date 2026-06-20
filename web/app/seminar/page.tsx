@@ -5,6 +5,7 @@ import { BarChart3, Mic, MessageCircle, Plus, Send, Sparkles, Square, Users } fr
 import { useAuth } from '../components/AuthContext'
 import { useLanguage } from '../components/LanguageContext'
 import { PageHead } from '../components/design/primitives'
+import { FeedbackMoment } from '../components/FeedbackMoment'
 
 interface Participant {
   id: string
@@ -563,6 +564,26 @@ export default function SeminarPage() {
                       <p className="mt-2 rounded-md bg-white/70 px-3 py-2 text-sm font-medium text-blue-900">
                         {turn.question}
                       </p>
+                    )}
+                    {turn.kind !== 'human' && (
+                      <div className="mt-3">
+                        <FeedbackMoment
+                          surface="seminar_turn"
+                          interactionId={`seminar-turn-${activeRoom.id}-${turn.id}`}
+                          snapshot={{
+                            room_id: activeRoom.id,
+                            room_status: activeRoom.status,
+                            room_phase: activeRoom.phase,
+                            turn_id: turn.id,
+                            participant_kind: turn.kind,
+                            participant_name: turn.participant_name,
+                            has_question: Boolean(turn.question),
+                            has_stance: Boolean(turn.stance),
+                            message_length: turn.message.length,
+                            score_keys: Object.keys(turn.scores || {}),
+                          }}
+                        />
+                      </div>
                     )}
                   </div>
                 ))}

@@ -9,6 +9,7 @@ import { useAuth } from '../components/AuthContext'
 import { PageHead } from '../components/design/primitives'
 import { MathText } from '../components/MathText'
 import ReportIssueButton from '../components/ReportIssueButton'
+import { FeedbackMoment } from '../components/FeedbackMoment'
 import { SUBJECTS } from '../lib/subjects'
 import { FRAMEWORKS, getFramework } from '../lib/frameworks'
 import { getCourseSuggestions } from '../lib/course-suggestions'
@@ -2257,6 +2258,25 @@ export default function StudyPlanPage() {
                     {proposedPlan.learner_tier.replace(/_/g, ' ')}
                   </span>
                 )}
+              </div>
+              <div className="mt-3">
+                <FeedbackMoment
+                  surface="study_plan_review"
+                  interactionId={`study-plan-review-${selectedSubject || proposedPlan.subject}-${selectedFramework || proposedPlan.framework}-${proposedPlan.units.length}`}
+                  snapshot={{
+                    phase,
+                    selected_subject: selectedSubject,
+                    selected_framework: selectedFramework,
+                    selected_course: selectedCourse,
+                    proposed_subject: proposedPlan.subject,
+                    proposed_framework: proposedPlan.framework,
+                    estimated_hours: proposedPlan.estimated_hours,
+                    unit_count: proposedPlan.units.length,
+                    learner_tier: proposedPlan.learner_tier,
+                    has_weekly_schedule: Boolean(proposedPlan.weekly_schedule?.length),
+                    has_engagement_hooks: Boolean(proposedPlan.engagement_hooks?.length),
+                  }}
+                />
               </div>
             </div>
 
