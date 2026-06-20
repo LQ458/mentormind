@@ -2292,6 +2292,11 @@ export default function StudyPlanPage() {
                   </span>
                 )}
               </div>
+              {planReviewValidationError && (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+                  {planReviewValidationError}
+                </div>
+              )}
               <div className="mt-3">
                 <FeedbackMoment
                   surface="study_plan_review"
