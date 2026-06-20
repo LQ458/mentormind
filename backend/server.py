@@ -126,6 +126,7 @@ app = FastAPI(
     response_model_exclude_unset=False,
     response_model_by_alias=False,
 )
+APP_VERSION = "2.0.0"
 
 # Rate limiter — per-IP cap on the no-auth POST endpoints. Decorated routes
 # below opt in via @limiter.limit("...").
@@ -1975,9 +1976,33 @@ def delete_all_my_lessons(
 
 # ── Status ───────────────────────────────────────────────────────────────────
 
+def _safe_build_metadata_value(value: Any, max_len: int = 120) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return re.sub(r"[^A-Za-z0-9_.:@/-]+", "-", text)[:max_len]
+
+
+def _build_metadata() -> Dict[str, Optional[str]]:
+    """Small, non-secret deployment fingerprint for QA reports and bug triage."""
+    return {
+        "version": APP_VERSION,
+        "sha": _safe_build_metadata_value(os.getenv("MENTORMIND_BUILD_SHA") or os.getenv("GIT_SHA")),
+        "image_tag": _safe_build_metadata_value(os.getenv("MENTORMIND_IMAGE_TAG")),
+        "environment": _safe_build_metadata_value(os.getenv("MENTORMIND_ENV"), 40),
+    }
+
+
 @app.get("/")
 async def root():
-    return {"status": "online", "service": "MentorMind API", "version": "2.0.0"}
+    return {
+        "status": "online",
+        "service": "MentorMind API",
+        "version": APP_VERSION,
+        "build": _build_metadata(),
+    }
 
 @app.get("/status")
 async def get_status():
@@ -2026,7 +2051,8 @@ async def get_status():
 
     return {
         "status": "running",
-        "version": "2.0.0",
+        "version": APP_VERSION,
+        "build": _build_metadata(),
         "timestamp": datetime.now().isoformat(),
         "services": services_status
     }

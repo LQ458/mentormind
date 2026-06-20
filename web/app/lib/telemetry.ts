@@ -57,6 +57,10 @@ const FEEDBACK_CONTEXT_LIMIT = 10
 const PENDING_FEEDBACK_LIMIT = 8
 const PENDING_FEEDBACK_MAX_BYTES = 48 * 1024
 const SAFE_SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{2,254}$/
+const FRONTEND_BUILD = {
+  sha: process.env.NEXT_PUBLIC_BUILD_SHA || '',
+  image_tag: process.env.NEXT_PUBLIC_IMAGE_TAG || '',
+}
 
 const SAFE_BREADCRUMB_KEYS = new Set([
   'action',
@@ -331,6 +335,7 @@ export function getTelemetryContextSnapshot(appSnapshot?: Record<string, unknown
   return {
     captured_at: new Date().toISOString(),
     session_id: getOrCreateSessionId(),
+    build: FRONTEND_BUILD,
     route: window.location.pathname,
     url: safeUrlPath(window.location.href),
     viewport: {

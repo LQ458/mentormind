@@ -13,7 +13,15 @@ ENV_FILE="${MENTORMIND_ENV_FILE:-$PROJECT_DIR/.env}"
 export DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 export COMPOSE_DOCKER_CLI_BUILD="${COMPOSE_DOCKER_CLI_BUILD:-1}"
 
+infer_build_metadata() {
+  if [ -z "${MENTORMIND_BUILD_SHA:-}" ] && command -v git >/dev/null 2>&1; then
+    MENTORMIND_BUILD_SHA="$(git -C "$PROJECT_DIR" rev-parse --short=12 HEAD 2>/dev/null || true)"
+    export MENTORMIND_BUILD_SHA
+  fi
+}
+
 compose() {
+  infer_build_metadata
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
