@@ -12,6 +12,9 @@ const PROTECTED_PREFIXES = [
   '/knowledge-graph',
   '/analytics',
   '/board',
+  '/board-replay',
+  '/board-test',
+  '/dev-form',
   '/admin',
 ]
 
