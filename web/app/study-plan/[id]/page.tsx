@@ -90,6 +90,7 @@ interface UnitData {
   order_index: number
   topics: string[]
   content_status: string // pending | generating | ready | failed
+  generation_started_at?: string | null
   is_completed: boolean
   estimated_minutes: number
 }
@@ -518,11 +519,13 @@ function TextBlock({ text }: { text: string }) {
 
 // ── Study Guide Tab ───────────────────────────────────────────────────────────
 
-function EducationalImagesBlock({ images }: { images: EducationalImage[] }) {
+function EducationalImagesBlock({ images, lang }: { images: EducationalImage[]; lang: 'zh' | 'en' }) {
   if (!images?.length) return null
   return (
     <div className="mt-6 border-t border-gray-200 pt-4">
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Related Images</h4>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">
+        {lang === 'zh' ? '相关图片' : 'Related Images'}
+      </h4>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {images.map((img, i) => (
           <div key={i} className="rounded-lg border border-gray-200 overflow-hidden bg-white">
@@ -544,9 +547,9 @@ function EducationalImagesBlock({ images }: { images: EducationalImage[] }) {
   )
 }
 
-function StudyGuideTab({ guide }: { guide: StudyGuide }) {
+function StudyGuideTab({ guide, lang }: { guide: StudyGuide; lang: 'zh' | 'en' }) {
   if (!guide?.sections?.length) {
-    return <p className="text-gray-500 italic">No study guide content available.</p>
+    return <p className="text-gray-500 italic">{lang === 'zh' ? '暂无学习讲义内容。' : 'No study guide content available.'}</p>
   }
   return (
     <div className="space-y-6">
@@ -558,7 +561,9 @@ function StudyGuideTab({ guide }: { guide: StudyGuide }) {
           </div>
           {section.examples && section.examples.length > 0 && (
             <div className="mt-4">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Examples</h4>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                {lang === 'zh' ? '例题' : 'Examples'}
+              </h4>
               <div className="space-y-3">
                 {section.examples.map((ex, ei) => {
                   if (typeof ex === 'object' && ex !== null) {
@@ -567,19 +572,19 @@ function StudyGuideTab({ guide }: { guide: StudyGuide }) {
                       <div key={ei} className="rounded-lg border border-blue-100 bg-blue-50/50 p-4 space-y-2">
                         {problem && (
                           <div>
-                            <span className="text-xs font-semibold text-blue-600 uppercase">Problem</span>
+                            <span className="text-xs font-semibold text-blue-600 uppercase">{lang === 'zh' ? '题目' : 'Problem'}</span>
                             <p className="text-sm text-gray-800 mt-0.5"><TextBlock text={problem} /></p>
                           </div>
                         )}
                         {solution && (
                           <div>
-                            <span className="text-xs font-semibold text-green-600 uppercase">Solution</span>
+                            <span className="text-xs font-semibold text-green-600 uppercase">{lang === 'zh' ? '解法' : 'Solution'}</span>
                             <p className="text-sm text-gray-700 mt-0.5"><TextBlock text={solution} /></p>
                           </div>
                         )}
                         {explanation && (
                           <div>
-                            <span className="text-xs font-semibold text-gray-500 uppercase">Explanation</span>
+                            <span className="text-xs font-semibold text-gray-500 uppercase">{lang === 'zh' ? '解析' : 'Explanation'}</span>
                             <p className="text-sm text-gray-600 mt-0.5 italic"><TextBlock text={explanation} /></p>
                           </div>
                         )}
@@ -598,7 +603,9 @@ function StudyGuideTab({ guide }: { guide: StudyGuide }) {
           )}
           {section.common_mistakes && section.common_mistakes.length > 0 && (
             <div className="mt-4">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-red-500 mb-2">Common Mistakes</h4>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-red-500 mb-2">
+                {lang === 'zh' ? '常见错误' : 'Common Mistakes'}
+              </h4>
               <ul className="space-y-1">
                 {section.common_mistakes.map((m, mi) => (
                   <li key={mi} className="text-sm text-red-700 flex gap-2">
@@ -611,7 +618,7 @@ function StudyGuideTab({ guide }: { guide: StudyGuide }) {
           )}
         </div>
       ))}
-      <EducationalImagesBlock images={guide.educational_images ?? []} />
+      <EducationalImagesBlock images={guide.educational_images ?? []} lang={lang} />
     </div>
   )
 }
@@ -627,6 +634,11 @@ function matchesAnswer(userChoice: string, correctAnswer: string): boolean {
   if (letterMatch) {
     return u.startsWith(letterMatch[1] + ')')
   }
+  const userLetterMatch = u.match(/^([a-d])$/)
+  const correctChoiceLetterMatch = c.match(/^([a-d])\)/)
+  if (userLetterMatch && correctChoiceLetterMatch) {
+    return userLetterMatch[1] === correctChoiceLetterMatch[1]
+  }
   // Handle case where correct_answer is "D) ..." and choice is just selected
   const choiceLetterMatch = u.match(/^([a-d])\)/)
   const ansLetterMatch = c.match(/^([a-d])\)/)
@@ -636,7 +648,7 @@ function matchesAnswer(userChoice: string, correctAnswer: string): boolean {
   return false
 }
 
-function QuizTab({ quiz }: { quiz: Quiz }) {
+function QuizTab({ quiz, lang }: { quiz: Quiz; lang: 'zh' | 'en' }) {
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [submitted, setSubmitted] = useState(false)
   const [showAll, setShowAll] = useState(false)
@@ -645,7 +657,7 @@ function QuizTab({ quiz }: { quiz: Quiz }) {
   const questions = quiz?.questions ?? []
 
   if (!questions.length) {
-    return <p className="text-gray-500 italic">No quiz questions available.</p>
+    return <p className="text-gray-500 italic">{lang === 'zh' ? '暂无小测题目。' : 'No quiz questions available.'}</p>
   }
 
   const score = submitted
@@ -669,11 +681,11 @@ function QuizTab({ quiz }: { quiz: Quiz }) {
             onClick={() => setShowAll(v => !v)}
             className="text-xs px-3 py-1.5 rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors"
           >
-            {showAll ? 'One at a time' : 'Show all'}
+            {showAll ? (lang === 'zh' ? '逐题显示' : 'One at a time') : (lang === 'zh' ? '显示全部' : 'Show all')}
           </button>
           {submitted && (
             <span className="text-sm font-medium text-gray-700">
-              Score: <span className="text-green-600 font-semibold">{score}/{questions.length}</span>
+              {lang === 'zh' ? '得分' : 'Score'}: <span className="text-green-600 font-semibold">{score}/{questions.length}</span>
             </span>
           )}
         </div>
@@ -682,14 +694,14 @@ function QuizTab({ quiz }: { quiz: Quiz }) {
             onClick={handleReset}
             className="text-xs px-3 py-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
           >
-            Retry
+            {lang === 'zh' ? '重做' : 'Retry'}
           </button>
         )}
       </div>
 
       {displayQuestions.map((q) => {
         const userAnswer = answers[q.id] ?? ''
-        const isCorrect = submitted && userAnswer.trim().toLowerCase() === q.correct_answer.trim().toLowerCase()
+        const isCorrect = submitted && matchesAnswer(userAnswer, q.correct_answer)
         const isWrong = submitted && !isCorrect
 
         return (
@@ -744,7 +756,7 @@ function QuizTab({ quiz }: { quiz: Quiz }) {
                 value={userAnswer}
                 disabled={submitted}
                 onChange={e => setAnswers(prev => ({ ...prev, [q.id]: e.target.value }))}
-                placeholder="Type your answer..."
+                placeholder={lang === 'zh' ? '输入你的答案…' : 'Type your answer...'}
                 rows={3}
                 className="w-full text-sm rounded-lg border border-gray-300 bg-white text-gray-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none disabled:opacity-60"
               />
@@ -753,7 +765,9 @@ function QuizTab({ quiz }: { quiz: Quiz }) {
             {submitted && (
               <div className="mt-3 space-y-1">
                 <p className="text-xs font-semibold text-gray-500">
-                  {isCorrect ? '✓ Correct!' : `✗ Correct answer: ${q.correct_answer}`}
+                  {isCorrect
+                    ? (lang === 'zh' ? '✓ 答对了！' : '✓ Correct!')
+                    : `${lang === 'zh' ? '✗ 正确答案' : '✗ Correct answer'}: ${q.correct_answer}`}
                 </p>
                 {q.explanation && (
                   <p className="text-xs text-gray-600 italic"><TextBlock text={q.explanation} /></p>
@@ -771,7 +785,7 @@ function QuizTab({ quiz }: { quiz: Quiz }) {
             disabled={currentIdx === 0}
             className="text-sm px-4 py-2 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-50 transition-colors text-gray-700"
           >
-            Previous
+            {lang === 'zh' ? '上一题' : 'Previous'}
           </button>
           <span className="text-xs text-gray-500">
             {currentIdx + 1} / {questions.length}
@@ -781,7 +795,7 @@ function QuizTab({ quiz }: { quiz: Quiz }) {
             disabled={currentIdx === questions.length - 1}
             className="text-sm px-4 py-2 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-50 transition-colors text-gray-700"
           >
-            Next
+            {lang === 'zh' ? '下一题' : 'Next'}
           </button>
         </div>
       )}
@@ -792,7 +806,7 @@ function QuizTab({ quiz }: { quiz: Quiz }) {
           disabled={Object.keys(answers).length === 0}
           className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium transition-colors"
         >
-          Submit Answers
+          {lang === 'zh' ? '提交答案' : 'Submit Answers'}
         </button>
       )}
     </div>
@@ -801,12 +815,12 @@ function QuizTab({ quiz }: { quiz: Quiz }) {
 
 // ── Flashcards Tab ────────────────────────────────────────────────────────────
 
-function FlashcardsTab({ cards }: { cards: Flashcard[] }) {
+function FlashcardsTab({ cards, lang }: { cards: Flashcard[]; lang: 'zh' | 'en' }) {
   const [idx, setIdx] = useState(0)
   const [flipped, setFlipped] = useState(false)
 
   if (!cards?.length) {
-    return <p className="text-gray-500 italic">No flashcards available.</p>
+    return <p className="text-gray-500 italic">{lang === 'zh' ? '暂无记忆卡。' : 'No flashcards available.'}</p>
   }
 
   const card = cards[idx]
@@ -819,7 +833,9 @@ function FlashcardsTab({ cards }: { cards: Flashcard[] }) {
   return (
     <div className="space-y-5">
       <div className="text-center text-xs text-gray-500">
-        Card {idx + 1} of {cards.length} — click card to flip
+        {lang === 'zh'
+          ? `第 ${idx + 1} / ${cards.length} 张 - 点击卡片翻面`
+          : `Card ${idx + 1} of ${cards.length} - click card to flip`}
       </div>
 
       {/* Flip card */}
@@ -840,7 +856,7 @@ function FlashcardsTab({ cards }: { cards: Flashcard[] }) {
             className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border-2 border-blue-200 bg-white p-6 text-center shadow-sm"
             style={{ backfaceVisibility: 'hidden' }}
           >
-            <span className="text-xs uppercase tracking-wide text-blue-500 mb-3 font-semibold">Front</span>
+            <span className="text-xs uppercase tracking-wide text-blue-500 mb-3 font-semibold">{lang === 'zh' ? '正面' : 'Front'}</span>
             <p className="text-base font-medium text-gray-900 leading-relaxed">
               <TextBlock text={card.front} />
             </p>
@@ -850,7 +866,7 @@ function FlashcardsTab({ cards }: { cards: Flashcard[] }) {
             className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border-2 border-purple-200 bg-purple-50 p-6 text-center shadow-sm"
             style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
           >
-            <span className="text-xs uppercase tracking-wide text-purple-500 mb-3 font-semibold">Back</span>
+            <span className="text-xs uppercase tracking-wide text-purple-500 mb-3 font-semibold">{lang === 'zh' ? '背面' : 'Back'}</span>
             <p className="text-base text-gray-900 leading-relaxed">
               <TextBlock text={card.back} />
             </p>
@@ -864,7 +880,7 @@ function FlashcardsTab({ cards }: { cards: Flashcard[] }) {
           disabled={idx === 0}
           className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 disabled:opacity-40 hover:bg-gray-50 transition-colors"
         >
-          Previous
+          {lang === 'zh' ? '上一张' : 'Previous'}
         </button>
         <div className="flex gap-1">
           {cards.map((_, ci) => (
@@ -880,7 +896,7 @@ function FlashcardsTab({ cards }: { cards: Flashcard[] }) {
           disabled={idx === cards.length - 1}
           className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 disabled:opacity-40 hover:bg-gray-50 transition-colors"
         >
-          Next
+          {lang === 'zh' ? '下一张' : 'Next'}
         </button>
       </div>
     </div>
@@ -889,13 +905,13 @@ function FlashcardsTab({ cards }: { cards: Flashcard[] }) {
 
 // ── Formulas Tab ──────────────────────────────────────────────────────────────
 
-function FormulasTab({ formulas }: { formulas: Formula[] }) {
+function FormulasTab({ formulas, lang }: { formulas: Formula[]; lang: 'zh' | 'en' }) {
   if (!formulas?.length) {
-    return <p className="text-gray-500 italic">No formulas available.</p>
+    return <p className="text-gray-500 italic">{lang === 'zh' ? '暂无公式内容。' : 'No formulas available.'}</p>
   }
 
   const byCategory = formulas.reduce<Record<string, Formula[]>>((acc, f) => {
-    const cat = f.category || 'General'
+    const cat = f.category || (lang === 'zh' ? '通用' : 'General')
     if (!acc[cat]) acc[cat] = []
     acc[cat].push(f)
     return acc
@@ -921,12 +937,12 @@ function FormulasTab({ formulas }: { formulas: Formula[] }) {
                   <div className="mt-3 space-y-1">
                     {f.variables && (
                       <p className="text-xs text-gray-600">
-                        <span className="font-medium">Variables:</span> {f.variables}
+                        <span className="font-medium">{lang === 'zh' ? '变量：' : 'Variables:'}</span> {f.variables}
                       </p>
                     )}
                     {f.usage && (
                       <p className="text-xs text-gray-600">
-                        <span className="font-medium">Usage:</span> {f.usage}
+                        <span className="font-medium">{lang === 'zh' ? '用法：' : 'Usage:'}</span> {f.usage}
                       </p>
                     )}
                   </div>
@@ -942,7 +958,7 @@ function FormulasTab({ formulas }: { formulas: Formula[] }) {
 
 // ── Mock Exam Tab ────────────────────────────────────────────────────────────
 
-function MockExamTab({ exam }: { exam: MockExam }) {
+function MockExamTab({ exam, lang }: { exam: MockExam; lang: 'zh' | 'en' }) {
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [submitted, setSubmitted] = useState(false)
   const [score, setScore] = useState<{ earned: number; total: number } | null>(null)
@@ -959,7 +975,7 @@ function MockExamTab({ exam }: { exam: MockExam }) {
       for (const q of section.questions) {
         total += q.points
         const userAnswer = answers[`${q.id}`]
-        if (userAnswer && userAnswer.toLowerCase().trim() === q.correct_answer.toLowerCase().trim()) {
+        if (userAnswer && matchesAnswer(userAnswer, q.correct_answer)) {
           earned += q.points
         }
       }
@@ -980,7 +996,9 @@ function MockExamTab({ exam }: { exam: MockExam }) {
         <div>
           <h2 className="text-lg font-semibold text-gray-900">{exam.title}</h2>
           <p className="text-sm text-gray-500">
-            Time limit: {exam.time_limit_minutes} min · Total: {exam.total_points} points
+            {lang === 'zh'
+              ? `限时：${exam.time_limit_minutes} 分钟 · 总分：${exam.total_points} 分`
+              : `Time limit: ${exam.time_limit_minutes} min · Total: ${exam.total_points} points`}
           </p>
         </div>
         {submitted && score && (
@@ -996,13 +1014,15 @@ function MockExamTab({ exam }: { exam: MockExam }) {
           <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
             <h3 className="font-medium text-gray-900">{section.name}</h3>
             <p className="text-xs text-gray-500">
-              {section.time_minutes} min · {section.weight_percentage}% weight
+              {lang === 'zh'
+                ? `${section.time_minutes} 分钟 · 权重 ${section.weight_percentage}%`
+                : `${section.time_minutes} min · ${section.weight_percentage}% weight`}
             </p>
           </div>
           <div className="divide-y divide-gray-100">
             {section.questions.map((q) => {
               const qKey = `${q.id}`
-              const isCorrect = submitted && answers[qKey]?.toLowerCase().trim() === q.correct_answer.toLowerCase().trim()
+              const isCorrect = submitted && matchesAnswer(answers[qKey] ?? '', q.correct_answer)
               const isWrong = submitted && answers[qKey] && !isCorrect
 
               return (
@@ -1018,6 +1038,7 @@ function MockExamTab({ exam }: { exam: MockExam }) {
                           {q.choices.map((choice, ci) => {
                             const choiceLetter = choice.charAt(0)
                             const isSelected = answers[qKey] === choiceLetter
+                            const isCorrectChoice = submitted && matchesAnswer(choiceLetter, q.correct_answer)
                             return (
                               <button
                                 key={ci}
@@ -1028,7 +1049,7 @@ function MockExamTab({ exam }: { exam: MockExam }) {
                                     ? submitted
                                       ? isCorrect ? 'border-green-400 bg-green-100' : 'border-red-400 bg-red-100'
                                       : 'border-blue-400 bg-blue-50'
-                                    : submitted && choiceLetter === q.correct_answer
+                                    : isCorrectChoice
                                       ? 'border-green-400 bg-green-50'
                                       : 'border-gray-200 hover:border-gray-300'
                                 }`}
@@ -1044,17 +1065,19 @@ function MockExamTab({ exam }: { exam: MockExam }) {
                           value={answers[qKey] || ''}
                           onChange={(e) => handleAnswer(qKey, e.target.value)}
                           disabled={submitted}
-                          placeholder="Type your answer..."
+                          placeholder={lang === 'zh' ? '输入你的答案…' : 'Type your answer...'}
                           className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm"
                         />
                       )}
                       {submitted && q.explanation && (
                         <div className="mt-2 p-2 bg-blue-50 rounded-lg text-xs text-blue-800">
-                          <span className="font-medium">Explanation:</span>{' '}
+                          <span className="font-medium">{lang === 'zh' ? '解析：' : 'Explanation:'}</span>{' '}
                           <TextBlock text={q.explanation} />
                         </div>
                       )}
-                      <span className="text-xs text-gray-400 mt-1 inline-block">{q.points} pt{q.points !== 1 ? 's' : ''}</span>
+                      <span className="text-xs text-gray-400 mt-1 inline-block">
+                        {lang === 'zh' ? `${q.points} 分` : `${q.points} pt${q.points !== 1 ? 's' : ''}`}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1070,26 +1093,26 @@ function MockExamTab({ exam }: { exam: MockExam }) {
             onClick={handleSubmit}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
           >
-            Submit Exam
+            {lang === 'zh' ? '提交模拟卷' : 'Submit Exam'}
           </button>
         ) : (
           <button
             onClick={handleReset}
             className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300"
           >
-            Retake Exam
+            {lang === 'zh' ? '重做模拟卷' : 'Retake Exam'}
           </button>
         )}
       </div>
 
       {submitted && exam.score_conversion && (
         <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
-          <p className="text-sm font-medium text-gray-700 mb-2">Score Conversion</p>
+          <p className="text-sm font-medium text-gray-700 mb-2">{lang === 'zh' ? '分数换算' : 'Score Conversion'}</p>
           <p className="text-xs text-gray-500 mb-2">{exam.score_conversion.description}</p>
           <div className="flex flex-wrap gap-2">
             {exam.score_conversion.ranges.map((r, i) => (
               <span key={i} className="text-xs px-2 py-1 bg-white rounded border border-gray-200">
-                {r.min}-{r.max}%: Grade {r.grade}
+                {lang === 'zh' ? `${r.min}-${r.max}%：等级 ${r.grade}` : `${r.min}-${r.max}%: Grade ${r.grade}`}
               </span>
             ))}
           </div>
@@ -1336,6 +1359,18 @@ export default function StudyPlanPage() {
     }
   }, [])
 
+  const markUnitGenerationFailed = useCallback((unitId: string) => {
+    setPlan(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        units: prev.units.map(u =>
+          u.id === unitId ? { ...u, content_status: 'failed' } : u
+        ),
+      }
+    })
+  }, [])
+
   const startPolling = useCallback((unitId: string) => {
     stopPoll()
     let attempts = 0
@@ -1347,16 +1382,10 @@ export default function StudyPlanPage() {
         stopPoll()
         setGenerating(false)
         clearActiveGen()
-        // Update local state to show failed
-        setPlan(prev => {
-          if (!prev) return prev
-          return {
-            ...prev,
-            units: prev.units.map(u =>
-              u.id === unitId ? { ...u, content_status: 'failed' } : u
-            ),
-          }
-        })
+        markUnitGenerationFailed(unitId)
+        toast.error(uiLanguage === 'zh'
+          ? '生成等待超时。请刷新后重试，或先只生成学习讲义/小测。'
+          : 'Generation timed out. Refresh and retry, or generate only Study Guide / Quiz first.')
         return
       }
       try {
@@ -1367,6 +1396,11 @@ export default function StudyPlanPage() {
           if (consecutiveErrors >= 3) {
             stopPoll()
             setGenerating(false)
+            clearActiveGen()
+            markUnitGenerationFailed(unitId)
+            toast.error(uiLanguage === 'zh'
+              ? '无法确认生成状态，已停止等待。请刷新后重试。'
+              : 'Could not confirm generation status. Refresh and retry.')
           }
           return
         }
@@ -1405,19 +1439,15 @@ export default function StudyPlanPage() {
         if (consecutiveErrors >= 3) {
           stopPoll()
           setGenerating(false)
-          setPlan(prev => {
-            if (!prev) return prev
-            return {
-              ...prev,
-              units: prev.units.map(u =>
-                u.id === unitId ? { ...u, content_status: 'failed' } : u
-              ),
-            }
-          })
+          clearActiveGen()
+          markUnitGenerationFailed(unitId)
+          toast.error(uiLanguage === 'zh'
+            ? '无法确认生成状态，已停止等待。请刷新后重试。'
+            : 'Could not confirm generation status. Refresh and retry.')
         }
       }
     }, 5000)
-  }, [planId, authHeaders, stopPoll, fetchContent, uiLanguage])
+  }, [planId, authHeaders, stopPoll, fetchContent, uiLanguage, markUnitGenerationFailed])
 
   useEffect(() => {
     return () => stopPoll()
@@ -1490,6 +1520,12 @@ export default function StudyPlanPage() {
     }
   }, [stopPoll, fetchContent, startPolling])
 
+  useEffect(() => {
+    if (!plan || selectedUnitId || plan.framework === 'gaokao') return
+    const firstUnit = plan.units?.slice().sort((a, b) => a.order_index - b.order_index)[0]
+    if (firstUnit) handleSelectUnit(firstUnit)
+  }, [plan, selectedUnitId, handleSelectUnit])
+
   // ── Generate content ───────────────────────────────────────────────────────
 
   const handleGenerate = useCallback(async () => {
@@ -1508,10 +1544,12 @@ export default function StudyPlanPage() {
         return
       }
       // Persist active generation so we can resume on reload / nav.
+      const startedAt = Date.now()
+      const startedAtIso = new Date(startedAt).toISOString()
       saveActiveGen({
         planId,
         unitId: selectedUnitId,
-        startedAt: Date.now(),
+        startedAt,
         contentTypes: selectedContentTypes,
       })
       const unitTitle = plan?.units?.find(u => u.id === selectedUnitId)?.title || 'Unit'
@@ -1531,7 +1569,7 @@ export default function StudyPlanPage() {
         return {
           ...prev,
           units: prev.units.map(u =>
-            u.id === selectedUnitId ? { ...u, content_status: 'generating' } : u
+            u.id === selectedUnitId ? { ...u, content_status: 'generating', generation_started_at: startedAtIso } : u
           ),
         }
       })
@@ -1686,6 +1724,17 @@ export default function StudyPlanPage() {
   const isGaokaoPlan = plan?.framework === 'gaokao'
   const lang = uiLanguage === 'zh' ? 'zh' : 'en'
   const unitLabel = lang === 'zh' ? '单元' : 'Unit'
+  const generationStartedMs = selectedUnit?.generation_started_at ? Date.parse(selectedUnit.generation_started_at) : NaN
+  const generationElapsedSeconds = Number.isFinite(generationStartedMs)
+    ? Math.max(0, Math.round((Date.now() - generationStartedMs) / 1000))
+    : null
+  const generationElapsedLabel = generationElapsedSeconds === null
+    ? null
+    : generationElapsedSeconds < 60
+      ? (lang === 'zh' ? `${generationElapsedSeconds} 秒` : `${generationElapsedSeconds}s`)
+      : (lang === 'zh'
+        ? `${Math.floor(generationElapsedSeconds / 60)} 分 ${generationElapsedSeconds % 60} 秒`
+        : `${Math.floor(generationElapsedSeconds / 60)}m ${generationElapsedSeconds % 60}s`)
 
   // ── Loading / error states ─────────────────────────────────────────────────
 
@@ -1751,11 +1800,12 @@ export default function StudyPlanPage() {
           </div>
         </div>
         <button
-          className="md:hidden text-gray-500 p-1"
+          className="md:hidden inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600"
           onClick={() => setSidebarOpen(v => !v)}
           aria-label={lang === 'zh' ? '展开或收起单元列表' : 'Toggle unit list'}
         >
-          ☰
+          <span aria-hidden>☰</span>
+          <span>{lang === 'zh' ? '单元' : 'Units'}</span>
         </button>
       </div>
 
@@ -1940,6 +1990,14 @@ export default function StudyPlanPage() {
             <div className="flex flex-col items-center justify-center h-64 bg-white rounded-xl shadow-sm border border-gray-200 text-center p-8">
               <div className="text-4xl mb-3">📚</div>
               <p className="text-gray-500 text-sm">{lang === 'zh' ? '请选择一个单元查看内容' : 'Select a unit from the left to view its content'}</p>
+              {plan.units.length > 0 && (
+                <button
+                  onClick={() => setSidebarOpen(true)}
+                  className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 md:hidden"
+                >
+                  {lang === 'zh' ? `查看 ${plan.units.length} 个单元` : `View ${plan.units.length} units`}
+                </button>
+              )}
             </div>
           ) : selectedUnit.content_status === 'generating' ? (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center space-y-4">
@@ -1948,6 +2006,18 @@ export default function StudyPlanPage() {
               </div>
               <p className="text-gray-700 font-medium">{lang === 'zh' ? '正在生成这个单元的内容…' : 'Generating content for this unit…'}</p>
               <p className="text-sm text-gray-500">{lang === 'zh' ? '通常需要 1-2 分钟，完成后会自动更新。' : "This may take a minute. We'll update automatically."}</p>
+              {generationElapsedLabel && (
+                <p className="text-xs text-gray-400">
+                  {lang === 'zh' ? `已等待 ${generationElapsedLabel}` : `Waiting for ${generationElapsedLabel}`}
+                </p>
+              )}
+              {generationElapsedSeconds !== null && generationElapsedSeconds >= 120 && (
+                <div className="mx-auto max-w-md rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  {lang === 'zh'
+                    ? '如果继续等待很久，可以稍后回来；若状态没有变化，请刷新后重试，或只生成“学习讲义/小测”。'
+                    : 'If this keeps taking a while, you can come back later. If the status does not change, refresh and retry with only Study Guide / Quiz.'}
+                </div>
+              )}
             </div>
           ) : selectedUnit.content_status !== 'ready' && !selectedUnit.is_completed ? (
             // Generate content panel
@@ -2085,19 +2155,19 @@ export default function StudyPlanPage() {
               {/* Tab content */}
               <div className="p-6 relative" ref={contentRef}>
                 {activeTab === 'study_guide' && content?.study_guide && (
-                  <StudyGuideTab guide={content.study_guide} />
+                  <StudyGuideTab guide={content.study_guide} lang={lang} />
                 )}
                 {activeTab === 'quiz' && content?.quiz && (
-                  <QuizTab quiz={content.quiz} />
+                  <QuizTab quiz={content.quiz} lang={lang} />
                 )}
                 {activeTab === 'flashcards' && content?.flashcards && (
-                  <FlashcardsTab cards={content.flashcards} />
+                  <FlashcardsTab cards={content.flashcards} lang={lang} />
                 )}
                 {activeTab === 'formulas' && content?.formulas && (
-                  <FormulasTab formulas={content.formulas} />
+                  <FormulasTab formulas={content.formulas} lang={lang} />
                 )}
                 {activeTab === 'mock_exam' && content?.mock_exam && (
-                  <MockExamTab exam={content.mock_exam} />
+                  <MockExamTab exam={content.mock_exam} lang={lang} />
                 )}
                 {activeTab === 'my_context' && (
                   <MediaContextTab getAuthHeaders={authHeaders} />
