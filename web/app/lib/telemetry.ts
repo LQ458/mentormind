@@ -306,9 +306,12 @@ function safeUrlPath(value: unknown): string | undefined {
   }
 }
 
-function isExpectedAuthProbeFailure(method: string, urlPath: string | undefined, status: number): boolean {
-  if (method !== 'GET' || status !== 401 || !urlPath) return false
-  return urlPath.split('?')[0] === '/api/backend/users/me'
+function isExpectedAccessControlFailure(method: string, urlPath: string | undefined, status: number): boolean {
+  if (method !== 'GET' || !urlPath) return false
+  const path = urlPath.split('?')[0]
+  if (status === 401 && path === '/api/backend/users/me') return true
+  if ((status === 401 || status === 403) && path.startsWith('/api/backend/admin/')) return true
+  return false
 }
 
 function browserFamily(): string {
@@ -491,7 +494,7 @@ export function initTelemetry(): void {
           if (
             !isTelemetryRequest &&
             response.status >= 400 &&
-            !isExpectedAuthProbeFailure(method, urlPath, response.status)
+            !isExpectedAccessControlFailure(method, urlPath, response.status)
           ) {
             const elapsed = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt)
             track('error_network', {
