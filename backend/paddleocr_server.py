@@ -32,11 +32,18 @@ async def load_model():
     try:
         from paddleocr import PaddleOCR
         print("⏳ Loading PaddleOCR model...")
-        ocr_model = PaddleOCR(
-            use_angle_cls=True,
-            lang="ch",
-            use_gpu=False,
-        )
+        for kwargs in (
+            {"use_angle_cls": True, "lang": "ch"},
+            {"use_textline_orientation": True, "lang": "ch"},
+            {"lang": "ch"},
+        ):
+            try:
+                ocr_model = PaddleOCR(**kwargs)
+                break
+            except TypeError:
+                continue
+        if ocr_model is None:
+            raise RuntimeError("PaddleOCR did not initialize with supported arguments")
         print("✅ PaddleOCR model loaded")
     except ImportError:
         print("⚠️  paddleocr not installed. Run: pip install paddleocr paddlepaddle")
@@ -61,7 +68,10 @@ async def ocr_base64(req: Base64Request):
         tmp_path = tmp.name
 
     try:
-        result = ocr_model.ocr(tmp_path, cls=True)
+        try:
+            result = ocr_model.ocr(tmp_path, cls=True)
+        except TypeError:
+            result = ocr_model.ocr(tmp_path)
         lines = []
         for block in (result or []):
             for line in (block or []):
@@ -87,7 +97,10 @@ async def ocr_upload(image: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        result = ocr_model.ocr(tmp_path, cls=True)
+        try:
+            result = ocr_model.ocr(tmp_path, cls=True)
+        except TypeError:
+            result = ocr_model.ocr(tmp_path)
         lines = []
         for block in (result or []):
             for line in (block or []):

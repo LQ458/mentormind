@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../../../../_auth'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -10,9 +11,7 @@ export async function DELETE(
   { params }: { params: { id: string; unitId: string } },
 ) {
   try {
-    const authHeader = request.headers.get('Authorization')
-    const headers: Record<string, string> = {}
-    if (authHeader) headers.Authorization = authHeader
+    const headers = backendHeaders(request)
 
     const backendResponse = await fetch(
       `${BACKEND_URL}/study-plan/${params.id}/unit/${params.unitId}`,

@@ -1081,11 +1081,11 @@ function MockExamTab({ exam }: { exam: MockExam }) {
 
 // ── Status Badge ──────────────────────────────────────────────────────────────
 
-function StatusBadge({ status, isCompleted }: { status: string; isCompleted: boolean }) {
+function StatusBadge({ status, isCompleted, lang = 'en' }: { status: string; isCompleted: boolean; lang?: 'zh' | 'en' }) {
   if (isCompleted) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
-        ✓ Completed
+        ✓ {lang === 'zh' ? '已完成' : 'Completed'}
       </span>
     )
   }
@@ -1093,25 +1093,25 @@ function StatusBadge({ status, isCompleted }: { status: string; isCompleted: boo
     case 'generating':
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 animate-pulse">
-          ⟳ Generating...
+          ⟳ {lang === 'zh' ? '生成中' : 'Generating'}
         </span>
       )
     case 'ready':
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
-          ✓ Ready
+          ✓ {lang === 'zh' ? '可学习' : 'Ready'}
         </span>
       )
     case 'failed':
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
-          ✗ Failed
+          ✗ {lang === 'zh' ? '失败' : 'Failed'}
         </span>
       )
     default:
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-          Pending
+          {lang === 'zh' ? '待生成' : 'Pending'}
         </span>
       )
   }
@@ -1126,11 +1126,11 @@ function Skeleton({ className }: { className?: string }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 const CONTENT_TYPES = [
-  { key: 'study_guide', label: 'Study Guide' },
-  { key: 'quiz', label: 'Quiz' },
-  { key: 'flashcards', label: 'Flashcards' },
-  { key: 'formula_sheet', label: 'Formula Sheet' },
-  { key: 'mock_exam', label: 'Mock Exam' },
+  { key: 'study_guide', en: 'Study Guide', zh: '学习讲义' },
+  { key: 'quiz', en: 'Quiz', zh: '小测' },
+  { key: 'flashcards', en: 'Flashcards', zh: '记忆卡' },
+  { key: 'formula_sheet', en: 'Formula Sheet', zh: '公式表' },
+  { key: 'mock_exam', en: 'Mock Exam', zh: '模拟卷' },
 ]
 
 export default function StudyPlanPage() {
@@ -1635,6 +1635,8 @@ export default function StudyPlanPage() {
 
   const selectedUnit = plan?.units.find(u => u.id === selectedUnitId) ?? null
   const isGaokaoPlan = plan?.framework === 'gaokao'
+  const lang = uiLanguage === 'zh' ? 'zh' : 'en'
+  const unitLabel = lang === 'zh' ? '单元' : 'Unit'
 
   // ── Loading / error states ─────────────────────────────────────────────────
 
@@ -1716,7 +1718,7 @@ export default function StudyPlanPage() {
             {/* Plan meta */}
             <div className="p-4 border-b border-gray-100">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-gray-500 font-medium">Overall Progress</span>
+                <span className="text-xs text-gray-500 font-medium">{lang === 'zh' ? '总体进度' : 'Overall Progress'}</span>
                 <span className="text-xs font-semibold text-gray-700">{plan.progress_percentage}%</span>
               </div>
               <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
@@ -1726,7 +1728,9 @@ export default function StudyPlanPage() {
                 />
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                {plan.units.filter(u => u.is_completed).length} of {plan.units.length} units completed
+                {lang === 'zh'
+                  ? `已完成 ${plan.units.filter(u => u.is_completed).length} / ${plan.units.length} 个单元`
+                  : `${plan.units.filter(u => u.is_completed).length} of ${plan.units.length} units completed`}
               </p>
             </div>
 
@@ -1764,9 +1768,9 @@ export default function StudyPlanPage() {
                   >
                     <div className="flex items-start justify-between gap-2 mb-1.5">
                       <span className="text-xs font-semibold text-gray-500 shrink-0">
-                        Unit {unit.order_index + 1}
+                        {unitLabel} {unit.order_index + 1}
                       </span>
-                      <StatusBadge status={unit.content_status} isCompleted={unit.is_completed} />
+                      <StatusBadge status={unit.content_status} isCompleted={unit.is_completed} lang={lang} />
                     </div>
                     <p className="text-sm font-medium text-gray-900 mb-2 line-clamp-2">{unit.title}</p>
                     {unit.topics?.length > 0 && (
@@ -1785,7 +1789,7 @@ export default function StudyPlanPage() {
                       </div>
                     )}
                     {unit.estimated_minutes > 0 && (
-                      <p className="text-xs text-gray-400">{unit.estimated_minutes} min</p>
+                      <p className="text-xs text-gray-400">{unit.estimated_minutes} {lang === 'zh' ? '分钟' : 'min'}</p>
                     )}
                   </button>
                 ))}
@@ -1815,7 +1819,7 @@ export default function StudyPlanPage() {
                       onClick={() => { setGaokaoMode(false); if (plan.units[0]) handleSelectUnit(plan.units[0]) }}
                       className="text-xs text-blue-600 hover:underline"
                     >
-                      View Units
+                      {lang === 'zh' ? '查看单元' : 'View Units'}
                     </button>
                   )}
                 </div>
@@ -1823,7 +1827,7 @@ export default function StudyPlanPage() {
                   type="text"
                   value={gaokaoTopicFocus}
                   onChange={(e) => setGaokaoTopicFocus(e.target.value)}
-                  placeholder="Study topic (optional): e.g. derivatives, electromagnetism..."
+                  placeholder={lang === 'zh' ? '学习主题（可选）：例如导数、圆锥曲线…' : 'Study topic (optional): e.g. derivatives, electromagnetism...'}
                   className="w-full mt-2 text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white text-gray-800"
                 />
               </div>
@@ -1864,7 +1868,7 @@ export default function StudyPlanPage() {
                     value={gaokaoInput}
                     onChange={(e) => setGaokaoInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGaokaoSend() } }}
-                    placeholder="Ask about any topic... (Enter to send)"
+                    placeholder={lang === 'zh' ? '问任何主题…（回车发送）' : 'Ask about any topic... (Enter to send)'}
                     rows={1}
                     className="flex-1 text-sm border border-gray-200 rounded-xl px-4 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white text-gray-800 max-h-32 overflow-y-auto"
                   />
@@ -1873,7 +1877,7 @@ export default function StudyPlanPage() {
                     disabled={!gaokaoInput.trim() || gaokaoTyping}
                     className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-xl px-4 py-2.5 text-sm font-medium transition-colors flex-shrink-0"
                   >
-                    Send
+                    {lang === 'zh' ? '发送' : 'Send'}
                   </button>
                 </div>
               </div>
@@ -1881,22 +1885,32 @@ export default function StudyPlanPage() {
           ) : !selectedUnit ? (
             <div className="flex flex-col items-center justify-center h-64 bg-white rounded-xl shadow-sm border border-gray-200 text-center p-8">
               <div className="text-4xl mb-3">📚</div>
-              <p className="text-gray-500 text-sm">Select a unit from the left to view its content</p>
+              <p className="text-gray-500 text-sm">{lang === 'zh' ? '请选择一个单元查看内容' : 'Select a unit from the left to view its content'}</p>
             </div>
           ) : selectedUnit.content_status === 'generating' ? (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center space-y-4">
               <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-yellow-100 mb-2">
                 <span className="text-yellow-600 text-xl animate-spin">⟳</span>
               </div>
-              <p className="text-gray-700 font-medium">Generating content for this unit…</p>
-              <p className="text-sm text-gray-500">This may take a minute. We'll update automatically.</p>
+              <p className="text-gray-700 font-medium">{lang === 'zh' ? '正在生成这个单元的内容…' : 'Generating content for this unit…'}</p>
+              <p className="text-sm text-gray-500">{lang === 'zh' ? '通常需要 1-2 分钟，完成后会自动更新。' : "This may take a minute. We'll update automatically."}</p>
             </div>
           ) : selectedUnit.content_status !== 'ready' && !selectedUnit.is_completed ? (
             // Generate content panel
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-5">
               <div>
                 <h2 className="text-base font-semibold text-gray-900 mb-1">{selectedUnit.title}</h2>
-                <p className="text-sm text-gray-500">No content generated yet. Choose what to generate:</p>
+                {selectedUnit.content_status === 'failed' ? (
+                  <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {lang === 'zh'
+                      ? '上次生成没有成功。可以直接重试，或只勾选“学习讲义/小测”先生成核心内容。'
+                      : 'The last generation did not finish. Retry, or generate only Study Guide / Quiz first.'}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    {lang === 'zh' ? '还没有生成内容。请选择要生成的模块：' : 'No content generated yet. Choose what to generate:'}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -1912,7 +1926,7 @@ export default function StudyPlanPage() {
                       }}
                       className="accent-blue-600 w-4 h-4"
                     />
-                    <span className="text-sm text-gray-700">{ct.label}</span>
+                    <span className="text-sm text-gray-700">{lang === 'zh' ? ct.zh : ct.en}</span>
                   </label>
                 ))}
               </div>
@@ -1922,7 +1936,11 @@ export default function StudyPlanPage() {
                 disabled={generating || selectedContentTypes.length === 0}
                 className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium transition-colors"
               >
-                {generating ? 'Starting generation…' : 'Generate Content'}
+                {generating
+                  ? (lang === 'zh' ? '开始生成中…' : 'Starting generation…')
+                  : selectedUnit.content_status === 'failed'
+                    ? (lang === 'zh' ? '重试生成' : 'Retry Generation')
+                    : (lang === 'zh' ? '生成内容' : 'Generate Content')}
               </button>
 
               <button
@@ -1937,8 +1955,7 @@ export default function StudyPlanPage() {
                   <path d="M6 9l3 3 5-5" />
                 </svg>
                 <span>
-                  {startingBoard ? 'Starting…' : 'AI Board Lesson'}
-                  <span className="ml-1 text-xs text-slate-300">AI 板书课</span>
+                  {startingBoard ? (lang === 'zh' ? '启动中…' : 'Starting…') : (lang === 'zh' ? 'AI 板书课' : 'AI Board Lesson')}
                 </span>
               </button>
               {boardError && (
@@ -1961,7 +1978,7 @@ export default function StudyPlanPage() {
               <div className="px-6 pt-5 pb-4 border-b border-gray-100">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-xs text-gray-500 mb-0.5">Unit {(selectedUnit.order_index ?? 0) + 1}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">{unitLabel} {(selectedUnit.order_index ?? 0) + 1}</p>
                     <h2 className="text-base font-semibold text-gray-900">{selectedUnit.title}</h2>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1976,7 +1993,7 @@ export default function StudyPlanPage() {
                         <path d="M6 20h12" />
                         <path d="M6 9l3 3 5-5" />
                       </svg>
-                      <span>{startingBoard ? '…' : 'Board'}</span>
+                      <span>{startingBoard ? '...' : (lang === 'zh' ? '板书' : 'Board')}</span>
                     </button>
                     <ScreenshotAskAI
                       containerRef={contentRef}
@@ -1984,7 +2001,7 @@ export default function StudyPlanPage() {
                       unitTitle={selectedUnit.title}
                       getAuthHeaders={authHeaders}
                     />
-                    <StatusBadge status={selectedUnit.content_status} isCompleted={selectedUnit.is_completed} />
+                    <StatusBadge status={selectedUnit.content_status} isCompleted={selectedUnit.is_completed} lang={lang} />
                   </div>
                 </div>
               </div>

@@ -215,6 +215,59 @@ function makeStudyPlanRequestId() {
   }
 }
 
+function flattenPlanText(value: unknown, limit = 12000): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value.slice(0, limit)
+  if (Array.isArray(value)) return value.slice(0, 30).map((item) => flattenPlanText(item, limit)).join(' ').slice(0, limit)
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    return ['title', 'subject', 'framework', 'course_name', 'description', 'diagnostic_context', 'units']
+      .map((key) => flattenPlanText(obj[key], limit))
+      .join(' ')
+      .slice(0, limit)
+  }
+  return String(value).slice(0, limit)
+}
+
+function findPlanFrameworkConflict(plan: ProposedPlan, selectedFramework: string | null, lang: 'zh' | 'en'): string | null {
+  const framework = (selectedFramework || plan.framework || '').toLowerCase()
+  const blob = flattenPlanText(plan).toLowerCase()
+  if (framework === 'ap' && (blob.includes('高考') || blob.includes('gaokao') || blob.includes('全国卷') || blob.includes('130+'))) {
+    return lang === 'zh'
+      ? '这个计划混入了高考内容，但你选的是 AP。请点“修改”让 Mina 重新生成 AP-only 计划。'
+      : 'This plan mixes Gaokao content into an AP plan. Use Revise and ask Mina for an AP-only plan.'
+  }
+  if (framework === 'gaokao' && /(^|[^a-z])ap([^a-z]|$)|advanced\s+placement|college\s+board/i.test(blob)) {
+    return lang === 'zh'
+      ? '这个计划混入了 AP 内容，但你选的是高考。请点“修改”让 Mina 重新生成高考-only 计划。'
+      : 'This plan mixes AP content into a Gaokao plan. Use Revise and ask Mina for a Gaokao-only plan.'
+  }
+  if (!Array.isArray(plan.units) || plan.units.length === 0) {
+    return lang === 'zh'
+      ? '这个计划没有可用单元，不能保存。请让 Mina 重新生成。'
+      : 'This plan has no usable units, so it cannot be saved. Ask Mina to regenerate it.'
+  }
+  return null
+}
+
+function studyPlanCreateErrorMessage(data: any, fallbackLang: 'zh' | 'en'): string {
+  const detail = data?.detail
+  const code = typeof detail === 'object' ? detail.error : ''
+  if (code === 'framework_conflict') {
+    return fallbackLang === 'zh'
+      ? '计划混入了不匹配的考试体系，已阻止保存。请点“修改”让 Mina 重新生成。'
+      : 'The plan mixed incompatible exam frameworks, so it was not saved. Use Revise to regenerate.'
+  }
+  if (code === 'empty_study_plan') {
+    return fallbackLang === 'zh'
+      ? '计划没有可用单元，已阻止保存。请重新生成。'
+      : 'The plan had no usable units, so it was not saved. Please regenerate it.'
+  }
+  if (typeof detail === 'string' && detail) return detail
+  if (data?.error) return String(data.error)
+  return fallbackLang === 'zh' ? '计划创建失败，请重试。' : 'Failed to create plan. Please try again.'
+}
+
 // ── Message renderer (matches /create pattern) ───────────────────────────────
 
 function AssistantMessage({ content }: { content: string }) {
@@ -978,6 +1031,12 @@ export default function StudyPlanPage() {
 
   const handleConfirmPlan = async () => {
     if (!proposedPlan) return
+    const localValidationError = findPlanFrameworkConflict(proposedPlan, selectedFramework, uiLanguage === 'zh' ? 'zh' : 'en')
+    if (localValidationError) {
+      setError(localValidationError)
+      setPhase('plan_review')
+      return
+    }
 
     // If auto-save already created the plan, just navigate
     if (createdPlanId) {
@@ -1002,8 +1061,8 @@ export default function StudyPlanPage() {
         body: JSON.stringify({
           plan_data: {
             ...proposedPlan,
-            subject: selectedSubject,
-            framework: selectedFramework,
+            subject: selectedSubject || proposedPlan.subject,
+            framework: selectedFramework || proposedPlan.framework,
             course_name: selectedCourse || proposedPlan.course_name,
             diagnostic_context: {
               intake,
@@ -1028,11 +1087,7 @@ export default function StudyPlanPage() {
         clearStudyPlanDraft()
         router.push(`/study-plan/${data.plan_id}`)
       } else {
-        setError(
-          uiLanguage === 'zh'
-            ? '计划创建失败，请重试。'
-            : 'Failed to create plan. Please try again.'
-        )
+        setError(studyPlanCreateErrorMessage(data, uiLanguage === 'zh' ? 'zh' : 'en'))
         setPhase('plan_review')
       }
     } catch (err) {
@@ -1053,6 +1108,9 @@ export default function StudyPlanPage() {
   const latestOptionMessageId = [...chatMessages]
     .reverse()
     .find((message) => message.role === 'assistant' && message.options && message.options.length > 0)?.id
+  const planReviewValidationError = proposedPlan
+    ? findPlanFrameworkConflict(proposedPlan, selectedFramework, uiLanguage === 'zh' ? 'zh' : 'en')
+    : null
 
   return (
     <div className="space-y-8">
@@ -2066,9 +2124,14 @@ export default function StudyPlanPage() {
 
             {/* Action buttons */}
             <div className="pt-2 space-y-3">
+              {planReviewValidationError && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  {planReviewValidationError}
+                </div>
+              )}
               <button
                 onClick={handleConfirmPlan}
-                disabled={isCreating}
+                disabled={isCreating || Boolean(planReviewValidationError)}
                 className="w-full rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {uiLanguage === 'zh' ? '看起来不错，开始学习！' : "Looks good, let's go!"}

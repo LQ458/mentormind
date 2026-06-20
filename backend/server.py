@@ -10,7 +10,7 @@ import os
 import sys
 import threading
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -1910,8 +1910,15 @@ def _sign_jwt(user_id: str, username: str) -> str:
     )
 
 
+def _touch_invite_login(user: User, lang: str) -> None:
+    """Update login metadata for invite auth."""
+    user.last_login_at = datetime.utcnow()
+    if lang in {"zh", "en"}:
+        user.language_preference = lang
+
+
 @app.post("/auth/invite")
-@limiter.limit("5/minute")
+@limiter.limit(os.getenv("INVITE_AUTH_RATE_LIMIT", "20/minute"))
 async def invite_login(request: Request):
     """Register or login with invite code + username + password.
 
@@ -1956,6 +1963,8 @@ async def invite_login(request: Request):
             if not user.is_active:
                 raise HTTPException(status_code=403, detail="Account is inactive")
 
+            _touch_invite_login(user, lang)
+            db.commit()
             token = _sign_jwt(user.id, user.username)
             return {
                 "success": True,
@@ -1977,7 +1986,6 @@ async def invite_login(request: Request):
             raise HTTPException(status_code=409, detail="Username already taken. Please choose another.")
 
         code_row.used_count += 1
-        db.commit()
 
         user_id = str(_uuid.uuid4())
         user = User(
@@ -1989,6 +1997,7 @@ async def invite_login(request: Request):
             language_preference=lang,
             is_active=True,
             is_verified=True,
+            last_login_at=datetime.utcnow(),
         )
         db.add(user)
         db.commit()
@@ -3446,6 +3455,122 @@ def _sanitize_study_plan_history(history: List[Dict[str, str]]) -> List[Dict[str
     return sanitized
 
 
+_STUDY_PLAN_FRAMEWORKS = {"ap", "a_level", "ib", "gaokao", "general", ""}
+
+
+def _flatten_plan_text(value: Any, limit: int = 12000) -> str:
+    """Flatten plan data for cheap rule checks without trusting LLM shape."""
+    try:
+        if isinstance(value, str):
+            return value[:limit]
+        if isinstance(value, dict):
+            parts: List[str] = []
+            for key in (
+                "title",
+                "subject",
+                "framework",
+                "course_name",
+                "description",
+                "diagnostic_context",
+                "units",
+            ):
+                if key in value:
+                    parts.append(_flatten_plan_text(value.get(key), limit))
+            return " ".join(parts)[:limit]
+        if isinstance(value, list):
+            return " ".join(_flatten_plan_text(item, limit) for item in value[:30])[:limit]
+        return str(value)[:limit]
+    except Exception:
+        return str(value)[:limit]
+
+
+def _contains_ap_marker(text: str) -> bool:
+    return bool(re.search(r"(?<![a-z])ap(?![a-z])|advanced\s+placement|college\s+board", text, re.I))
+
+
+def _study_plan_framework_conflicts(plan_data: Dict[str, Any], framework: str) -> List[str]:
+    """Detect obvious AP/Gaokao cross-contamination before saving a plan."""
+    blob = _flatten_plan_text(plan_data).lower()
+    conflicts: List[str] = []
+    if framework == "ap":
+        for marker in ("高考", "gaokao", "全国卷", "130+"):
+            if marker.lower() in blob:
+                conflicts.append(marker)
+    elif framework == "gaokao":
+        if _contains_ap_marker(blob):
+            conflicts.append("AP")
+    return conflicts
+
+
+def _normalize_study_plan_units(units_data: Any) -> List[Dict[str, Any]]:
+    if not isinstance(units_data, list):
+        return []
+    units: List[Dict[str, Any]] = []
+    for raw in units_data[:12]:
+        if not isinstance(raw, dict):
+            continue
+        title = str(raw.get("title") or "").strip()
+        if not title:
+            continue
+        topics = raw.get("topics")
+        objectives = raw.get("learning_objectives")
+        try:
+            estimated_minutes = int(raw.get("estimated_minutes") or raw.get("estimated_hours", 1) * 60)
+        except Exception:
+            estimated_minutes = 60
+        units.append({
+            **raw,
+            "title": title[:255],
+            "description": str(raw.get("description") or "")[:4000],
+            "topics": topics if isinstance(topics, list) else [],
+            "learning_objectives": objectives if isinstance(objectives, list) else [],
+            "estimated_minutes": max(15, min(estimated_minutes, 24 * 60)),
+        })
+    return units
+
+
+def _normalize_study_plan_payload(plan_data: Dict[str, Any], language: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    if not isinstance(plan_data, dict):
+        raise HTTPException(status_code=400, detail="plan_data must be an object")
+
+    normalized = dict(plan_data)
+    framework = str(normalized.get("framework") or "").strip().lower()
+    if framework not in _STUDY_PLAN_FRAMEWORKS:
+        framework = "general"
+    normalized["framework"] = framework or "general"
+
+    subject = str(normalized.get("subject") or "general").strip().lower()[:50]
+    normalized["subject"] = subject or "general"
+    normalized["language"] = language if language in {"zh", "en"} else "zh"
+
+    units = _normalize_study_plan_units(normalized.get("units"))
+    if not units:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "empty_study_plan",
+                "message": "Study plan must include at least one usable unit.",
+            },
+        )
+
+    conflicts = _study_plan_framework_conflicts(normalized, normalized["framework"])
+    if conflicts:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "framework_conflict",
+                "framework": normalized["framework"],
+                "conflicts": conflicts[:5],
+                "message": "Study plan mixes incompatible exam frameworks. Please regenerate or revise the plan.",
+            },
+        )
+
+    normalized["units"] = units
+    if not isinstance(normalized.get("diagnostic_context"), dict):
+        normalized["diagnostic_context"] = {}
+    return normalized, units
+
+
 def _redis_for_limits():
     try:
         from celery_app import _redis_client
@@ -4362,12 +4487,13 @@ async def create_study_plan(
 ):
     """Create a study plan from the confirmed plan data."""
     try:
+        plan_data, units_data = _normalize_study_plan_payload(req.plan_data, req.language)
         if req.request_id:
             request_hash = req.request_id.strip()[:120]
         else:
             import hashlib
             encoded = json.dumps(
-                {"plan_data": req.plan_data, "language": req.language},
+                {"plan_data": plan_data, "language": req.language},
                 ensure_ascii=False,
                 sort_keys=True,
                 default=str,
@@ -4397,9 +4523,6 @@ async def create_study_plan(
                         }
             except Exception as exc:
                 logger.warning(f"Study plan idempotency lookup failed: {exc}")
-
-        plan_data = req.plan_data
-        units_data = plan_data.get("units", [])
 
         plan = StudyPlan(
             user_id=current_user.id,
@@ -4446,6 +4569,9 @@ async def create_study_plan(
             "total_units": plan.total_units,
             "status": plan.status,
         }
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         logger.error(f"Study plan creation failed: {e}")

@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
+import { backendHeaders } from '../../_auth'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -9,11 +10,7 @@ export async function GET(
 ) {
   try {
     const id = params.id;
-    const authHeader = request.headers.get('Authorization');
-    const headers: Record<string, string> = {};
-    if (authHeader) {
-      headers.Authorization = authHeader;
-    }
+    const headers = backendHeaders(request)
 
     const backendResponse = await fetch(`${BACKEND_URL}/study-plan/${id}`, { headers });
 
@@ -41,11 +38,7 @@ export async function DELETE(
 ) {
   try {
     const id = params.id;
-    const authHeader = request.headers.get('Authorization');
-    const headers: Record<string, string> = {};
-    if (authHeader) {
-      headers.Authorization = authHeader;
-    }
+    const headers = backendHeaders(request)
 
     const backendResponse = await fetch(`${BACKEND_URL}/study-plan/${id}`, {
       method: 'DELETE',

@@ -80,6 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (inviteCode: string | undefined, username: string, password: string, lang?: string): Promise<AuthUser> => {
       const body: Record<string, string> = { username, password }
       if (inviteCode) body.invite_code = inviteCode
+      if (lang) body.language = lang
 
       const res = await fetch('/api/backend/auth/invite', {
         method: 'POST',

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Check, Flag, Send, X } from 'lucide-react'
 import { useLanguage } from './LanguageContext'
-import { getTelemetryContextSnapshot, track } from '../lib/telemetry'
+import { getTelemetryContextSnapshot, trackNow } from '../lib/telemetry'
 
 type Severity = 'confusing' | 'blocked' | 'wrong' | 'slow' | 'visual'
 
@@ -29,19 +29,35 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
   const [note, setNote] = useState('')
   const [expected, setExpected] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const submit = () => {
+  const submit = async () => {
+    if (submitting) return
     const trimmedNote = note.trim()
     const trimmedExpected = expected.trim()
-    track('feedback_moment', {
+    if (!trimmedNote && !trimmedExpected) {
+      setError(lang === 'zh' ? '写一句也可以，方便我们复现。' : 'Add one short note so we can reproduce it.')
+      return
+    }
+    setSubmitting(true)
+    setError(null)
+    const ok = await trackNow('feedback_moment', {
       schema: 'mentormind.feedback_moment.v1',
+      source: 'inline_feedback_moment',
       surface,
       interaction_id: interactionId,
+      feedback_kind: 'bug',
       severity,
       user_note: trimmedNote.slice(0, 1200),
       expected_behavior: trimmedExpected.slice(0, 1200),
       context: getTelemetryContextSnapshot(snapshot),
     })
+    setSubmitting(false)
+    if (!ok) {
+      setError(lang === 'zh' ? '暂时没记录成功，请再试一次。' : 'Could not record it yet. Please try again.')
+      return
+    }
     setSubmitted(true)
     setOpen(false)
     setNote('')
@@ -114,13 +130,19 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
             placeholder={lang === 'zh' ? '你期待它怎么做？可选' : 'What should it have done instead? Optional'}
             className="w-full resize-none rounded-lg border border-gray-300 px-3 py-2 leading-5 outline-none focus:ring-2 focus:ring-blue-400"
           />
+          {error && (
+            <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-amber-800">
+              {error}
+            </div>
+          )}
           <button
             type="button"
             onClick={submit}
+            disabled={submitting}
             className="mt-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 font-semibold text-white hover:bg-blue-700"
           >
             <Send size={13} />
-            {lang === 'zh' ? '记录' : 'Record'}
+            {submitting ? (lang === 'zh' ? '记录中…' : 'Recording…') : (lang === 'zh' ? '记录' : 'Record')}
           </button>
         </div>
       )}

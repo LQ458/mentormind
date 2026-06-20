@@ -59,7 +59,21 @@ def _get_paddleocr():
         try:
             from paddleocr import PaddleOCR
             print("⏳ Loading PaddleOCR model...")
-            _paddleocr_model = PaddleOCR(use_angle_cls=True, lang="ch", use_gpu=False)
+            init_attempts = [
+                {"use_angle_cls": True, "lang": "ch"},
+                {"use_textline_orientation": True, "lang": "ch"},
+                {"lang": "ch"},
+            ]
+            last_error: Optional[Exception] = None
+            for kwargs in init_attempts:
+                try:
+                    _paddleocr_model = PaddleOCR(**kwargs)
+                    break
+                except TypeError as exc:
+                    last_error = exc
+                    continue
+            if _paddleocr_model is None:
+                raise last_error or RuntimeError("PaddleOCR model did not initialize")
             print("✅ PaddleOCR model loaded")
         except ImportError:
             raise RuntimeError("paddleocr not installed. Run: pip install paddleocr paddlepaddle")
@@ -213,7 +227,10 @@ def extract_text_with_paddleocr(tmp_path: str) -> dict:
     """Extract text from an image using PaddleOCR."""
     try:
         ocr = _get_paddleocr()
-        result = ocr.ocr(tmp_path, cls=True)
+        try:
+            result = ocr.ocr(tmp_path, cls=True)
+        except TypeError:
+            result = ocr.ocr(tmp_path)
         lines = []
         for block in (result or []):
             for line in (block or []):

@@ -686,6 +686,20 @@ def ocr_image_task(self, file_path: str, language: str, job_id: str, target_lang
 
 # ── Study Plan: Unit Content Generation ─────────────────────────────────────
 
+def _unit_content_status(result: dict, content_types: list) -> tuple[str, list[str], list[str]]:
+    """Return (status, succeeded_types, missing_types) for generated unit content.
+
+    A single optional block can fail to parse while the study guide/quiz is
+    usable. For the beta MVP, showing partial usable content is better than
+    marking the entire unit failed and leaving the learner on a dead screen.
+    """
+    if not isinstance(result, dict) or result.get("error"):
+        return "failed", [], list(content_types or [])
+    succeeded = [ct for ct in (content_types or []) if result.get(ct) is not None]
+    missing = [ct for ct in (content_types or []) if result.get(ct) is None]
+    return ("ready" if succeeded else "failed"), succeeded, missing
+
+
 @celery_app.task(bind=True, name="mentormind.generate_unit_content", time_limit=600,
                  max_retries=2, default_retry_delay=10)
 def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: dict,
@@ -725,14 +739,13 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
     except Exception as e:
         print(f"[unit:{unit_id}] ⚠️ Failed to store result in Redis: {e}")
 
-    # Update the unit in the database
-    # Mark as failed if there's an explicit error OR if any requested content type is None
-    has_error = bool(result.get("error"))
-    has_missing = any(ct in result and result[ct] is None for ct in content_types)
-    if has_missing and not has_error:
-        missing = [ct for ct in content_types if ct in result and result[ct] is None]
-        print(f"[unit:{unit_id}] ⚠️ Content types returned None (parse failure): {missing}")
-    status_to_set = "ready" if (not has_error and not has_missing) else "failed"
+    # Update the unit in the database. Treat partial success as usable content:
+    # missing tabs stay disabled in the UI and can be regenerated later.
+    status_to_set, succeeded_types, missing = _unit_content_status(result, content_types)
+    if missing and succeeded_types:
+        print(f"[unit:{unit_id}] ⚠️ Partial content generated. Missing: {missing}; usable: {succeeded_types}")
+    elif missing:
+        print(f"[unit:{unit_id}] ⚠️ Content generation returned no usable blocks. Missing: {missing}")
     if cache_key and status_to_set == "ready":
         try:
             _redis_client.setex(
@@ -752,7 +765,7 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
                 unit = session.query(StudyPlanUnit).filter(StudyPlanUnit.id == unit_id).first()
                 if unit:
                     if status_to_set == "ready":
-                        for ct in content_types:
+                        for ct in succeeded_types:
                             if ct in result and result[ct] is not None:
                                 setattr(unit, ct, result[ct])
                     unit.content_status = status_to_set
