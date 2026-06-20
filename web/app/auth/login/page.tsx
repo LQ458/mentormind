@@ -12,6 +12,17 @@ function getRedirectTarget(): string {
   return target
 }
 
+function getInviteCodeFromUrl(): string {
+  if (typeof window === 'undefined') return ''
+  const params = new URLSearchParams(window.location.search)
+  return (
+    params.get('invite') ||
+    params.get('invite_code') ||
+    params.get('code') ||
+    ''
+  ).trim()
+}
+
 export default function LoginPage() {
   const { isLoaded, isSignedIn, loginWithInvite } = useAuth()
   const { language } = useLanguage()
@@ -26,6 +37,11 @@ export default function LoginPage() {
     if (!isLoaded || !isSignedIn) return
     window.location.replace(getRedirectTarget())
   }, [isLoaded, isSignedIn])
+
+  useEffect(() => {
+    const code = getInviteCodeFromUrl()
+    if (code) setInviteCode(code)
+  }, [])
 
   const isRegister = inviteCode.trim().length > 0
   const canSubmit = username.trim().length >= 2 && password.trim().length >= 4

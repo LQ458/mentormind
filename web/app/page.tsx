@@ -12,6 +12,17 @@ function detectBrowserLang(): 'zh' | 'en' {
   return nav.startsWith('zh') ? 'zh' : 'en'
 }
 
+function inviteCodeFromUrl(): string {
+  if (typeof window === 'undefined') return ''
+  const params = new URLSearchParams(window.location.search)
+  return (
+    params.get('invite') ||
+    params.get('invite_code') ||
+    params.get('code') ||
+    ''
+  ).trim()
+}
+
 export default function HomePage() {
   const { isLoaded, isSignedIn, loginWithInvite } = useAuth()
   const { language, setLanguage } = useLanguage()
@@ -27,6 +38,8 @@ export default function HomePage() {
   useEffect(() => {
     const browserLang = detectBrowserLang()
     if (language !== browserLang) setLanguage(browserLang)
+    const code = inviteCodeFromUrl()
+    if (code) setInviteCode(code)
     setReady(true)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
