@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { backendHeaders } from '../../../../../_auth'
-import { proxyFailureResponse } from '../../../../../_proxyErrors'
+import { backendJsonResponse, proxyFailureResponse } from '../../../../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -10,7 +10,8 @@ export async function GET(
   { params }: { params: { id: string; unitId: string } }
 ) {
   try {
-    const { id, unitId } = params;
+    const id = encodeURIComponent(params.id);
+    const unitId = encodeURIComponent(params.unitId);
     const headers = backendHeaders(request)
 
     const backendResponse = await fetch(
@@ -18,8 +19,7 @@ export async function GET(
       { headers }
     );
 
-    const data = await backendResponse.json();
-    return NextResponse.json(data, { status: backendResponse.status });
+    return await backendJsonResponse(backendResponse, 'study-plan unit content proxy')
   } catch (error) {
     console.error('API proxy error:', error);
     return proxyFailureResponse('Failed to fetch unit content');

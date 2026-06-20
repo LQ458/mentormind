@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { backendHeaders } from '../../../../../_auth'
-import { proxyFailureResponse } from '../../../../../_proxyErrors'
+import { backendJsonResponse, proxyFailureResponse } from '../../../../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -10,7 +10,8 @@ export async function POST(
   { params }: { params: { id: string; unitId: string } },
 ) {
   try {
-    const { id, unitId } = params
+    const id = encodeURIComponent(params.id)
+    const unitId = encodeURIComponent(params.unitId)
     const body = await request.json().catch(() => ({}))
     const res = await fetch(
       `${BACKEND_URL}/study-plan/${id}/unit/${unitId}/board-lesson`,
@@ -20,8 +21,7 @@ export async function POST(
         body: JSON.stringify(body),
       },
     )
-    const data = await res.json().catch(() => ({}))
-    return NextResponse.json(data, { status: res.status })
+    return await backendJsonResponse(res, 'study-plan board-lesson proxy')
   } catch (err) {
     console.error('[board-lesson proxy] error:', err)
     return proxyFailureResponse('Failed to start board lesson')
