@@ -186,10 +186,17 @@ function prettyJson(value: unknown): string {
   }
 }
 
+function markdownFence(text: string): string {
+  const matches: string[] = text.match(/`+/g) || []
+  const longest = matches.reduce((max, item) => Math.max(max, item.length), 0)
+  return '`'.repeat(Math.max(3, longest + 1))
+}
+
 function codeBlock(value: unknown): string {
   const text = prettyJson(value)
   if (!text || text === '[]' || text === '{}') return '—'
-  return `\`\`\`json\n${text}\n\`\`\``
+  const fence = markdownFence(text)
+  return `${fence}json\n${text}\n${fence}`
 }
 
 function formatBuild(build?: Record<string, unknown>): string {
