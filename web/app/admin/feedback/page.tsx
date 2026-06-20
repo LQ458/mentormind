@@ -307,18 +307,19 @@ async function copyText(text: string): Promise<boolean> {
 
 function downloadReportCsv(rows: FeedbackReportRow[]) {
   const headers = [
-    'id', 'report_id', 'created_at', 'source', 'tester_username', 'tester_email', 'user_id', 'session_id',
+    'id', 'report_id', 'created_at', 'source', 'tester', 'signed_in_tester',
     'surface', 'feedback_kind', 'severity', 'page', 'user_note', 'expected_behavior', 'captured_url',
-    'build', 'recent_errors', 'app_snapshot',
+    'build', 'recent_errors', 'app_snapshot', 'admin_lookup',
   ]
   const lines = [headers.join(',')]
   for (const r of rows) {
     lines.push([
       r.id, r.report_id || '', r.created_at, r.source || '',
-      r.tester?.username || '', r.tester?.email || '', r.user_id || '', r.session_id || '',
+      formatTesterForIssue(r), r.user_id ? 'true' : 'false',
       r.surface || '', r.feedback_kind || '', r.severity || '', r.page || r.route || '',
       r.user_note || '', r.expected_behavior || '', r.captured_url || r.url || '',
       compactJson(r.build), compactJson(r.recent_errors), compactJson(r.app_snapshot),
+      'Use Report ID in the admin dashboard for full tester details.',
     ].map(csvEscape).join(','))
   }
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
