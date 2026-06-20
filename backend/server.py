@@ -4236,6 +4236,61 @@ class GaokaoSavePlanRequest(BaseModel):
     language: str = "zh"
 
 
+_GAOKAO_SUBJECT_LABELS_ZH = {
+    "math": "数学",
+    "physics": "物理",
+    "chemistry": "化学",
+    "biology": "生物",
+    "english": "英语",
+    "chinese": "语文",
+    "history": "历史",
+    "geography": "地理",
+    "politics": "政治",
+}
+
+
+def _gaokao_seed_unit_payload(req: GaokaoSavePlanRequest, session: Optional[Any] = None) -> Dict[str, Any]:
+    """Build a minimal usable unit so saved Gaokao plans are never empty shells."""
+    language = req.language if req.language in {"zh", "en"} else "zh"
+    subject_key = (req.subject or "math").strip().lower()
+    topic_focus = str(getattr(session, "topic_focus", "") or "").strip()
+
+    if language == "en":
+        subject_label = subject_key.replace("_", " ").title() or "Gaokao"
+        title = topic_focus or f"{subject_label} diagnostic review"
+        description = (
+            req.description.strip()
+            or "Start from the diagnostic conversation, identify weak spots, and turn them into targeted practice."
+        )
+        topics = [topic_focus or subject_label, "weak spot diagnosis", "past-paper practice", "mistake review"]
+        objectives = [
+            "Summarize the current diagnostic results.",
+            "Prioritize the highest-impact topics for the next practice session.",
+            "Convert missed questions into repeatable review tasks.",
+        ]
+    else:
+        subject_label = _GAOKAO_SUBJECT_LABELS_ZH.get(subject_key, subject_key or "高考")
+        title = topic_focus or f"{subject_label}诊断与提分路径"
+        description = (
+            req.description.strip()
+            or "从本次诊断对话出发，先定位薄弱点，再安排真题训练和错题复盘。"
+        )
+        topics = [topic_focus or subject_label, "薄弱点定位", "真题训练", "错题复盘"]
+        objectives = [
+            "整理当前诊断结论。",
+            "确定下一阶段最值得优先突破的知识点。",
+            "把错题和不会的题型转化成可复习任务。",
+        ]
+
+    return {
+        "title": title[:255],
+        "description": description[:4000],
+        "topics": [item for item in topics if item][:6],
+        "learning_objectives": objectives,
+        "estimated_minutes": 90,
+    }
+
+
 class DetectSubjectRequest(BaseModel):
     text: str = Field(min_length=1)
     language: str = "en"
@@ -5893,6 +5948,14 @@ async def gaokao_save_plan(
 ):
     """Create a study plan for gaokao prep and optionally link an existing session."""
     try:
+        session = None
+        if req.session_id:
+            session = db.query(GaokaoSession).filter(
+                GaokaoSession.id == req.session_id,
+                GaokaoSession.user_id == current_user.id,
+            ).first()
+        seed_unit = _gaokao_seed_unit_payload(req, session)
+
         plan = StudyPlan(
             user_id=current_user.id,
             subject=req.subject,
@@ -5900,22 +5963,29 @@ async def gaokao_save_plan(
             title=req.title,
             description=req.description,
             language=req.language,
-            total_units=0,
-            estimated_hours=0,
+            total_units=1,
+            estimated_hours=round(seed_unit["estimated_minutes"] / 60, 2),
             diagnostic_context=req.diagnostic_context,
             status="active",
         )
         db.add(plan)
         db.flush()
 
+        unit = StudyPlanUnit(
+            plan_id=plan.id,
+            order_index=0,
+            title=seed_unit["title"],
+            description=seed_unit["description"],
+            topics=seed_unit["topics"],
+            learning_objectives=seed_unit["learning_objectives"],
+            estimated_minutes=seed_unit["estimated_minutes"],
+            content_status="pending",
+        )
+        db.add(unit)
+
         # Link existing session to this plan if provided
-        if req.session_id:
-            session = db.query(GaokaoSession).filter(
-                GaokaoSession.id == req.session_id,
-                GaokaoSession.user_id == current_user.id,
-            ).first()
-            if session:
-                session.plan_id = plan.id
+        if session:
+            session.plan_id = plan.id
 
         db.commit()
         db.refresh(plan)
@@ -5924,6 +5994,7 @@ async def gaokao_save_plan(
             "success": True,
             "plan_id": str(plan.id),
             "title": plan.title,
+            "total_units": plan.total_units,
             "status": plan.status,
         }
     except Exception as e:

@@ -1,5 +1,6 @@
 import os
 import sys
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -98,3 +99,25 @@ def test_accepts_matching_plan_and_normalizes_units():
     assert units[0]["learning_objectives"] == []
     assert units[0]["estimated_minutes"] == 15
     assert len(units[0]["description"]) == 4000
+
+
+def test_gaokao_seed_unit_defaults_to_usable_chinese_unit():
+    unit = server._gaokao_seed_unit_payload(
+        server.GaokaoSavePlanRequest(title="高考数学计划", subject="math", language="zh"),
+    )
+
+    assert unit["title"] == "数学诊断与提分路径"
+    assert unit["estimated_minutes"] == 90
+    assert "薄弱点定位" in unit["topics"]
+    assert unit["learning_objectives"]
+
+
+def test_gaokao_seed_unit_uses_session_topic_focus_in_english():
+    unit = server._gaokao_seed_unit_payload(
+        server.GaokaoSavePlanRequest(title="Gaokao plan", subject="physics", language="en"),
+        SimpleNamespace(topic_focus="Electric fields"),
+    )
+
+    assert unit["title"] == "Electric fields"
+    assert "Electric fields" in unit["topics"]
+    assert unit["description"]
