@@ -674,7 +674,7 @@ body {
     height: 64px;
     gap: 8px;
     padding: 0 12px;
-    overflow: hidden;
+    overflow: visible;
     position: static;
   }
   .topbar .page-title {

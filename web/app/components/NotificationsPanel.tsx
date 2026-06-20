@@ -63,7 +63,7 @@ export default function NotificationsPanel() {
         {unreadCount > 0 && (
           <span
             aria-hidden
-            className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-semibold leading-[16px] text-center"
+            className="absolute right-0 top-0 h-[16px] min-w-[16px] max-w-[24px] rounded-full bg-rose-500 px-1 text-center text-[10px] font-semibold leading-[16px] text-white"
           >
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
