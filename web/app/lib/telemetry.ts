@@ -228,6 +228,16 @@ function safeUrlPath(value: unknown): string | undefined {
   }
 }
 
+function browserFamily(): string {
+  if (typeof navigator === 'undefined') return 'unknown'
+  const ua = navigator.userAgent || ''
+  if (/Edg\//.test(ua)) return 'Edge'
+  if (/Chrome\//.test(ua) || /CriOS\//.test(ua)) return 'Chrome'
+  if (/Firefox\//.test(ua) || /FxiOS\//.test(ua)) return 'Firefox'
+  if (/Safari\//.test(ua)) return 'Safari'
+  return 'Other'
+}
+
 function compactPayload(payload?: Record<string, unknown>): Record<string, unknown> | undefined {
   if (!payload) return undefined
   const compact: Record<string, unknown> = {}
@@ -295,7 +305,8 @@ export function getTelemetryContextSnapshot(appSnapshot?: Record<string, unknown
     },
     browser: {
       language: navigator.language,
-      user_agent: navigator.userAgent.slice(0, 240),
+      family: browserFamily(),
+      mobile: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || ''),
     },
     recent_events: recentEvents,
     recent_errors: recentErrors,

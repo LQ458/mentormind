@@ -6747,6 +6747,61 @@ def _payload_str(payload: Dict[str, Any], key: str, max_len: int = 240) -> str:
     return str(value)[:max_len]
 
 
+_ADMIN_REDACTED_KEYS = {
+    "access_token",
+    "authorization",
+    "cookie",
+    "id_token",
+    "ip",
+    "ip_address",
+    "jwt",
+    "password",
+    "refresh_token",
+    "secret",
+    "set_cookie",
+    "token",
+    "user_agent",
+}
+
+
+def _sanitize_admin_context_value(value: Any, *, depth: int = 0) -> Any:
+    """Bound feedback triage context and remove high-risk identifiers."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value[:2000]
+    if depth >= 5:
+        return str(value)[:500]
+    if isinstance(value, list):
+        return [
+            _sanitize_admin_context_value(item, depth=depth + 1)
+            for item in value[:50]
+        ]
+    if isinstance(value, dict):
+        clean: Dict[str, Any] = {}
+        for key, nested_value in list(value.items())[:80]:
+            safe_key = str(key)[:80]
+            normalized = safe_key.lower().replace("-", "_")
+            if normalized in _ADMIN_REDACTED_KEYS:
+                clean[safe_key] = "[redacted]"
+            elif normalized in TELEMETRY_URL_KEYS:
+                clean[safe_key] = _redact_url_for_telemetry(nested_value, 512)
+            else:
+                clean[safe_key] = _sanitize_admin_context_value(
+                    nested_value,
+                    depth=depth + 1,
+                )
+        return clean
+    return str(value)[:500]
+
+
+def _survey_response_admin_to_dict(response: SurveyResponse) -> Dict[str, Any]:
+    row = response.to_dict()
+    row.pop("ip_address", None)
+    row.pop("user_agent", None)
+    return row
+
+
 def _feedback_report_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
     payload = event.payload or {}
     context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
@@ -6772,9 +6827,9 @@ def _feedback_report_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
         "expected_behavior": _payload_str(payload, "expected_behavior", 1200),
         "route": str(context.get("route") or event.page or "")[:240],
         "captured_url": str(context.get("url") or event.url or "")[:512],
-        "recent_events": recent_events[:10],
-        "recent_errors": recent_errors[:5],
-        "app_snapshot": app_snapshot,
+        "recent_events": _sanitize_admin_context_value(recent_events[:10]),
+        "recent_errors": _sanitize_admin_context_value(recent_errors[:5]),
+        "app_snapshot": _sanitize_admin_context_value(app_snapshot),
     }
 
 
@@ -6818,7 +6873,7 @@ def _telemetry_context_event_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
         "page": event.page,
         "url": event.url,
         "latency_ms": event.latency_ms,
-        "payload": event.payload or {},
+        "payload": _sanitize_admin_context_value(event.payload or {}),
         "viewport_w": event.viewport_w,
         "viewport_h": event.viewport_h,
     }
@@ -7189,7 +7244,7 @@ async def get_admin_feedback(
     )
     return {
         "total": total,
-        "rows": [r.to_dict() for r in rows],
+        "rows": [_survey_response_admin_to_dict(r) for r in rows],
         "limit": limit,
         "offset": offset,
         "filters": {

@@ -121,3 +121,56 @@ def test_feedback_and_telemetry_admin_data_reject_non_admin_before_db_access(inv
             asyncio.run(result)
 
     assert exc_info.value.status_code == 403
+
+
+def test_survey_admin_rows_omit_network_identifiers():
+    row = SimpleNamespace(
+        to_dict=lambda: {
+            "id": "survey-1",
+            "pain_point": "The plan stalled.",
+            "contact_email": "tester@example.com",
+            "ip_address": "203.0.113.10",
+            "user_agent": "SensitiveBrowser/1.0",
+        },
+    )
+
+    data = server._survey_response_admin_to_dict(row)
+
+    assert data["contact_email"] == "tester@example.com"
+    assert "ip_address" not in data
+    assert "user_agent" not in data
+
+
+def test_feedback_context_admin_payload_redacts_sensitive_fields():
+    event = SimpleNamespace(
+        id="evt-1",
+        created_at=None,
+        event_type="feedback_moment",
+        page="/study-plan",
+        url="/study-plan?token=secret-value",
+        latency_ms=120,
+        payload={
+            "context": {
+                "browser": {
+                    "language": "en-US",
+                    "user_agent": "SensitiveBrowser/1.0",
+                },
+                "app_snapshot": {
+                    "access_token": "secret",
+                    "safe_value": "kept",
+                    "url": "https://mentormind.cloud/study-plan?invite=abc#frag",
+                },
+            }
+        },
+        viewport_w=390,
+        viewport_h=844,
+    )
+
+    data = server._telemetry_context_event_to_dict(event)
+    context = data["payload"]["context"]
+
+    assert context["browser"]["language"] == "en-US"
+    assert context["browser"]["user_agent"] == "[redacted]"
+    assert context["app_snapshot"]["access_token"] == "[redacted]"
+    assert context["app_snapshot"]["safe_value"] == "kept"
+    assert context["app_snapshot"]["url"] == "/study-plan?...#..."
