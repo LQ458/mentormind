@@ -1162,6 +1162,22 @@ const CONTENT_TAB_LABELS: Record<ContentTab, { en: string; zh: string }> = {
   my_context: { en: 'My Context', zh: '我的材料' },
 }
 
+const GENERATED_TAB_ORDER: ContentTab[] = ['study_guide', 'quiz', 'flashcards', 'formulas', 'mock_exam']
+
+function hasGeneratedContentForTab(content: UnitContent | null, tab: ContentTab): boolean {
+  if (!content) return false
+  if (tab === 'study_guide') return Boolean(content.study_guide)
+  if (tab === 'quiz') return Boolean(content.quiz?.questions?.length)
+  if (tab === 'flashcards') return Boolean(content.flashcards?.length)
+  if (tab === 'formulas') return Boolean(content.formulas?.length)
+  if (tab === 'mock_exam') return Boolean(content.mock_exam?.sections?.length)
+  return true
+}
+
+function bestContentTab(content: UnitContent | null): ContentTab {
+  return GENERATED_TAB_ORDER.find(tab => hasGeneratedContentForTab(content, tab)) ?? 'study_guide'
+}
+
 export default function StudyPlanPage() {
   const params = useParams()
   const router = useRouter()
@@ -1303,6 +1319,7 @@ export default function StudyPlanPage() {
         data.mock_exam_mapped = data.mock_exam
       }
       setContent(data)
+      setActiveTab(bestContentTab(data))
     } catch {
       setContent(null)
     } finally {
@@ -1460,7 +1477,7 @@ export default function StudyPlanPage() {
     setSelectedUnitId(unit.id)
     setGaokaoMode(false)
     setContent(null)
-    setActiveTab('study_guide')
+    setActiveTab(bestContentTab(null))
 
     if (unit.content_status === 'ready' || unit.is_completed) {
       setGenerating(false)
@@ -1713,6 +1730,8 @@ export default function StudyPlanPage() {
     { key: 'mock_exam', label: lang === 'zh' ? CONTENT_TAB_LABELS.mock_exam.zh : CONTENT_TAB_LABELS.mock_exam.en },
     { key: 'my_context', label: lang === 'zh' ? CONTENT_TAB_LABELS.my_context.zh : CONTENT_TAB_LABELS.my_context.en },
   ]
+  const activeTabLabel = tabs.find(tab => tab.key === activeTab)?.label ?? CONTENT_TAB_LABELS.study_guide[lang]
+  const activeTabHasContent = activeTab === 'my_context' || hasGeneratedContentForTab(content, activeTab)
 
   return (
     <div className="space-y-6">
@@ -2044,13 +2063,7 @@ export default function StudyPlanPage() {
               {/* Tabs */}
               <div className="flex border-b border-gray-100 overflow-x-auto">
                 {tabs.map(tab => {
-                  const available =
-                    tab.key === 'my_context' ? true
-                    : tab.key === 'study_guide' ? !!content?.study_guide
-                    : tab.key === 'quiz' ? !!content?.quiz
-                    : tab.key === 'flashcards' ? !!content?.flashcards?.length
-                    : tab.key === 'mock_exam' ? !!content?.mock_exam?.sections?.length
-                    : !!content?.formulas?.length
+                  const available = tab.key === 'my_context' || hasGeneratedContentForTab(content, tab.key)
                   return (
                     <button
                       key={tab.key}
@@ -2088,10 +2101,12 @@ export default function StudyPlanPage() {
                 {activeTab === 'my_context' && (
                   <MediaContextTab getAuthHeaders={authHeaders} />
                 )}
-                {!content && activeTab !== 'my_context' && (
-                  <p className="text-gray-500 italic text-sm">
-                    {lang === 'zh' ? '这个标签页还没有生成内容。' : 'No content available for this tab.'}
-                  </p>
+                {!activeTabHasContent && (
+                  <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-500">
+                    {lang === 'zh'
+                      ? `${activeTabLabel} 还没有生成内容。请查看其他可用标签页，或重新生成这个模块。`
+                      : `${activeTabLabel} has not been generated for this unit. Try another available tab or regenerate this content type.`}
+                  </div>
                 )}
                 <HighlightAskAI
                   containerRef={contentRef}
