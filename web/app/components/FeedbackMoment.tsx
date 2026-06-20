@@ -169,6 +169,7 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
             ))}
           </div>
           <textarea
+            aria-label={lang === 'zh' ? '反馈内容' : 'Feedback details'}
             value={note}
             onChange={(event) => setNote(event.target.value.slice(0, FEEDBACK_TEXT_LIMIT))}
             maxLength={FEEDBACK_TEXT_LIMIT}
@@ -177,6 +178,7 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
             className="mb-2 w-full resize-none rounded-lg border border-gray-300 px-3 py-2 leading-5 outline-none focus:ring-2 focus:ring-blue-400"
           />
           <textarea
+            aria-label={lang === 'zh' ? '期望结果' : 'Expected outcome'}
             value={expected}
             onChange={(event) => setExpected(event.target.value.slice(0, FEEDBACK_TEXT_LIMIT))}
             maxLength={FEEDBACK_TEXT_LIMIT}
