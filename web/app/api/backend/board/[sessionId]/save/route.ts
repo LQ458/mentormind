@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { backendHeaders } from '../../../_auth'
+import { backendJsonResponse, proxyFailureResponse } from '../../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -17,13 +18,9 @@ export async function POST(
       headers,
       body,
     })
-    const data = await res.json().catch(() => ({}))
-    return NextResponse.json(data, { status: res.status })
+    return await backendJsonResponse(res, 'board save proxy')
   } catch (err) {
     console.error('[board save proxy] error:', err)
-    return NextResponse.json(
-      { error: 'Failed to reach board service' },
-      { status: 502 },
-    )
+    return proxyFailureResponse('Failed to save board session')
   }
 }

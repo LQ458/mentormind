@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { backendHeaders } from '../../../../_auth'
+import { backendErrorResponse, backendJsonResponse, proxyFailureResponse } from '../../../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 const TURN_TIMEOUT_MS = Number(process.env.SEMINAR_TURN_TIMEOUT_MS || 45000)
@@ -19,15 +20,14 @@ export async function POST(
       body: JSON.stringify(body),
       signal: controller.signal,
     })
-    const data = await res.json().catch(() => ({}))
-    return NextResponse.json(data, { status: res.status })
+    return await backendJsonResponse(res, 'seminar/turn proxy')
   } catch (err) {
     console.error('[seminar/turn proxy] error:', err)
     const timedOut = err instanceof Error && err.name === 'AbortError'
-    return NextResponse.json(
-      { error: timedOut ? 'Seminar AI took too long. Try again.' : 'Failed to post seminar turn' },
-      { status: timedOut ? 504 : 502 },
-    )
+    if (timedOut) {
+      return backendErrorResponse('Seminar AI took too long. Try again.', 504, { code: 'timeout' })
+    }
+    return proxyFailureResponse('Failed to post seminar turn')
   } finally {
     clearTimeout(timeout)
   }

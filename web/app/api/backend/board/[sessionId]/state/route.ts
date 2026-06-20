@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { backendHeaders } from '../../../_auth'
+import { backendJsonResponse, proxyFailureResponse } from '../../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -15,16 +16,11 @@ export async function GET(
       cache: 'no-store',
       headers: backendHeaders(req),
     })
-    const data = await res.json().catch(() => ({}))
-    return NextResponse.json(data, {
-      status: res.status,
-      headers: { 'Cache-Control': 'no-store' },
-    })
+    const response = await backendJsonResponse(res, 'board state proxy')
+    response.headers.set('Cache-Control', 'no-store')
+    return response
   } catch (err) {
     console.error('[board state proxy] error:', err)
-    return NextResponse.json(
-      { error: 'Failed to reach board service' },
-      { status: 502 },
-    )
+    return proxyFailureResponse('Failed to fetch board state')
   }
 }

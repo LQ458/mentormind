@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { backendHeaders } from '../../../_auth'
+import { backendJsonResponse, proxyFailureResponse } from '../../../_proxyErrors'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,10 +16,9 @@ export async function GET(
       headers,
       cache: 'no-store',
     })
-    const data = await res.json().catch(() => ({}))
-    return NextResponse.json(data, { status: res.status })
+    return await backendJsonResponse(res, 'seminar/room proxy')
   } catch (err) {
     console.error('[seminar/room proxy] error:', err)
-    return NextResponse.json({ error: 'Failed to reach seminar room' }, { status: 502 })
+    return proxyFailureResponse('Failed to fetch seminar room')
   }
 }

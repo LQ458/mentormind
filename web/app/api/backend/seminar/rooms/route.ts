@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { backendHeaders } from '../../_auth'
+import { backendJsonResponse, proxyFailureResponse } from '../../_proxyErrors'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,11 +18,10 @@ export async function GET(req: NextRequest) {
       headers: authHeaders(req),
       cache: 'no-store',
     })
-    const data = await res.json().catch(() => ({}))
-    return NextResponse.json(data, { status: res.status })
+    return await backendJsonResponse(res, 'seminar/rooms list proxy')
   } catch (err) {
     console.error('[seminar/rooms proxy] error:', err)
-    return NextResponse.json({ error: 'Failed to reach seminar service' }, { status: 502 })
+    return proxyFailureResponse('Failed to fetch seminar rooms')
   }
 }
 
@@ -33,10 +33,9 @@ export async function POST(req: NextRequest) {
       headers: authHeaders(req, true),
       body: JSON.stringify(body),
     })
-    const data = await res.json().catch(() => ({}))
-    return NextResponse.json(data, { status: res.status })
+    return await backendJsonResponse(res, 'seminar/rooms create proxy')
   } catch (err) {
     console.error('[seminar/rooms proxy] create error:', err)
-    return NextResponse.json({ error: 'Failed to create seminar room' }, { status: 502 })
+    return proxyFailureResponse('Failed to create seminar room')
   }
 }
