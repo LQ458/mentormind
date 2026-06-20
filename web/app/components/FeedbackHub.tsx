@@ -110,6 +110,20 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
   if (!open) return null
 
   const selectedKind = KIND_OPTIONS.find((item) => item.value === kind) || KIND_OPTIONS[0]
+  const hasDraft = message.trim().length > 0 || expected.trim().length > 0
+
+  const requestClose = () => {
+    if (submitting) return
+    if (!submitted && hasDraft) {
+      const confirmed = window.confirm(
+        lang === 'zh'
+          ? '这条反馈还没发送，确定关闭吗？'
+          : 'This feedback has not been sent yet. Close anyway?',
+      )
+      if (!confirmed) return
+    }
+    onClose()
+  }
 
   const copyReportId = async () => {
     if (!submittedReportId || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return
@@ -189,7 +203,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
       aria-modal="true"
       aria-label={lang === 'zh' ? '快速反馈' : 'Quick feedback'}
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose()
+        if (event.target === event.currentTarget) requestClose()
       }}
     >
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
@@ -206,7 +220,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
             aria-label={lang === 'zh' ? '关闭' : 'Close'}
           >
@@ -260,7 +274,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
             )}
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700"
             >
               {lang === 'zh' ? '完成' : 'Done'}
@@ -375,7 +389,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={requestClose}
                 className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
                 {lang === 'zh' ? '取消' : 'Cancel'}
