@@ -52,6 +52,7 @@ const TELEMETRY_ENDPOINT = '/api/backend/telemetry/event'
 const SESSION_KEY = 'mm_telemetry_session_id'
 const RECENT_EVENTS_KEY = 'mm_telemetry_recent_events_v1'
 const PENDING_FEEDBACK_KEY = 'mm_pending_feedback_events_v1'
+const PENDING_FEEDBACK_SESSION_KEY = 'mm_pending_feedback_events_v1'
 const RECENT_LIMIT = 24
 const FEEDBACK_CONTEXT_LIMIT = 10
 const PENDING_FEEDBACK_LIMIT = 8
@@ -168,17 +169,43 @@ function pendingFeedbackKey(event: TelemetryPayload): string {
   return reportId || `${event.session_id}:${event.event_type}:${event.page}:${event.url}`
 }
 
-function readPendingFeedbackEvents(): TelemetryPayload[] {
-  if (typeof window === 'undefined') return []
+function parsePendingFeedbackEvents(raw: string | null): TelemetryPayload[] {
   try {
-    const raw = window.sessionStorage.getItem(PENDING_FEEDBACK_KEY)
     const parsed = raw ? JSON.parse(raw) : []
     return Array.isArray(parsed)
-      ? parsed.filter((item) => item?.event_type === 'feedback_moment').slice(-PENDING_FEEDBACK_LIMIT)
+      ? parsed.filter((item) => item?.event_type === 'feedback_moment')
       : []
   } catch {
     return []
   }
+}
+
+function readStorageValue(storage: Storage | undefined, key: string): string | null {
+  try {
+    return storage?.getItem(key) ?? null
+  } catch {
+    return null
+  }
+}
+
+function removeStorageValue(storage: Storage | undefined, key: string): void {
+  try {
+    storage?.removeItem(key)
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function readPendingFeedbackEvents(): TelemetryPayload[] {
+  if (typeof window === 'undefined') return []
+  const merged = new Map<string, TelemetryPayload>()
+  for (const event of parsePendingFeedbackEvents(readStorageValue(window.localStorage, PENDING_FEEDBACK_KEY))) {
+    merged.set(pendingFeedbackKey(event), event)
+  }
+  for (const event of parsePendingFeedbackEvents(readStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY))) {
+    merged.set(pendingFeedbackKey(event), event)
+  }
+  return Array.from(merged.values()).slice(-PENDING_FEEDBACK_LIMIT)
 }
 
 function writePendingFeedbackEvents(events: TelemetryPayload[]): void {
@@ -192,9 +219,15 @@ function writePendingFeedbackEvents(events: TelemetryPayload[]): void {
       text = JSON.stringify(trimmed)
     }
     if (trimmed.length === 0) {
-      window.sessionStorage.removeItem(PENDING_FEEDBACK_KEY)
+      removeStorageValue(window.localStorage, PENDING_FEEDBACK_KEY)
+      removeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY)
     } else {
-      window.sessionStorage.setItem(PENDING_FEEDBACK_KEY, text)
+      try {
+        window.localStorage.setItem(PENDING_FEEDBACK_KEY, text)
+        removeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY)
+      } catch {
+        window.sessionStorage.setItem(PENDING_FEEDBACK_SESSION_KEY, text)
+      }
     }
   } catch {
     // Losing the fallback buffer must not affect the app.
