@@ -89,7 +89,7 @@ export default function Topbar({ onMenuClick, menuOpen = false }: { onMenuClick?
       <button
         type="button"
         className="icon-btn"
-        aria-label={language === 'zh' ? '发送反馈' : 'Send feedback'}
+        aria-label={language === 'zh' ? '打开反馈' : 'Open feedback'}
         onClick={() => {
           track('feedback_click', { source: 'topbar_feedback_icon', surface: 'topbar' })
           openFeedback({

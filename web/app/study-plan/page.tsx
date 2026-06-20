@@ -95,7 +95,7 @@ const defaultIntake = (): PlanIntake => ({
   targetScore: '',
   weeklyHours: '6',
   prepMonths: '3',
-  studyDays: ['mon', 'wed', 'fri'],
+  studyDays: [],
   hoursPerSession: '1.5',
   weakAreas: '',
   baselineConfidence: {},
@@ -172,6 +172,32 @@ function subjectFromQuickQuestion(subject: string | undefined | null): string | 
   if (/(bio|biology|生物)/i.test(normalized)) return 'biology'
   if (/(econ|economics|经济)/i.test(normalized)) return 'economics'
   return null
+}
+
+function inferQuickQuestionPlanTarget(subject: string | undefined | null): {
+  subject: string | null
+  framework: string
+  course: string | null
+} {
+  const raw = (subject || '').trim()
+  const normalized = raw.toLowerCase()
+  const inferredSubject = subjectFromQuickQuestion(raw)
+  let framework = 'general'
+
+  if (/\b(ap|advanced placement)\b|大学先修/i.test(raw)) framework = 'ap'
+  else if (/(高考|gaokao|全国卷)/i.test(raw)) framework = 'gaokao'
+  else if (/\b(ib|international baccalaureate)\b/i.test(raw)) framework = 'ib'
+  else if (/\b(a[-\s]?level|alevel)\b/i.test(raw)) framework = 'a_level'
+
+  const looksCourseSpecific =
+    framework !== 'general' ||
+    /(calculus|statistics|physics|chemistry|biology|economics|history|psychology|computer science|微积分|统计|物理|化学|生物|经济|历史|心理)/i.test(normalized)
+
+  return {
+    subject: inferredSubject,
+    framework,
+    course: raw && looksCourseSpecific ? raw : null,
+  }
 }
 
 async function readJsonOrThrow(response: Response): Promise<any> {
@@ -486,7 +512,20 @@ export default function StudyPlanPage() {
           answer?: string
         }
         if (!quickPrefill.savedAt || Date.now() - quickPrefill.savedAt <= STUDY_PLAN_DRAFT_MAX_AGE_MS) {
-          const inferredSubject = subjectFromQuickQuestion(quickPrefill.subject)
+          const inferredTarget = inferQuickQuestionPlanTarget(quickPrefill.subject)
+          const quickLabels = uiLanguage === 'zh'
+            ? {
+                subject: '科目/课程',
+                question: '题目',
+                context: '补充材料',
+                answer: 'Mina 的解答',
+              }
+            : {
+                subject: 'Subject/course',
+                question: 'Question',
+                context: 'Context',
+                answer: "Mina's answer",
+              }
           const prompt = uiLanguage === 'zh'
             ? '请把这个单题暴露出的知识点和薄弱环节，扩展成一个短期学习计划。'
             : 'Turn the knowledge gaps exposed by this one question into a short study plan.'
@@ -495,11 +534,11 @@ export default function StudyPlanPage() {
               id: 'quick_question_source',
               role: 'user',
               content: [
-                quickPrefill.subject ? `Subject: ${quickPrefill.subject}` : null,
-                quickPrefill.question ? `Question:\n${quickPrefill.question}` : null,
-                quickPrefill.context ? `Context:\n${quickPrefill.context}` : null,
+                quickPrefill.subject ? `${quickLabels.subject}: ${quickPrefill.subject}` : null,
+                quickPrefill.question ? `${quickLabels.question}:\n${quickPrefill.question}` : null,
+                quickPrefill.context ? `${quickLabels.context}:\n${quickPrefill.context}` : null,
                 quickPrefill.uploadedContext || null,
-                quickPrefill.answer ? `Mina's answer:\n${quickPrefill.answer}` : null,
+                quickPrefill.answer ? `${quickLabels.answer}:\n${quickPrefill.answer}` : null,
               ].filter(Boolean).join('\n\n'),
               timestamp: new Date(),
             },
@@ -512,14 +551,15 @@ export default function StudyPlanPage() {
               timestamp: new Date(),
             },
           ]
-          setPhase('chatting')
-          setSelectedSubject(inferredSubject)
-          setSelectedFramework('general')
-          setSelectedCourse(null)
-          setIntake({
+          const quickIntake = {
             ...defaultIntake(),
             weakAreas: quickPrefill.question || '',
-          })
+          }
+          setPhase('chatting')
+          setSelectedSubject(inferredTarget.subject)
+          setSelectedFramework(inferredTarget.framework)
+          setSelectedCourse(inferredTarget.course)
+          setIntake(quickIntake)
           setChatMessages(quickMessages)
           setUserInput(prompt)
           setChatStage('diagnostic')
@@ -534,13 +574,10 @@ export default function StudyPlanPage() {
             version: 2,
             savedAt: Date.now(),
             phase: 'chatting',
-            selectedSubject: inferredSubject,
-            selectedFramework: 'general',
-            selectedCourse: null,
-            intake: {
-              ...defaultIntake(),
-              weakAreas: quickPrefill.question || '',
-            },
+            selectedSubject: inferredTarget.subject,
+            selectedFramework: inferredTarget.framework,
+            selectedCourse: inferredTarget.course,
+            intake: quickIntake,
             chatMessages: serializeChatMessages(quickMessages),
             userInput: prompt,
             chatStage: 'diagnostic',
@@ -655,7 +692,7 @@ export default function StudyPlanPage() {
       const nextDays = exists
         ? prev.studyDays.filter((item) => item !== day)
         : [...prev.studyDays, day]
-      return { ...prev, studyDays: nextDays.length > 0 ? nextDays : prev.studyDays }
+      return { ...prev, studyDays: nextDays }
     })
   }
 
@@ -668,6 +705,7 @@ export default function StudyPlanPage() {
       .filter(Boolean)
       .map((day) => uiLanguage === 'zh' ? `周${day?.zh}` : day?.en)
       .join(', ')
+    const daySummary = days || (uiLanguage === 'zh' ? '未选择' : 'Not selected')
     const baseline = baselinePrompts(selectedSubject, selectedCourse, uiLanguage === 'zh' ? 'zh' : 'en')
       .map((prompt) => `${prompt}: ${intake.baselineConfidence[prompt] || (uiLanguage === 'zh' ? '未填写' : 'not answered')}`)
       .join('\n')
@@ -683,7 +721,7 @@ export default function StudyPlanPage() {
         `目标分数：${intake.targetScore || '未填写'}`,
         `每周学习时间：${intake.weeklyHours} 小时`,
         `总准备周期：${intake.prepMonths} 个月`,
-        `学习安排：${days}，每次 ${intake.hoursPerSession} 小时`,
+        `学习安排：${daySummary}，每次 ${intake.hoursPerSession} 小时`,
         `薄弱点/补充需求：${intake.weakAreas || '未填写'}`,
         `基线自测：\n${baseline}`,
         `请先判断信息是否足够；如果足够，请生成完整学习计划；如果缺关键信息，只问一个最重要的问题。`,
@@ -700,14 +738,180 @@ export default function StudyPlanPage() {
       `Target score: ${intake.targetScore || 'not provided'}`,
       `Weekly study time: ${intake.weeklyHours} hours`,
       `Total preparation window: ${intake.prepMonths} months`,
-      `Schedule: ${days}, ${intake.hoursPerSession} hours per session`,
+      `Schedule: ${daySummary}, ${intake.hoursPerSession} hours per session`,
       `Weak areas/context: ${intake.weakAreas || 'not provided'}`,
       `Baseline self-check:\n${baseline}`,
       `If this is enough, generate the plan. If a key detail is missing, ask only one important follow-up question.`,
     ].join('\n')
   }
 
+  const sendChatTurn = async ({
+    baseMessages,
+    content,
+    stage,
+    mode,
+    contextMsg = '',
+  }: {
+    baseMessages: ChatMessage[]
+    content: string
+    stage: string
+    mode: 'typed' | 'chip' | 'intake'
+    contextMsg?: string
+  }) => {
+    if (!content.trim()) return
+
+    const fullContent = contextMsg ? `${contextMsg}\n\n---\n${content}` : content
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: fullContent,
+      timestamp: new Date(),
+    }
+    const nextMessages = [...baseMessages, userMessage]
+
+    setChatMessages(nextMessages)
+    setUserInput('')
+    writeStudyPlanDraftSnapshot({
+      version: 2,
+      savedAt: Date.now(),
+      phase: 'chatting',
+      selectedSubject,
+      selectedFramework,
+      selectedCourse,
+      intake,
+      chatMessages: serializeChatMessages(nextMessages),
+      userInput: '',
+      chatStage: stage,
+      proposedPlan,
+      planFeedback,
+      createdPlanId,
+      autoSaveStatus,
+    })
+    setIsTyping(true)
+    setError(null)
+
+    if (contextMsg) clearContexts()
+
+    const chatStartedAt = Date.now()
+    const requestId = makeStudyPlanRequestId()
+    try {
+      const token = await getToken()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers.Authorization = `Bearer ${token}`
+
+      console.info('[study-plan/chat] send', {
+        requestId,
+        mode,
+        stage,
+        subject: selectedSubject,
+        framework: selectedFramework,
+      })
+      const response = await fetch('/api/backend/study-plan/chat', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          history: nextMessages.map((m) => ({ role: m.role, content: m.content })),
+          stage,
+          request_id: requestId,
+          subject: selectedSubject,
+          framework: selectedFramework,
+          language: uiLanguage === 'zh' ? 'zh' : 'en',
+        }),
+      })
+
+      const data = await readJsonOrThrow(response)
+      const responseStage = typeof data?.stage === 'string' ? data.stage : stage
+      console.info('[study-plan/chat] response', {
+        requestId,
+        mode,
+        stage: responseStage,
+        source: data?.response_source ?? 'unknown',
+        hasPlan: Boolean(data?.proposed_plan),
+      })
+      try {
+        track(
+          'study_plan_chat_rtt',
+          {
+            phase: responseStage,
+            source: data?.response_source ?? 'unknown',
+            mode,
+          },
+          { latency_ms: Date.now() - chatStartedAt },
+        )
+      } catch {
+        // swallow
+      }
+
+      if (data.success || data.content) {
+        if (data.stage) setChatStage(data.stage)
+
+        const words = ((data.content ?? '') as string).split(' ')
+        setStreamingContent('')
+        let built = ''
+        for (let i = 0; i < words.length; i++) {
+          built += (i === 0 ? '' : ' ') + words[i]
+          setStreamingContent(built)
+          await new Promise((r) => setTimeout(r, 28))
+        }
+        setStreamingContent(null)
+
+        const aiResponse: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: data.content ?? '',
+          timestamp: new Date(),
+          options: Array.isArray(data.options) && data.options.length > 0 ? data.options : undefined,
+          allowFreeText: data.allow_free_text !== false,
+        }
+        const finalMessages = [...nextMessages, aiResponse]
+        setChatMessages(finalMessages)
+
+        if (data.proposed_plan) {
+          setProposedPlan(data.proposed_plan)
+          setPhase('plan_review')
+        }
+        writeStudyPlanDraftSnapshot({
+          version: 2,
+          savedAt: Date.now(),
+          phase: data.proposed_plan ? 'plan_review' : 'chatting',
+          selectedSubject,
+          selectedFramework,
+          selectedCourse,
+          intake,
+          chatMessages: serializeChatMessages(finalMessages),
+          userInput: '',
+          chatStage: responseStage,
+          proposedPlan: data.proposed_plan ?? proposedPlan,
+          planFeedback,
+          createdPlanId,
+          autoSaveStatus,
+        })
+      } else {
+        setError(
+          uiLanguage === 'zh'
+            ? '获取回复失败，请重试。'
+            : 'Failed to get a response. Please try again.'
+        )
+      }
+    } catch (err) {
+      console.error('Study plan chat error:', err)
+      const fallback =
+        uiLanguage === 'zh'
+          ? '网络错误，请检查连接后重试。'
+          : 'Network error. Please check your connection and try again.'
+      setError(
+        err instanceof Error && err.message ? err.message : fallback
+      )
+    } finally {
+      setIsTyping(false)
+    }
+  }
+
   const startChatFromIntake = () => {
+    if (intake.studyDays.length === 0) {
+      setError(uiLanguage === 'zh' ? '请至少选择一个每周学习日。' : 'Choose at least one study day.')
+      return
+    }
     const subject = SUBJECTS.find((s) => s.id === selectedSubject)
     const framework = FRAMEWORKS.find((f) => f.id === selectedFramework)
     const assistantName = 'Mina'
@@ -728,8 +932,9 @@ export default function StudyPlanPage() {
       timestamp: new Date(),
     }
     const messages = [openingMessage, userMessage]
+    const prompt = uiLanguage === 'zh' ? '请根据以上信息生成学习计划。' : 'Please generate the study plan from the context above.'
     setChatMessages(messages)
-    setUserInput(uiLanguage === 'zh' ? '请根据以上信息生成学习计划。' : 'Please generate the study plan from the context above.')
+    setUserInput('')
     setChatStage('diagnostic')
     setPhase('chatting')
     writeStudyPlanDraftSnapshot({
@@ -741,12 +946,18 @@ export default function StudyPlanPage() {
       selectedCourse,
       intake,
       chatMessages: serializeChatMessages(messages),
-      userInput: uiLanguage === 'zh' ? '请根据以上信息生成学习计划。' : 'Please generate the study plan from the context above.',
+      userInput: '',
       chatStage: 'diagnostic',
       proposedPlan: null,
       planFeedback: '',
       createdPlanId: null,
       autoSaveStatus: 'idle',
+    })
+    void sendChatTurn({
+      baseMessages: messages,
+      content: prompt,
+      stage: 'diagnostic',
+      mode: 'intake',
     })
   }
 
@@ -1630,6 +1841,11 @@ export default function StudyPlanPage() {
                   )
                 })}
               </div>
+              {intake.studyDays.length === 0 && (
+                <p className="text-xs text-amber-700">
+                  {uiLanguage === 'zh' ? '请选择至少一天，Mina 才能安排每周节奏。' : 'Choose at least one day so Mina can pace the week.'}
+                </p>
+              )}
             </div>
             <label className="space-y-1.5">
               <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -1707,10 +1923,16 @@ export default function StudyPlanPage() {
           <button
             type="button"
             onClick={startChatFromIntake}
-            disabled={!intake.foundation || !intake.examTimeline || !intake.weeklyHours}
+            disabled={!intake.foundation || !intake.examTimeline || !intake.weeklyHours || intake.studyDays.length === 0 || isTyping}
             className="w-full rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {uiLanguage === 'zh' ? '让 Mina 生成计划' : 'Let Mina build the plan'}
+            {uiLanguage === 'zh'
+              ? intake.studyDays.length === 0
+                ? '选择学习日后生成'
+                : '让 Mina 生成计划'
+              : intake.studyDays.length === 0
+                ? 'Choose study days to continue'
+                : 'Let Mina build the plan'}
           </button>
         </div>
       )}

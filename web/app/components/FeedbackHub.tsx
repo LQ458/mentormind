@@ -153,7 +153,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     window.setTimeout(() => {
       setSubmitted(false)
       onClose()
-    }, 900)
+    }, 2600)
   }
 
   return (
@@ -161,7 +161,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
       className="fixed inset-0 z-[220] flex items-center justify-center bg-black/40 p-4"
       role="dialog"
       aria-modal="true"
-      aria-label={lang === 'zh' ? '发送反馈' : 'Send feedback'}
+      aria-label={lang === 'zh' ? '快速反馈' : 'Quick feedback'}
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}

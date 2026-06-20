@@ -104,8 +104,28 @@ const SUBJECT_LABELS: Record<string, string> = {
   environmental_science: 'Environmental Science', art: 'Art', general: 'General',
 }
 
+const SUBJECT_LABELS_ZH: Record<string, string> = {
+  math: '数学', physics: '物理', chemistry: '化学',
+  biology: '生物', cs: '计算机科学', history: '历史',
+  english: '英语', economics: '经济学', psychology: '心理学',
+  government: '政府与政治', world_languages: '世界语言',
+  environmental_science: '环境科学', art: '艺术', general: '通用',
+}
+
 const FRAMEWORK_LABELS: Record<string, string> = {
   ap: 'AP', a_level: 'A Level', ib: 'IB', gaokao: 'Gaokao', general: 'General',
+}
+
+const FRAMEWORK_LABELS_ZH: Record<string, string> = {
+  ap: 'AP', a_level: 'A Level', ib: 'IB', gaokao: '高考', general: '通用',
+}
+
+function subjectLabel(subject: string, lang: 'zh' | 'en') {
+  return (lang === 'zh' ? SUBJECT_LABELS_ZH[subject] : SUBJECT_LABELS[subject]) || subject
+}
+
+function frameworkLabel(framework: string, lang: 'zh' | 'en') {
+  return (lang === 'zh' ? FRAMEWORK_LABELS_ZH[framework] : FRAMEWORK_LABELS[framework]) || framework
 }
 
 interface EducationalImage {
@@ -1133,6 +1153,15 @@ const CONTENT_TYPES = [
   { key: 'mock_exam', en: 'Mock Exam', zh: '模拟卷' },
 ]
 
+const CONTENT_TAB_LABELS: Record<ContentTab, { en: string; zh: string }> = {
+  study_guide: { en: 'Study Guide', zh: '学习讲义' },
+  quiz: { en: 'Quiz', zh: '小测' },
+  flashcards: { en: 'Flashcards', zh: '记忆卡' },
+  formulas: { en: 'Formulas', zh: '公式表' },
+  mock_exam: { en: 'Mock Exam', zh: '模拟卷' },
+  my_context: { en: 'My Context', zh: '我的材料' },
+}
+
 export default function StudyPlanPage() {
   const params = useParams()
   const router = useRouter()
@@ -1570,15 +1599,18 @@ export default function StudyPlanPage() {
   useEffect(() => {
     if (plan && plan.framework === 'gaokao' && !gaokaoMode && gaokaoMessages.length === 0) {
       setGaokaoMode(true)
-      const subjectLabel = SUBJECT_LABELS[plan.subject] || plan.subject
+      const lang = uiLanguage === 'zh' ? 'zh' : 'en'
+      const planSubjectLabel = subjectLabel(plan.subject, lang)
       setGaokaoMessages([{
         id: 'opening',
         role: 'assistant',
-        content: `Welcome to your ${subjectLabel} Gaokao study plan! Ask me anything about ${subjectLabel} or tell me what topic you'd like to review.`,
+        content: lang === 'zh'
+          ? `欢迎进入你的${planSubjectLabel}高考学习计划。你可以问我任何和${planSubjectLabel}有关的问题，也可以告诉我想复习的主题。`
+          : `Welcome to your ${planSubjectLabel} Gaokao study plan! Ask me anything about ${planSubjectLabel} or tell me what topic you'd like to review.`,
         timestamp: new Date(),
       }])
     }
-  }, [plan, gaokaoMode, gaokaoMessages.length])
+  }, [plan, gaokaoMode, gaokaoMessages.length, uiLanguage])
 
   const handleGaokaoSend = useCallback(async () => {
     if (!gaokaoInput.trim() || gaokaoTyping) return
@@ -1613,7 +1645,7 @@ export default function StudyPlanPage() {
       setGaokaoMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: data.content || data.response || 'Sorry, I could not process that.',
+        content: data.content || data.response || (uiLanguage === 'zh' ? '抱歉，我刚才没处理成功，请再试一次。' : 'Sorry, I could not process that.'),
         timestamp: new Date(),
       }])
       // Chat saved server-side, clear dirty flag
@@ -1623,13 +1655,13 @@ export default function StudyPlanPage() {
       setGaokaoMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: 'Network error. Please try again.',
+        content: uiLanguage === 'zh' ? '网络错误，请重试。' : 'Network error. Please try again.',
         timestamp: new Date(),
       }])
     } finally {
       setGaokaoTyping(false)
     }
-  }, [gaokaoInput, gaokaoTyping, gaokaoSessionId, planId, plan?.subject, gaokaoTopicFocus, authHeaders, gaokaoMessages])
+  }, [gaokaoInput, gaokaoTyping, gaokaoSessionId, planId, plan?.subject, gaokaoTopicFocus, authHeaders, gaokaoMessages, uiLanguage])
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
@@ -1657,15 +1689,16 @@ export default function StudyPlanPage() {
   }
 
   if (planError || !plan) {
+    const lang = uiLanguage === 'zh' ? 'zh' : 'en'
     return (
       <div className="flex items-center justify-center py-20">
         <div className="text-center space-y-4">
-          <p className="text-gray-500">{planError ?? 'Study plan not found'}</p>
+          <p className="text-gray-500">{planError ?? (lang === 'zh' ? '没有找到学习计划' : 'Study plan not found')}</p>
           <button
             onClick={() => router.back()}
             className="text-sm text-blue-600 hover:underline"
           >
-            Go back
+            {lang === 'zh' ? '返回' : 'Go back'}
           </button>
         </div>
       </div>
@@ -1673,12 +1706,12 @@ export default function StudyPlanPage() {
   }
 
   const tabs: { key: ContentTab; label: string }[] = [
-    { key: 'study_guide', label: 'Study Guide' },
-    { key: 'quiz', label: 'Quiz' },
-    { key: 'flashcards', label: 'Flashcards' },
-    { key: 'formulas', label: 'Formulas' },
-    { key: 'mock_exam', label: 'Mock Exam' },
-    { key: 'my_context', label: 'My Context' },
+    { key: 'study_guide', label: lang === 'zh' ? CONTENT_TAB_LABELS.study_guide.zh : CONTENT_TAB_LABELS.study_guide.en },
+    { key: 'quiz', label: lang === 'zh' ? CONTENT_TAB_LABELS.quiz.zh : CONTENT_TAB_LABELS.quiz.en },
+    { key: 'flashcards', label: lang === 'zh' ? CONTENT_TAB_LABELS.flashcards.zh : CONTENT_TAB_LABELS.flashcards.en },
+    { key: 'formulas', label: lang === 'zh' ? CONTENT_TAB_LABELS.formulas.zh : CONTENT_TAB_LABELS.formulas.en },
+    { key: 'mock_exam', label: lang === 'zh' ? CONTENT_TAB_LABELS.mock_exam.zh : CONTENT_TAB_LABELS.mock_exam.en },
+    { key: 'my_context', label: lang === 'zh' ? CONTENT_TAB_LABELS.my_context.zh : CONTENT_TAB_LABELS.my_context.en },
   ]
 
   return (
@@ -1689,19 +1722,19 @@ export default function StudyPlanPage() {
           <button
             onClick={() => router.back()}
             className="text-gray-400 hover:text-gray-700 p-1 rounded transition-colors"
-            aria-label="Go back"
+            aria-label={lang === 'zh' ? '返回' : 'Go back'}
           >
             ←
           </button>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{plan.title}</h1>
-            <p className="text-sm text-gray-500">{SUBJECT_LABELS[plan.subject] || plan.subject} · {FRAMEWORK_LABELS[plan.framework] || plan.framework}</p>
+            <p className="text-sm text-gray-500">{subjectLabel(plan.subject, lang)} · {frameworkLabel(plan.framework, lang)}</p>
           </div>
         </div>
         <button
           className="md:hidden text-gray-500 p-1"
           onClick={() => setSidebarOpen(v => !v)}
-          aria-label="Toggle unit list"
+          aria-label={lang === 'zh' ? '展开或收起单元列表' : 'Toggle unit list'}
         >
           ☰
         </button>
@@ -1748,7 +1781,7 @@ export default function StudyPlanPage() {
                   <div className="w-6 h-6 bg-blue-600 rounded-md flex items-center justify-center flex-shrink-0">
                     <span className="text-white text-xs font-bold">G</span>
                   </div>
-                  Gaokao AI Tutor
+                  {lang === 'zh' ? '高考 AI 导师' : 'Gaokao AI Tutor'}
                 </button>
               </div>
             )}
@@ -1810,8 +1843,10 @@ export default function StudyPlanPage() {
                       <span className="text-white font-bold text-sm">G</span>
                     </div>
                     <div>
-                      <h2 className="text-sm font-semibold text-gray-900">Gaokao AI Tutor</h2>
-                      <p className="text-xs text-gray-500">{SUBJECT_LABELS[plan.subject] || plan.subject}</p>
+                      <h2 className="text-sm font-semibold text-gray-900">
+                        {lang === 'zh' ? '高考 AI 导师' : 'Gaokao AI Tutor'}
+                      </h2>
+                      <p className="text-xs text-gray-500">{subjectLabel(plan.subject, lang)}</p>
                     </div>
                   </div>
                   {plan.units.length > 0 && (
@@ -2054,7 +2089,9 @@ export default function StudyPlanPage() {
                   <MediaContextTab getAuthHeaders={authHeaders} />
                 )}
                 {!content && activeTab !== 'my_context' && (
-                  <p className="text-gray-500 italic text-sm">No content available for this tab.</p>
+                  <p className="text-gray-500 italic text-sm">
+                    {lang === 'zh' ? '这个标签页还没有生成内容。' : 'No content available for this tab.'}
+                  </p>
                 )}
                 <HighlightAskAI
                   containerRef={contentRef}
@@ -2075,7 +2112,11 @@ export default function StudyPlanPage() {
                       : 'bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40'
                   }`}
                 >
-                  {completing ? 'Saving…' : selectedUnit.is_completed ? '✓ Unit Completed' : 'Mark as Complete'}
+                  {completing
+                    ? (lang === 'zh' ? '保存中…' : 'Saving…')
+                    : selectedUnit.is_completed
+                      ? (lang === 'zh' ? '✓ 单元已完成' : '✓ Unit Completed')
+                      : (lang === 'zh' ? '标记为完成' : 'Mark as Complete')}
                 </button>
               </div>
             </div>
