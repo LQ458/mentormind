@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { backendHeaders } from '../../../../_auth'
 
+export const dynamic = 'force-dynamic'
+
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

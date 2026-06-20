@@ -48,6 +48,32 @@ export function backendErrorResponse(
   )
 }
 
+export async function backendJsonResponse(
+  response: Response,
+  scope: string,
+  options: { emptyBody?: unknown; invalidMessage?: string } = {},
+): Promise<NextResponse> {
+  const text = await response.text()
+  if (!text) {
+    return NextResponse.json(options.emptyBody ?? {}, { status: response.status })
+  }
+
+  try {
+    return NextResponse.json(JSON.parse(text), { status: response.status })
+  } catch {
+    logBackendProxyError(scope, response.status, text)
+    const status = response.status >= 400 ? response.status : 502
+    return backendErrorResponse(
+      options.invalidMessage || 'Backend returned an invalid response',
+      status,
+      {
+        code: 'invalid_backend_response',
+        detail: 'The backend returned an invalid response.',
+      },
+    )
+  }
+}
+
 export function proxyFailureResponse(message: string, detail = 'Could not reach backend service.'): NextResponse {
   return NextResponse.json(
     {

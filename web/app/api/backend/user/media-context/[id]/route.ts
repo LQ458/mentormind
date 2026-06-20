@@ -1,5 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { backendHeaders } from '../../../_auth'
+import { backendJsonResponse, proxyFailureResponse } from '../../../_proxyErrors'
+
+export const dynamic = 'force-dynamic'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -10,9 +13,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       method: 'DELETE',
       headers: backendHeaders(req),
     })
-    const data = await res.json()
-    return NextResponse.json(data, { status: res.status })
-  } catch {
-    return NextResponse.json({ error: 'Failed to reach backend' }, { status: 502 })
+    return await backendJsonResponse(res, 'user media-context delete proxy')
+  } catch (err) {
+    console.error('[user media-context delete proxy] error:', err)
+    return proxyFailureResponse('Failed to delete media context')
   }
 }
