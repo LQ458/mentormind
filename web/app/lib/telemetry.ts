@@ -71,6 +71,7 @@ const SAFE_BREADCRUMB_KEYS = new Set([
   'answer_mode',
   'area',
   'code',
+  'component_stack',
   'duration_ms',
   'error',
   'kind',
@@ -333,6 +334,11 @@ function compactPayload(payload?: Record<string, unknown>): Record<string, unkno
     if (key === 'url') {
       const path = safeUrlPath(value)
       if (path) compact[key] = path
+      continue
+    }
+    if (key === 'component_stack') {
+      const stack = safeString(value, 1200)
+      if (stack) compact[key] = stack
       continue
     }
     if (typeof value === 'number' || typeof value === 'boolean') {
