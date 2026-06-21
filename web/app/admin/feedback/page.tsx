@@ -142,7 +142,17 @@ function readInitialReportSearch(): string {
   if (typeof window === 'undefined') return ''
   try {
     const params = new URLSearchParams(window.location.search)
-    return (params.get('report') || params.get('q') || '').trim().slice(0, REPORT_SEARCH_LIMIT)
+    return (params.get('report_id') || params.get('report') || params.get('q') || '').trim().slice(0, REPORT_SEARCH_LIMIT)
+  } catch {
+    return ''
+  }
+}
+
+function readInitialReportId(): string {
+  if (typeof window === 'undefined') return ''
+  try {
+    const params = new URLSearchParams(window.location.search)
+    return (params.get('report_id') || params.get('report') || '').trim().slice(0, REPORT_SEARCH_LIMIT)
   } catch {
     return ''
   }
@@ -265,7 +275,7 @@ function redactedTesterForIssue(r: FeedbackReportRow): Record<string, unknown> |
 function adminReportLookupUrl(r: FeedbackReportRow): string {
   const reportId = r.report_id || r.id
   if (!reportId || typeof window === 'undefined') return ''
-  return `${window.location.origin}/admin/feedback?report=${encodeURIComponent(reportId)}`
+  return `${window.location.origin}/admin/feedback?report_id=${encodeURIComponent(reportId)}`
 }
 
 function adminAccessRequiredMessage(lang: string): string {
@@ -447,6 +457,7 @@ export default function AdminFeedbackPage() {
   const reportRequestSeqRef = useRef(0)
   const surveyRequestSeqRef = useRef(0)
   const initialReportSearchRef = useRef<string | null>(null)
+  const initialReportIdRef = useRef<string | null>(null)
 
   // Filters
   const [examFilter, setExamFilter] = useState<string>('')
@@ -486,6 +497,13 @@ export default function AdminFeedbackPage() {
     return initialReportSearchRef.current
   }
 
+  const getInitialReportId = () => {
+    if (initialReportIdRef.current === null) {
+      initialReportIdRef.current = readInitialReportId()
+    }
+    return initialReportIdRef.current
+  }
+
   const buildReportParams = () => {
     const reportParams = new URLSearchParams()
     reportParams.set('limit', '80')
@@ -494,6 +512,8 @@ export default function AdminFeedbackPage() {
     if (surfaceFilter) reportParams.set('surface', surfaceFilter)
     if (kindFilter) reportParams.set('kind', kindFilter)
     if (severityFilter) reportParams.set('severity', severityFilter)
+    const initialReportId = !hasLoadedOnceRef.current ? getInitialReportId() : ''
+    if (initialReportId) reportParams.set('report_id', initialReportId)
     const activeSearch = debouncedReportSearch.trim() || (!hasLoadedOnceRef.current ? getInitialReportSearch() : '')
     if (activeSearch) reportParams.set('q', activeSearch.slice(0, REPORT_SEARCH_LIMIT))
     return reportParams

@@ -193,7 +193,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     const page = typeof window === 'undefined' ? '' : window.location.pathname
     const adminUrl = typeof window === 'undefined'
       ? ''
-      : `${window.location.origin}/admin/feedback?report=${encodeURIComponent(reportId)}`
+      : `${window.location.origin}/admin/feedback?report_id=${encodeURIComponent(reportId)}`
     return [
       lang === 'zh' ? 'MentorMind 反馈' : 'MentorMind feedback',
       `ID: ${reportId}`,

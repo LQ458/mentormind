@@ -7313,6 +7313,18 @@ def _normalize_feedback_report_query(query: Optional[str]) -> str:
     return str(query or "").strip()[:FEEDBACK_REPORT_QUERY_MAX_CHARS]
 
 
+def _normalize_feedback_report_id_query(report_id: Optional[str]) -> str:
+    value = str(report_id or "").strip()[:FEEDBACK_REPORT_QUERY_MAX_CHARS]
+    return value if value and FEEDBACK_MOMENT_SAFE_TOKEN_RE.fullmatch(value) else ""
+
+
+def _feedback_report_id_filter_clause(report_id: Optional[str]):
+    value = _normalize_feedback_report_id_query(report_id)
+    if not value:
+        return None
+    return TelemetryEvent.payload["report_id"].as_string() == value
+
+
 def _feedback_report_unique_key(row: Dict[str, Any]) -> str:
     """Stable key for triage counts; only collapse reports with explicit ids."""
     report_id = str(row.get("report_id") or "").strip()
@@ -7426,6 +7438,7 @@ async def get_admin_feedback_reports(
     kind: Optional[str] = None,
     severity: Optional[str] = None,
     q: Optional[str] = None,
+    report_id: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     current_user: User = Depends(get_current_user),
@@ -7444,6 +7457,9 @@ async def get_admin_feedback_reports(
         query = query.filter(TelemetryEvent.created_at >= start_dt)
     if end_dt:
         query = query.filter(TelemetryEvent.created_at <= end_dt)
+    report_id_clause = _feedback_report_id_filter_clause(report_id)
+    if report_id_clause is not None:
+        query = query.filter(report_id_clause)
 
     raw_limit = min(max(limit + offset + 1000, 1000), 5000)
     events = query.order_by(TelemetryEvent.created_at.desc()).limit(raw_limit).all()
@@ -7471,6 +7487,7 @@ async def get_admin_feedback_reports(
             "kind": kind,
             "severity": severity,
             "q": search_query,
+            "report_id": _normalize_feedback_report_id_query(report_id),
             "start_date": start_date,
             "end_date": end_date,
         },

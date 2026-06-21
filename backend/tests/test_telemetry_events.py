@@ -303,6 +303,24 @@ def test_feedback_report_query_normalization_trims_and_caps_search_text():
     assert server._normalize_feedback_report_query(None) == ""
 
 
+def test_feedback_report_id_query_accepts_only_safe_exact_ids():
+    assert (
+        server._normalize_feedback_report_id_query(" fb-study-plan-bug-abc123 ")
+        == "fb-study-plan-bug-abc123"
+    )
+    assert server._normalize_feedback_report_id_query("../secret") == ""
+    assert server._normalize_feedback_report_id_query("bad report id") == ""
+    assert server._normalize_feedback_report_id_query("<script>alert(1)</script>") == ""
+
+
+def test_feedback_report_id_filter_clause_uses_json_payload_field():
+    clause = server._feedback_report_id_filter_clause("fb-study-plan-bug-abc123")
+
+    assert clause is not None
+    assert server._feedback_report_id_filter_clause("bad report id") is None
+    assert "payload" in str(clause)
+
+
 def test_feedback_report_priority_prefers_blocked_bug_with_errors():
     high = {
         "severity": "blocked",
