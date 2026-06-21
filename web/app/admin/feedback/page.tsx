@@ -389,6 +389,7 @@ export default function AdminFeedbackPage() {
   const [kindFilter, setKindFilter] = useState<string>('')
   const [severityFilter, setSeverityFilter] = useState<string>('')
   const [reportSearch, setReportSearch] = useState<string>('')
+  const [debouncedReportSearch, setDebouncedReportSearch] = useState<string>('')
 
   // Expanded row
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -417,7 +418,7 @@ export default function AdminFeedbackPage() {
       if (surfaceFilter) reportParams.set('surface', surfaceFilter)
       if (kindFilter) reportParams.set('kind', kindFilter)
       if (severityFilter) reportParams.set('severity', severityFilter)
-      if (reportSearch.trim()) reportParams.set('q', reportSearch.trim())
+      if (debouncedReportSearch.trim()) reportParams.set('q', debouncedReportSearch.trim())
 
       const [reportAggRes, reportListRes, aggRes, listRes] = await Promise.all([
         fetch('/api/backend/admin/feedback/reports/aggregate'),
@@ -466,7 +467,14 @@ export default function AdminFeedbackPage() {
   useEffect(() => {
     fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [examFilter, pmfFilter, langFilter, sourceFilter, surfaceFilter, kindFilter, severityFilter, reportSearch])
+  }, [examFilter, pmfFilter, langFilter, sourceFilter, surfaceFilter, kindFilter, severityFilter, debouncedReportSearch])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedReportSearch(reportSearch.trim())
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [reportSearch])
 
   const examOptions = useMemo(() => {
     const seen = new Set<string>()
