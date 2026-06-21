@@ -398,14 +398,18 @@ export default function LessonsPage() {
 
   const fetchLibrary = useCallback(async (cancelledRef?: { current: boolean }) => {
       setLoading(true)
+      setUnauthenticated(false)
+      setError(null)
       try {
-        const token = await getToken()
-        if (!token) {
+        if (!isSignedIn) {
           if (!cancelledRef?.current) setUnauthenticated(true)
           return
         }
+        const token = await getToken()
+        const headers: Record<string, string> = {}
+        if (token) headers.Authorization = `Bearer ${token}`
         const res = await fetch('/api/backend/study-plan/library', {
-          headers: { Authorization: `Bearer ${token}` },
+          headers,
           cache: 'no-store',
         })
         if (res.status === 401) {
@@ -435,7 +439,7 @@ export default function LessonsPage() {
       } finally {
         if (!cancelledRef?.current) setLoading(false)
       }
-  }, [getToken, lang])
+  }, [getToken, isSignedIn, lang])
 
   useEffect(() => {
     if (!isLoaded) return

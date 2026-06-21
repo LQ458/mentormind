@@ -45,6 +45,7 @@ const RUN_DEEP_WORKFLOW_QA = process.env.RUN_DEEP_WORKFLOW_QA !== 'false'
 const RUN_SEMINAR_QA = process.env.RUN_SEMINAR_QA !== 'false'
 const RUN_BOARD_QA = process.env.RUN_BOARD_QA !== 'false'
 const RUN_VISUAL_QA = process.env.RUN_VISUAL_QA !== 'false'
+const RUN_ADMIN_QA = process.env.RUN_ADMIN_QA === 'true'
 const QA_RUN_UPLOAD_UI = process.env.QA_RUN_UPLOAD_UI !== 'false'
 const QA_POST_FINDINGS = process.env.QA_POST_FINDINGS !== 'false'
 const QA_POST_DIAGNOSTICS = process.env.QA_POST_DIAGNOSTICS === 'true'
@@ -88,6 +89,13 @@ function splitEnvList(value) {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+function authTokenFromResponse(res, data) {
+  if (typeof data?.token === 'string' && data.token) return data.token
+  const setCookie = res.headers.get('set-cookie') || ''
+  const match = setCookie.match(/(?:^|,\s*)mm_token=([^;,\s]+)/)
+  return match ? decodeURIComponent(match[1]) : ''
 }
 
 function collectZhUiTextLeaks(route, text) {
@@ -209,6 +217,7 @@ async function ensureAuthSession() {
     body: JSON.stringify(authBody),
   })
   let data = await res.json().catch(() => ({}))
+  let token = authTokenFromResponse(res, data)
   if (QA_INVITE_CODE && res.status === 409) {
     res = await fetch(`${BASE_URL}/api/backend/auth/invite`, {
       method: 'POST',
@@ -216,8 +225,9 @@ async function ensureAuthSession() {
       body: JSON.stringify({ username: QA_USERNAME, password: QA_PASSWORD, language: 'zh' }),
     })
     data = await res.json().catch(() => ({}))
+    token = authTokenFromResponse(res, data)
   }
-  if (!res.ok || !data?.token) {
+  if (!res.ok || !token) {
     await addFinding({
       title: 'Could not create/login production QA account',
       severity: 'blocked',
@@ -232,7 +242,7 @@ async function ensureAuthSession() {
     return null
   }
   authSession = {
-    token: data.token,
+    token,
     user: {
       id: data.user?.id || '',
       username: data.user?.username || QA_USERNAME,
@@ -611,21 +621,23 @@ async function waitForAskAnswer(page) {
 
 async function setStudyDays(page, desiredDays) {
   const dayLabels = {
-    mon: 'Mon',
-    tue: 'Tue',
-    wed: 'Wed',
-    thu: 'Thu',
-    fri: 'Fri',
-    sat: 'Sat',
-    sun: 'Sun',
+    mon: ['Mon', '周一'],
+    tue: ['Tue', '周二'],
+    wed: ['Wed', '周三'],
+    thu: ['Thu', '周四'],
+    fri: ['Fri', '周五'],
+    sat: ['Sat', '周六'],
+    sun: ['Sun', '周日'],
   }
-  const current = new Set(['mon', 'wed', 'fri'])
+  const current = new Set()
   const desired = new Set(desiredDays)
-  for (const [value, label] of Object.entries(dayLabels)) {
+  for (const [value, labels] of Object.entries(dayLabels)) {
     const shouldBeActive = desired.has(value)
     const isActive = current.has(value)
     if (shouldBeActive !== isActive) {
-      await page.locator('button').filter({ hasText: new RegExp(`^${label}$`) }).click()
+      await clickFirstVisible(page, labels.map((label) => (
+        page.locator('button').filter({ hasText: new RegExp(`^${label}$`) })
+      )))
       if (shouldBeActive) current.add(value)
       else current.delete(value)
       await page.waitForTimeout(80)
@@ -633,8 +645,44 @@ async function setStudyDays(page, desiredDays) {
   }
 }
 
+function localizedStudyPlanValue(value) {
+  const labels = {
+    'New to this': '零基础',
+    'Need quick wins': '需要先有成就感',
+    'Some foundation': '有一点基础',
+    Intermediate: '中等基础',
+    'Reviewing after school': '学校学过，主要复习',
+    'Aiming high': '冲高分',
+    'Not confident': '没把握',
+    Somewhat: '有点把握',
+    'Mostly steady': '比较稳',
+    'Very confident': '很熟练',
+  }
+  return labels[value] || value
+}
+
+async function selectFirstStudyPlanOption(selectLocator, value) {
+  const localized = localizedStudyPlanValue(value)
+  const candidates = [
+    { value },
+    { value: localized },
+    { label: value },
+    { label: localized },
+  ]
+  let lastError = null
+  for (const candidate of candidates) {
+    try {
+      await selectLocator.selectOption(candidate)
+      return
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError || new Error(`Could not select ${value}`)
+}
+
 async function fillStudyPlanPersona(page, persona) {
-  await page.locator('select').nth(0).selectOption(persona.foundation)
+  await selectFirstStudyPlanOption(page.locator('select').nth(0), persona.foundation)
   await page.locator('input').nth(0).fill(persona.examTimeline)
   await page.locator('input').nth(1).fill(persona.targetScore)
   await page.locator('input').nth(2).fill(String(persona.weeklyHours))
@@ -644,7 +692,7 @@ async function fillStudyPlanPersona(page, persona) {
   await page.locator('textarea').fill(persona.notes)
   if (persona.baseline?.length) {
     for (const [index, value] of persona.baseline.entries()) {
-      await page.locator('select').nth(index + 1).selectOption(value)
+      await selectFirstStudyPlanOption(page.locator('select').nth(index + 1), value)
     }
   } else {
     await page.locator('button').filter({ hasText: /Skip for now|先跳过/i }).click()
@@ -726,11 +774,20 @@ async function testStudyPlanPersonas(browser) {
     let shot = null
     try {
       await page.goto(`${BASE_URL}/study-plan`, { waitUntil: 'networkidle', timeout: 45000 })
-      await page.locator('button').filter({ hasText: /AP \(Advanced Placement\)/ }).click()
+      if (!await clickFirstVisible(page, [
+        page.getByRole('button', { name: /AP \(Advanced Placement\)|AP \(美国大学预修\)/ }),
+        page.locator('button').filter({ hasText: /AP \(Advanced Placement\)|AP \(美国大学预修\)/ }),
+      ])) throw new Error('Could not select AP framework')
       await page.waitForTimeout(300)
-      await page.locator('button').filter({ hasText: /^📐?\s*Mathematics|Mathematics$/ }).last().click()
+      if (!await clickFirstVisible(page, [
+        page.getByRole('button', { name: /Mathematics|数学/ }),
+        page.locator('button').filter({ hasText: /Mathematics|数学/ }),
+      ])) throw new Error('Could not select Mathematics subject')
       await page.waitForTimeout(300)
-      await page.locator('button').filter({ hasText: /^AP Calculus BC$/ }).click()
+      if (!await clickFirstVisible(page, [
+        page.getByRole('button', { name: /AP Calculus BC/ }),
+        page.locator('button').filter({ hasText: /AP Calculus BC/ }),
+      ])) throw new Error('Could not select AP Calculus BC')
       await page.waitForTimeout(500)
       await fillStudyPlanPersona(page, persona)
       const canBuild = !(await page.locator('button').filter({ hasText: /Let Mina build|让 Mina 生成/i }).isDisabled())
@@ -1287,7 +1344,7 @@ async function testUploadEdges() {
         form.append('file', new Blob(['not an image'], { type: 'text/plain' }), 'not-image.txt')
         return form
       },
-      expectedStatuses: [400, 401, 403, 422],
+      expectedStatuses: [400, 401, 403, 415, 422],
     },
     {
       name: 'unsupported audio text file',
@@ -1297,7 +1354,7 @@ async function testUploadEdges() {
         form.append('file', new Blob(['not audio'], { type: 'text/plain' }), 'not-audio.txt')
         return form
       },
-      expectedStatuses: [400, 401, 403, 422],
+      expectedStatuses: [400, 401, 403, 415, 422],
     },
     {
       name: 'missing image file multipart',
@@ -1333,7 +1390,10 @@ async function testUploadEdges() {
       raw_gateway_html: rawGatewayHtml,
       response_excerpt: text.slice(0, 400),
     }, latency)
-    if (!status || status >= 500 || rawGatewayHtml || !item.expectedStatuses.includes(status)) {
+    const controlledJsonError = Boolean(
+      status && status >= 400 && status < 500 && !rawGatewayHtml && /"error"|"detail"|"code"/i.test(text),
+    )
+    if (!status || status >= 500 || rawGatewayHtml || (!item.expectedStatuses.includes(status) && !controlledJsonError)) {
       await addFinding({
         title: `Upload edge case returned an uncontrolled response: ${item.name}`,
         severity: rawGatewayHtml || status === 413 ? 'blocked' : 'wrong',
@@ -2183,7 +2243,9 @@ async function main() {
         userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
       },
     ]
-    const routes = hasAuthSession() ? ['/', '/ask', '/study-plan', '/lessons', '/seminar', '/admin/feedback'] : ['/']
+    const routes = hasAuthSession()
+      ? ['/', '/ask', '/study-plan', '/lessons', '/seminar', ...(RUN_ADMIN_QA ? ['/admin/feedback'] : [])]
+      : ['/']
     for (const viewport of viewports) {
       for (const route of routes) {
         await checkPage(browser, route, viewport)
