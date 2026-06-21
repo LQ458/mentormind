@@ -18,8 +18,6 @@ function loadPlaywright() {
   }
 }
 
-const { chromium } = loadPlaywright()
-
 const BASE_URL = (process.env.BASE_URL || 'https://mentormind.cloud').replace(/\/$/, '')
 const RUN_ID = `prod-autopilot-${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 8)}`
 const OUT_DIR = path.resolve(process.cwd(), process.env.OUT_DIR || `.browser-sessions/prod-autopilot-qa/${RUN_ID}`)
@@ -61,6 +59,7 @@ const QA_POST_DIAGNOSTICS = process.env.QA_POST_DIAGNOSTICS === 'true'
 const findings = []
 const events = []
 let authSession = null
+let chromium = null
 
 function nowIso() {
   return new Date().toISOString()
@@ -168,6 +167,39 @@ function compactTelemetryValue(value, depth = 0) {
   return String(value).slice(0, 900)
 }
 
+function buildQaTelemetryPayload(payload) {
+  return {
+    ...compactTelemetryValue(payload),
+    source: 'prod_autopilot_qa',
+    simulated: true,
+    simulation_source: 'prod_autopilot_qa',
+    run_id: RUN_ID,
+  }
+}
+
+function runSelfTest() {
+  const payload = buildQaTelemetryPayload({
+    source: 'inline_feedback_moment',
+    simulated: false,
+    simulation_source: 'not_qa',
+    run_id: 'wrong-run',
+    nested: { ok: true },
+  })
+  const failures = []
+  if (payload.source !== 'prod_autopilot_qa') failures.push('source override failed')
+  if (payload.simulated !== true) failures.push('simulated override failed')
+  if (payload.simulation_source !== 'prod_autopilot_qa') failures.push('simulation_source override failed')
+  if (payload.run_id !== RUN_ID) failures.push('run_id override failed')
+  if (!payload.nested?.ok) failures.push('ordinary payload fields were lost')
+  if (failures.length) throw new Error(`prod-autopilot self-test failed: ${failures.join(', ')}`)
+  console.log(JSON.stringify({ ok: true, checks: ['qa telemetry payload markers are authoritative'] }))
+}
+
+if (process.argv.includes('--self-test')) {
+  runSelfTest()
+  process.exit(0)
+}
+
 async function postTelemetry(eventType, page, payload, latencyMs = null) {
   const isFinding = eventType === 'feedback_moment'
   if (isFinding && !QA_POST_FINDINGS) {
@@ -185,13 +217,7 @@ async function postTelemetry(eventType, page, payload, latencyMs = null) {
     page,
     url: `${BASE_URL}${page}`,
     latency_ms: latencyMs,
-    payload: {
-      source: 'prod_autopilot_qa',
-      simulated: true,
-      simulation_source: 'prod_autopilot_qa',
-      run_id: RUN_ID,
-      ...compactTelemetryValue(payload),
-    },
+    payload: buildQaTelemetryPayload(payload),
   }
   try {
     const res = await fetch(`${BASE_URL}/api/backend/telemetry/event`, {
@@ -234,7 +260,13 @@ async function ensureAuthSession() {
     res = await fetch(`${BASE_URL}/api/backend/auth/invite`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: QA_USERNAME, password: QA_PASSWORD, language: 'zh' }),
+      body: JSON.stringify({
+        username: QA_USERNAME,
+        password: QA_PASSWORD,
+        language: 'zh',
+        simulated: true,
+        simulation_source: 'prod_autopilot_qa',
+      }),
     })
     data = await res.json().catch(() => ({}))
     token = authTokenFromResponse(res, data)
@@ -2236,6 +2268,9 @@ function buildRunSummary(allEvents, allFindings) {
 }
 
 async function main() {
+  if (!chromium) {
+    chromium = loadPlaywright().chromium
+  }
   await fs.mkdir(OUT_DIR, { recursive: true })
   await postTelemetry('interaction', '/', {
     schema: 'mentormind.prod_autopilot_start.v1',

@@ -115,3 +115,13 @@ def test_prod_autopilot_invite_marker_requires_explicit_qa_payload():
         simulation_source="prod_autopilot_qa",
     )
     assert not server._is_prod_autopilot_invite_payload(non_qa_username, "real_student")
+
+
+def test_mark_prod_autopilot_user_metadata_preserves_existing_metadata():
+    user = SimpleNamespace(user_metadata={"cohort": "internal"})
+
+    server._mark_prod_autopilot_user_metadata(user)
+
+    assert user.user_metadata["cohort"] == "internal"
+    assert user.user_metadata["simulated"] is True
+    assert user.user_metadata["simulation_source"] == server.SIMULATION_SOURCE_PROD_AUTOPILOT

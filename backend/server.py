@@ -2168,6 +2168,17 @@ def _is_prod_autopilot_invite_payload(payload: InviteLoginPayload, username: str
     return bool(payload.simulated) and source == SIMULATION_SOURCE_PROD_AUTOPILOT and username.startswith("qa_")
 
 
+def _mark_prod_autopilot_user_metadata(user: Any) -> None:
+    metadata = getattr(user, "user_metadata", None)
+    if not isinstance(metadata, dict):
+        metadata = {}
+    else:
+        metadata = dict(metadata)
+    metadata["simulated"] = True
+    metadata["simulation_source"] = SIMULATION_SOURCE_PROD_AUTOPILOT
+    user.user_metadata = metadata
+
+
 def _invalid_invite_credentials() -> HTTPException:
     return HTTPException(status_code=401, detail=INVITE_AUTH_INVALID_CREDENTIALS_DETAIL)
 
@@ -2243,6 +2254,8 @@ async def invite_login(request: Request):
                 raise HTTPException(status_code=403, detail="Account is inactive")
 
             _touch_invite_login(user, lang)
+            if _is_prod_autopilot_invite_payload(payload, username):
+                _mark_prod_autopilot_user_metadata(user)
             db.commit()
             token = _sign_jwt(user.id, user.username)
             return {
