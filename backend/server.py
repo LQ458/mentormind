@@ -1449,7 +1449,8 @@ def get_my_knowledge_graph(
         return get_user_graph(str(current_user.id), language=language)
     except Exception as exc:
         # Never 500 on a read for an empty user — graceful empty graph.
-        return {"nodes": [], "edges": [], "error": str(exc)}
+        logger.exception("Failed to fetch knowledge graph")
+        return {"nodes": [], "edges": [], "error": "knowledge_graph_unavailable"}
 
 
 # ── Board adaptive controls (F2 / F4) ────────────────────────────────────────
@@ -2889,8 +2890,9 @@ async def ingest_image(
                     "pages_with_text": pdf_result.get("pages_with_text"),
                     "timestamp": datetime.now().isoformat(),
                 }
-            except RuntimeError as exc:
-                raise HTTPException(status_code=503, detail=str(exc))
+            except RuntimeError:
+                logger.exception("PDF text extraction service unavailable")
+                raise HTTPException(status_code=503, detail="PDF text extraction is temporarily unavailable")
             finally:
                 if os.path.exists(tmp_path):
                     os.unlink(tmp_path)
@@ -3309,7 +3311,8 @@ def get_ops_queue_depths(current_user: User = Depends(get_current_user)):
             try:
                 depth = int(redis_client.llen(name))
             except Exception as exc:
-                error = str(exc)
+                logger.exception("Failed to read queue depth for %s", name)
+                error = "queue_depth_unavailable"
         else:
             error = "redis_unavailable"
         queues.append({"name": name, "depth": depth, "error": error})
