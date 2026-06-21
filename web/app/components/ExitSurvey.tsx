@@ -124,7 +124,7 @@ type ExitSurveyPayload = {
   queued_at?: string
 }
 
-type SurveySubmitStatus = 'sent' | 'retry' | 'rejected'
+type SurveySubmitStatus = 'sent' | 'retry' | 'rejected' | 'invalid_email'
 
 function surveyStorage(): Storage | null {
   if (typeof window === 'undefined') return null
@@ -217,6 +217,11 @@ async function submitSurveyPayload(payload: ExitSurveyPayload): Promise<SurveySu
       if (res.status === 408 || res.status === 429 || res.status >= 500) {
         return 'retry'
       }
+      const data = await res.json().catch(() => ({}))
+      const detail = typeof data?.detail === 'string' ? data.detail : ''
+      if (res.status === 400 && detail === 'Invalid contact_email') {
+        return 'invalid_email'
+      }
       return 'rejected'
     }
     const data = await res.json().catch(() => ({}))
@@ -238,6 +243,10 @@ async function flushPendingSurveyPayloads(): Promise<void> {
     if (status === 'retry') remaining.push(payload)
   }
   writePendingSurveyPayloads(remaining)
+}
+
+function isRejectedSurveyStatus(status: SurveySubmitStatus): boolean {
+  return status === 'rejected' || status === 'invalid_email'
 }
 
 // ---------- Component ----------
@@ -356,11 +365,15 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
     const status = await submitSurveyPayload(payload)
     if (status === 'retry') {
       queuePendingSurveyPayload(payload)
-    } else if (status === 'rejected') {
+    } else if (isRejectedSurveyStatus(status)) {
       setSubmitError(
-        lang === 'zh'
-          ? '提交没有被服务器接收。请先别关闭，检查邮箱格式后再试一次。'
-          : 'The server did not accept this response. Keep this open, check the email format, and try again.',
+        status === 'invalid_email'
+          ? (lang === 'zh'
+            ? '邮箱格式不对。请修改邮箱，或清空邮箱后再试一次。'
+            : 'The email format is invalid. Edit the email, or clear it and try again.')
+        : lang === 'zh'
+          ? '提交没有被服务器接收。请先别关闭，检查表单后再试一次。'
+          : 'The server did not accept this response. Keep this open, check the form, and try again.',
       )
     }
     // Backwards-compatible analytics event
@@ -382,7 +395,7 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
     setSubmitting(true)
     try {
       const status = await postPayload(true)
-      if (status === 'rejected') return
+      if (isRejectedSurveyStatus(status)) return
       dismiss()
     } finally {
       setSubmitting(false)
@@ -394,7 +407,7 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
     setSubmitting(true)
     try {
       const status = await postPayload(false)
-      if (status === 'rejected') return
+      if (isRejectedSurveyStatus(status)) return
       dismiss()
     } finally {
       setSubmitting(false)
@@ -546,7 +559,10 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
               otherFeedback={otherFeedback}
               setOtherFeedback={setOtherFeedback}
               contactEmail={contactEmail}
-              setContactEmail={setContactEmail}
+              setContactEmail={(value) => {
+                setContactEmail(value)
+                if (submitError) setSubmitError(null)
+              }}
             />
           )}
         </div>
