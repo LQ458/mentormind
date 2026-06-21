@@ -8,7 +8,8 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await params
+    const { id: rawId } = await params
+    const id = encodeURIComponent(rawId)
     const res = await fetch(`${BACKEND_URL}/user/media-context/${id}`, {
       method: 'DELETE',
       headers: backendHeaders(req),

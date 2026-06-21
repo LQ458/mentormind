@@ -7,7 +7,8 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await params
+    const { id: rawId } = await params
+    const id = encodeURIComponent(rawId)
     const res = await fetch(`${BACKEND_URL}/user/media-context/${id}/image`, {
       headers: backendHeaders(req),
     })
