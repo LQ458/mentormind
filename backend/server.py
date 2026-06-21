@@ -75,7 +75,7 @@ from database import LessonStorageSQL, init_database
 from database import get_db, SessionLocal
 from database.models.user import User, UserProfile, UserMediaContext, SubjectProficiency
 from database.models.seminar import SeminarRoom, SeminarParticipant, SeminarTurn, SeminarProfile
-from auth import get_current_user, get_optional_user, verify_token_or_test_bypass
+from auth import _get_jwt_secret, get_current_user, get_optional_user, verify_token_or_test_bypass
 from config import config
 from core.asr import transcribe_with_local_model_result, get_asr_status, extract_text_with_paddleocr, extract_text_from_pdf
 from core.summarize import summarize_extracted_content
@@ -2080,11 +2080,10 @@ def _verify_password(password: str, hashed: str) -> bool:
 def _sign_jwt(user_id: str, username: str) -> str:
     import jwt as _jwt
     from datetime import datetime, timedelta
-    _secret = os.getenv("BETTER_AUTH_SECRET", "")
     now = datetime.utcnow()
     return _jwt.encode(
         {"sub": user_id, "username": username, "iat": now, "exp": now + timedelta(days=30)},
-        _secret,
+        _get_jwt_secret(),
         algorithm="HS256",
     )
 
