@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { backendHeaders } from '../../_auth'
+import { backendErrorResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -24,8 +25,9 @@ export async function GET(
         });
 
         if (!response.ok) {
-            console.error(`[Media Proxy] Backend returned ${response.status} for media path`);
-            return new NextResponse(`Media not found: ${response.status}`, { status: response.status });
+            const errorText = await response.text()
+            logBackendProxyError('media proxy', response.status, errorText)
+            return backendErrorResponse('Failed to load media', response.status)
         }
 
         // Forward the response exactly as it came from FastAPI (with all video headers)
@@ -40,6 +42,6 @@ export async function GET(
 
     } catch (error) {
         console.error('[Media Proxy] Error:', error);
-        return new NextResponse('Internal Server Error', { status: 500 });
+        return proxyFailureResponse('Failed to load media');
     }
 }
