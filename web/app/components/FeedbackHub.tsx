@@ -68,6 +68,7 @@ const SEVERITIES: Array<{ value: Severity; en: string; zh: string }> = [
 
 const FEEDBACK_TEXT_LIMIT = 1200
 type SubmissionMode = 'recorded' | 'queued'
+type CopyState = 'idle' | 'copied' | 'failed'
 
 function makeInteractionId(kind: FeedbackKind): string {
   const random = Math.random().toString(36).slice(2, 8)
@@ -120,8 +121,8 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
   const [submittedReportId, setSubmittedReportId] = useState<string | null>(null)
   const [submittedMode, setSubmittedMode] = useState<SubmissionMode | null>(null)
   const [submittedSummary, setSubmittedSummary] = useState<string | null>(null)
-  const [reportIdCopied, setReportIdCopied] = useState(false)
-  const [summaryCopied, setSummaryCopied] = useState(false)
+  const [reportIdCopyState, setReportIdCopyState] = useState<CopyState>('idle')
+  const [summaryCopyState, setSummaryCopyState] = useState<CopyState>('idle')
 
   useEffect(() => {
     if (!open) return
@@ -133,8 +134,8 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     setSubmittedReportId(null)
     setSubmittedMode(null)
     setSubmittedSummary(null)
-    setReportIdCopied(false)
-    setSummaryCopied(false)
+    setReportIdCopyState('idle')
+    setSummaryCopyState('idle')
     setMessage('')
     setExpected('')
   }, [launchContext, open])
@@ -160,15 +161,15 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
   const copyReportId = async () => {
     if (!submittedReportId) return
     const ok = await copyText(submittedReportId)
-    setReportIdCopied(ok)
-    if (ok) window.setTimeout(() => setReportIdCopied(false), 1400)
+    setReportIdCopyState(ok ? 'copied' : 'failed')
+    window.setTimeout(() => setReportIdCopyState('idle'), ok ? 1400 : 2200)
   }
 
   const copySubmittedSummary = async () => {
     if (!submittedSummary) return
     const ok = await copyText(submittedSummary)
-    setSummaryCopied(ok)
-    if (ok) window.setTimeout(() => setSummaryCopied(false), 1400)
+    setSummaryCopyState(ok ? 'copied' : 'failed')
+    window.setTimeout(() => setSummaryCopyState('idle'), ok ? 1400 : 2200)
   }
 
   const makeSubmittedSummary = (
@@ -332,8 +333,10 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
                     className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50"
                   >
                     <Copy size={13} />
-                    {reportIdCopied
+                    {reportIdCopyState === 'copied'
                       ? (lang === 'zh' ? '已复制' : 'Copied')
+                      : reportIdCopyState === 'failed'
+                        ? (lang === 'zh' ? '复制失败' : 'Copy failed')
                       : (lang === 'zh' ? '复制编号' : 'Copy ID')}
                   </button>
                   <button
@@ -342,8 +345,10 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
                     className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50"
                   >
                     <Copy size={13} />
-                    {summaryCopied
+                    {summaryCopyState === 'copied'
                       ? (lang === 'zh' ? '已复制' : 'Copied')
+                      : summaryCopyState === 'failed'
+                        ? (lang === 'zh' ? '复制失败' : 'Copy failed')
                       : (lang === 'zh' ? '复制摘要' : 'Copy summary')}
                   </button>
                 </div>
