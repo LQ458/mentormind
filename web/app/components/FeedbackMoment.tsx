@@ -25,7 +25,7 @@ const SEVERITIES: Array<{ value: Severity; en: string; zh: string }> = [
 ]
 
 const FEEDBACK_TEXT_LIMIT = 1200
-type SubmissionMode = 'recorded' | 'queued'
+type SubmissionMode = 'recorded' | 'queued' | 'local'
 type CopyState = 'idle' | 'copied' | 'failed'
 
 function makeReportId(surface: string, interactionId: string): string {
@@ -115,7 +115,9 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
       adminUrl ? `${lang === 'zh' ? '后台检索' : 'Admin lookup'}: ${adminUrl}` : '',
       `${lang === 'zh' ? '状态' : 'Status'}: ${mode === 'queued'
         ? (lang === 'zh' ? '已暂存待重试' : 'Queued for retry')
-        : (lang === 'zh' ? '已记录' : 'Recorded')}`,
+        : mode === 'local'
+          ? (lang === 'zh' ? '未被服务器接收，请手动转发' : 'Not accepted by server; manual handoff needed')
+          : (lang === 'zh' ? '已记录' : 'Recorded')}`,
       `${lang === 'zh' ? '位置' : 'Surface'}: ${surface}`,
       page ? `${lang === 'zh' ? '页面' : 'Page'}: ${page}` : '',
       ...feedbackReceiptContextLines(context, lang),
@@ -176,7 +178,16 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
     })
     setSubmitting(false)
     if (result === 'rejected') {
-      setError(lang === 'zh' ? '这条反馈没有被服务器接受，请刷新页面后再试。' : 'This feedback was not accepted. Refresh and try again.')
+      setSubmittedReportId(reportId)
+      setSubmittedMode('local')
+      setSubmittedSummary(makeSubmittedSummary('local', reportId, trimmedNote, trimmedExpected, context))
+      setReportIdCopyState('idle')
+      setSummaryCopyState('idle')
+      setReceiptOpen(true)
+      setSubmitted(true)
+      setOpen(false)
+      setNote('')
+      setExpected('')
       return
     }
     if (result === 'queued') {
@@ -206,22 +217,26 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
 
   if (submitted) {
     const queued = submittedMode === 'queued'
+    const local = submittedMode === 'local'
+    const warning = queued || local
     return (
       <div className={`inline-flex max-w-full flex-col items-stretch gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${
-        queued
+        warning
           ? 'border-amber-200 bg-amber-50 text-amber-800'
           : 'border-emerald-200 bg-emerald-50 text-emerald-700'
       }`}>
         <div className="flex max-w-full flex-wrap items-center gap-1.5">
-          {queued ? <AlertTriangle size={13} /> : <Check size={13} />}
+          {warning ? <AlertTriangle size={13} /> : <Check size={13} />}
           <span>
             {queued
               ? (lang === 'zh' ? '已暂存，会自动重试' : 'Saved locally; will retry')
+              : local
+                ? (lang === 'zh' ? '未记录，请复制回执' : 'Not recorded; copy receipt')
               : (lang === 'zh' ? '已标记，后续可转成修复任务' : 'Marked for triage')}
           </span>
           {submittedReportId && (
             <span
-              className={`max-w-[11rem] truncate font-mono text-[11px] ${queued ? 'text-amber-700' : 'text-emerald-600'}`}
+              className={`max-w-[11rem] truncate font-mono text-[11px] ${warning ? 'text-amber-700' : 'text-emerald-600'}`}
               title={submittedReportId}
             >
               {submittedReportId}
@@ -273,7 +288,7 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
         {submittedSummary && receiptVisible && (
           <div className="space-y-1">
             {copyFailed && (
-              <div className={queued ? 'text-amber-700' : 'text-emerald-700'}>
+              <div className={warning ? 'text-amber-700' : 'text-emerald-700'}>
                 {lang === 'zh'
                   ? '复制失败时，可以点下面摘要框手动选择复制。'
                   : 'If copy failed, tap the receipt below and copy it manually.'}
@@ -284,7 +299,7 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
               value={submittedSummary}
               aria-label={lang === 'zh' ? '反馈回执摘要' : 'Feedback receipt summary'}
               className={`min-h-[96px] w-full min-w-[16rem] resize-none rounded-md border px-2 py-1.5 font-mono text-[11px] leading-5 ${
-                queued
+                warning
                   ? 'border-amber-200 bg-white/70 text-amber-900'
                   : 'border-emerald-200 bg-white/70 text-emerald-900'
               }`}

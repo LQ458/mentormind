@@ -68,7 +68,7 @@ const SEVERITIES: Array<{ value: Severity; en: string; zh: string }> = [
 ]
 
 const FEEDBACK_TEXT_LIMIT = 1200
-type SubmissionMode = 'recorded' | 'queued'
+type SubmissionMode = 'recorded' | 'queued' | 'local'
 type CopyState = 'idle' | 'copied' | 'failed'
 
 function makeInteractionId(kind: FeedbackKind): string {
@@ -200,7 +200,9 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
       adminUrl ? `${lang === 'zh' ? '后台检索' : 'Admin lookup'}: ${adminUrl}` : '',
       `${lang === 'zh' ? '状态' : 'Status'}: ${mode === 'queued'
         ? (lang === 'zh' ? '已暂存待重试' : 'Queued for retry')
-        : (lang === 'zh' ? '已记录' : 'Recorded')}`,
+        : mode === 'local'
+          ? (lang === 'zh' ? '未被服务器接收，请手动转发' : 'Not accepted by server; manual handoff needed')
+          : (lang === 'zh' ? '已记录' : 'Recorded')}`,
       `${lang === 'zh' ? '类型' : 'Type'}: ${lang === 'zh' ? selectedKind.zh : selectedKind.en}`,
       `${lang === 'zh' ? '严重度' : 'Severity'}: ${severityLabel ? (lang === 'zh' ? severityLabel.zh : severityLabel.en) : severity}`,
       `${lang === 'zh' ? '位置' : 'Surface'}: ${surface}`,
@@ -251,11 +253,15 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     })
     setSubmitting(false)
     if (result === 'rejected') {
-      setSubmitError(
-        lang === 'zh'
-          ? '这条反馈没有被服务器接受。请刷新页面后再试一次。'
-          : 'This feedback was not accepted. Refresh the page and try again.',
-      )
+      setSubmittedReportId(reportId)
+      setSubmittedMode('local')
+      setSubmittedSummary(makeSubmittedSummary('local', reportId, userNote, expectedBehavior, surface, context))
+      setReportIdCopyState('idle')
+      setSummaryCopyState('idle')
+      setReceiptOpen(true)
+      setSubmitted(true)
+      setMessage('')
+      setExpected('')
       return
     }
     if (result === 'queued') {
@@ -310,15 +316,19 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
         {submitted ? (
           <div className="flex min-h-[260px] flex-col items-center justify-center px-5 py-10 text-center">
             <div className={`mb-3 flex h-11 w-11 items-center justify-center rounded-full ${
-              submittedMode === 'queued' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
+              submittedMode === 'queued' || submittedMode === 'local' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
             }`}>
-              {submittedMode === 'queued' ? <AlertTriangle size={22} /> : <Check size={22} />}
+              {submittedMode === 'queued' || submittedMode === 'local' ? <AlertTriangle size={22} /> : <Check size={22} />}
             </div>
             <div className="text-sm font-semibold text-gray-900">
               {submittedMode === 'queued'
                 ? (lang === 'zh'
                   ? '已暂存，会自动重试发送。'
                   : 'Saved locally and will retry automatically.')
+                : submittedMode === 'local'
+                  ? (lang === 'zh'
+                    ? '服务器没有接收，已生成手动回执。'
+                    : 'The server did not accept it; a manual receipt is ready.')
                 : (lang === 'zh'
                   ? '已记录，会和错误线索一起进入分析队列。'
                   : 'Recorded with the debugging context.')}
@@ -328,6 +338,10 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
                 ? (lang === 'zh'
                   ? '网络或服务短暂不可用时，这条反馈仍会留在本次浏览器会话里。'
                   : 'If the network or service is temporarily unavailable, this report stays in this browser session.')
+                : submittedMode === 'local'
+                  ? (lang === 'zh'
+                    ? '请复制摘要发给我们；里面包含编号、页面、设备和你的原始反馈。'
+                    : 'Copy the summary and send it to us; it includes the ID, page, device, and your note.')
                 : (lang === 'zh'
                   ? '谢谢，这会帮助我们把测试反馈整理成可修复的问题。'
                   : 'Thanks. This helps turn tester feedback into fixable issues.')}
