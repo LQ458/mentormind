@@ -40,7 +40,7 @@ export async function middleware(request: NextRequest) {
   const token = getSessionCookie(request)
   if (!token) {
     const signInUrl = new URL('/auth/login', request.url)
-    signInUrl.searchParams.set('redirect', pathname)
+    signInUrl.searchParams.set('redirect', `${pathname}${request.nextUrl.search}`)
     return NextResponse.redirect(signInUrl)
   }
 
