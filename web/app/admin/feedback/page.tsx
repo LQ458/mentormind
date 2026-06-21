@@ -513,9 +513,11 @@ export default function AdminFeedbackPage() {
     if (surfaceFilter) reportParams.set('surface', surfaceFilter)
     if (kindFilter) reportParams.set('kind', kindFilter)
     if (severityFilter) reportParams.set('severity', severityFilter)
-    const initialReportId = !hasLoadedOnceRef.current ? getInitialReportId() : ''
-    if (initialReportId) reportParams.set('report_id', initialReportId)
     const activeSearch = debouncedReportSearch.trim() || (!hasLoadedOnceRef.current ? getInitialReportSearch() : '')
+    const initialReportId = getInitialReportId()
+    if (initialReportId && (!activeSearch || activeSearch === initialReportId)) {
+      reportParams.set('report_id', initialReportId)
+    }
     if (activeSearch) reportParams.set('q', activeSearch.slice(0, REPORT_SEARCH_LIMIT))
     return reportParams
   }
