@@ -2,7 +2,7 @@
 
 import React, { useEffect } from 'react'
 import { useAuth } from './AuthContext'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useLanguage } from './LanguageContext'
 
 interface AuthGateProps {
@@ -14,17 +14,16 @@ export default function AuthGate({ children, redirectTo }: AuthGateProps) {
   const { isLoaded, isSignedIn } = useAuth()
   const router = useRouter()
   const pathname = usePathname() || '/'
-  const searchParams = useSearchParams()
   const { language } = useLanguage()
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) {
-      const search = searchParams?.toString()
+      const search = typeof window !== 'undefined' ? window.location.search.replace(/^\?/, '') : ''
       const currentPath = `${pathname}${search ? `?${search}` : ''}`
       const loginPath = `/auth/login?redirect=${encodeURIComponent(currentPath)}`
       router.replace(redirectTo || loginPath)
     }
-  }, [isLoaded, isSignedIn, pathname, redirectTo, router, searchParams])
+  }, [isLoaded, isSignedIn, pathname, redirectTo, router])
 
   if (!isLoaded) {
     return (
