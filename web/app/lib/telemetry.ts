@@ -187,9 +187,10 @@ function parsePendingFeedbackEvents(raw: string | null): TelemetryPayload[] {
   }
 }
 
-function readStorageValue(storage: Storage | undefined, key: string): string | null {
+function readStorageValue(storage: Storage | undefined, key: string, maxBytes = PENDING_FEEDBACK_MAX_BYTES): string | null {
   try {
-    return storage?.getItem(key) ?? null
+    const value = storage?.getItem(key) ?? null
+    return value && value.length <= maxBytes ? value : null
   } catch {
     return null
   }
