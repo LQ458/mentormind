@@ -391,7 +391,7 @@ function downloadReportCsv(rows: FeedbackReportRow[]) {
       r.surface || '', r.feedback_kind || '', r.severity || '', r.page || r.route || '',
       r.user_note || '', r.expected_behavior || '', r.captured_url || r.url || '',
       compactJson(r.build), compactJson(r.recent_errors), compactJson(r.app_snapshot),
-      'Use Report ID in the admin dashboard for full tester details.',
+      adminReportLookupUrl(r) || 'Use Report ID in the admin dashboard for full tester details.',
     ].map(csvEscape).join(','))
   }
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
