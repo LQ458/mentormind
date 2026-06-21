@@ -6744,6 +6744,7 @@ TELEMETRY_URL_KEYS = {"url", "captured_url", "href", "page", "path", "pathname",
 TELEMETRY_REDACTED_VALUE = "[redacted]"
 TELEMETRY_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,254}$")
 ADMIN_TEXT_URL_RE = re.compile(r"https?://[^\s\"'<>]+|/[A-Za-z0-9._~:/%+-][^\s\"'<>]*[?#][^\s\"'<>]*")
+TELEMETRY_EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]{1,64}@[A-Z0-9.-]{1,253}\.[A-Z]{2,24}\b", re.IGNORECASE)
 FEEDBACK_MOMENT_ALLOWED_SOURCES = {
     "global_feedback_button",
     "inline_feedback_moment",
@@ -6809,6 +6810,12 @@ def _redact_embedded_urls_for_telemetry(value: Any, max_len: int = 1200) -> str:
     return redacted[:max_len]
 
 
+def _redact_text_for_telemetry(value: Any, max_len: int = 1200) -> str:
+    redacted = _redact_embedded_urls_for_telemetry(value, max_len)
+    redacted = TELEMETRY_EMAIL_RE.sub(TELEMETRY_REDACTED_VALUE, redacted)
+    return redacted[:max_len]
+
+
 def _sanitize_telemetry_session_id(value: Any) -> Optional[str]:
     if not isinstance(value, str):
         return None
@@ -6830,6 +6837,9 @@ def _is_sensitive_telemetry_key(key: Any) -> bool:
             "authorization",
             "bearertoken",
             "cookie",
+            "contact",
+            "contactemail",
+            "email",
             "idtoken",
             "invite",
             "invitecode",
@@ -6837,11 +6847,17 @@ def _is_sensitive_telemetry_key(key: Any) -> bool:
             "ipaddress",
             "jwt",
             "password",
+            "phone",
+            "phonenumber",
             "refreshtoken",
             "secret",
             "sessiontoken",
             "setcookie",
+            "tel",
+            "telephone",
             "useragent",
+            "wechat",
+            "whatsapp",
         }
         or compact.endswith("token")
         or compact.endswith("secret")
@@ -6860,9 +6876,9 @@ def _sanitize_telemetry_payload_value(value: Any, *, max_string: int, depth: int
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
-        return _redact_embedded_urls_for_telemetry(value, max_string)
+        return _redact_text_for_telemetry(value, max_string)
     if depth >= 4:
-        return _redact_embedded_urls_for_telemetry(value, max_string)
+        return _redact_text_for_telemetry(value, max_string)
     if isinstance(value, list):
         return [
             _sanitize_telemetry_payload_value(item, max_string=max_string, depth=depth + 1)
@@ -6901,9 +6917,9 @@ def _sanitize_telemetry_payload(event_type: str, raw_payload: Dict[str, Any]) ->
             if normalized_key in TELEMETRY_URL_KEYS:
                 safe_payload[safe_key] = _redact_url_for_telemetry(value, cap)
             elif event_type == "feedback_moment" and safe_key in {"user_note", "expected_behavior"}:
-                safe_payload[safe_key] = _redact_embedded_urls_for_telemetry(value, cap)
+                safe_payload[safe_key] = _redact_text_for_telemetry(value, cap)
             else:
-                safe_payload[safe_key] = _redact_embedded_urls_for_telemetry(value, cap)
+                safe_payload[safe_key] = _redact_text_for_telemetry(value, cap)
         else:
             safe_payload[safe_key] = _sanitize_telemetry_payload_value(
                 value,
@@ -7249,9 +7265,9 @@ def _sanitize_admin_context_value(value: Any, *, depth: int = 0) -> Any:
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
-        return _redact_embedded_urls_for_telemetry(value, 2000)
+        return _redact_text_for_telemetry(value, 2000)
     if depth >= 5:
-        return _redact_embedded_urls_for_telemetry(value, 500)
+        return _redact_text_for_telemetry(value, 500)
     if isinstance(value, list):
         return [
             _sanitize_admin_context_value(item, depth=depth + 1)
@@ -7272,7 +7288,7 @@ def _sanitize_admin_context_value(value: Any, *, depth: int = 0) -> Any:
                     depth=depth + 1,
                 )
         return clean
-    return _redact_embedded_urls_for_telemetry(value, 500)
+    return _redact_text_for_telemetry(value, 500)
 
 
 def _survey_response_admin_to_dict(response: SurveyResponse) -> Dict[str, Any]:

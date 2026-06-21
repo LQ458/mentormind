@@ -127,13 +127,15 @@ def test_sanitize_telemetry_payload_redacts_sensitive_keys_before_storage():
         "user_note": long_note,
         "expected_behavior": "Should stay on /study-plan?token=secret",
         "password": "do-not-store",
+        "contact_email": "tester@example.com",
         "context": {
             "url": "https://mentormind.cloud/study-plan?token=url-token#frag",
             "app_snapshot": {
                 "access_token": "secret-access-token",
                 "apiKey": "secret-api-key",
+                "email": "student@example.com",
                 "safe_value": "kept",
-                "message": "Fetch failed https://mentormind.cloud/ask?token=secret#frag",
+                "message": "Fetch failed https://mentormind.cloud/ask?token=secret#frag for student@example.com",
                 "headers": {
                     "Authorization": "Bearer raw-token",
                     "content_type": "application/json",
@@ -156,11 +158,13 @@ def test_sanitize_telemetry_payload_redacts_sensitive_keys_before_storage():
     assert len(safe["user_note"]) == 1200
     assert safe["expected_behavior"] == "Should stay on /study-plan?..."
     assert safe["password"] == "[redacted]"
+    assert safe["contact_email"] == "[redacted]"
     assert safe["context"]["url"] == "/study-plan?...#..."
     assert safe["context"]["app_snapshot"]["access_token"] == "[redacted]"
     assert safe["context"]["app_snapshot"]["apiKey"] == "[redacted]"
+    assert safe["context"]["app_snapshot"]["email"] == "[redacted]"
     assert safe["context"]["app_snapshot"]["safe_value"] == "kept"
-    assert safe["context"]["app_snapshot"]["message"] == "Fetch failed /ask?...#..."
+    assert safe["context"]["app_snapshot"]["message"] == "Fetch failed /ask?...#... for [redacted]"
     assert safe["context"]["app_snapshot"]["headers"]["Authorization"] == "[redacted]"
     assert safe["context"]["app_snapshot"]["headers"]["content_type"] == "application/json"
     assert safe["context"]["events"][0]["refresh-token"] == "[redacted]"
@@ -169,7 +173,7 @@ def test_sanitize_telemetry_payload_redacts_sensitive_keys_before_storage():
 
 
 def test_sensitive_telemetry_key_detection_covers_admin_context_identifiers():
-    for key in ["apiKey", "clientSecret", "sessionToken", "user_agent", "ipAddress", "inviteCode"]:
+    for key in ["apiKey", "clientSecret", "sessionToken", "user_agent", "ipAddress", "inviteCode", "contactEmail", "phoneNumber"]:
         assert server._is_sensitive_telemetry_key(key)
 
 

@@ -160,10 +160,12 @@ def test_feedback_context_admin_payload_redacts_sensitive_fields():
                     "access_token": "secret",
                     "apiKey": "secret-api-key",
                     "clientSecret": "secret-client-secret",
+                    "email": "student@example.com",
                     "sessionToken": "secret-session-token",
-                    "message": "Failed at https://mentormind.cloud/ask?token=secret#frag",
+                    "message": "Failed at https://mentormind.cloud/ask?token=secret#frag for student@example.com",
                     "page": "/study-plan?invite=abc",
                     "path": "/study-plan/path?token=abc#frag",
+                    "phone": "+1 415 555 0100",
                     "route": "https://mentormind.cloud/study-plan/route?jwt=abc#frag",
                     "safe_value": "kept",
                     "url": "https://mentormind.cloud/study-plan?invite=abc#frag",
@@ -182,10 +184,12 @@ def test_feedback_context_admin_payload_redacts_sensitive_fields():
     assert context["app_snapshot"]["access_token"] == "[redacted]"
     assert context["app_snapshot"]["apiKey"] == "[redacted]"
     assert context["app_snapshot"]["clientSecret"] == "[redacted]"
+    assert context["app_snapshot"]["email"] == "[redacted]"
     assert context["app_snapshot"]["sessionToken"] == "[redacted]"
-    assert context["app_snapshot"]["message"] == "Failed at /ask?...#..."
+    assert context["app_snapshot"]["message"] == "Failed at /ask?...#... for [redacted]"
     assert context["app_snapshot"]["page"] == "/study-plan?..."
     assert context["app_snapshot"]["path"] == "/study-plan/path?...#..."
+    assert context["app_snapshot"]["phone"] == "[redacted]"
     assert context["app_snapshot"]["route"] == "/study-plan/route?...#..."
     assert context["app_snapshot"]["safe_value"] == "kept"
     assert context["app_snapshot"]["url"] == "/study-plan?...#..."
