@@ -15,7 +15,19 @@ import ReportIssueButton from '../ReportIssueButton'
 import { OPEN_FEEDBACK_EVENT, OPEN_SURVEY_EVENT, type FeedbackLaunchContext } from '../feedbackEvents'
 
 function feedbackSurfaceForPath(pathname: string): string {
-  const safe = pathname
+  const parts = pathname.split('/').filter(Boolean)
+  const stablePath = (() => {
+    if (parts.length === 0) return 'home'
+    const [first, second] = parts
+    if (first === 'study-plan' && second) return 'study-plan-detail'
+    if (first === 'lessons' && second) return 'lesson-detail'
+    if (first === 'board' && second) return 'board-session'
+    if (first === 'board-share' && second) return 'board-share'
+    if (first === 'admin') return 'admin'
+    if (first === 'auth') return 'auth'
+    return parts.join('-')
+  })()
+  const safe = stablePath
     .replace(/[^a-z0-9]+/gi, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80)
