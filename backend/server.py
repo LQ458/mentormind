@@ -7001,7 +7001,7 @@ async def get_admin_telemetry_aggregate(
         cnt = int(row.count or 0)
         err_count = int(row.err_count or 0)
         by_group.append({
-            "key": row.key or "",
+            "key": _admin_telemetry_group_key(group_by, row.key),
             "count": cnt,
             "avg_latency": float(row.avg_latency) if row.avg_latency is not None else None,
             "error_rate": (err_count / cnt) if cnt else 0.0,
@@ -7019,14 +7019,7 @@ async def get_admin_telemetry_aggregate(
     err_counter: Dict[str, int] = {}
     for (payload,) in err_q.all():
         try:
-            p = payload or {}
-            sig = (
-                p.get("message")
-                or p.get("status_code")
-                or p.get("url")
-                or "unknown"
-            )
-            sig = str(sig)[:200]
+            sig = _admin_telemetry_error_signature(payload or {})
         except Exception:
             sig = "unknown"
         err_counter[sig] = err_counter.get(sig, 0) + 1
@@ -7051,6 +7044,23 @@ async def get_admin_telemetry_aggregate(
 
 def _admin_only(current_user: User) -> None:
     _require_admin(current_user)
+
+
+def _admin_telemetry_group_key(group_by: Optional[str], value: Any) -> str:
+    if group_by == "page":
+        return _admin_safe_url(value, 240) or str(value or "")[:240]
+    return str(value or "")[:120]
+
+
+def _admin_telemetry_error_signature(payload: Dict[str, Any]) -> str:
+    message = payload.get("message")
+    if message:
+        return str(message)[:200]
+    status_code = payload.get("status_code")
+    if status_code is not None:
+        return str(status_code)[:200]
+    url = _admin_safe_url(payload.get("url"), 240)
+    return (url or "unknown")[:200]
 
 
 def _parse_admin_date_param(name: str, value: Optional[str]) -> Optional[datetime]:

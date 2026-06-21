@@ -189,6 +189,24 @@ def test_feedback_context_admin_payload_redacts_sensitive_fields():
     assert context["app_snapshot"]["url"] == "/study-plan?...#..."
 
 
+def test_admin_telemetry_group_and_error_signatures_redact_urls():
+    assert (
+        server._admin_telemetry_group_key(
+            "page",
+            "https://mentormind.cloud/study-plan?invite=abc#frag",
+        )
+        == "/study-plan?...#..."
+    )
+    assert server._admin_telemetry_group_key("event_type", "error_network") == "error_network"
+    assert (
+        server._admin_telemetry_error_signature({
+            "url": "https://mentormind.cloud/ask?token=secret#frag",
+        })
+        == "/ask?...#..."
+    )
+    assert server._admin_telemetry_error_signature({"status_code": 500}) == "500"
+
+
 def test_feedback_report_admin_urls_redact_query_and_fragment():
     event = SimpleNamespace(
         id="evt-2",
