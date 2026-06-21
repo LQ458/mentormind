@@ -9,27 +9,22 @@ export async function GET(
     { params }: { params: { path: string[] } }
 ) {
     try {
-        // Reconstruct the original path from the array
-        const mediaPath = params.path.join('/');
-
-
-        console.log(`[Media Proxy] Fetching: ${BACKEND_URL}/media/${mediaPath}`);
+        const backendMediaPath = params.path.map((segment) => encodeURIComponent(segment)).join('/');
 
         // Forward auth token/cookie and range headers
         const rangeHeader = request.headers.get('range') || ''
-        const requestHeaders = backendHeaders(request, {
-            'Range': rangeHeader,
-        })
+        const baseHeaders: Record<string, string> = {}
+        if (rangeHeader) baseHeaders.Range = rangeHeader
+        const requestHeaders = backendHeaders(request, baseHeaders)
 
-        // Call the FastAPI backend's media streaming endpoint
-        // We pass the entire absolute path because the backend handles it that way
-        const response = await fetch(`${BACKEND_URL}/media/${mediaPath}`, {
+        // Call the FastAPI backend's media endpoint with encoded path segments.
+        const response = await fetch(`${BACKEND_URL}/media/${backendMediaPath}`, {
             method: 'GET',
             headers: requestHeaders,
         });
 
         if (!response.ok) {
-            console.error(`[Media Proxy] Backend returned ${response.status} for ${mediaPath}`);
+            console.error(`[Media Proxy] Backend returned ${response.status} for media path`);
             return new NextResponse(`Media not found: ${response.status}`, { status: response.status });
         }
 
