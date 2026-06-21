@@ -107,8 +107,13 @@ def test_survey_has_substantive_answer_accepts_partial_feedback_metadata():
 
 
 def test_sanitize_telemetry_payload_redacts_sensitive_keys_before_storage():
+    long_note = (
+        "Open https://mentormind.cloud/study-plan?invite=secret-code#frag then "
+        + ("x" * 1300)
+    )
     payload = {
-        "user_note": "x" * 1300,
+        "user_note": long_note,
+        "expected_behavior": "Should stay on /study-plan?token=secret",
         "password": "do-not-store",
         "context": {
             "url": "https://mentormind.cloud/study-plan?token=url-token#frag",
@@ -133,7 +138,10 @@ def test_sanitize_telemetry_payload_redacts_sensitive_keys_before_storage():
 
     safe = server._sanitize_telemetry_payload("feedback_moment", payload)
 
-    assert safe["user_note"] == "x" * 1200
+    assert safe["user_note"].startswith("Open /study-plan?...#... then ")
+    assert "secret-code" not in safe["user_note"]
+    assert len(safe["user_note"]) == 1200
+    assert safe["expected_behavior"] == "Should stay on /study-plan?..."
     assert safe["password"] == "[redacted]"
     assert safe["context"]["url"] == "/study-plan?...#..."
     assert safe["context"]["app_snapshot"]["access_token"] == "[redacted]"

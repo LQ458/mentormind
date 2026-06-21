@@ -6667,6 +6667,15 @@ def _sanitize_telemetry_page(value: Any) -> Optional[str]:
     return _redact_url_for_telemetry(value, 64)
 
 
+def _redact_embedded_urls_for_telemetry(value: Any, max_len: int = 1200) -> str:
+    raw = str(value or "")
+    redacted = ADMIN_TEXT_URL_RE.sub(
+        lambda match: _redact_url_for_telemetry(match.group(0), max_len) or "",
+        raw,
+    )
+    return redacted[:max_len]
+
+
 def _sanitize_telemetry_session_id(value: Any) -> Optional[str]:
     if not isinstance(value, str):
         return None
@@ -6756,11 +6765,12 @@ def _sanitize_telemetry_payload(event_type: str, raw_payload: Dict[str, Any]) ->
 
         cap = _telemetry_string_cap(event_type, safe_key)
         if isinstance(value, str):
-            safe_payload[safe_key] = (
-                _redact_url_for_telemetry(value, cap)
-                if normalized_key in TELEMETRY_URL_KEYS
-                else value[:cap]
-            )
+            if normalized_key in TELEMETRY_URL_KEYS:
+                safe_payload[safe_key] = _redact_url_for_telemetry(value, cap)
+            elif event_type == "feedback_moment" and safe_key in {"user_note", "expected_behavior"}:
+                safe_payload[safe_key] = _redact_embedded_urls_for_telemetry(value, cap)
+            else:
+                safe_payload[safe_key] = value[:cap]
         else:
             safe_payload[safe_key] = _sanitize_telemetry_payload_value(
                 value,
@@ -7057,19 +7067,10 @@ def _admin_telemetry_group_key(group_by: Optional[str], value: Any) -> str:
     return str(value or "")[:120]
 
 
-def _redact_embedded_urls_for_admin(value: Any, max_len: int = 200) -> str:
-    raw = str(value or "")
-    redacted = ADMIN_TEXT_URL_RE.sub(
-        lambda match: _redact_url_for_telemetry(match.group(0), max_len) or "",
-        raw,
-    )
-    return redacted[:max_len]
-
-
 def _admin_telemetry_error_signature(payload: Dict[str, Any]) -> str:
     message = payload.get("message")
     if message:
-        return _redact_embedded_urls_for_admin(message, 200)
+        return _redact_embedded_urls_for_telemetry(message, 200)
     status_code = payload.get("status_code")
     if status_code is not None:
         return str(status_code)[:200]
