@@ -161,6 +161,7 @@ def test_feedback_context_admin_payload_redacts_sensitive_fields():
                     "apiKey": "secret-api-key",
                     "clientSecret": "secret-client-secret",
                     "sessionToken": "secret-session-token",
+                    "message": "Failed at https://mentormind.cloud/ask?token=secret#frag",
                     "page": "/study-plan?invite=abc",
                     "path": "/study-plan/path?token=abc#frag",
                     "route": "https://mentormind.cloud/study-plan/route?jwt=abc#frag",
@@ -182,6 +183,7 @@ def test_feedback_context_admin_payload_redacts_sensitive_fields():
     assert context["app_snapshot"]["apiKey"] == "[redacted]"
     assert context["app_snapshot"]["clientSecret"] == "[redacted]"
     assert context["app_snapshot"]["sessionToken"] == "[redacted]"
+    assert context["app_snapshot"]["message"] == "Failed at /ask?...#..."
     assert context["app_snapshot"]["page"] == "/study-plan?..."
     assert context["app_snapshot"]["path"] == "/study-plan/path?...#..."
     assert context["app_snapshot"]["route"] == "/study-plan/route?...#..."

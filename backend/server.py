@@ -6727,9 +6727,9 @@ def _sanitize_telemetry_payload_value(value: Any, *, max_string: int, depth: int
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
-        return value[:max_string]
+        return _redact_embedded_urls_for_telemetry(value, max_string)
     if depth >= 4:
-        return str(value)[:max_string]
+        return _redact_embedded_urls_for_telemetry(value, max_string)
     if isinstance(value, list):
         return [
             _sanitize_telemetry_payload_value(item, max_string=max_string, depth=depth + 1)
@@ -6770,7 +6770,7 @@ def _sanitize_telemetry_payload(event_type: str, raw_payload: Dict[str, Any]) ->
             elif event_type == "feedback_moment" and safe_key in {"user_note", "expected_behavior"}:
                 safe_payload[safe_key] = _redact_embedded_urls_for_telemetry(value, cap)
             else:
-                safe_payload[safe_key] = value[:cap]
+                safe_payload[safe_key] = _redact_embedded_urls_for_telemetry(value, cap)
         else:
             safe_payload[safe_key] = _sanitize_telemetry_payload_value(
                 value,
@@ -7099,9 +7099,9 @@ def _sanitize_admin_context_value(value: Any, *, depth: int = 0) -> Any:
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
-        return value[:2000]
+        return _redact_embedded_urls_for_telemetry(value, 2000)
     if depth >= 5:
-        return str(value)[:500]
+        return _redact_embedded_urls_for_telemetry(value, 500)
     if isinstance(value, list):
         return [
             _sanitize_admin_context_value(item, depth=depth + 1)
@@ -7122,7 +7122,7 @@ def _sanitize_admin_context_value(value: Any, *, depth: int = 0) -> Any:
                     depth=depth + 1,
                 )
         return clean
-    return str(value)[:500]
+    return _redact_embedded_urls_for_telemetry(value, 500)
 
 
 def _survey_response_admin_to_dict(response: SurveyResponse) -> Dict[str, Any]:

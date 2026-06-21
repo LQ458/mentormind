@@ -133,6 +133,7 @@ def test_sanitize_telemetry_payload_redacts_sensitive_keys_before_storage():
                 "access_token": "secret-access-token",
                 "apiKey": "secret-api-key",
                 "safe_value": "kept",
+                "message": "Fetch failed https://mentormind.cloud/ask?token=secret#frag",
                 "headers": {
                     "Authorization": "Bearer raw-token",
                     "content_type": "application/json",
@@ -159,6 +160,7 @@ def test_sanitize_telemetry_payload_redacts_sensitive_keys_before_storage():
     assert safe["context"]["app_snapshot"]["access_token"] == "[redacted]"
     assert safe["context"]["app_snapshot"]["apiKey"] == "[redacted]"
     assert safe["context"]["app_snapshot"]["safe_value"] == "kept"
+    assert safe["context"]["app_snapshot"]["message"] == "Fetch failed /ask?...#..."
     assert safe["context"]["app_snapshot"]["headers"]["Authorization"] == "[redacted]"
     assert safe["context"]["app_snapshot"]["headers"]["content_type"] == "application/json"
     assert safe["context"]["events"][0]["refresh-token"] == "[redacted]"
