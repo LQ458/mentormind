@@ -48,6 +48,10 @@ interface FeedbackReportRow {
   surface?: string
   feedback_kind?: string
   severity?: string
+  triage_status?: string
+  triage_note?: string
+  triage_updated_at?: string
+  triage_updated_by?: string
   interaction_id?: string
   report_id?: string
   user_note?: string
@@ -98,6 +102,7 @@ interface FeedbackReportsAggregateResponse {
   surface_distribution?: Record<string, number>
   kind_distribution?: Record<string, number>
   severity_distribution?: Record<string, number>
+  status_distribution?: Record<string, number>
   page_distribution?: Record<string, number>
   priority_reports?: FeedbackReportRow[]
   truncated?: boolean
@@ -137,6 +142,21 @@ const PMF_LABELS: Record<string, { en: string; zh: string }> = {
 }
 
 const REPORT_SEARCH_LIMIT = 160
+const TRIAGE_STATUSES = ['new', 'engineering', 'content_ceo', 'triaged', 'resolved', 'wontfix']
+
+const TRIAGE_STATUS_LABELS: Record<string, { en: string; zh: string }> = {
+  new: { en: 'New', zh: '新反馈' },
+  engineering: { en: 'Engineering', zh: '工程可修' },
+  content_ceo: { en: 'CEO / content', zh: 'CEO/内容' },
+  triaged: { en: 'Triaged', zh: '已分拣' },
+  resolved: { en: 'Resolved', zh: '已解决' },
+  wontfix: { en: 'Won’t fix', zh: '不处理' },
+}
+
+function triageStatusLabel(status: string | null | undefined, lang: 'zh' | 'en'): string {
+  const normalized = status || 'new'
+  return TRIAGE_STATUS_LABELS[normalized]?.[lang] || normalized
+}
 
 function readInitialReportSearch(): string {
   if (typeof window === 'undefined') return ''
@@ -308,6 +328,8 @@ function reportMarkdown(
     `- Surface: ${r.surface || '—'}`,
     `- Kind: ${r.feedback_kind || '—'}`,
     `- Severity: ${r.severity || '—'}`,
+    `- Triage status: ${r.triage_status || 'new'}`,
+    `- Triage note: ${r.triage_note || '—'}`,
     `- Priority: ${r.priority_score ?? '—'}${r.priority_reasons?.length ? ` (${r.priority_reasons.join(', ')})` : ''}`,
     `- Page: ${page}`,
     `- URL: ${url}`,
@@ -405,7 +427,7 @@ async function copyText(text: string): Promise<boolean> {
 function downloadReportCsv(rows: FeedbackReportRow[]) {
   const headers = [
     'id', 'report_id', 'created_at', 'source', 'tester', 'signed_in_tester',
-    'surface', 'feedback_kind', 'severity', 'page', 'user_note', 'expected_behavior', 'captured_url',
+    'surface', 'feedback_kind', 'severity', 'triage_status', 'triage_note', 'page', 'user_note', 'expected_behavior', 'captured_url',
     'build', 'browser', 'recent_errors', 'app_snapshot', 'admin_lookup',
   ]
   const lines = [headers.join(',')]
@@ -413,7 +435,7 @@ function downloadReportCsv(rows: FeedbackReportRow[]) {
     lines.push([
       r.id, r.report_id || '', r.created_at, r.source || '',
       formatTesterForIssue(r), r.user_id ? 'true' : 'false',
-      r.surface || '', r.feedback_kind || '', r.severity || '', r.page || r.route || '',
+      r.surface || '', r.feedback_kind || '', r.severity || '', r.triage_status || 'new', r.triage_note || '', r.page || r.route || '',
       r.user_note || '', r.expected_behavior || '', r.captured_url || r.url || '',
       compactJson(r.build), compactJson(r.browser), compactJson(r.recent_errors), compactJson(r.app_snapshot),
       adminReportLookupUrl(r) || 'Use Report ID in the admin dashboard for full tester details.',
@@ -468,6 +490,7 @@ export default function AdminFeedbackPage() {
   const [surfaceFilter, setSurfaceFilter] = useState<string>('')
   const [kindFilter, setKindFilter] = useState<string>('')
   const [severityFilter, setSeverityFilter] = useState<string>('')
+  const [statusFilter, setStatusFilter] = useState<string>('')
   const [reportSearch, setReportSearch] = useState<string>('')
   const [debouncedReportSearch, setDebouncedReportSearch] = useState<string>('')
 
@@ -480,6 +503,8 @@ export default function AdminFeedbackPage() {
   const [contextByReportId, setContextByReportId] = useState<Record<string, FeedbackReportContextResponse>>({})
   const [contextLoadingId, setContextLoadingId] = useState<string | null>(null)
   const [contextErrorByReportId, setContextErrorByReportId] = useState<Record<string, string>>({})
+  const [triageUpdatingId, setTriageUpdatingId] = useState<string | null>(null)
+  const [triageError, setTriageError] = useState<string | null>(null)
 
   const buildSurveyParams = () => {
     const params = new URLSearchParams()
@@ -513,6 +538,7 @@ export default function AdminFeedbackPage() {
     if (surfaceFilter) reportParams.set('surface', surfaceFilter)
     if (kindFilter) reportParams.set('kind', kindFilter)
     if (severityFilter) reportParams.set('severity', severityFilter)
+    if (statusFilter) reportParams.set('status', statusFilter)
     const activeSearch = debouncedReportSearch.trim() || (!hasLoadedOnceRef.current ? getInitialReportSearch() : '')
     const initialReportId = getInitialReportId()
     if (initialReportId && (!activeSearch || activeSearch === initialReportId)) {
@@ -660,7 +686,7 @@ export default function AdminFeedbackPage() {
     if (!hasLoadedOnceRef.current) return
     fetchReportsData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceFilter, surfaceFilter, kindFilter, severityFilter, debouncedReportSearch])
+  }, [sourceFilter, surfaceFilter, kindFilter, severityFilter, statusFilter, debouncedReportSearch])
 
   useEffect(() => {
     if (!hasLoadedOnceRef.current) return
@@ -698,6 +724,15 @@ export default function AdminFeedbackPage() {
     })
     Object.keys(reportsAggregate?.surface_distribution || {}).forEach((k) => seen.add(k))
     return Array.from(seen).filter(Boolean).sort()
+  }, [reports, reportsAggregate])
+
+  const statusOptions = useMemo(() => {
+    const seen = new Set<string>(TRIAGE_STATUSES)
+    reports.forEach((r) => {
+      if (r.triage_status) seen.add(r.triage_status)
+    })
+    Object.keys(reportsAggregate?.status_distribution || {}).forEach((k) => seen.add(k))
+    return Array.from(seen).filter(Boolean)
   }, [reports, reportsAggregate])
 
   const formatDate = (s: string) => {
@@ -771,6 +806,89 @@ export default function AdminFeedbackPage() {
     if (context) setExpandedReportId(report.id)
   }
 
+  const applyUpdatedReport = (updated: FeedbackReportRow) => {
+    const shouldKeepInList = !statusFilter || (updated.triage_status || 'new') === statusFilter
+    setReports((prev) => shouldKeepInList
+      ? prev.map((row) => (row.id === updated.id ? updated : row))
+      : prev.filter((row) => row.id !== updated.id))
+    setReportsAggregate((prev) => {
+      if (!prev) return prev
+      const nextPriority = (prev.priority_reports || [])
+        .map((row) => (row.id === updated.id ? updated : row))
+        .filter((row) => !['resolved', 'wontfix'].includes(row.triage_status || 'new'))
+      return { ...prev, priority_reports: nextPriority }
+    })
+    setContextByReportId((prev) => {
+      const current = prev[updated.id]
+      return current ? { ...prev, [updated.id]: { ...current, report: updated } } : prev
+    })
+  }
+
+  const updateReportTriage = async (report: FeedbackReportRow, status: string, note = report.triage_note || '') => {
+    if (triageUpdatingId === report.id) return
+    setTriageUpdatingId(report.id)
+    setTriageError(null)
+    try {
+      const res = await fetch(`/api/backend/admin/feedback/reports/${encodeURIComponent(report.id)}/triage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, note }),
+      })
+      const data = (await res.json().catch(() => ({}))) as { report?: FeedbackReportRow; error?: string; detail?: string }
+      if (!res.ok || !data.report) {
+        setTriageError(data.error || data.detail || `HTTP ${res.status}`)
+        return
+      }
+      applyUpdatedReport(data.report)
+    } catch {
+      setTriageError(lang === 'zh' ? '状态更新失败' : 'Failed to update triage status')
+    } finally {
+      setTriageUpdatingId((current) => (current === report.id ? null : current))
+    }
+  }
+
+  const promptTriageNote = (report: FeedbackReportRow) => {
+    const next = window.prompt(
+      lang === 'zh' ? '分拣备注' : 'Triage note',
+      report.triage_note || '',
+    )
+    if (next === null) return
+    void updateReportTriage(report, report.triage_status || 'new', next)
+  }
+
+  const renderTriageControls = (report: FeedbackReportRow) => {
+    const current = report.triage_status || 'new'
+    return (
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {TRIAGE_STATUSES.map((status) => (
+          <button
+            key={status}
+            type="button"
+            className="btn btn-sm"
+            onClick={() => updateReportTriage(report, status)}
+            disabled={triageUpdatingId === report.id || current === status}
+            style={{
+              fontSize: 11,
+              opacity: current === status ? 0.72 : 1,
+              borderColor: current === status ? 'var(--accent, #2563eb)' : undefined,
+            }}
+          >
+            {triageStatusLabel(status, lang)}
+          </button>
+        ))}
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={() => promptTriageNote(report)}
+          disabled={triageUpdatingId === report.id}
+          style={{ fontSize: 11 }}
+        >
+          {lang === 'zh' ? '备注' : 'Note'}
+        </button>
+      </div>
+    )
+  }
+
   useEffect(() => {
     if (initialReportAutoOpenedRef.current) return
     const initialReportId = getInitialReportId()
@@ -830,6 +948,20 @@ export default function AdminFeedbackPage() {
               }}
             >
               {refreshError}
+            </div>
+          )}
+          {triageError && (
+            <div
+              style={{
+                padding: 12,
+                border: '1px solid var(--line, #e8ecf0)',
+                borderRadius: 10,
+                background: 'var(--surface-2, #f5f7fa)',
+                color: 'var(--ink-muted)',
+                fontSize: 13,
+              }}
+            >
+              {triageError}
             </div>
           )}
           {/* ---- Quick bug reports ---- */}
@@ -916,6 +1048,7 @@ export default function AdminFeedbackPage() {
                     <tr>
                       <Th>{lang === 'zh' ? '分数' : 'Score'}</Th>
                       <Th>{lang === 'zh' ? '严重度' : 'Severity'}</Th>
+                      <Th>{lang === 'zh' ? '状态' : 'Status'}</Th>
                       <Th>{lang === 'zh' ? '表面' : 'Surface'}</Th>
                       <Th>{lang === 'zh' ? '测试者' : 'Tester'}</Th>
                       <Th>Build</Th>
@@ -932,6 +1065,7 @@ export default function AdminFeedbackPage() {
                           <tr style={{ borderTop: '1px solid var(--line, #e8ecf0)' }}>
                             <Td>{r.priority_score ?? 0}</Td>
                             <Td>{r.severity || '—'}</Td>
+                            <Td>{triageStatusLabel(r.triage_status, lang)}</Td>
                             <Td>{r.surface || r.page || r.route || '—'}</Td>
                             <Td>{formatTester(r)}</Td>
                             <Td>{formatBuild(r.build)}</Td>
@@ -979,7 +1113,7 @@ export default function AdminFeedbackPage() {
                           {isPriorityOpen && (
                             <tr key={`priority-${r.id}-detail`}>
                               <td
-                                colSpan={8}
+                                colSpan={9}
                                 style={{
                                   background: 'var(--surface-2, #f5f7fa)',
                                   padding: 16,
@@ -987,6 +1121,9 @@ export default function AdminFeedbackPage() {
                                 }}
                               >
                                 <DetailBlock label="Report ID" value={r.report_id || r.id} />
+                                <DetailBlock label={lang === 'zh' ? '状态' : 'Status'} value={triageStatusLabel(r.triage_status, lang)} />
+                                {renderTriageControls(r)}
+                                <DetailBlock label={lang === 'zh' ? '分拣备注' : 'Triage note'} value={r.triage_note} />
                                 <DetailBlock label={lang === 'zh' ? '测试者' : 'Tester'} value={formatTester(r)} />
                                 <DetailBlock label="Session ID" value={r.session_id || ''} />
                                 <DetailBlock label={lang === 'zh' ? '用户描述' : 'User note'} value={r.user_note} />
@@ -1041,6 +1178,11 @@ export default function AdminFeedbackPage() {
               <DistCard
                 title={lang === 'zh' ? '严重程度' : 'Severity'}
                 dist={reportsAggregate?.severity_distribution}
+              />
+              <DistCard
+                title={lang === 'zh' ? '分拣状态' : 'Triage status'}
+                dist={reportsAggregate?.status_distribution}
+                relabel={(k) => triageStatusLabel(k, lang)}
               />
             </div>
 
@@ -1100,6 +1242,13 @@ export default function AdminFeedbackPage() {
                 onChange={setSeverityFilter}
                 options={['blocked', 'wrong', 'confusing', 'slow', 'visual', 'quality', 'idea']}
               />
+              <FilterSelect
+                label={lang === 'zh' ? '状态' : 'Status'}
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={statusOptions}
+                relabel={(k) => triageStatusLabel(k, lang)}
+              />
             </div>
 
             {reports.length === 0 ? (
@@ -1124,6 +1273,7 @@ export default function AdminFeedbackPage() {
                       <Th>{lang === 'zh' ? '表面' : 'Surface'}</Th>
                       <Th>{lang === 'zh' ? '类型' : 'Kind'}</Th>
                       <Th>{lang === 'zh' ? '严重度' : 'Severity'}</Th>
+                      <Th>{lang === 'zh' ? '状态' : 'Status'}</Th>
                       <Th>{lang === 'zh' ? '页面' : 'Page'}</Th>
                       <Th>{lang === 'zh' ? '用户描述' : 'Note'}</Th>
                       <Th>{lang === 'zh' ? '错误线索' : 'Errors'}</Th>
@@ -1143,6 +1293,7 @@ export default function AdminFeedbackPage() {
                             <Td>{r.surface || '—'}</Td>
                             <Td>{r.feedback_kind || '—'}</Td>
                             <Td>{r.severity || '—'}</Td>
+                            <Td>{triageStatusLabel(r.triage_status, lang)}</Td>
                             <Td>{r.page || r.route || '—'}</Td>
                             <Td>
                               <span style={{ display: 'block', maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1194,7 +1345,7 @@ export default function AdminFeedbackPage() {
                           {isOpen && (
                             <tr key={`${r.id}-detail`}>
                               <td
-                                colSpan={11}
+                                colSpan={12}
                                 style={{
                                   background: 'var(--surface-2, #f5f7fa)',
                                   padding: 16,
@@ -1204,6 +1355,15 @@ export default function AdminFeedbackPage() {
                                 <DetailBlock
                                   label={lang === 'zh' ? 'Report ID' : 'Report ID'}
                                   value={r.report_id || r.id}
+                                />
+                                <DetailBlock
+                                  label={lang === 'zh' ? '状态' : 'Status'}
+                                  value={triageStatusLabel(r.triage_status, lang)}
+                                />
+                                {renderTriageControls(r)}
+                                <DetailBlock
+                                  label={lang === 'zh' ? '分拣备注' : 'Triage note'}
+                                  value={r.triage_note}
                                 />
                                 <DetailBlock
                                   label={lang === 'zh' ? '测试者' : 'Tester'}

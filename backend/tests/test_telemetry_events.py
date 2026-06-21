@@ -261,6 +261,7 @@ def test_feedback_report_matches_supports_source_filter():
         surface="study-plan",
         kind="bug",
         severity="blocked",
+        triage_status=None,
     )
     assert not server._feedback_report_matches(
         row,
@@ -268,6 +269,23 @@ def test_feedback_report_matches_supports_source_filter():
         surface="study-plan",
         kind="bug",
         severity="blocked",
+        triage_status=None,
+    )
+    assert server._feedback_report_matches(
+        {**row, "triage_status": "engineering"},
+        source=None,
+        surface=None,
+        kind=None,
+        severity=None,
+        triage_status="engineering",
+    )
+    assert not server._feedback_report_matches(
+        {**row, "triage_status": "resolved"},
+        source=None,
+        surface=None,
+        kind=None,
+        severity=None,
+        triage_status="engineering",
     )
 
 
@@ -343,6 +361,42 @@ def test_feedback_report_id_filter_clause_uses_json_payload_field():
     assert "payload" in str(clause)
 
 
+def test_feedback_triage_status_normalization_and_note_sanitization():
+    assert server._normalize_feedback_triage_status("content-ceo") == "content_ceo"
+    assert server._normalize_feedback_triage_status("resolved") == "resolved"
+    assert server._normalize_feedback_triage_status("unknown") == "new"
+    assert (
+        server._sanitize_feedback_triage_note("Needs CEO: https://mentormind.cloud/admin?token=secret")
+        == "Needs CEO: /admin?..."
+    )
+
+
+def test_feedback_report_to_dict_includes_default_and_saved_triage_fields():
+    row = server._feedback_report_to_dict(
+        SimpleNamespace(
+            id="evt-1",
+            created_at=datetime(2026, 6, 20, 8, 0, 0),
+            user_id=None,
+            session_id="session-1",
+            page="/study-plan",
+            url="/study-plan",
+            viewport_w=390,
+            viewport_h=844,
+            payload=valid_feedback_moment_payload(
+                triage_status="content_ceo",
+                triage_note="Need course scaffolding.",
+                triage_updated_at="2026-06-20T09:00:00",
+                triage_updated_by="admin-1",
+            ),
+        )
+    )
+
+    assert row["triage_status"] == "content_ceo"
+    assert row["triage_note"] == "Need course scaffolding."
+    assert row["triage_updated_at"] == "2026-06-20T09:00:00"
+    assert row["triage_updated_by"] == "admin-1"
+
+
 def test_feedback_report_priority_prefers_blocked_bug_with_errors():
     high = {
         "severity": "blocked",
@@ -400,6 +454,14 @@ def test_feedback_report_priority_queue_dedupes_and_orders_newest_ties():
             "feedback_kind": "general",
             "user_note": "Nice to have",
         },
+        {
+            "id": "closed-blocked",
+            "created_at": "2026-06-20T11:00:00",
+            "severity": "blocked",
+            "feedback_kind": "bug",
+            "triage_status": "resolved",
+            "recent_errors": [{"event_type": "error_network"}],
+        },
     ]
 
     queue = server._feedback_report_priority_queue(rows, limit=3)
@@ -407,6 +469,7 @@ def test_feedback_report_priority_queue_dedupes_and_orders_newest_ties():
     assert [row["id"] for row in queue] == ["newer-blocked", "newer-idea", "older-idea"]
     assert queue[0]["priority_reasons"] == ["severity:blocked", "bug", "errors:1"]
     assert [row.get("report_id") for row in queue].count("same-bug") == 1
+    assert "closed-blocked" not in [row["id"] for row in queue]
 
 
 def test_feedback_context_event_shape_omits_ip_and_user_agent():

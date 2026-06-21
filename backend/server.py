@@ -6734,6 +6734,15 @@ FEEDBACK_MOMENT_ALLOWED_SEVERITIES = {
 }
 FEEDBACK_MOMENT_SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$")
 FEEDBACK_REPORT_QUERY_MAX_CHARS = 160
+FEEDBACK_REPORT_TRIAGE_STATUSES = {
+    "new",
+    "engineering",
+    "content_ceo",
+    "triaged",
+    "resolved",
+    "wontfix",
+}
+FEEDBACK_REPORT_CLOSED_TRIAGE_STATUSES = {"resolved", "wontfix"}
 
 
 def _redact_url_for_telemetry(value: Any, max_len: int = 512) -> Optional[str]:
@@ -7285,6 +7294,10 @@ def _feedback_report_to_dict(event: TelemetryEvent, tester: Optional[Dict[str, A
         "surface": _payload_str(payload, "surface"),
         "feedback_kind": _payload_str(payload, "feedback_kind"),
         "severity": _payload_str(payload, "severity"),
+        "triage_status": _normalize_feedback_triage_status(payload.get("triage_status")),
+        "triage_note": _sanitize_feedback_triage_note(payload.get("triage_note")),
+        "triage_updated_at": _payload_str(payload, "triage_updated_at", 80),
+        "triage_updated_by": _payload_str(payload, "triage_updated_by", 255),
         "interaction_id": _payload_str(payload, "interaction_id", 255),
         "report_id": _payload_str(payload, "report_id", 80),
         "user_note": _payload_str(payload, "user_note", 1200, redact_embedded_urls=True),
@@ -7310,6 +7323,7 @@ def _feedback_report_matches(
     surface: Optional[str],
     kind: Optional[str],
     severity: Optional[str],
+    triage_status: Optional[str],
 ) -> bool:
     if source and row.get("source") != source:
         return False
@@ -7318,6 +7332,8 @@ def _feedback_report_matches(
     if kind and row.get("feedback_kind") != kind:
         return False
     if severity and row.get("severity") != severity:
+        return False
+    if triage_status and row.get("triage_status") != triage_status:
         return False
     return True
 
@@ -7335,6 +7351,8 @@ def _feedback_report_matches_query(row: Dict[str, Any], query: Optional[str]) ->
         row.get("surface"),
         row.get("feedback_kind"),
         row.get("severity"),
+        row.get("triage_status"),
+        row.get("triage_note"),
         row.get("interaction_id"),
         row.get("session_id"),
         row.get("page"),
@@ -7367,6 +7385,15 @@ def _normalize_feedback_report_choice_filter(value: Optional[str], allowed: Set[
         return None
     normalized = raw.lower()
     return normalized if normalized in allowed else raw
+
+
+def _normalize_feedback_triage_status(value: Any) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    return normalized if normalized in FEEDBACK_REPORT_TRIAGE_STATUSES else "new"
+
+
+def _sanitize_feedback_triage_note(value: Any) -> str:
+    return _redact_embedded_urls_for_telemetry(str(value or "").strip(), 600)
 
 
 def _normalize_feedback_report_token_filter(value: Optional[str]) -> Optional[str]:
@@ -7446,6 +7473,8 @@ def _feedback_report_with_priority(row: Dict[str, Any]) -> Dict[str, Any]:
 def _feedback_report_priority_queue(rows: List[Dict[str, Any]], limit: int = 10) -> List[Dict[str, Any]]:
     priority_by_key: Dict[str, Dict[str, Any]] = {}
     for row in rows:
+        if row.get("triage_status") in FEEDBACK_REPORT_CLOSED_TRIAGE_STATUSES:
+            continue
         ranked = _feedback_report_with_priority(row)
         key = _feedback_report_unique_key(row)
         current = priority_by_key.get(key)
@@ -7498,6 +7527,7 @@ async def get_admin_feedback_reports(
     surface: Optional[str] = None,
     kind: Optional[str] = None,
     severity: Optional[str] = None,
+    status: Optional[str] = None,
     q: Optional[str] = None,
     report_id: Optional[str] = None,
     start_date: Optional[str] = None,
@@ -7514,6 +7544,7 @@ async def get_admin_feedback_reports(
     surface_filter = _normalize_feedback_report_token_filter(surface)
     kind_filter = _normalize_feedback_report_choice_filter(kind, FEEDBACK_MOMENT_ALLOWED_KINDS)
     severity_filter = _normalize_feedback_report_choice_filter(severity, FEEDBACK_MOMENT_ALLOWED_SEVERITIES)
+    triage_status_filter = _normalize_feedback_report_choice_filter(status, FEEDBACK_REPORT_TRIAGE_STATUSES)
     start_dt = _parse_admin_date_param("start_date", start_date)
     end_dt = _parse_admin_date_param("end_date", end_date)
 
@@ -7540,6 +7571,7 @@ async def get_admin_feedback_reports(
             surface=surface_filter,
             kind=kind_filter,
             severity=severity_filter,
+            triage_status=triage_status_filter,
         )
         and _feedback_report_matches_query(row, search_query)
     ]
@@ -7557,6 +7589,7 @@ async def get_admin_feedback_reports(
             "surface": surface_filter,
             "kind": kind_filter,
             "severity": severity_filter,
+            "status": triage_status_filter,
             "q": search_query,
             "report_id": _normalize_feedback_report_id_query(report_id),
             "start_date": start_date,
@@ -7611,6 +7644,67 @@ async def get_admin_feedback_report_context(
     }
 
 
+@app.patch("/admin/feedback/reports/{event_id}/triage")
+async def update_admin_feedback_report_triage(
+    event_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Persist lightweight admin triage state on a feedback report."""
+    _admin_only(current_user)
+    raw = await request.body()
+    if len(raw) > 4096:
+        raise HTTPException(status_code=413, detail="Payload too large")
+    try:
+        body = json.loads(raw.decode("utf-8") or "{}") if raw else {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Body must be a JSON object")
+
+    status = _normalize_feedback_triage_status(body.get("status"))
+    raw_status = str(body.get("status") or "").strip()
+    if not raw_status or status != raw_status.lower().replace("-", "_"):
+        raise HTTPException(status_code=400, detail="Invalid triage status")
+    note = _sanitize_feedback_triage_note(body.get("note"))
+
+    report_event = (
+        db.query(TelemetryEvent)
+        .filter(
+            TelemetryEvent.id == event_id,
+            TelemetryEvent.event_type == "feedback_moment",
+        )
+        .first()
+    )
+    if not report_event:
+        raise HTTPException(status_code=404, detail="Feedback report not found")
+
+    payload = dict(report_event.payload or {})
+    payload["triage_status"] = status
+    payload["triage_note"] = note
+    payload["triage_updated_at"] = datetime.utcnow().isoformat()
+    payload["triage_updated_by"] = str(getattr(current_user, "id", "") or "")
+    report_event.payload = payload
+    try:
+        db.add(report_event)
+        db.commit()
+        db.refresh(report_event)
+    except Exception as exc:
+        db.rollback()
+        logger.warning(f"feedback report triage update failed: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to update feedback report")
+
+    testers = _feedback_report_user_summaries(db, [report_event])
+    return {
+        "ok": True,
+        "report": _feedback_report_to_dict(
+            report_event,
+            testers.get(str(report_event.user_id or "")),
+        ),
+    }
+
+
 @app.get("/admin/feedback/reports/aggregate")
 async def get_admin_feedback_reports_aggregate(
     start_date: Optional[str] = None,
@@ -7642,6 +7736,7 @@ async def get_admin_feedback_reports_aggregate(
     by_surface = Counter(row.get("surface") or "unknown" for row in rows)
     by_kind = Counter(row.get("feedback_kind") or "unknown" for row in rows)
     by_severity = Counter(row.get("severity") or "unknown" for row in rows)
+    by_status = Counter(row.get("triage_status") or "new" for row in rows)
     by_page = Counter(row.get("page") or row.get("route") or "unknown" for row in rows)
     return {
         "total": len(rows),
@@ -7651,6 +7746,7 @@ async def get_admin_feedback_reports_aggregate(
         "surface_distribution": dict(by_surface.most_common(50)),
         "kind_distribution": dict(by_kind.most_common(20)),
         "severity_distribution": dict(by_severity.most_common(20)),
+        "status_distribution": dict(by_status.most_common(20)),
         "page_distribution": dict(by_page.most_common(50)),
         "priority_reports": priority_reports,
         "truncated": len(events) >= 5000,
