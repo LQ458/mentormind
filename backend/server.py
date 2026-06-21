@@ -407,9 +407,10 @@ def ensure_complete_response(data: dict, context: str = "API") -> dict:
         
     except Exception as e:
         # If we can't serialize, return original data with error info
+        logger.exception("Failed to attach response integrity metadata")
         if isinstance(data, dict):
             data["_response_integrity"] = {
-                "error": str(e),
+                "error": "serialization_failed",
                 "context": context,
                 "status": "serialization_failed"
             }
@@ -2311,10 +2312,11 @@ async def get_content_quality_analytics(timeframe_days: int = 7, current_user: U
             "analytics": analytics,
             "timeframe_days": timeframe_days
         }
-    except Exception as e:
+    except Exception:
+        logger.exception("Quality analytics unavailable")
         return {
             "success": False, 
-            "error": str(e),
+            "error": "Quality analytics unavailable",
             "message": "Quality analytics unavailable"
         }
 
@@ -2365,10 +2367,11 @@ async def evaluate_content_quality(
         #     }
         # }
         
-    except Exception as e:
+    except Exception:
+        logger.exception("Content evaluation failed")
         return {
             "success": False,
-            "error": str(e),
+            "error": "Content evaluation failed",
             "message": "Content evaluation failed"
         }
 
@@ -2397,10 +2400,11 @@ async def get_lesson_quality(lesson_id: str, current_user: User = Depends(get_cu
                 "message": "No quality evaluation found for this lesson"
             }
             
-    except Exception as e:
+    except Exception:
+        logger.exception("Failed to fetch lesson quality")
         return {
             "success": False,
-            "error": str(e)
+            "error": "Failed to fetch lesson quality"
         }
 
 # 2. Per-chunk topic extraction via DeepSeek (summarise -> topic title).
@@ -2457,11 +2461,11 @@ async def analyze_topics(
             "success": True,
             "topics": topics
         }
-    except Exception as e:
-        print(f"❌ Error analyzing topics: {e}")
+    except Exception:
+        logger.exception("Error analyzing topics")
         return JSONResponse(
             status_code=500,
-            content={"success": False, "error": str(e)}
+            content={"success": False, "error": "Failed to analyze topics"}
         )
 
 @app.post("/debug/generation/pipeline")
@@ -3276,13 +3280,11 @@ def get_admin_metrics(
             "lessons": lessons
         }
     
-    except Exception as e:
-        import traceback
-        print(f"Admin metrics error: {e}")
-        traceback.print_exc()
+    except Exception:
+        logger.exception("Admin metrics unavailable")
         return {
             "success": False,
-            "error": str(e),
+            "error": "Admin metrics unavailable",
             "summary": {
                 "total_lessons": 0,
                 "total_cost_usd": 0.0,
@@ -4732,9 +4734,9 @@ async def study_plan_ask_ai(
         else:
             return AskAIResponse(success=False, answer="", error="Please provide highlighted text or an image")
 
-    except Exception as e:
-        logger.error(f"Ask AI failed: {e}")
-        return AskAIResponse(success=False, answer="", error=str(e))
+    except Exception:
+        logger.exception("Ask AI failed")
+        return AskAIResponse(success=False, answer="", error="Ask AI failed")
 
 
 @app.get("/user/media-context")
