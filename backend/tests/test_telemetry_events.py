@@ -238,6 +238,31 @@ def test_feedback_report_matches_supports_source_filter():
     )
 
 
+def test_feedback_report_query_matches_report_text_and_tester_metadata():
+    row = {
+        "id": "evt-1",
+        "report_id": "fb-study-plan-bug-abc123",
+        "page": "/study-plan",
+        "user_note": "Plan generation spins forever.",
+        "expected_behavior": "Show all units after generation.",
+        "tester": {
+            "username": "tester_one",
+            "email": "tester@example.com",
+            "language_preference": "zh",
+        },
+        "build": {
+            "sha": "abc123def456",
+            "image_tag": "prod",
+        },
+    }
+
+    assert server._feedback_report_matches_query(row, "fb-study-plan-bug")
+    assert server._feedback_report_matches_query(row, "spins forever")
+    assert server._feedback_report_matches_query(row, "tester_one")
+    assert server._feedback_report_matches_query(row, "abc123def")
+    assert not server._feedback_report_matches_query(row, "seminar-audio")
+
+
 def test_feedback_report_priority_prefers_blocked_bug_with_errors():
     high = {
         "severity": "blocked",

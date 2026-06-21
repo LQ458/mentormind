@@ -7190,6 +7190,41 @@ def _feedback_report_matches(
     return True
 
 
+def _feedback_report_matches_query(row: Dict[str, Any], query: Optional[str]) -> bool:
+    q = str(query or "").strip().lower()
+    if not q:
+        return True
+    tester = row.get("tester") if isinstance(row.get("tester"), dict) else {}
+    haystack_parts = [
+        row.get("id"),
+        row.get("report_id"),
+        row.get("created_at"),
+        row.get("source"),
+        row.get("surface"),
+        row.get("feedback_kind"),
+        row.get("severity"),
+        row.get("interaction_id"),
+        row.get("session_id"),
+        row.get("page"),
+        row.get("route"),
+        row.get("url"),
+        row.get("captured_url"),
+        row.get("user_note"),
+        row.get("expected_behavior"),
+        row.get("user_id"),
+        tester.get("id"),
+        tester.get("username"),
+        tester.get("email"),
+        tester.get("role"),
+        tester.get("language_preference"),
+    ]
+    build = row.get("build")
+    if isinstance(build, dict):
+        haystack_parts.extend([build.get("sha"), build.get("image_tag"), build.get("version")])
+    haystack = "\n".join(str(part) for part in haystack_parts if part is not None).lower()
+    return q in haystack
+
+
 def _feedback_report_unique_key(row: Dict[str, Any]) -> str:
     """Stable key for triage counts; only collapse reports with explicit ids."""
     report_id = str(row.get("report_id") or "").strip()
@@ -7302,6 +7337,7 @@ async def get_admin_feedback_reports(
     surface: Optional[str] = None,
     kind: Optional[str] = None,
     severity: Optional[str] = None,
+    q: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     current_user: User = Depends(get_current_user),
@@ -7329,6 +7365,7 @@ async def get_admin_feedback_reports(
             for event in events
         )
         if _feedback_report_matches(row, source=source, surface=surface, kind=kind, severity=severity)
+        and _feedback_report_matches_query(row, q)
     ]
     unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
     return {
@@ -7344,6 +7381,7 @@ async def get_admin_feedback_reports(
             "surface": surface,
             "kind": kind,
             "severity": severity,
+            "q": q,
             "start_date": start_date,
             "end_date": end_date,
         },

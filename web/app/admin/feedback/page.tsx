@@ -417,6 +417,7 @@ export default function AdminFeedbackPage() {
       if (surfaceFilter) reportParams.set('surface', surfaceFilter)
       if (kindFilter) reportParams.set('kind', kindFilter)
       if (severityFilter) reportParams.set('severity', severityFilter)
+      if (reportSearch.trim()) reportParams.set('q', reportSearch.trim())
 
       const [reportAggRes, reportListRes, aggRes, listRes] = await Promise.all([
         fetch('/api/backend/admin/feedback/reports/aggregate'),
@@ -465,7 +466,7 @@ export default function AdminFeedbackPage() {
   useEffect(() => {
     fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [examFilter, pmfFilter, langFilter, sourceFilter, surfaceFilter, kindFilter, severityFilter])
+  }, [examFilter, pmfFilter, langFilter, sourceFilter, surfaceFilter, kindFilter, severityFilter, reportSearch])
 
   const examOptions = useMemo(() => {
     const seen = new Set<string>()
@@ -549,33 +550,6 @@ export default function AdminFeedbackPage() {
   }
 
   const priorityReports = reportsAggregate?.priority_reports || []
-  const visibleReports = useMemo(() => {
-    const needle = reportSearch.trim().toLowerCase()
-    if (!needle) return reports
-    return reports.filter((r) => {
-      const haystack = [
-        r.id,
-        r.report_id,
-        r.created_at,
-        r.source,
-        formatTester(r),
-        r.user_id,
-        r.session_id,
-        r.page,
-        r.route,
-        r.url,
-        r.captured_url,
-        r.surface,
-        r.feedback_kind,
-        r.severity,
-        r.interaction_id,
-        r.user_note,
-        r.expected_behavior,
-        formatBuild(r.build),
-      ].filter(Boolean).join('\n').toLowerCase()
-      return haystack.includes(needle)
-    })
-  }, [reportSearch, reports])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -617,8 +591,8 @@ export default function AdminFeedbackPage() {
               <button
                 type="button"
                 className="btn btn-sm"
-                onClick={() => downloadReportCsv(visibleReports)}
-                disabled={visibleReports.length === 0}
+                onClick={() => downloadReportCsv(reports)}
+                disabled={reports.length === 0}
               >
                 {lang === 'zh' ? '导出报告 CSV' : 'Export reports CSV'}
               </button>
@@ -641,7 +615,7 @@ export default function AdminFeedbackPage() {
               />
               <KpiCard
                 label={lang === 'zh' ? '当前筛选命中' : 'Filtered matches'}
-                value={String(reportSearch.trim() ? visibleReports.length : reportsTotal)}
+                value={String(reportsTotal)}
               />
               <KpiCard
                 label={lang === 'zh' ? '筛选去重' : 'Filtered unique'}
@@ -867,7 +841,7 @@ export default function AdminFeedbackPage() {
               />
             </div>
 
-            {visibleReports.length === 0 ? (
+            {reports.length === 0 ? (
               <div className="muted" style={{ padding: 16, fontSize: 13 }}>
                 {lang === 'zh' ? '没有匹配的快速报告' : 'No matching quick reports'}
               </div>
@@ -896,7 +870,7 @@ export default function AdminFeedbackPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleReports.map((r) => {
+                    {reports.map((r) => {
                       const isOpen = expandedReportId === r.id
                       return (
                         <Fragment key={r.id}>
