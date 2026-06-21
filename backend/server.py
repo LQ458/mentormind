@@ -4,9 +4,11 @@ Production API with bilingual support and clean organization
 """
 
 import asyncio
+import importlib.util
 import json
 import logging
 import os
+import shutil
 import sys
 import threading
 from datetime import datetime, timedelta, timezone
@@ -2005,6 +2007,53 @@ def _build_metadata() -> Dict[str, Optional[str]]:
     }
 
 
+def _optional_python_module_available(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except Exception:
+        return False
+
+
+def _media_service_status(
+    *,
+    asr_status: Dict[str, bool],
+    funasr_external: str,
+    paddle_external: str,
+) -> Dict[str, Dict[str, Any]]:
+    """Report lazy-loaded media services without forcing heavy model startup."""
+    funasr = {"status": funasr_external, "latency_ms": None, "mode": "external"}
+    if asr_status.get("funasr_zh_loaded"):
+        funasr = {"status": "online", "latency_ms": 0, "mode": "local_loaded"}
+    elif funasr_external != "online":
+        funasr_available = _optional_python_module_available("funasr")
+        funasr = {
+            "status": "available" if funasr_available else "offline",
+            "latency_ms": None,
+            "mode": "lazy_local_model" if funasr_available else "not_installed",
+        }
+
+    whisper = {"status": "offline", "latency_ms": None, "mode": "not_installed"}
+    if asr_status.get("whisper_loaded"):
+        whisper = {"status": "online", "latency_ms": 0, "mode": "local_loaded"}
+    elif _optional_python_module_available("whisper"):
+        whisper = {"status": "available", "latency_ms": None, "mode": "lazy_local_model"}
+
+    paddle = {"status": paddle_external, "latency_ms": None, "mode": "external"}
+    if asr_status.get("paddleocr_loaded"):
+        paddle = {"status": "online", "latency_ms": 0, "mode": "local_loaded"}
+    elif paddle_external != "online":
+        paddle_available = _optional_python_module_available("paddleocr")
+        tesseract_available = shutil.which("tesseract") is not None
+        if paddle_available:
+            paddle = {"status": "available", "latency_ms": None, "mode": "lazy_local_model"}
+        elif tesseract_available:
+            paddle = {"status": "available", "latency_ms": None, "mode": "tesseract_fallback"}
+        else:
+            paddle = {"status": "offline", "latency_ms": None, "mode": "not_installed"}
+
+    return {"funasr": funasr, "whisper": whisper, "paddle_ocr": paddle}
+
+
 @app.get("/")
 async def root():
     return {
@@ -2040,24 +2089,18 @@ async def get_status():
     # Probe internal state of models loaded by the process
     asr_status = get_asr_status()
 
+    media_status = _media_service_status(
+        asr_status=asr_status,
+        funasr_external=funasr_ext,
+        paddle_external=paddle_ext,
+    )
+
     services_status = {
         "deepseek": "configured" if deepseek_key else "missing_key",
-        "funasr": {"status": funasr_ext, "latency_ms": None},
-        "whisper": {"status": "offline", "latency_ms": None},
-        "paddle_ocr": {"status": paddle_ext, "latency_ms": None},
+        **media_status,
         "tts": "active",
         "ai_lessons": "active",
     }
-
-    if asr_status["funasr_zh_loaded"]:
-        services_status["funasr"]["status"] = "online"
-        services_status["funasr"]["latency_ms"] = 0
-    if asr_status["whisper_loaded"]:
-        services_status["whisper"]["status"] = "online"
-        services_status["whisper"]["latency_ms"] = 0
-    if asr_status["paddleocr_loaded"]:
-        services_status["paddle_ocr"]["status"] = "online"
-        services_status["paddle_ocr"]["latency_ms"] = 0
 
     return {
         "status": "running",
