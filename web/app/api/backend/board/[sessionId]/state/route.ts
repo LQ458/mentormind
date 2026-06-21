@@ -10,7 +10,7 @@ export async function GET(
   { params }: { params: { sessionId: string } },
 ) {
   try {
-    const { sessionId } = params
+    const sessionId = encodeURIComponent(params.sessionId)
     const res = await fetch(`${BACKEND_URL}/board/${sessionId}/state`, {
       method: 'GET',
       cache: 'no-store',

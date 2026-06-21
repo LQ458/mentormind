@@ -10,7 +10,7 @@ export async function POST(
   { params }: { params: { sessionId: string } },
 ) {
   try {
-    const { sessionId } = params
+    const sessionId = encodeURIComponent(params.sessionId)
     const body = await req.text()
     const headers = backendHeaders(req, { 'Content-Type': 'application/json' })
     const res = await fetch(`${BACKEND_URL}/board/${sessionId}/save`, {

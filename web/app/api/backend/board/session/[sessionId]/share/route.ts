@@ -21,8 +21,9 @@ export async function POST(
   { params }: { params: { sessionId: string } },
 ) {
   try {
+    const sessionId = encodeURIComponent(params.sessionId)
     const headers = backendHeaders(req)
-    const res = await fetch(`${BACKEND_URL}/board/session/${params.sessionId}/share`, {
+    const res = await fetch(`${BACKEND_URL}/board/session/${sessionId}/share`, {
       method: 'POST',
       headers,
     })
@@ -35,7 +36,7 @@ export async function POST(
       })
     }
     if (typeof data.token === 'string' && data.token) {
-      data.share_url = `${req.nextUrl.origin}/board-share/${params.sessionId}?token=${encodeURIComponent(data.token)}`
+      data.share_url = `${req.nextUrl.origin}/board-share/${sessionId}?token=${encodeURIComponent(data.token)}`
     }
     return NextResponse.json(data, { status: res.status })
   } catch (err) {
@@ -49,9 +50,10 @@ export async function GET(
   { params }: { params: { sessionId: string } },
 ) {
   try {
+    const sessionId = encodeURIComponent(params.sessionId)
     const token = req.nextUrl.searchParams.get('token') || ''
     const res = await fetch(
-      `${BACKEND_URL}/board/session/${params.sessionId}/share?token=${encodeURIComponent(token)}`,
+      `${BACKEND_URL}/board/session/${sessionId}/share?token=${encodeURIComponent(token)}`,
       { cache: 'no-store' },
     )
     return await backendJsonResponse(res, 'board share read proxy')
