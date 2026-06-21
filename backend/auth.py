@@ -16,6 +16,7 @@ import os
 import jwt
 import uuid
 import hashlib
+import logging
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
@@ -28,6 +29,7 @@ from database.models.user import User
 # ── Config ────────────────────────────────────────────────────────────────────
 
 BETTER_AUTH_SECRET = os.getenv("BETTER_AUTH_SECRET", "")
+logger = logging.getLogger(__name__)
 
 
 def _get_jwt_secret() -> str:
@@ -56,10 +58,11 @@ def decode_token(token: str) -> dict:
             detail="Session token has expired — please sign in again",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    except jwt.PyJWTError as e:
+    except jwt.PyJWTError:
+        logger.warning("Invalid session token", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid session token: {str(e)}",
+            detail="Invalid session token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -190,10 +193,11 @@ def get_current_user(
 
     try:
         return _resolve_user_from_payload(payload, db)
-    except ValueError as e:
+    except ValueError:
+        logger.warning("Failed to resolve authenticated user", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
+            detail="Invalid session token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
