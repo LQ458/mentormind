@@ -36,6 +36,8 @@ interface FeedbackReportRow {
     language_preference?: string
     created_at?: string | null
     last_login_at?: string | null
+    simulated?: boolean
+    simulation_source?: string
   } | null
   session_id?: string | null
   page?: string | null
@@ -45,6 +47,8 @@ interface FeedbackReportRow {
   viewport_w?: number | null
   viewport_h?: number | null
   source?: string
+  simulated?: boolean
+  simulation_source?: string
   surface?: string
   feedback_kind?: string
   severity?: string
@@ -101,6 +105,8 @@ interface AggregateResponse {
 
 interface FeedbackReportsAggregateResponse {
   total?: number
+  real_reports?: number
+  simulated_reports?: number
   unique_reports?: number
   duplicate_reports?: number
   source_distribution?: Record<string, number>
@@ -166,6 +172,7 @@ const PMF_LABELS: Record<string, { en: string; zh: string }> = {
 
 const REPORT_SEARCH_LIMIT = 160
 const TRIAGE_STATUSES = ['new', 'engineering', 'content_ceo', 'triaged', 'resolved', 'wontfix']
+type ReportDataMode = 'real' | 'all' | 'simulated'
 
 const TRIAGE_STATUS_LABELS: Record<string, { en: string; zh: string }> = {
   new: { en: 'New', zh: '新反馈' },
@@ -297,8 +304,8 @@ function formatTester(r: FeedbackReportRow): string {
   const username = r.tester?.username || ''
   const email = r.tester?.email || ''
   const userId = r.user_id || ''
-  if (username && email) return `${username} / ${email}`
-  return username || email || userId || '—'
+  const identity = username && email ? `${username} / ${email}` : username || email || userId || '—'
+  return r.simulated ? `${identity} · QA` : identity
 }
 
 function formatTesterForIssue(r: FeedbackReportRow): string {
@@ -450,7 +457,7 @@ async function copyText(text: string): Promise<boolean> {
 
 function downloadReportCsv(rows: FeedbackReportRow[]) {
   const headers = [
-    'id', 'report_id', 'created_at', 'source', 'tester', 'signed_in_tester',
+    'id', 'report_id', 'created_at', 'source', 'simulated', 'simulation_source', 'tester', 'signed_in_tester',
     'surface', 'feedback_kind', 'severity', 'triage_status', 'triage_note', 'cluster_key', 'cluster_size', 'page', 'user_note', 'expected_behavior', 'captured_url',
     'build', 'browser', 'recent_errors', 'app_snapshot', 'admin_lookup',
   ]
@@ -458,6 +465,7 @@ function downloadReportCsv(rows: FeedbackReportRow[]) {
   for (const r of rows) {
     lines.push([
       r.id, r.report_id || '', r.created_at, r.source || '',
+      r.simulated ? 'true' : 'false', r.simulation_source || '',
       formatTesterForIssue(r), r.user_id ? 'true' : 'false',
       r.surface || '', r.feedback_kind || '', r.severity || '', r.triage_status || 'new', r.triage_note || '', r.cluster_key || '', r.cluster_size || 1, r.page || r.route || '',
       r.user_note || '', r.expected_behavior || '', r.captured_url || r.url || '',
@@ -479,6 +487,16 @@ function downloadReportCsv(rows: FeedbackReportRow[]) {
 async function responseErrorMessage(res: Response): Promise<string> {
   const data = (await res.json().catch(() => ({}))) as { error?: string; detail?: string }
   return data.error || data.detail || `HTTP ${res.status}`
+}
+
+function appendReportDataModeParams(params: URLSearchParams, mode: ReportDataMode) {
+  if (mode === 'all') params.set('include_simulated', 'true')
+  if (mode === 'simulated') params.set('simulated_only', 'true')
+}
+
+function querySuffix(params: URLSearchParams): string {
+  const query = params.toString()
+  return query ? `?${query}` : ''
 }
 
 // ---------- Page ----------
@@ -515,6 +533,7 @@ export default function AdminFeedbackPage() {
   const [kindFilter, setKindFilter] = useState<string>('')
   const [severityFilter, setSeverityFilter] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<string>('')
+  const [reportDataMode, setReportDataMode] = useState<ReportDataMode>('real')
   const [reportSearch, setReportSearch] = useState<string>('')
   const [debouncedReportSearch, setDebouncedReportSearch] = useState<string>('')
 
@@ -559,6 +578,7 @@ export default function AdminFeedbackPage() {
     const reportParams = new URLSearchParams()
     reportParams.set('limit', '80')
     reportParams.set('offset', '0')
+    appendReportDataModeParams(reportParams, reportDataMode)
     if (sourceFilter) reportParams.set('source', sourceFilter)
     if (surfaceFilter) reportParams.set('surface', surfaceFilter)
     if (kindFilter) reportParams.set('kind', kindFilter)
@@ -570,6 +590,12 @@ export default function AdminFeedbackPage() {
       reportParams.set('report_id', initialReportId)
     }
     if (activeSearch) reportParams.set('q', activeSearch.slice(0, REPORT_SEARCH_LIMIT))
+    return reportParams
+  }
+
+  const buildReportAggregateParams = () => {
+    const reportParams = new URLSearchParams()
+    appendReportDataModeParams(reportParams, reportDataMode)
     return reportParams
   }
 
@@ -585,9 +611,10 @@ export default function AdminFeedbackPage() {
     try {
       const params = buildSurveyParams()
       const reportParams = buildReportParams()
+      const reportAggregateParams = buildReportAggregateParams()
 
       const [reportAggRes, reportListRes, aggRes, listRes] = await Promise.all([
-        fetch('/api/backend/admin/feedback/reports/aggregate'),
+        fetch(`/api/backend/admin/feedback/reports/aggregate${querySuffix(reportAggregateParams)}`),
         fetch(`/api/backend/admin/feedback/reports?${reportParams.toString()}`),
         fetch('/api/backend/admin/feedback/aggregate'),
         fetch(`/api/backend/admin/feedback?${params.toString()}`),
@@ -644,14 +671,21 @@ export default function AdminFeedbackPage() {
     setRefreshError(null)
     try {
       const reportParams = buildReportParams()
-      const res = await fetch(`/api/backend/admin/feedback/reports?${reportParams.toString()}`)
-      if (!res.ok) {
+      const reportAggregateParams = buildReportAggregateParams()
+      const [aggRes, res] = await Promise.all([
+        fetch(`/api/backend/admin/feedback/reports/aggregate${querySuffix(reportAggregateParams)}`),
+        fetch(`/api/backend/admin/feedback/reports?${reportParams.toString()}`),
+      ])
+      const failedResponse = [aggRes, res].find((response) => !response.ok)
+      if (failedResponse) {
         if (requestSeq !== reportRequestSeqRef.current) return
-        setRefreshError(res.status === 401 || res.status === 403 ? adminAccessRequiredMessage(lang) : await responseErrorMessage(res))
+        setRefreshError(failedResponse.status === 401 || failedResponse.status === 403 ? adminAccessRequiredMessage(lang) : await responseErrorMessage(failedResponse))
         return
       }
+      const aggData = (await aggRes.json().catch(() => ({}))) as FeedbackReportsAggregateResponse
       const data = (await res.json().catch(() => ({}))) as FeedbackReportsResponse
       if (requestSeq !== reportRequestSeqRef.current) return
+      setReportsAggregate(aggData)
       setReports(data.rows || [])
       setReportsTotal(data.total || 0)
       setReportsUniqueTotal(data.unique_reports ?? data.total ?? 0)
@@ -711,7 +745,7 @@ export default function AdminFeedbackPage() {
     if (!hasLoadedOnceRef.current) return
     fetchReportsData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceFilter, surfaceFilter, kindFilter, severityFilter, statusFilter, debouncedReportSearch])
+  }, [sourceFilter, surfaceFilter, kindFilter, severityFilter, statusFilter, reportDataMode, debouncedReportSearch])
 
   useEffect(() => {
     if (!hasLoadedOnceRef.current) return
@@ -1036,14 +1070,17 @@ export default function AdminFeedbackPage() {
           <Section
             title={lang === 'zh' ? '快速 Bug 报告' : 'Quick bug reports'}
             tools={
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => downloadReportCsv(reports)}
-                disabled={reports.length === 0}
-              >
-                {lang === 'zh' ? '导出报告 CSV' : 'Export reports CSV'}
-              </button>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <ReportDataModeControl value={reportDataMode} onChange={setReportDataMode} lang={lang} />
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => downloadReportCsv(reports)}
+                  disabled={reports.length === 0}
+                >
+                  {lang === 'zh' ? '导出报告 CSV' : 'Export reports CSV'}
+                </button>
+              </div>
             }
           >
             <div
@@ -1056,6 +1093,15 @@ export default function AdminFeedbackPage() {
               <KpiCard
                 label={lang === 'zh' ? '快速报告数' : 'Quick reports'}
                 value={String(reportsAggregate?.total ?? reportsTotal)}
+              />
+              <KpiCard
+                label={lang === 'zh' ? '真实报告数' : 'Real reports'}
+                value={String(reportsAggregate?.real_reports ?? (reportDataMode === 'simulated' ? 0 : reportsAggregate?.total ?? reportsTotal))}
+              />
+              <KpiCard
+                label={lang === 'zh' ? '自动化 QA' : 'Automated QA'}
+                value={String(reportsAggregate?.simulated_reports ?? 0)}
+                accent={reportDataMode === 'simulated' ? 'warn' : undefined}
               />
               <KpiCard
                 label={lang === 'zh' ? '去重问题数' : 'Unique issues'}
@@ -1432,7 +1478,10 @@ export default function AdminFeedbackPage() {
                         <Fragment key={r.id}>
                           <tr style={{ borderTop: '1px solid var(--line, #e8ecf0)' }}>
                             <Td>{formatDate(r.created_at)}</Td>
-                            <Td>{r.source || '—'}</Td>
+                            <Td>
+                              <span>{r.source || '—'}</span>
+                              {r.simulated && <SimulationBadge lang={lang} />}
+                            </Td>
                             <Td>{formatTester(r)}</Td>
                             <Td>{formatBuild(r.build)}</Td>
                             <Td>{r.surface || '—'}</Td>
@@ -1501,6 +1550,10 @@ export default function AdminFeedbackPage() {
                                 <DetailBlock
                                   label={lang === 'zh' ? 'Report ID' : 'Report ID'}
                                   value={r.report_id || r.id}
+                                />
+                                <DetailBlock
+                                  label={lang === 'zh' ? '数据口径' : 'Data mode'}
+                                  value={r.simulated ? `QA (${r.simulation_source || 'simulated'})` : (lang === 'zh' ? '真实' : 'Real')}
                                 />
                                 <DetailBlock
                                   label={lang === 'zh' ? '同类上报数' : 'Similar reports'}
@@ -1818,6 +1871,83 @@ export default function AdminFeedbackPage() {
 }
 
 // ---------- Sub-components ----------
+
+function ReportDataModeControl({
+  value,
+  onChange,
+  lang,
+}: {
+  value: ReportDataMode
+  onChange: (mode: ReportDataMode) => void
+  lang: 'zh' | 'en'
+}) {
+  const options: Array<{ value: ReportDataMode; label: string }> = [
+    { value: 'real', label: lang === 'zh' ? '真实' : 'Real' },
+    { value: 'all', label: lang === 'zh' ? '全部' : 'All' },
+    { value: 'simulated', label: lang === 'zh' ? '仅 QA' : 'QA only' },
+  ]
+  return (
+    <div
+      role="radiogroup"
+      aria-label={lang === 'zh' ? '报告数据口径' : 'Report data mode'}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        border: '1px solid var(--line, #e8ecf0)',
+        borderRadius: 8,
+        overflow: 'hidden',
+        background: 'var(--surface, #fff)',
+      }}
+    >
+      {options.map((option) => {
+        const selected = option.value === value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onChange(option.value)}
+            style={{
+              minWidth: 58,
+              padding: '5px 9px',
+              border: 0,
+              borderLeft: option.value === 'real' ? 0 : '1px solid var(--line, #e8ecf0)',
+              background: selected ? 'var(--ink, #111827)' : 'transparent',
+              color: selected ? 'var(--surface, #fff)' : 'var(--ink-muted, #667085)',
+              fontSize: 12,
+              fontWeight: selected ? 700 : 500,
+              cursor: 'pointer',
+            }}
+          >
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function SimulationBadge({ lang }: { lang: 'zh' | 'en' }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        marginLeft: 6,
+        padding: '1px 5px',
+        border: '1px solid var(--line, #e8ecf0)',
+        borderRadius: 6,
+        color: 'var(--warn, #d97706)',
+        background: 'var(--surface-2, #f5f7fa)',
+        fontSize: 11,
+        fontWeight: 700,
+      }}
+    >
+      {lang === 'zh' ? 'QA' : 'QA'}
+    </span>
+  )
+}
 
 function KpiCard({
   label,

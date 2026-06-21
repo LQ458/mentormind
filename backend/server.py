@@ -2122,12 +2122,15 @@ class InviteLoginPayload(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     language: Optional[str] = "zh"
+    simulated: Optional[bool] = False
+    simulation_source: Optional[str] = None
 
 
 INVITE_USERNAME_RE = re.compile(r"^[\w.-]{2,40}$", re.UNICODE)
 INVITE_CODE_RE = re.compile(r"^[A-Z0-9_-]{4,64}$")
 INVITE_PASSWORD_MAX_BYTES = 72
 INVITE_AUTH_INVALID_CREDENTIALS_DETAIL = "Incorrect username or password"
+SIMULATION_SOURCE_PROD_AUTOPILOT = "prod_autopilot_qa"
 
 
 def _validate_invite_username(value: str) -> str:
@@ -2157,6 +2160,12 @@ def _validate_invite_code(value: str) -> str:
             detail="Invite code must be 4-64 characters and can only use letters, numbers, dash, or underscore",
         )
     return code
+
+
+def _is_prod_autopilot_invite_payload(payload: InviteLoginPayload, username: str) -> bool:
+    """Only mark accounts as simulated when the QA harness says so explicitly."""
+    source = str(payload.simulation_source or "").strip().lower()
+    return bool(payload.simulated) and source == SIMULATION_SOURCE_PROD_AUTOPILOT and username.startswith("qa_")
 
 
 def _invalid_invite_credentials() -> HTTPException:
@@ -2267,6 +2276,10 @@ async def invite_login(request: Request):
             language_preference=lang,
             is_active=True,
             is_verified=True,
+            user_metadata={
+                "simulated": True,
+                "simulation_source": SIMULATION_SOURCE_PROD_AUTOPILOT,
+            } if _is_prod_autopilot_invite_payload(payload, username) else {},
             last_login_at=datetime.utcnow(),
         )
         db.add(user)
@@ -7038,6 +7051,8 @@ async def get_admin_telemetry_aggregate(
     end_date: Optional[str] = None,
     event_type: Optional[str] = None,
     group_by: Optional[str] = "page",
+    include_simulated: bool = False,
+    simulated_only: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -7078,6 +7093,16 @@ async def get_admin_telemetry_aggregate(
         raise HTTPException(status_code=400, detail="Invalid start_date/end_date")
     if event_type:
         filters.append(TelemetryEvent.event_type == event_type)
+    source_expr = _fn.coalesce(TelemetryEvent.payload["source"].as_string(), "")
+    schema_expr = _fn.coalesce(TelemetryEvent.payload["schema"].as_string(), "")
+    simulated_clause = or_(
+        source_expr == SIMULATION_SOURCE_PROD_AUTOPILOT,
+        schema_expr.like("mentormind.prod_autopilot_%"),
+    )
+    if simulated_only:
+        filters.append(simulated_clause)
+    elif not include_simulated:
+        filters.append(~simulated_clause)
 
     # Top-level summary — compute percentiles in SQL.
     summary_q = db.query(
@@ -7160,6 +7185,8 @@ async def get_admin_telemetry_aggregate(
             "start_date": start_date,
             "end_date": end_date,
             "event_type": event_type,
+            "include_simulated": include_simulated,
+            "simulated_only": simulated_only,
         },
     }
 
@@ -7247,6 +7274,54 @@ def _survey_response_admin_to_dict(response: SurveyResponse) -> Dict[str, Any]:
     return row
 
 
+def _truthy_simulation_flag(value: Any) -> bool:
+    if value is True:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "simulated"}
+    return False
+
+
+def _simulation_source_from_payload(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    source = str(payload.get("source") or "").strip().lower()
+    simulation_source = str(payload.get("simulation_source") or "").strip().lower()
+    schema = str(payload.get("schema") or "").strip().lower()
+    if source == SIMULATION_SOURCE_PROD_AUTOPILOT:
+        return SIMULATION_SOURCE_PROD_AUTOPILOT
+    if simulation_source == SIMULATION_SOURCE_PROD_AUTOPILOT and _truthy_simulation_flag(payload.get("simulated")):
+        return SIMULATION_SOURCE_PROD_AUTOPILOT
+    if schema.startswith("mentormind.prod_autopilot_"):
+        return SIMULATION_SOURCE_PROD_AUTOPILOT
+    return ""
+
+
+def _simulation_source_from_user(user: Any) -> str:
+    metadata = getattr(user, "user_metadata", None)
+    if not isinstance(metadata, dict):
+        return ""
+    source = str(metadata.get("simulation_source") or "").strip().lower()
+    if source == SIMULATION_SOURCE_PROD_AUTOPILOT and _truthy_simulation_flag(metadata.get("simulated")):
+        return SIMULATION_SOURCE_PROD_AUTOPILOT
+    return ""
+
+
+def _simulation_source_from_tester(tester: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(tester, dict):
+        return ""
+    source = str(tester.get("simulation_source") or "").strip().lower()
+    return source if source == SIMULATION_SOURCE_PROD_AUTOPILOT and _truthy_simulation_flag(tester.get("simulated")) else ""
+
+
+def _simulation_filter_matches(is_simulated: bool, *, include_simulated: bool, simulated_only: bool) -> bool:
+    if simulated_only:
+        return is_simulated
+    if include_simulated:
+        return True
+    return not is_simulated
+
+
 def _admin_safe_url(value: Any, max_len: int = 512) -> str:
     return _redact_url_for_telemetry(value, max_len) or ""
 
@@ -7255,6 +7330,7 @@ def _admin_user_summary(user: Any) -> Dict[str, Any]:
     def _iso(value: Any) -> Optional[str]:
         return value.isoformat() if hasattr(value, "isoformat") else None
 
+    simulation_source = _simulation_source_from_user(user)
     return {
         "id": str(getattr(user, "id", "") or ""),
         "username": str(getattr(user, "username", "") or ""),
@@ -7263,6 +7339,8 @@ def _admin_user_summary(user: Any) -> Dict[str, Any]:
         "language_preference": str(getattr(user, "language_preference", "") or ""),
         "created_at": _iso(getattr(user, "created_at", None)),
         "last_login_at": _iso(getattr(user, "last_login_at", None)),
+        "simulated": bool(simulation_source),
+        "simulation_source": simulation_source,
     }
 
 
@@ -7282,6 +7360,7 @@ def _feedback_report_to_dict(event: TelemetryEvent, tester: Optional[Dict[str, A
     app_snapshot = context.get("app_snapshot") if isinstance(context.get("app_snapshot"), dict) else {}
     recent_events = context.get("recent_events") if isinstance(context.get("recent_events"), list) else []
     recent_errors = context.get("recent_errors") if isinstance(context.get("recent_errors"), list) else []
+    simulation_source = _simulation_source_from_payload(payload) or _simulation_source_from_tester(tester)
     row = {
         "id": event.id,
         "created_at": event.created_at.isoformat() if event.created_at else None,
@@ -7293,6 +7372,8 @@ def _feedback_report_to_dict(event: TelemetryEvent, tester: Optional[Dict[str, A
         "viewport_w": event.viewport_w,
         "viewport_h": event.viewport_h,
         "source": _payload_str(payload, "source"),
+        "simulated": bool(simulation_source),
+        "simulation_source": simulation_source,
         "surface": _payload_str(payload, "surface"),
         "feedback_kind": _payload_str(payload, "feedback_kind"),
         "severity": _payload_str(payload, "severity"),
@@ -7665,6 +7746,8 @@ async def get_admin_feedback_reports(
     status: Optional[str] = None,
     q: Optional[str] = None,
     report_id: Optional[str] = None,
+    include_simulated: bool = False,
+    simulated_only: bool = False,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     current_user: User = Depends(get_current_user),
@@ -7709,6 +7792,11 @@ async def get_admin_feedback_reports(
             triage_status=triage_status_filter,
         )
         and _feedback_report_matches_query(row, search_query)
+        and _simulation_filter_matches(
+            bool(row.get("simulated")),
+            include_simulated=include_simulated,
+            simulated_only=simulated_only,
+        )
     ]
     rows = _feedback_report_attach_clusters(rows)
     unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
@@ -7728,6 +7816,8 @@ async def get_admin_feedback_reports(
             "status": triage_status_filter,
             "q": search_query,
             "report_id": _normalize_feedback_report_id_query(report_id),
+            "include_simulated": include_simulated,
+            "simulated_only": simulated_only,
             "start_date": start_date,
             "end_date": end_date,
         },
@@ -7866,6 +7956,8 @@ async def update_admin_feedback_report_triage(
 async def get_admin_feedback_reports_aggregate(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    include_simulated: bool = False,
+    simulated_only: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -7882,10 +7974,19 @@ async def get_admin_feedback_reports_aggregate(
 
     events = q.order_by(TelemetryEvent.created_at.desc()).limit(5000).all()
     testers = _feedback_report_user_summaries(db, events)
-    rows = _feedback_report_attach_clusters([
+    all_rows = _feedback_report_attach_clusters([
         _feedback_report_to_dict(event, testers.get(str(event.user_id or "")))
         for event in events
     ])
+    simulated_total = sum(1 for row in all_rows if row.get("simulated"))
+    rows = [
+        row for row in all_rows
+        if _simulation_filter_matches(
+            bool(row.get("simulated")),
+            include_simulated=include_simulated,
+            simulated_only=simulated_only,
+        )
+    ]
     unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
     priority_reports = _feedback_report_priority_queue(rows)
     issue_clusters = _feedback_report_cluster_summaries(rows)
@@ -7897,6 +7998,8 @@ async def get_admin_feedback_reports_aggregate(
     by_page = Counter(row.get("page") or row.get("route") or "unknown" for row in rows)
     return {
         "total": len(rows),
+        "real_reports": max(0, len(all_rows) - simulated_total),
+        "simulated_reports": simulated_total,
         "unique_reports": len(unique_report_keys),
         "duplicate_reports": max(0, len(rows) - len(unique_report_keys)),
         "source_distribution": dict(by_source.most_common(50)),
@@ -7911,6 +8014,8 @@ async def get_admin_feedback_reports_aggregate(
         "filters": {
             "start_date": start_date,
             "end_date": end_date,
+            "include_simulated": include_simulated,
+            "simulated_only": simulated_only,
         },
     }
 

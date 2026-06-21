@@ -187,6 +187,8 @@ async function postTelemetry(eventType, page, payload, latencyMs = null) {
     latency_ms: latencyMs,
     payload: {
       source: 'prod_autopilot_qa',
+      simulated: true,
+      simulation_source: 'prod_autopilot_qa',
       run_id: RUN_ID,
       ...compactTelemetryValue(payload),
     },
@@ -217,6 +219,8 @@ async function ensureAuthSession() {
     username: QA_USERNAME,
     password: QA_PASSWORD,
     language: 'zh',
+    simulated: true,
+    simulation_source: 'prod_autopilot_qa',
   }
   if (QA_INVITE_CODE) authBody.invite_code = QA_INVITE_CODE
   let res = await fetch(`${BASE_URL}/api/backend/auth/invite`, {

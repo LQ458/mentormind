@@ -573,6 +573,107 @@ def test_feedback_report_to_dict_includes_default_and_saved_triage_fields():
     assert row["triage_note"] == "Need course scaffolding."
     assert row["triage_updated_at"] == "2026-06-20T09:00:00"
     assert row["triage_updated_by"] == "admin-1"
+    assert row["simulated"] is False
+    assert row["simulation_source"] == ""
+
+
+def test_simulation_source_detection_is_explicit_and_conservative():
+    assert (
+        server._simulation_source_from_payload({"source": "prod_autopilot_qa"})
+        == server.SIMULATION_SOURCE_PROD_AUTOPILOT
+    )
+    assert (
+        server._simulation_source_from_payload(
+            {"simulation_source": "prod_autopilot_qa", "simulated": True}
+        )
+        == server.SIMULATION_SOURCE_PROD_AUTOPILOT
+    )
+    assert (
+        server._simulation_source_from_payload({"schema": "mentormind.prod_autopilot_smoke.v1"})
+        == server.SIMULATION_SOURCE_PROD_AUTOPILOT
+    )
+    assert server._simulation_source_from_payload({"simulation_source": "prod_autopilot_qa"}) == ""
+    assert server._simulation_source_from_payload({"source": "inline_feedback_moment"}) == ""
+
+
+def test_user_simulation_summary_requires_explicit_metadata():
+    real_user = SimpleNamespace(
+        id="user-real",
+        username="qa_named_real_user",
+        email="real@example.com",
+        role="student",
+        language_preference="zh",
+        created_at=None,
+        last_login_at=None,
+        user_metadata={},
+    )
+    simulated_user = SimpleNamespace(
+        id="user-qa",
+        username="qa_autopilot",
+        email="qa@example.com",
+        role="student",
+        language_preference="zh",
+        created_at=None,
+        last_login_at=None,
+        user_metadata={"simulated": True, "simulation_source": "prod_autopilot_qa"},
+    )
+
+    real_summary = server._admin_user_summary(real_user)
+    simulated_summary = server._admin_user_summary(simulated_user)
+
+    assert real_summary["simulated"] is False
+    assert real_summary["simulation_source"] == ""
+    assert simulated_summary["simulated"] is True
+    assert simulated_summary["simulation_source"] == server.SIMULATION_SOURCE_PROD_AUTOPILOT
+
+
+def test_feedback_report_to_dict_marks_only_explicit_qa_reports_simulated():
+    qa_event = SimpleNamespace(
+        id="evt-qa",
+        created_at=datetime(2026, 6, 20, 8, 0, 0),
+        user_id="user-qa",
+        session_id="session-qa",
+        page="/study-plan",
+        url="/study-plan",
+        viewport_w=390,
+        viewport_h=844,
+        payload=valid_feedback_moment_payload(source="prod_autopilot_qa"),
+    )
+    uncertain_event = SimpleNamespace(
+        id="evt-real",
+        created_at=datetime(2026, 6, 20, 8, 0, 0),
+        user_id="qa_named_real_user",
+        session_id="session-real",
+        page="/study-plan",
+        url="/study-plan",
+        viewport_w=390,
+        viewport_h=844,
+        payload=valid_feedback_moment_payload(
+            source="inline_feedback_moment",
+            simulation_source="prod_autopilot_qa",
+            simulated=False,
+        ),
+    )
+
+    qa_row = server._feedback_report_to_dict(qa_event)
+    uncertain_row = server._feedback_report_to_dict(
+        uncertain_event,
+        tester={"username": "qa_named_real_user", "simulated": False, "simulation_source": "prod_autopilot_qa"},
+    )
+
+    assert qa_row["simulated"] is True
+    assert qa_row["simulation_source"] == server.SIMULATION_SOURCE_PROD_AUTOPILOT
+    assert uncertain_row["simulated"] is False
+    assert uncertain_row["simulation_source"] == ""
+
+
+def test_simulation_filter_defaults_to_real_data_only():
+    assert server._simulation_filter_matches(False, include_simulated=False, simulated_only=False)
+    assert not server._simulation_filter_matches(True, include_simulated=False, simulated_only=False)
+    assert server._simulation_filter_matches(True, include_simulated=True, simulated_only=False)
+    assert server._simulation_filter_matches(False, include_simulated=True, simulated_only=False)
+    assert server._simulation_filter_matches(True, include_simulated=False, simulated_only=True)
+    assert not server._simulation_filter_matches(False, include_simulated=False, simulated_only=True)
 
 
 def test_feedback_report_priority_prefers_blocked_bug_with_errors():

@@ -91,3 +91,27 @@ def test_invalid_invite_credentials_use_generic_detail():
     assert exc.status_code == 401
     assert exc.detail == "Incorrect username or password"
     assert "not found" not in exc.detail.lower()
+
+
+def test_prod_autopilot_invite_marker_requires_explicit_qa_payload():
+    payload = server.InviteLoginPayload(
+        username="qa_autopilot",
+        password="password123",
+        simulated=True,
+        simulation_source="prod_autopilot_qa",
+    )
+    assert server._is_prod_autopilot_invite_payload(payload, "qa_autopilot")
+
+    real_named_like_qa = server.InviteLoginPayload(
+        username="qa_real_student",
+        password="password123",
+    )
+    assert not server._is_prod_autopilot_invite_payload(real_named_like_qa, "qa_real_student")
+
+    non_qa_username = server.InviteLoginPayload(
+        username="real_student",
+        password="password123",
+        simulated=True,
+        simulation_source="prod_autopilot_qa",
+    )
+    assert not server._is_prod_autopilot_invite_payload(non_qa_username, "real_student")
