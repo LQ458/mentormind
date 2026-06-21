@@ -79,6 +79,34 @@ function makeReportId(kind: FeedbackKind, surface: string): string {
   return `fb-${safeSurface}-${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
 }
 
+async function copyText(value: string): Promise<boolean> {
+  if (typeof document === 'undefined') return false
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value)
+      return true
+    }
+  } catch {
+    // Fall through to the selection-based copy path below.
+  }
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = value
+    textarea.setAttribute('readonly', 'true')
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    textarea.style.top = '0'
+    document.body.appendChild(textarea)
+    textarea.focus()
+    textarea.select()
+    const ok = document.execCommand('copy')
+    textarea.remove()
+    return ok
+  } catch {
+    return false
+  }
+}
+
 export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHubProps) {
   const { language } = useLanguage()
   const lang = language === 'zh' ? 'zh' : 'en'
@@ -130,25 +158,17 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
   }
 
   const copyReportId = async () => {
-    if (!submittedReportId || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return
-    try {
-      await navigator.clipboard.writeText(submittedReportId)
-      setReportIdCopied(true)
-      window.setTimeout(() => setReportIdCopied(false), 1400)
-    } catch {
-      setReportIdCopied(false)
-    }
+    if (!submittedReportId) return
+    const ok = await copyText(submittedReportId)
+    setReportIdCopied(ok)
+    if (ok) window.setTimeout(() => setReportIdCopied(false), 1400)
   }
 
   const copySubmittedSummary = async () => {
-    if (!submittedSummary || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return
-    try {
-      await navigator.clipboard.writeText(submittedSummary)
-      setSummaryCopied(true)
-      window.setTimeout(() => setSummaryCopied(false), 1400)
-    } catch {
-      setSummaryCopied(false)
-    }
+    if (!submittedSummary) return
+    const ok = await copyText(submittedSummary)
+    setSummaryCopied(ok)
+    if (ok) window.setTimeout(() => setSummaryCopied(false), 1400)
   }
 
   const makeSubmittedSummary = (
