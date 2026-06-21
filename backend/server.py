@@ -6616,7 +6616,7 @@ class TelemetryEventPayload(BaseModel):
 
 
 TELEMETRY_MAX_RAW_BYTES = 64 * 1024
-TELEMETRY_URL_KEYS = {"url", "captured_url", "href"}
+TELEMETRY_URL_KEYS = {"url", "captured_url", "href", "page", "path", "pathname", "route"}
 TELEMETRY_REDACTED_VALUE = "[redacted]"
 TELEMETRY_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,254}$")
 FEEDBACK_MOMENT_ALLOWED_SOURCES = {
