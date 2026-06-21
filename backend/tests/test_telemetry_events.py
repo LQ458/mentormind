@@ -676,6 +676,17 @@ def test_simulation_filter_defaults_to_real_data_only():
     assert not server._simulation_filter_matches(False, include_simulated=False, simulated_only=True)
 
 
+def test_telemetry_simulation_sql_clause_covers_explicit_qa_markers():
+    compiled = str(server._telemetry_simulation_sql_clause().compile(compile_kwargs={"literal_binds": True}))
+
+    assert "source" in compiled
+    assert "simulation_source" in compiled
+    assert "simulated" in compiled
+    assert "schema" in compiled
+    assert server.SIMULATION_SOURCE_PROD_AUTOPILOT in compiled
+    assert "mentormind.prod_autopilot_%" in compiled
+
+
 def test_feedback_report_priority_prefers_blocked_bug_with_errors():
     high = {
         "severity": "blocked",

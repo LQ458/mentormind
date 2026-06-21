@@ -7093,12 +7093,7 @@ async def get_admin_telemetry_aggregate(
         raise HTTPException(status_code=400, detail="Invalid start_date/end_date")
     if event_type:
         filters.append(TelemetryEvent.event_type == event_type)
-    source_expr = _fn.coalesce(TelemetryEvent.payload["source"].as_string(), "")
-    schema_expr = _fn.coalesce(TelemetryEvent.payload["schema"].as_string(), "")
-    simulated_clause = or_(
-        source_expr == SIMULATION_SOURCE_PROD_AUTOPILOT,
-        schema_expr.like("mentormind.prod_autopilot_%"),
-    )
+    simulated_clause = _telemetry_simulation_sql_clause()
     if simulated_only:
         filters.append(simulated_clause)
     elif not include_simulated:
@@ -7320,6 +7315,32 @@ def _simulation_filter_matches(is_simulated: bool, *, include_simulated: bool, s
     if include_simulated:
         return True
     return not is_simulated
+
+
+def _telemetry_simulation_sql_clause():
+    from sqlalchemy import func as _fn
+
+    source_expr = _fn.coalesce(TelemetryEvent.payload["source"].as_string(), "")
+    simulation_source_expr = _fn.coalesce(TelemetryEvent.payload["simulation_source"].as_string(), "")
+    simulated_expr = _fn.lower(_fn.coalesce(TelemetryEvent.payload["simulated"].as_string(), ""))
+    schema_expr = _fn.coalesce(TelemetryEvent.payload["schema"].as_string(), "")
+    return or_(
+        source_expr == SIMULATION_SOURCE_PROD_AUTOPILOT,
+        and_(
+            simulation_source_expr == SIMULATION_SOURCE_PROD_AUTOPILOT,
+            simulated_expr.in_(["1", "true", "yes", "y", "simulated"]),
+        ),
+        schema_expr.like("mentormind.prod_autopilot_%"),
+    )
+
+
+def _apply_telemetry_simulation_mode(query: Any, *, include_simulated: bool, simulated_only: bool) -> Any:
+    simulated_clause = _telemetry_simulation_sql_clause()
+    if simulated_only:
+        return query.filter(simulated_clause)
+    if include_simulated:
+        return query
+    return query.filter(~simulated_clause)
 
 
 def _admin_safe_url(value: Any, max_len: int = 512) -> str:
@@ -7774,6 +7795,11 @@ async def get_admin_feedback_reports(
     report_id_clause = _feedback_report_id_filter_clause(report_id)
     if report_id_clause is not None:
         query = query.filter(report_id_clause)
+    query = _apply_telemetry_simulation_mode(
+        query,
+        include_simulated=include_simulated,
+        simulated_only=simulated_only,
+    )
 
     raw_limit = min(max(limit + offset + 1000, 1000), 5000)
     events = query.order_by(TelemetryEvent.created_at.desc()).limit(raw_limit).all()
@@ -7972,21 +7998,21 @@ async def get_admin_feedback_reports_aggregate(
     if end_dt:
         q = q.filter(TelemetryEvent.created_at <= end_dt)
 
+    simulated_clause = _telemetry_simulation_sql_clause()
+    real_reports_total = q.filter(~simulated_clause).count()
+    simulated_reports_total = q.filter(simulated_clause).count()
+    q = _apply_telemetry_simulation_mode(
+        q,
+        include_simulated=include_simulated,
+        simulated_only=simulated_only,
+    )
+
     events = q.order_by(TelemetryEvent.created_at.desc()).limit(5000).all()
     testers = _feedback_report_user_summaries(db, events)
-    all_rows = _feedback_report_attach_clusters([
+    rows = _feedback_report_attach_clusters([
         _feedback_report_to_dict(event, testers.get(str(event.user_id or "")))
         for event in events
     ])
-    simulated_total = sum(1 for row in all_rows if row.get("simulated"))
-    rows = [
-        row for row in all_rows
-        if _simulation_filter_matches(
-            bool(row.get("simulated")),
-            include_simulated=include_simulated,
-            simulated_only=simulated_only,
-        )
-    ]
     unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
     priority_reports = _feedback_report_priority_queue(rows)
     issue_clusters = _feedback_report_cluster_summaries(rows)
@@ -7998,8 +8024,8 @@ async def get_admin_feedback_reports_aggregate(
     by_page = Counter(row.get("page") or row.get("route") or "unknown" for row in rows)
     return {
         "total": len(rows),
-        "real_reports": max(0, len(all_rows) - simulated_total),
-        "simulated_reports": simulated_total,
+        "real_reports": real_reports_total,
+        "simulated_reports": simulated_reports_total,
         "unique_reports": len(unique_report_keys),
         "duplicate_reports": max(0, len(rows) - len(unique_report_keys)),
         "source_distribution": dict(by_source.most_common(50)),
