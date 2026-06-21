@@ -54,7 +54,7 @@ type SendInteractiveResult = 'recorded' | 'retry' | 'rejected'
 const TELEMETRY_ENDPOINT = '/api/backend/telemetry/event'
 const SESSION_KEY = 'mm_telemetry_session_id'
 const RECENT_EVENTS_KEY = 'mm_telemetry_recent_events_v1'
-const PENDING_FEEDBACK_KEY = 'mm_pending_feedback_events_v1'
+const PENDING_FEEDBACK_LOCAL_KEY = 'mm_pending_feedback_events_v1'
 const PENDING_FEEDBACK_SESSION_KEY = 'mm_pending_feedback_events_v1'
 const RECENT_LIMIT = 24
 const FEEDBACK_CONTEXT_LIMIT = 10
@@ -206,7 +206,7 @@ function removeStorageValue(storage: Storage | undefined, key: string): void {
 function readPendingFeedbackEvents(): TelemetryPayload[] {
   if (typeof window === 'undefined') return []
   const merged = new Map<string, TelemetryPayload>()
-  for (const event of parsePendingFeedbackEvents(readStorageValue(window.localStorage, PENDING_FEEDBACK_KEY))) {
+  for (const event of parsePendingFeedbackEvents(readStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY))) {
     merged.set(pendingFeedbackKey(event), event)
   }
   for (const event of parsePendingFeedbackEvents(readStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY))) {
@@ -226,14 +226,14 @@ function writePendingFeedbackEvents(events: TelemetryPayload[]): void {
       text = JSON.stringify(trimmed)
     }
     if (trimmed.length === 0) {
-      removeStorageValue(window.localStorage, PENDING_FEEDBACK_KEY)
+      removeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY)
       removeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY)
     } else {
       try {
-        window.localStorage.setItem(PENDING_FEEDBACK_KEY, text)
-        removeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY)
-      } catch {
         window.sessionStorage.setItem(PENDING_FEEDBACK_SESSION_KEY, text)
+        removeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY)
+      } catch {
+        removeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY)
       }
     }
   } catch {
