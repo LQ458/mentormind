@@ -9,9 +9,10 @@ export async function POST(
   { params }: { params: { roomId: string } },
 ) {
   try {
+    const roomId = encodeURIComponent(params.roomId)
     const body = await req.json().catch(() => ({}))
     const headers = backendHeaders(req, { 'Content-Type': 'application/json' })
-    const res = await fetch(`${BACKEND_URL}/seminar/rooms/${params.roomId}/join`, {
+    const res = await fetch(`${BACKEND_URL}/seminar/rooms/${roomId}/join`, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),

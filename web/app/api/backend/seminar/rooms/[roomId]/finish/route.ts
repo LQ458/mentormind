@@ -9,8 +9,9 @@ export async function POST(
   { params }: { params: { roomId: string } },
 ) {
   try {
+    const roomId = encodeURIComponent(params.roomId)
     const headers = backendHeaders(req)
-    const res = await fetch(`${BACKEND_URL}/seminar/rooms/${params.roomId}/finish`, {
+    const res = await fetch(`${BACKEND_URL}/seminar/rooms/${roomId}/finish`, {
       method: 'POST',
       headers,
     })

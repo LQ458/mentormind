@@ -11,8 +11,9 @@ export async function GET(
   { params }: { params: { roomId: string } },
 ) {
   try {
+    const roomId = encodeURIComponent(params.roomId)
     const headers = backendHeaders(req)
-    const res = await fetch(`${BACKEND_URL}/seminar/rooms/${params.roomId}`, {
+    const res = await fetch(`${BACKEND_URL}/seminar/rooms/${roomId}`, {
       headers,
       cache: 'no-store',
     })

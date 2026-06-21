@@ -12,9 +12,10 @@ export async function POST(
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), TURN_TIMEOUT_MS)
   try {
+    const roomId = encodeURIComponent(params.roomId)
     const body = await req.json()
     const headers = backendHeaders(req, { 'Content-Type': 'application/json' })
-    const res = await fetch(`${BACKEND_URL}/seminar/rooms/${params.roomId}/turn`, {
+    const res = await fetch(`${BACKEND_URL}/seminar/rooms/${roomId}/turn`, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),

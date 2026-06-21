@@ -12,9 +12,10 @@ export async function POST(
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), AUDIO_TIMEOUT_MS)
   try {
+    const roomId = encodeURIComponent(params.roomId)
     const body = await req.formData()
     const headers = backendHeaders(req)
-    const res = await fetch(`${BACKEND_URL}/seminar/rooms/${params.roomId}/audio-turn`, {
+    const res = await fetch(`${BACKEND_URL}/seminar/rooms/${roomId}/audio-turn`, {
       method: 'POST',
       headers,
       body,
