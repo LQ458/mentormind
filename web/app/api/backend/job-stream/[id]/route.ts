@@ -9,9 +9,8 @@ export async function GET(
     { params }: { params: { id: string } }
 ) {
     try {
-        const { id } = params
+        const id = encodeURIComponent(params.id)
         const url = `${process.env.BACKEND_URL || 'http://localhost:8000'}/job-stream/${id}`
-        console.log(`[job-stream proxy] Fetching SSE from: ${url}`)
 
         // Forward auth token to backend. EventSource cannot set custom headers,
         // so the proxy also derives Authorization from the session cookie.
