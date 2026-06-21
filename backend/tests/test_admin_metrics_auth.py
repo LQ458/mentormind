@@ -230,6 +230,12 @@ def test_feedback_report_admin_urls_redact_query_and_fragment():
             "user_note": "I pasted https://mentormind.cloud/study-plan?invite=abc#frag",
             "expected_behavior": "Do not expose /study-plan?token=route-token",
             "context": {
+                "browser": {
+                    "family": "Safari",
+                    "mobile": True,
+                    "language": "zh-CN",
+                    "user_agent": "SensitiveBrowser/1.0",
+                },
                 "build": {
                     "sha": "abc123",
                     "image_tag": "prod",
@@ -249,6 +255,10 @@ def test_feedback_report_admin_urls_redact_query_and_fragment():
     assert data["expected_behavior"] == "Do not expose /study-plan?..."
     assert data["route"] == "/study-plan/abc?..."
     assert data["captured_url"] == "/study-plan/abc?...#..."
+    assert data["browser"]["family"] == "Safari"
+    assert data["browser"]["mobile"] is True
+    assert data["browser"]["language"] == "zh-CN"
+    assert data["browser"]["user_agent"] == "[redacted]"
     assert data["build"]["sha"] == "abc123"
     assert data["build"]["image_tag"] == "prod"
     assert data["build"]["sessionToken"] == "[redacted]"

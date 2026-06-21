@@ -55,6 +55,7 @@ interface FeedbackReportRow {
   recent_events?: Array<Record<string, unknown>>
   recent_errors?: Array<Record<string, unknown>>
   build?: Record<string, unknown>
+  browser?: Record<string, unknown>
   app_snapshot?: Record<string, unknown>
   priority_score?: number
   priority_reasons?: string[]
@@ -231,6 +232,14 @@ function formatBuild(build?: Record<string, unknown>): string {
   return [sha, tag].filter(Boolean).join(' / ') || '—'
 }
 
+function formatBrowser(browser?: Record<string, unknown>): string {
+  if (!browser) return '—'
+  const family = typeof browser.family === 'string' ? browser.family : ''
+  const language = typeof browser.language === 'string' ? browser.language : ''
+  const mobile = typeof browser.mobile === 'boolean' ? (browser.mobile ? 'mobile' : 'desktop') : ''
+  return [family, mobile, language].filter(Boolean).join(' / ') || '—'
+}
+
 function formatTester(r: FeedbackReportRow): string {
   const username = r.tester?.username || ''
   const email = r.tester?.email || ''
@@ -275,6 +284,7 @@ function reportMarkdown(
   const titleParts = [r.severity, r.surface || page].filter(Boolean).join(' / ')
   const title = titleParts || r.report_id || r.id
   const viewport = r.viewport_w && r.viewport_h ? `${r.viewport_w}x${r.viewport_h}` : '—'
+  const browser = formatBrowser(r.browser)
   const lookupUrl = adminReportLookupUrl(r)
   const lines = [
     `# ${title}`,
@@ -292,6 +302,7 @@ function reportMarkdown(
     `- Page: ${page}`,
     `- URL: ${url}`,
     `- Viewport: ${viewport}`,
+    `- Browser: ${browser}`,
     `- Build: ${formatBuild(r.build)}`,
     '',
     '## User note',
@@ -305,6 +316,7 @@ function reportMarkdown(
     `- Page/surface: ${page} / ${r.surface || '—'}`,
     `- Tester context: ${formatTesterForIssue(r)}`,
     `- Device: ${viewport}`,
+    `- Browser: ${browser}`,
     `- Build: ${formatBuild(r.build)}`,
     '- Reproduce the user note above, then compare against the expected behavior.',
     '- Check recent errors and same-session context below before assigning.',
@@ -320,6 +332,9 @@ function reportMarkdown(
     '',
     '## Build',
     codeBlock(r.build),
+    '',
+    '## Browser',
+    codeBlock(r.browser),
     '',
     '## Tester',
     codeBlock(redactedTesterForIssue(r)),
@@ -381,7 +396,7 @@ function downloadReportCsv(rows: FeedbackReportRow[]) {
   const headers = [
     'id', 'report_id', 'created_at', 'source', 'tester', 'signed_in_tester',
     'surface', 'feedback_kind', 'severity', 'page', 'user_note', 'expected_behavior', 'captured_url',
-    'build', 'recent_errors', 'app_snapshot', 'admin_lookup',
+    'build', 'browser', 'recent_errors', 'app_snapshot', 'admin_lookup',
   ]
   const lines = [headers.join(',')]
   for (const r of rows) {
@@ -390,7 +405,7 @@ function downloadReportCsv(rows: FeedbackReportRow[]) {
       formatTesterForIssue(r), r.user_id ? 'true' : 'false',
       r.surface || '', r.feedback_kind || '', r.severity || '', r.page || r.route || '',
       r.user_note || '', r.expected_behavior || '', r.captured_url || r.url || '',
-      compactJson(r.build), compactJson(r.recent_errors), compactJson(r.app_snapshot),
+      compactJson(r.build), compactJson(r.browser), compactJson(r.recent_errors), compactJson(r.app_snapshot),
       adminReportLookupUrl(r) || 'Use Report ID in the admin dashboard for full tester details.',
     ].map(csvEscape).join(','))
   }
@@ -945,6 +960,7 @@ export default function AdminFeedbackPage() {
                                 <DetailBlock label="URL" value={r.captured_url || r.url || ''} />
                                 <JsonBlock label={lang === 'zh' ? '测试者信息' : 'Tester metadata'} value={r.tester} />
                                 <JsonBlock label="Build metadata" value={r.build} />
+                                <JsonBlock label="Browser metadata" value={r.browser} />
                                 <JsonBlock label={lang === 'zh' ? '最近错误' : 'Recent errors'} value={r.recent_errors} />
                                 <JsonBlock label={lang === 'zh' ? '页面快照' : 'App snapshot'} value={r.app_snapshot} />
                                 {contextErrorByReportId[r.id] && (
@@ -1185,6 +1201,10 @@ export default function AdminFeedbackPage() {
                                 <JsonBlock
                                   label="Build metadata"
                                   value={r.build}
+                                />
+                                <JsonBlock
+                                  label="Browser metadata"
+                                  value={r.browser}
                                 />
                                 <JsonBlock
                                   label={lang === 'zh' ? '最近错误' : 'Recent errors'}
