@@ -13,39 +13,56 @@ interface ErrorBoundaryProps {
 
 interface ErrorBoundaryState {
   error: Error | null
+  componentStack: string
 }
 
 export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { error: null }
+  state: ErrorBoundaryState = { error: null, componentStack: '' }
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { error }
+    return { error, componentStack: '' }
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     this.props.onError?.(error, info)
+    this.setState({ componentStack: info.componentStack || '' })
     if (typeof window !== 'undefined') {
       console.error('[ErrorBoundary]', error, info.componentStack)
       track('error_console', {
         source: 'error_boundary',
         message: error.message.slice(0, 256),
         kind: 'react_render',
+        component_stack: (info.componentStack || '').slice(0, 1200),
       })
     }
   }
 
-  reset = () => this.setState({ error: null })
+  reset = () => this.setState({ error: null, componentStack: '' })
 
   render() {
     if (this.state.error) {
       if (this.props.fallback) return this.props.fallback(this.state.error, this.reset)
-      return <DefaultFallback error={this.state.error} reset={this.reset} />
+      return (
+        <DefaultFallback
+          error={this.state.error}
+          componentStack={this.state.componentStack}
+          reset={this.reset}
+        />
+      )
     }
     return this.props.children
   }
 }
 
-function DefaultFallback({ error, reset }: { error: Error; reset: () => void }) {
+function DefaultFallback({
+  error,
+  componentStack,
+  reset,
+}: {
+  error: Error
+  componentStack: string
+  reset: () => void
+}) {
   const { language } = useLanguage()
   const lang = language === 'zh' ? 'zh' : 'en'
 
@@ -89,6 +106,7 @@ function DefaultFallback({ error, reset }: { error: Error; reset: () => void }) 
                 severity="blocked"
                 snapshot={{
                   error_message: error.message.slice(0, 400),
+                  component_stack: componentStack.slice(0, 1200),
                   area: 'react_error_boundary',
                 }}
               />
