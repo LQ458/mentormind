@@ -49,6 +49,11 @@ function BoardSessionInner() {
   const [displayPrefs, setDisplayPrefs] = useBoardDisplayPrefs()
   const fullscreenRef = useRef<HTMLDivElement | null>(null)
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(fullscreenRef)
+  const requiresBrowserToken = useMemo(() => {
+    if (process.env.NEXT_PUBLIC_BACKEND_WS_URL) return true
+    if (typeof window === 'undefined') return false
+    return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  }, [])
   const [showFullscreenHint, setShowFullscreenHint] = useState(false)
   useEffect(() => {
     if (!isFullscreen) return
@@ -296,7 +301,7 @@ function BoardSessionInner() {
     el.scrollTop = el.scrollHeight
   }, [state.chatHistory.length])
 
-  if (!token) {
+  if (requiresBrowserToken && !token) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-slate-200 gap-3 px-6">
         {tokenError ? (
