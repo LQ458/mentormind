@@ -67,6 +67,25 @@ function clearSessionCookie() {
   }
 }
 
+function clearStoredSession() {
+  try {
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(USER_KEY)
+    clearSessionCookie()
+  } catch {
+    // ignore
+  }
+}
+
+async function clearInvalidServerSession() {
+  clearStoredSession()
+  try {
+    await fetch('/api/backend/auth/logout', { method: 'POST', cache: 'no-store' })
+  } catch {
+    // ignore
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
@@ -93,7 +112,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         const res = await fetch('/api/backend/users/me', { cache: 'no-store' })
-        if (!res.ok) return
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403) {
+            await clearInvalidServerSession()
+          }
+          return
+        }
         const data = await res.json()
         const hydratedUser = toAuthUser(data)
         if (!cancelled && hydratedUser) setUser(hydratedUser)
@@ -166,13 +190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore
     }
-    try {
-      localStorage.removeItem(TOKEN_KEY)
-      localStorage.removeItem(USER_KEY)
-      clearSessionCookie()
-    } catch {
-      // ignore
-    }
+    clearStoredSession()
     setUser(null)
   }, [])
 
