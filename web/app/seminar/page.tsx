@@ -200,7 +200,8 @@ export default function SeminarPage() {
       setActiveRoom(data.room)
       await loadRooms()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create room')
+      console.error('Seminar room create error:', err)
+      setError(language === 'zh' ? '创建研讨室失败，请重试。' : 'Could not create the seminar room. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -219,7 +220,8 @@ export default function SeminarPage() {
       if (!res.ok || !data.success) throw new Error(data.detail || data.error || 'join failed')
       setActiveRoom(data.room)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to join room')
+      console.error('Seminar room join error:', err)
+      setError(language === 'zh' ? '加入研讨室失败，请重试。' : 'Could not join the seminar room. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -245,7 +247,8 @@ export default function SeminarPage() {
       setActiveRoom(data.room)
       await loadRooms()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to post turn')
+      console.error('Seminar turn post error:', err)
+      setError(language === 'zh' ? '发送失败，请重试。' : 'Could not send your message. Please try again.')
     } finally {
       setPosting(false)
     }
@@ -273,7 +276,8 @@ export default function SeminarPage() {
       setActiveRoom(data.room)
       await loadRooms()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to post audio turn')
+      console.error('Seminar audio turn post error:', err)
+      setError(language === 'zh' ? '语音发送失败，请重试。' : 'Could not send your audio. Please try again.')
     } finally {
       setPosting(false)
     }
@@ -307,7 +311,8 @@ export default function SeminarPage() {
       recorder.start()
     } catch (err) {
       setRecording(false)
-      setError(err instanceof Error ? err.message : 'Microphone permission failed')
+      console.error('Seminar microphone error:', err)
+      setError(language === 'zh' ? '无法开启麦克风，请检查权限后重试。' : 'Could not start the microphone. Check permissions and try again.')
     }
   }
 

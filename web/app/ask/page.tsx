@@ -124,7 +124,12 @@ export default function AskPage() {
       setAnswer(nextAnswer)
       return nextAnswer
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to answer question')
+      console.error('Quick question error:', err)
+      setError(
+        language === 'zh'
+          ? 'Mina 暂时没能回答，请稍后重试。'
+          : 'Mina could not answer right now. Please try again.'
+      )
       return null
     } finally {
       setLoading(false)
