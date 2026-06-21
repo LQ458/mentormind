@@ -31,6 +31,17 @@ def test_redact_url_for_telemetry_strips_query_and_fragment_values():
     assert server._redact_url_for_telemetry("/dashboard") == "/dashboard"
 
 
+def test_sanitize_telemetry_page_strips_query_and_bounds_length():
+    assert (
+        server._sanitize_telemetry_page(
+            "https://mentormind.cloud/study-plan?invite=secret-code#frag"
+        )
+        == "/study-plan?...#..."
+    )
+    assert server._sanitize_telemetry_page(None) is None
+    assert len(server._sanitize_telemetry_page("/" + ("a" * 120)) or "") == 64
+
+
 def test_sanitize_telemetry_session_id_accepts_only_safe_client_ids():
     assert server._sanitize_telemetry_session_id("550e8400-e29b-41d4-a716-446655440000")
     assert server._sanitize_telemetry_session_id(" tlm-lx3e4f-abc12345 ") == "tlm-lx3e4f-abc12345"

@@ -6662,6 +6662,10 @@ def _redact_url_for_telemetry(value: Any, max_len: int = 512) -> Optional[str]:
         return raw.split("?", 1)[0].split("#", 1)[0][:max_len]
 
 
+def _sanitize_telemetry_page(value: Any) -> Optional[str]:
+    return _redact_url_for_telemetry(value, 64)
+
+
 def _sanitize_telemetry_session_id(value: Any) -> Optional[str]:
     if not isinstance(value, str):
         return None
@@ -6874,7 +6878,7 @@ async def post_telemetry_event(
         user_id=str(current_user.id) if current_user else None,
         session_id=session_id,
         event_type=event_type[:64],
-        page=_str_or_none(body.get("page"), 64),
+        page=_sanitize_telemetry_page(body.get("page")),
         url=_redact_url_for_telemetry(body.get("url"), 512),
         latency_ms=_int_or_none(body.get("latency_ms")),
         payload=safe_payload,
