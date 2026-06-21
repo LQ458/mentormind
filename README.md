@@ -329,10 +329,14 @@ python -m pytest tests/integration/test_ingest_upload_errors.py -q
 # Production autopilot QA, after installing web deps and Chromium
 cd web
 pnpm run qa:install-browsers
+BASE_URL=https://mentormind.cloud pnpm run qa:prod:smoke
 BASE_URL=https://mentormind.cloud QA_INVITE_CODE=<invite-code> pnpm run qa:prod
 # Or reuse an existing tester account:
 BASE_URL=https://mentormind.cloud QA_USERNAME=<username> QA_PASSWORD=<password> pnpm run qa:prod
-# By default only real findings are posted to feedback telemetry.
+# `qa:prod:smoke` is the short post-deploy check: backend status, primary page render,
+# and WebSocket smoke. `qa:prod` keeps the longer authenticated/product workflows.
+# By default only findings are posted to feedback telemetry, and all prod-autopilot
+# telemetry is marked simulated with simulation_source=prod_autopilot_qa.
 # Optional: QA_POST_DIAGNOSTICS=true posts every diagnostic QA event too.
 # Optional: QA_POST_FINDINGS=false keeps the whole run local.
 # Outputs are written under web/.browser-sessions/prod-autopilot-qa/<run-id>/:

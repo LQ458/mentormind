@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "qa:install-browsers": "playwright install chromium",
-    "qa:prod": "node ../scripts/prod-autopilot-qa.mjs"
+    "qa:prod": "node ../scripts/prod-autopilot-qa.mjs",
+    "qa:prod:smoke": "node ../scripts/prod-autopilot-qa.mjs --smoke"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.417",

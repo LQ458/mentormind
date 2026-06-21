@@ -18,22 +18,28 @@ function loadPlaywright() {
   }
 }
 
+const argv = new Set(process.argv.slice(2))
+const QA_MODE = argv.has('--smoke') || process.env.QA_MODE === 'smoke' ? 'smoke' : 'full'
+const QA_SMOKE_MODE = QA_MODE === 'smoke'
 const BASE_URL = (process.env.BASE_URL || 'https://mentormind.cloud').replace(/\/$/, '')
 const RUN_ID = `prod-autopilot-${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 8)}`
 const OUT_DIR = path.resolve(process.cwd(), process.env.OUT_DIR || `.browser-sessions/prod-autopilot-qa/${RUN_ID}`)
 const PRESSURE_CONCURRENCY = Number(process.env.PRESSURE_CONCURRENCY || 8)
 const PRESSURE_REQUESTS = Number(process.env.PRESSURE_REQUESTS || 80)
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 90000)
-const RUN_PERSONA_QA = process.env.RUN_PERSONA_QA !== 'false'
+const PAGE_TIMEOUT_MS = Number(process.env.PAGE_TIMEOUT_MS || (QA_SMOKE_MODE ? 15000 : 45000))
+const PAGE_WAIT_UNTIL = process.env.PAGE_WAIT_UNTIL || (QA_SMOKE_MODE ? 'domcontentloaded' : 'networkidle')
+const RUN_STATUS_QA = envFlag('RUN_STATUS_QA', true)
+const RUN_PERSONA_QA = envFlag('RUN_PERSONA_QA', !QA_SMOKE_MODE)
 const PERSONA_LIMIT = Number(process.env.PERSONA_LIMIT || 4)
 const QA_ROUTES = splitEnvList(process.env.QA_ROUTES || '')
-const RUN_PAGE_QA = process.env.RUN_PAGE_QA !== 'false'
-const RUN_WEBSOCKET_QA = process.env.RUN_WEBSOCKET_QA !== 'false'
-const RUN_STUDY_PLAN_ROUTING_QA = process.env.RUN_STUDY_PLAN_ROUTING_QA !== 'false'
-const RUN_QUICK_QUESTION_QA = process.env.RUN_QUICK_QUESTION_QA !== 'false'
-const RUN_WEIRD_API_QA = process.env.RUN_WEIRD_API_QA !== 'false'
-const RUN_UPLOAD_EDGE_QA = process.env.RUN_UPLOAD_EDGE_QA !== 'false'
-const RUN_PRESSURE_QA = process.env.RUN_PRESSURE_QA !== 'false'
+const RUN_PAGE_QA = envFlag('RUN_PAGE_QA', true)
+const RUN_WEBSOCKET_QA = envFlag('RUN_WEBSOCKET_QA', true)
+const RUN_STUDY_PLAN_ROUTING_QA = envFlag('RUN_STUDY_PLAN_ROUTING_QA', !QA_SMOKE_MODE)
+const RUN_QUICK_QUESTION_QA = envFlag('RUN_QUICK_QUESTION_QA', !QA_SMOKE_MODE)
+const RUN_WEIRD_API_QA = envFlag('RUN_WEIRD_API_QA', !QA_SMOKE_MODE)
+const RUN_UPLOAD_EDGE_QA = envFlag('RUN_UPLOAD_EDGE_QA', !QA_SMOKE_MODE)
+const RUN_PRESSURE_QA = envFlag('RUN_PRESSURE_QA', !QA_SMOKE_MODE)
 const QA_INVITE_CODE = process.env.QA_INVITE_CODE || ''
 const QA_USERNAME_PROVIDED = Boolean(process.env.QA_USERNAME)
 const QA_PASSWORD_PROVIDED = Boolean(process.env.QA_PASSWORD)
@@ -47,12 +53,12 @@ const QA_IMAGE_FIXTURES = splitEnvList(process.env.QA_IMAGE_FIXTURES || QA_IMAGE
 const QA_AUDIO_FIXTURES = splitEnvList(process.env.QA_AUDIO_FIXTURES || QA_AUDIO_FIXTURE)
 const QA_PDF_FIXTURES = splitEnvList(process.env.QA_PDF_FIXTURES || QA_PDF_FIXTURE)
 const QA_TEXT_FIXTURES = splitEnvList(process.env.QA_TEXT_FIXTURES || QA_TEXT_FIXTURE)
-const RUN_DEEP_WORKFLOW_QA = process.env.RUN_DEEP_WORKFLOW_QA !== 'false'
-const RUN_SEMINAR_QA = process.env.RUN_SEMINAR_QA !== 'false'
-const RUN_BOARD_QA = process.env.RUN_BOARD_QA !== 'false'
-const RUN_VISUAL_QA = process.env.RUN_VISUAL_QA !== 'false'
+const RUN_DEEP_WORKFLOW_QA = envFlag('RUN_DEEP_WORKFLOW_QA', !QA_SMOKE_MODE)
+const RUN_SEMINAR_QA = envFlag('RUN_SEMINAR_QA', true)
+const RUN_BOARD_QA = envFlag('RUN_BOARD_QA', true)
+const RUN_VISUAL_QA = envFlag('RUN_VISUAL_QA', true)
 const RUN_ADMIN_QA = process.env.RUN_ADMIN_QA === 'true'
-const QA_RUN_UPLOAD_UI = process.env.QA_RUN_UPLOAD_UI !== 'false'
+const QA_RUN_UPLOAD_UI = envFlag('QA_RUN_UPLOAD_UI', !QA_SMOKE_MODE)
 const QA_POST_FINDINGS = process.env.QA_POST_FINDINGS !== 'false'
 const QA_POST_DIAGNOSTICS = process.env.QA_POST_DIAGNOSTICS === 'true'
 
@@ -96,6 +102,14 @@ function splitEnvList(value) {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+function envFlag(name, defaultValue) {
+  const raw = process.env[name]
+  if (raw === undefined || raw === '') return defaultValue
+  if (/^(1|true|yes|on)$/i.test(raw)) return true
+  if (/^(0|false|no|off)$/i.test(raw)) return false
+  return defaultValue
 }
 
 function authTokenFromResponse(res, data) {
@@ -195,7 +209,7 @@ function runSelfTest() {
   console.log(JSON.stringify({ ok: true, checks: ['qa telemetry payload markers are authoritative'] }))
 }
 
-if (process.argv.includes('--self-test')) {
+if (argv.has('--self-test')) {
   runSelfTest()
   process.exit(0)
 }
@@ -458,6 +472,29 @@ async function createObservedPage(browser, viewport) {
   return { context, page, observed }
 }
 
+async function waitForAppContent(page, route) {
+  const timeout = QA_SMOKE_MODE ? 7000 : 12000
+  if (route === '/') {
+    await page.waitForFunction(
+      () => Boolean(
+        document.querySelector('input[autocomplete="username"]')
+        || document.querySelector('input[type="password"]')
+        || document.querySelector('h1')?.textContent?.trim(),
+      ),
+      { timeout },
+    ).catch(() => null)
+  } else {
+    await page.waitForFunction(
+      () => {
+        const text = document.body?.innerText?.trim() || ''
+        return text.length > 40
+      },
+      { timeout },
+    ).catch(() => null)
+  }
+  await page.waitForTimeout(QA_SMOKE_MODE ? 300 : 700)
+}
+
 async function checkPage(browser, route, viewport) {
   const { context, page, observed } = await createObservedPage(browser, viewport)
   const started = performance.now()
@@ -465,10 +502,10 @@ async function checkPage(browser, route, viewport) {
   let finalUrl = null
   let shot = null
   try {
-    const res = await page.goto(`${BASE_URL}${route}`, { waitUntil: 'networkidle', timeout: 45000 })
+    const res = await page.goto(`${BASE_URL}${route}`, { waitUntil: PAGE_WAIT_UNTIL, timeout: PAGE_TIMEOUT_MS })
     status = res?.status() ?? null
     finalUrl = page.url()
-    await page.waitForTimeout(700)
+    await waitForAppContent(page, route)
     shot = await screenshot(page, `${viewport.name}-${route === '/' ? 'home' : route}`)
     const metrics = await page.evaluate(() => ({
       title: document.title,
@@ -2060,6 +2097,55 @@ async function pressureTest() {
   }
 }
 
+async function checkBackendStatus() {
+  const started = performance.now()
+  let status = null
+  let data = null
+  let text = ''
+  let error = null
+  try {
+    const res = await fetch(`${BASE_URL}/api/backend/status`, {
+      headers: { 'X-Prod-Autopilot-QA': RUN_ID },
+    })
+    status = res.status
+    text = await res.text()
+    data = JSON.parse(text)
+  } catch (err) {
+    error = String(err)
+  }
+  const latency = Math.round(performance.now() - started)
+  const ok = Boolean(status === 200 && data?.status === 'running' && data?.build?.environment === 'production')
+  events.push({
+    type: 'backend_status',
+    status,
+    latency,
+    ok,
+    build: data?.build || null,
+    services: data?.services || null,
+    error,
+    text: data ? undefined : text.slice(0, 1000),
+  })
+  await postTelemetry('interaction', '/api/backend/status', {
+    schema: 'mentormind.prod_autopilot_backend_status.v1',
+    status,
+    latency,
+    ok,
+    build: data?.build || null,
+    service_keys: data?.services ? Object.keys(data.services) : [],
+    error,
+  }, latency)
+  if (!ok) {
+    await addFinding({
+      title: 'Backend status endpoint is not healthy production',
+      severity: 'blocked',
+      surface: 'backend',
+      page: '/api/backend/status',
+      expected: 'Production status should return 200 with status=running and build.environment=production.',
+      evidence: { status, latency, data, error, text: text.slice(0, 1000) },
+    })
+  }
+}
+
 async function writeReport() {
   await fs.mkdir(OUT_DIR, { recursive: true })
   const summary = buildRunSummary(events, findings)
@@ -2212,6 +2298,9 @@ function buildRunSummary(allEvents, allFindings) {
       && !event.observed?.serverErrors?.length,
     ),
   })))
+  add('backend_status', allEvents.filter((event) => event.type === 'backend_status').map((event) => ({
+    success: Boolean(event.ok),
+  })))
   add('quick_question_discussion_text', allEvents.filter((event) => event.type === 'quick_question_discussion').map((event) => ({
     status: event.status,
     success: /轮到你|Your Turn|反方|Counterpoint|追问|Probe|整理成短答|Draft/i.test(event.bodySnippet || '')
@@ -2276,7 +2365,11 @@ async function main() {
     schema: 'mentormind.prod_autopilot_start.v1',
     run_id: RUN_ID,
     base_url: BASE_URL,
+    mode: QA_MODE,
   })
+  if (RUN_STATUS_QA) {
+    await checkBackendStatus()
+  }
   await ensureAuthSession()
 
   const browser = await chromium.launch({ headless: true })
