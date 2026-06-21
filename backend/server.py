@@ -454,9 +454,9 @@ async def mentor_chat(req: MentorChatRequest, current_user: User = Depends(get_c
             next_action_label=response.next_action_label,
             preferred_voice=response.preferred_voice
         )
-    except Exception as e:
-        logger.error(f"Mentor chat failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Mentor chat failed")
+        raise HTTPException(status_code=500, detail="Mentor chat failed")
 
 @app.on_event("startup")
 async def preload_models():
@@ -2480,9 +2480,9 @@ async def debug_generation_pipeline(request: GenerationDebugRequest, current_use
             custom_requirements=request.custom_requirements,
         )
         return {"success": True, "bundle": bundle}
-    except Exception as e:
-        print(f"❌ Error building generation pipeline debug bundle: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Error building generation pipeline debug bundle")
+        raise HTTPException(status_code=500, detail="Failed to build generation pipeline debug bundle")
 
 @app.post("/debug/generation/video-script")
 async def debug_generation_video_script(request: GenerationDebugRequest, current_user: User = Depends(get_current_user)):
@@ -2520,9 +2520,9 @@ async def debug_generation_video_script(request: GenerationDebugRequest, current
                 "debug_artifacts": script.debug_artifacts,
             },
         }
-    except Exception as e:
-        print(f"❌ Error building generation video script debug payload: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Error building generation video script debug payload")
+        raise HTTPException(status_code=500, detail="Failed to build generation video script debug payload")
 
 @app.post("/create-class")
 @track_async_performance("create_class_request", "lesson")
@@ -2564,9 +2564,9 @@ async def create_class(
             "job_id": task.id,
             "message": "Class creation started"
         }
-    except Exception as e:
-        print(f"❌ Error creating class: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Error creating class")
+        raise HTTPException(status_code=500, detail="Failed to create class")
 
 
 @app.get("/job-status/{job_id}")
@@ -2827,11 +2827,11 @@ async def ingest_audio(
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
         raise
-    except Exception as e:
+    except Exception:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
-        print(f"❌ Error initiating audio ingest: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Error initiating audio ingest")
+        raise HTTPException(status_code=500, detail="Failed to process audio upload")
 
 
 @app.post("/ingest/image")
@@ -2928,11 +2928,11 @@ async def ingest_image(
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
         raise
-    except Exception as e:
+    except Exception:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
-        print(f"❌ Error initiating image ingest: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Error initiating image ingest")
+        raise HTTPException(status_code=500, detail="Failed to process image upload")
 
 
 @app.get("/api/files/{file_path:path}", include_in_schema=False)
@@ -2964,8 +2964,9 @@ async def get_results_get(
         lessons = lesson_storage.get_lessons_by_user(str(current_user.id))
         total = len(lessons)
         return {"success": True, "results": lessons, "total": total}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Error fetching saved lessons")
+        raise HTTPException(status_code=500, detail="Failed to fetch saved lessons")
 
 
 # ── E: Conversational Diagnostic Onboarding ───────────────────────────────────
