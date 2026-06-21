@@ -388,6 +388,7 @@ export default function AdminFeedbackPage() {
   const [surfaceFilter, setSurfaceFilter] = useState<string>('')
   const [kindFilter, setKindFilter] = useState<string>('')
   const [severityFilter, setSeverityFilter] = useState<string>('')
+  const [reportSearch, setReportSearch] = useState<string>('')
 
   // Expanded row
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -548,6 +549,33 @@ export default function AdminFeedbackPage() {
   }
 
   const priorityReports = reportsAggregate?.priority_reports || []
+  const visibleReports = useMemo(() => {
+    const needle = reportSearch.trim().toLowerCase()
+    if (!needle) return reports
+    return reports.filter((r) => {
+      const haystack = [
+        r.id,
+        r.report_id,
+        r.created_at,
+        r.source,
+        formatTester(r),
+        r.user_id,
+        r.session_id,
+        r.page,
+        r.route,
+        r.url,
+        r.captured_url,
+        r.surface,
+        r.feedback_kind,
+        r.severity,
+        r.interaction_id,
+        r.user_note,
+        r.expected_behavior,
+        formatBuild(r.build),
+      ].filter(Boolean).join('\n').toLowerCase()
+      return haystack.includes(needle)
+    })
+  }, [reportSearch, reports])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -589,8 +617,8 @@ export default function AdminFeedbackPage() {
               <button
                 type="button"
                 className="btn btn-sm"
-                onClick={() => downloadReportCsv(reports)}
-                disabled={reports.length === 0}
+                onClick={() => downloadReportCsv(visibleReports)}
+                disabled={visibleReports.length === 0}
               >
                 {lang === 'zh' ? '导出报告 CSV' : 'Export reports CSV'}
               </button>
@@ -613,7 +641,7 @@ export default function AdminFeedbackPage() {
               />
               <KpiCard
                 label={lang === 'zh' ? '当前筛选命中' : 'Filtered matches'}
-                value={String(reportsTotal)}
+                value={String(reportSearch.trim() ? visibleReports.length : reportsTotal)}
               />
               <KpiCard
                 label={lang === 'zh' ? '筛选去重' : 'Filtered unique'}
@@ -789,6 +817,30 @@ export default function AdminFeedbackPage() {
             </div>
 
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '16px 0 12px' }}>
+              <label
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 12,
+                  color: 'var(--ink-muted)',
+                }}
+              >
+                <span>{lang === 'zh' ? '搜索' : 'Search'}:</span>
+                <input
+                  value={reportSearch}
+                  onChange={(event) => setReportSearch(event.target.value)}
+                  placeholder={lang === 'zh' ? 'Report ID / 页面 / 描述' : 'Report ID / page / note'}
+                  style={{
+                    width: 220,
+                    fontSize: 12,
+                    padding: '5px 8px',
+                    border: '1px solid var(--line, #e8ecf0)',
+                    borderRadius: 6,
+                    background: 'var(--surface, #fff)',
+                  }}
+                />
+              </label>
               <FilterSelect
                 label={lang === 'zh' ? '来源' : 'Source'}
                 value={sourceFilter}
@@ -815,7 +867,7 @@ export default function AdminFeedbackPage() {
               />
             </div>
 
-            {reports.length === 0 ? (
+            {visibleReports.length === 0 ? (
               <div className="muted" style={{ padding: 16, fontSize: 13 }}>
                 {lang === 'zh' ? '没有匹配的快速报告' : 'No matching quick reports'}
               </div>
@@ -844,7 +896,7 @@ export default function AdminFeedbackPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {reports.map((r) => {
+                    {visibleReports.map((r) => {
                       const isOpen = expandedReportId === r.id
                       return (
                         <Fragment key={r.id}>
