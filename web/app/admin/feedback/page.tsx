@@ -1069,7 +1069,10 @@ export default function AdminFeedbackPage() {
                                 <button
                                   type="button"
                                   className="btn btn-sm"
-                                  onClick={() => setExpandedReportId(isOpen ? null : r.id)}
+                                  onClick={() => {
+                                    setExpandedReportId(isOpen ? null : r.id)
+                                    if (!isOpen) void fetchReportContext(r)
+                                  }}
                                 >
                                   {isOpen
                                     ? lang === 'zh' ? '收起' : 'Hide'
