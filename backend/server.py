@@ -7538,7 +7538,7 @@ def _survey_optional_text(value: Any, max_len: int) -> Optional[str]:
     value = value.strip()
     if not value:
         return None
-    return value[:max_len]
+    return _redact_embedded_urls_for_telemetry(value, max_len)
 
 
 def _sanitize_survey_contact_email(value: Any) -> Optional[str]:

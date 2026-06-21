@@ -59,6 +59,18 @@ def test_sanitize_survey_contact_email_normalizes_valid_email():
     assert server._sanitize_survey_contact_email(None) is None
 
 
+def test_survey_optional_text_redacts_embedded_url_values():
+    assert server._survey_optional_text("  ", 4000) is None
+    assert (
+        server._survey_optional_text(
+            "Flow broke at https://mentormind.cloud/study-plan?invite=secret#frag",
+            4000,
+        )
+        == "Flow broke at /study-plan?...#..."
+    )
+    assert len(server._survey_optional_text("x" * 100, 12) or "") == 12
+
+
 @pytest.mark.parametrize(
     "value",
     [
