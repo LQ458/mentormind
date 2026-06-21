@@ -5640,9 +5640,9 @@ async def generate_unit_content(
         }
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Unit content generation dispatch failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Unit content generation dispatch failed")
+        raise HTTPException(status_code=500, detail="Failed to start unit content generation")
 
 
 @app.post("/study-plan/{plan_id}/unit/{unit_id}/board-lesson")
@@ -5730,9 +5730,9 @@ async def create_unit_board_lesson(
         }
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Board lesson creation failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Board lesson creation failed")
+        raise HTTPException(status_code=500, detail="Failed to start board lesson")
 
 
 @app.get("/study-plan/{plan_id}/unit/{unit_id}/content")
@@ -5774,9 +5774,9 @@ async def get_unit_content(
         }
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Failed to fetch unit content: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Failed to fetch unit content")
+        raise HTTPException(status_code=500, detail="Failed to fetch unit content")
 
 
 @app.post("/study-plan/{plan_id}/unit/{unit_id}/complete")
@@ -5815,10 +5815,10 @@ async def mark_unit_complete(
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"Failed to mark unit complete: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to mark unit complete")
+        raise HTTPException(status_code=500, detail="Failed to mark unit complete")
 
 
 # ── Quiz Score Submission & Adaptive Difficulty ─────────────────────────────
@@ -5893,10 +5893,10 @@ async def submit_unit_quiz_score(
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"Failed to submit quiz score: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to submit quiz score")
+        raise HTTPException(status_code=500, detail="Failed to submit quiz score")
 
 
 # ── Gaokao Chat Endpoints ───────────────────────────────────────────────────
