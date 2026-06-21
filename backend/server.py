@@ -4358,9 +4358,9 @@ async def detect_subject(req: DetectSubjectRequest, current_user: User = Depends
             "topics": detection.topics,
             "confidence": detection.confidence,
         }
-    except Exception as e:
-        logger.error(f"Subject detection failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Subject detection failed")
+        raise HTTPException(status_code=500, detail="Subject detection failed")
 
 
 @app.post("/study-plan/chat", response_model=StudyPlanChatResponse)
@@ -4439,19 +4439,18 @@ async def study_plan_chat(req: StudyPlanChatRequest, current_user: User = Depend
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
-        logger.error(
-            "study_plan_chat failed request_id=%s user=%s stage=%s subject=%s framework=%s elapsed_ms=%s error=%s",
+        logger.exception(
+            "study_plan_chat failed request_id=%s user=%s stage=%s subject=%s framework=%s elapsed_ms=%s",
             req.request_id,
             current_user.id,
             req.stage,
             req.subject,
             req.framework,
             elapsed_ms,
-            e,
         )
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Study plan chat failed")
 
 
 class AskAIRequest(BaseModel):
@@ -4960,10 +4959,10 @@ async def create_study_plan(
     except HTTPException:
         db.rollback()
         raise
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"Study plan creation failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Study plan creation failed")
+        raise HTTPException(status_code=500, detail="Failed to create study plan")
 
 
 @app.get("/seminar/rooms")
@@ -5308,9 +5307,9 @@ async def get_my_study_plans(
             "success": True,
             "plans": [p.to_dict(include_units=False) for p in plans],
         }
-    except Exception as e:
-        logger.error(f"Failed to fetch study plans: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Failed to fetch study plans")
+        raise HTTPException(status_code=500, detail="Failed to fetch study plans")
 
 
 # ── Study-plan library endpoint ────────────────────────────────────────────
@@ -5380,9 +5379,9 @@ async def get_study_plan_library(
         return {"success": True, "plans": result}
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Failed to fetch study plan library: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Failed to fetch study plan library")
+        raise HTTPException(status_code=500, detail="Failed to fetch study plan library")
 
 
 @app.post("/study-plan/delete")
@@ -5412,10 +5411,10 @@ async def delete_study_plans(
             "plan_ids": [str(plan.id) for plan in plans],
             "retention_days": STUDY_PLAN_DELETE_RETENTION_DAYS,
         }
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"Failed to bulk delete study plans: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to bulk delete study plans")
+        raise HTTPException(status_code=500, detail="Failed to delete study plans")
 
 
 @app.delete("/study-plan/{plan_id}")
@@ -5447,10 +5446,10 @@ async def delete_study_plan(
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"Failed to delete study plan: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to delete study plan")
+        raise HTTPException(status_code=500, detail="Failed to delete study plan")
 
 
 @app.get("/study-plan/{plan_id}")
@@ -5473,9 +5472,9 @@ async def get_study_plan(
         return {"success": True, "plan": plan.to_dict(include_units=True)}
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Failed to fetch study plan: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Failed to fetch study plan")
+        raise HTTPException(status_code=500, detail="Failed to fetch study plan")
 
 
 @app.delete("/study-plan/{plan_id}/unit/{unit_id}")
@@ -5520,10 +5519,10 @@ async def delete_study_plan_unit(
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"Failed to delete study plan unit: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to delete study plan unit")
+        raise HTTPException(status_code=500, detail="Failed to delete study plan unit")
 
 
 @app.post("/study-plan/{plan_id}/unit/{unit_id}/generate")
