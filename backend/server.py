@@ -2070,6 +2070,7 @@ class InviteLoginPayload(BaseModel):
 
 
 INVITE_USERNAME_RE = re.compile(r"^[\w.-]{2,40}$", re.UNICODE)
+INVITE_PASSWORD_MAX_BYTES = 72
 
 
 def _validate_invite_username(value: str) -> str:
@@ -2080,6 +2081,15 @@ def _validate_invite_username(value: str) -> str:
             detail="Username must be 2-40 characters and can only use letters, numbers, dot, dash, or underscore",
         )
     return username
+
+
+def _validate_invite_password(value: str) -> str:
+    password = value.strip()
+    if len(password) < 4:
+        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+    if len(password.encode("utf-8")) > INVITE_PASSWORD_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Password must be at most 72 bytes")
+    return password
 
 
 def _hash_password(password: str) -> str:
@@ -2133,8 +2143,7 @@ async def invite_login(request: Request):
         raise HTTPException(status_code=400, detail="Username and password are required")
 
     username = _validate_invite_username(username)
-    if len(password) < 4:
-        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+    password = _validate_invite_password(password)
 
     from database.base import SessionLocal as _SL
     from database.models.invite_code import InviteCode

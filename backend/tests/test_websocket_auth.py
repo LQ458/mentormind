@@ -57,3 +57,16 @@ def test_invite_username_validation_rejects_unsafe_usernames(value):
         server._validate_invite_username(value)
 
     assert exc_info.value.status_code == 400
+
+
+def test_invite_password_validation_accepts_bcrypt_safe_passwords():
+    assert server._validate_invite_password(" pass123 ") == "pass123"
+    assert server._validate_invite_password("x" * 72) == "x" * 72
+
+
+@pytest.mark.parametrize("value", ["abc", "x" * 73, "密" * 25])
+def test_invite_password_validation_rejects_unsafe_passwords(value):
+    with pytest.raises(server.HTTPException) as exc_info:
+        server._validate_invite_password(value)
+
+    assert exc_info.value.status_code == 400

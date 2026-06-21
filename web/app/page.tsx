@@ -59,6 +59,10 @@ export default function HomePage() {
       setError(language === 'zh' ? '密码至少4个字符' : 'Password must be at least 4 characters')
       return
     }
+    if (new TextEncoder().encode(pwd).length > 72) {
+      setError(language === 'zh' ? '密码最多 72 bytes' : 'Password must be at most 72 bytes')
+      return
+    }
 
     setError('')
     setSubmitting(true)
@@ -79,6 +83,8 @@ export default function HomePage() {
             ? '用户名需 2-40 个字符，只能使用字母、数字、点、短横线或下划线'
             : 'Username must be 2-40 characters: letters, numbers, dot, dash, or underscore',
         )
+      } else if (msg.includes('72 bytes')) {
+        setError(language === 'zh' ? '密码最多 72 bytes' : 'Password must be at most 72 bytes')
       } else if (msg.includes('401') || msg.includes('not found') || msg.includes('Incorrect')) {
         setError(language === 'zh' ? '用户名或密码错误' : 'Incorrect username or password')
       } else if (msg.includes('429') || msg.includes('rate')) {
@@ -140,6 +146,7 @@ export default function HomePage() {
               placeholder={language === 'zh' ? '密码' : 'Password'}
               disabled={submitting}
               autoComplete={isRegister ? 'new-password' : 'current-password'}
+              maxLength={72}
               className="h-12 w-full rounded-lg border border-[var(--line-strong)] bg-white px-4 pr-12 text-base outline-none transition focus:border-[var(--accent)]"
             />
             <button
