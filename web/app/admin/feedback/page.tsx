@@ -379,6 +379,7 @@ export default function AdminFeedbackPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
   const [statusCode, setStatusCode] = useState<number | null>(null)
   const hasLoadedOnceRef = useRef(false)
   const requestSeqRef = useRef(0)
@@ -433,6 +434,7 @@ export default function AdminFeedbackPage() {
     if (firstLoad) setLoading(true)
     else setRefreshing(true)
     setError(null)
+    setRefreshError(null)
     setStatusCode(null)
     try {
       const params = buildSurveyParams()
@@ -493,18 +495,13 @@ export default function AdminFeedbackPage() {
     const requestSeq = reportRequestSeqRef.current + 1
     reportRequestSeqRef.current = requestSeq
     setRefreshing(true)
-    setError(null)
-    setStatusCode(null)
+    setRefreshError(null)
     try {
       const reportParams = buildReportParams()
       const res = await fetch(`/api/backend/admin/feedback/reports?${reportParams.toString()}`)
       if (!res.ok) {
         if (requestSeq !== reportRequestSeqRef.current) return
-        setStatusCode(res.status)
-        setError(res.status === 401 || res.status === 403 ? 'admin_access_required' : await responseErrorMessage(res))
-        setReports([])
-        setReportsTotal(0)
-        setReportsUniqueTotal(0)
+        setRefreshError(res.status === 401 || res.status === 403 ? adminAccessRequiredMessage(lang) : await responseErrorMessage(res))
         return
       }
       const data = (await res.json().catch(() => ({}))) as FeedbackReportsResponse
@@ -515,7 +512,7 @@ export default function AdminFeedbackPage() {
     } catch (err) {
       if (requestSeq !== reportRequestSeqRef.current) return
       console.error('[admin feedback] report fetch failed:', err)
-      setError(lang === 'zh' ? '快速报告加载失败' : 'Failed to load quick reports')
+      setRefreshError(lang === 'zh' ? '快速报告加载失败' : 'Failed to load quick reports')
     } finally {
       if (requestSeq === reportRequestSeqRef.current) setRefreshing(false)
     }
@@ -525,8 +522,7 @@ export default function AdminFeedbackPage() {
     const requestSeq = surveyRequestSeqRef.current + 1
     surveyRequestSeqRef.current = requestSeq
     setRefreshing(true)
-    setError(null)
-    setStatusCode(null)
+    setRefreshError(null)
     try {
       const params = buildSurveyParams()
       const [aggRes, listRes] = await Promise.all([
@@ -536,10 +532,7 @@ export default function AdminFeedbackPage() {
       const failedResponse = [aggRes, listRes].find((res) => !res.ok)
       if (failedResponse) {
         if (requestSeq !== surveyRequestSeqRef.current) return
-        setStatusCode(failedResponse.status)
-        setError(failedResponse.status === 401 || failedResponse.status === 403 ? 'admin_access_required' : await responseErrorMessage(failedResponse))
-        setAggregate(null)
-        setRows([])
+        setRefreshError(failedResponse.status === 401 || failedResponse.status === 403 ? adminAccessRequiredMessage(lang) : await responseErrorMessage(failedResponse))
         return
       }
       const aggData = (await aggRes.json().catch(() => ({}))) as AggregateResponse
@@ -550,7 +543,7 @@ export default function AdminFeedbackPage() {
     } catch (err) {
       if (requestSeq !== surveyRequestSeqRef.current) return
       console.error('[admin feedback] survey fetch failed:', err)
-      setError(lang === 'zh' ? '问卷反馈加载失败' : 'Failed to load survey feedback')
+      setRefreshError(lang === 'zh' ? '问卷反馈加载失败' : 'Failed to load survey feedback')
     } finally {
       if (requestSeq === surveyRequestSeqRef.current) setRefreshing(false)
     }
@@ -696,6 +689,20 @@ export default function AdminFeedbackPage() {
 
       {!loading && !error && (
         <>
+          {refreshError && (
+            <div
+              style={{
+                padding: 12,
+                border: '1px solid var(--line, #e8ecf0)',
+                borderRadius: 10,
+                background: 'var(--surface-2, #f5f7fa)',
+                color: 'var(--ink-muted)',
+                fontSize: 13,
+              }}
+            >
+              {refreshError}
+            </div>
+          )}
           {/* ---- Quick bug reports ---- */}
           <Section
             title={lang === 'zh' ? '快速 Bug 报告' : 'Quick bug reports'}
