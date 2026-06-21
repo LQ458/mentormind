@@ -458,6 +458,7 @@ export default function AdminFeedbackPage() {
   const surveyRequestSeqRef = useRef(0)
   const initialReportSearchRef = useRef<string | null>(null)
   const initialReportIdRef = useRef<string | null>(null)
+  const initialReportAutoOpenedRef = useRef(false)
 
   // Filters
   const [examFilter, setExamFilter] = useState<string>('')
@@ -767,6 +768,18 @@ export default function AdminFeedbackPage() {
     const { context } = await fetchReportContext(report)
     if (context) setExpandedReportId(report.id)
   }
+
+  useEffect(() => {
+    if (initialReportAutoOpenedRef.current) return
+    const initialReportId = getInitialReportId()
+    if (!initialReportId || reports.length === 0) return
+    const report = reports.find((row) => row.report_id === initialReportId || row.id === initialReportId)
+    if (!report) return
+    initialReportAutoOpenedRef.current = true
+    setExpandedReportId(report.id)
+    void fetchReportContext(report)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reports])
 
   const priorityReports = reportsAggregate?.priority_reports || []
 
