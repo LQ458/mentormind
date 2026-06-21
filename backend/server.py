@@ -7479,6 +7479,21 @@ def _feedback_report_attach_clusters(rows: List[Dict[str, Any]]) -> List[Dict[st
     return clustered
 
 
+def _feedback_report_cluster_target_events(anchor_event: Any, candidate_events: List[Any]) -> List[Any]:
+    """Return all candidate feedback reports that belong to the anchor issue cluster."""
+    anchor_key = _feedback_report_unique_key(_feedback_report_to_dict(anchor_event))
+    targets: List[Any] = []
+    seen_ids: Set[str] = set()
+    for event in [anchor_event, *candidate_events]:
+        event_id = str(getattr(event, "id", "") or "")
+        if event_id in seen_ids or getattr(event, "event_type", "") != "feedback_moment":
+            continue
+        if _feedback_report_unique_key(_feedback_report_to_dict(event)) == anchor_key:
+            targets.append(event)
+            seen_ids.add(event_id)
+    return targets
+
+
 _FEEDBACK_PRIORITY_SEVERITY_SCORE = {
     "blocked": 100,
     "wrong": 85,
@@ -7732,6 +7747,9 @@ async def update_admin_feedback_report_triage(
     if not raw_status or status != raw_status.lower().replace("-", "_"):
         raise HTTPException(status_code=400, detail="Invalid triage status")
     note = _sanitize_feedback_triage_note(body.get("note"))
+    scope = str(body.get("scope") or "cluster").strip().lower()
+    if scope not in {"cluster", "single"}:
+        raise HTTPException(status_code=400, detail="Invalid triage scope")
 
     report_event = (
         db.query(TelemetryEvent)
@@ -7744,14 +7762,30 @@ async def update_admin_feedback_report_triage(
     if not report_event:
         raise HTTPException(status_code=404, detail="Feedback report not found")
 
-    payload = dict(report_event.payload or {})
-    payload["triage_status"] = status
-    payload["triage_note"] = note
-    payload["triage_updated_at"] = datetime.utcnow().isoformat()
-    payload["triage_updated_by"] = str(getattr(current_user, "id", "") or "")
-    report_event.payload = payload
+    if scope == "cluster":
+        candidate_events = (
+            db.query(TelemetryEvent)
+            .filter(TelemetryEvent.event_type == "feedback_moment")
+            .order_by(TelemetryEvent.created_at.desc())
+            .limit(5000)
+            .all()
+        )
+        target_events = _feedback_report_cluster_target_events(report_event, candidate_events)
+    else:
+        target_events = [report_event]
+
+    updated_at = datetime.utcnow().isoformat()
+    updated_by = str(getattr(current_user, "id", "") or "")
+    for target_event in target_events:
+        payload = dict(target_event.payload or {})
+        payload["triage_status"] = status
+        payload["triage_note"] = note
+        payload["triage_updated_at"] = updated_at
+        payload["triage_updated_by"] = updated_by
+        target_event.payload = payload
     try:
-        db.add(report_event)
+        for target_event in target_events:
+            db.add(target_event)
         db.commit()
         db.refresh(report_event)
     except Exception as exc:
@@ -7762,6 +7796,8 @@ async def update_admin_feedback_report_triage(
     testers = _feedback_report_user_summaries(db, [report_event])
     return {
         "ok": True,
+        "updated_count": len(target_events),
+        "scope": scope,
         "report": _feedback_report_to_dict(
             report_event,
             testers.get(str(report_event.user_id or "")),

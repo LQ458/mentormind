@@ -511,6 +511,7 @@ export default function AdminFeedbackPage() {
   const [contextErrorByReportId, setContextErrorByReportId] = useState<Record<string, string>>({})
   const [triageUpdatingId, setTriageUpdatingId] = useState<string | null>(null)
   const [triageError, setTriageError] = useState<string | null>(null)
+  const [triageNotice, setTriageNotice] = useState<string | null>(null)
 
   const buildSurveyParams = () => {
     const params = new URLSearchParams()
@@ -812,15 +813,23 @@ export default function AdminFeedbackPage() {
     if (context) setExpandedReportId(report.id)
   }
 
-  const applyUpdatedReport = (updated: FeedbackReportRow) => {
-    const shouldKeepInList = !statusFilter || (updated.triage_status || 'new') === statusFilter
-    setReports((prev) => shouldKeepInList
-      ? prev.map((row) => (row.id === updated.id ? updated : row))
-      : prev.filter((row) => row.id !== updated.id))
+  const applyUpdatedReport = (updated: FeedbackReportRow, source: FeedbackReportRow = updated) => {
+    const clusterKey = source.cluster_key || updated.cluster_key || ''
+    const triagePatch = {
+      triage_status: updated.triage_status,
+      triage_note: updated.triage_note,
+      triage_updated_at: updated.triage_updated_at,
+      triage_updated_by: updated.triage_updated_by,
+    }
+    const matchesUpdatedScope = (row: FeedbackReportRow) => row.id === updated.id || Boolean(clusterKey && row.cluster_key === clusterKey)
+    const shouldKeep = (row: FeedbackReportRow) => !statusFilter || (row.triage_status || 'new') === statusFilter
+    setReports((prev) => prev
+      .map((row) => (matchesUpdatedScope(row) ? { ...row, ...triagePatch } : row))
+      .filter(shouldKeep))
     setReportsAggregate((prev) => {
       if (!prev) return prev
       const nextPriority = (prev.priority_reports || [])
-        .map((row) => (row.id === updated.id ? updated : row))
+        .map((row) => (matchesUpdatedScope(row) ? { ...row, ...triagePatch } : row))
         .filter((row) => !['resolved', 'wontfix'].includes(row.triage_status || 'new'))
       return { ...prev, priority_reports: nextPriority }
     })
@@ -834,18 +843,30 @@ export default function AdminFeedbackPage() {
     if (triageUpdatingId === report.id) return
     setTriageUpdatingId(report.id)
     setTriageError(null)
+    setTriageNotice(null)
     try {
       const res = await fetch(`/api/backend/admin/feedback/reports/${encodeURIComponent(report.id)}/triage`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, note }),
+        body: JSON.stringify({ status, note, scope: 'cluster' }),
       })
-      const data = (await res.json().catch(() => ({}))) as { report?: FeedbackReportRow; error?: string; detail?: string }
+      const data = (await res.json().catch(() => ({}))) as {
+        report?: FeedbackReportRow
+        updated_count?: number
+        error?: string
+        detail?: string
+      }
       if (!res.ok || !data.report) {
         setTriageError(data.error || data.detail || `HTTP ${res.status}`)
         return
       }
-      applyUpdatedReport(data.report)
+      applyUpdatedReport(data.report, report)
+      const updatedCount = data.updated_count || 1
+      setTriageNotice(
+        updatedCount > 1
+          ? (lang === 'zh' ? `已同步更新 ${updatedCount} 条同类报告。` : `Updated ${updatedCount} similar reports.`)
+          : (lang === 'zh' ? '状态已更新。' : 'Triage status updated.'),
+      )
     } catch {
       setTriageError(lang === 'zh' ? '状态更新失败' : 'Failed to update triage status')
     } finally {
@@ -968,6 +989,20 @@ export default function AdminFeedbackPage() {
               }}
             >
               {triageError}
+            </div>
+          )}
+          {triageNotice && (
+            <div
+              style={{
+                padding: 12,
+                border: '1px solid var(--line, #e8ecf0)',
+                borderRadius: 10,
+                background: 'var(--surface-2, #f5f7fa)',
+                color: 'var(--ink-muted)',
+                fontSize: 13,
+              }}
+            >
+              {triageNotice}
             </div>
           )}
           {/* ---- Quick bug reports ---- */}

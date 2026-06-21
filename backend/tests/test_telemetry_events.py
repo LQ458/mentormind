@@ -306,6 +306,70 @@ def test_feedback_report_attach_clusters_marks_duplicate_counts():
     assert rows[2]["cluster_size"] == 1
 
 
+def test_feedback_report_cluster_target_events_returns_anchor_cluster_only():
+    anchor = SimpleNamespace(
+        id="evt-1",
+        event_type="feedback_moment",
+        created_at=datetime(2026, 6, 20, 8, 0, 0),
+        user_id=None,
+        session_id="session-1",
+        page="/study-plan",
+        url="/study-plan",
+        viewport_w=390,
+        viewport_h=844,
+        payload=valid_feedback_moment_payload(
+            user_note="The unit generation spinner never ends.",
+            expected_behavior="Show generated units.",
+        ),
+    )
+    duplicate = SimpleNamespace(
+        id="evt-2",
+        event_type="feedback_moment",
+        created_at=datetime(2026, 6, 20, 8, 1, 0),
+        user_id=None,
+        session_id="session-2",
+        page="/study-plan",
+        url="/study-plan",
+        viewport_w=390,
+        viewport_h=844,
+        payload=valid_feedback_moment_payload(
+            report_id="fm-study_plan-review-def456",
+            user_note="The unit generation spinner never ends!",
+            expected_behavior="Show generated units",
+        ),
+    )
+    different = SimpleNamespace(
+        id="evt-3",
+        event_type="feedback_moment",
+        created_at=datetime(2026, 6, 20, 8, 2, 0),
+        user_id=None,
+        session_id="session-3",
+        page="/ask",
+        url="/ask",
+        viewport_w=390,
+        viewport_h=844,
+        payload=valid_feedback_moment_payload(
+            surface="ask",
+            report_id="fm-ask-review-ghi789",
+            user_note="Upload failed.",
+            expected_behavior="Answer the image.",
+        ),
+    )
+    non_feedback = SimpleNamespace(
+        id="evt-4",
+        event_type="error_console",
+        created_at=datetime(2026, 6, 20, 8, 3, 0),
+        payload={},
+    )
+
+    targets = server._feedback_report_cluster_target_events(
+        anchor,
+        [duplicate, different, non_feedback, anchor],
+    )
+
+    assert [event.id for event in targets] == ["evt-1", "evt-2"]
+
+
 def test_feedback_report_matches_supports_source_filter():
     row = {
         "source": "prod_autopilot_qa",
