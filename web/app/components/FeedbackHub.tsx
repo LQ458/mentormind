@@ -355,13 +355,22 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
                   </button>
                 </div>
                 {submittedSummary && (
-                  <textarea
-                    readOnly
-                    value={submittedSummary}
-                    aria-label={lang === 'zh' ? '反馈回执摘要' : 'Feedback receipt summary'}
-                    className="min-h-[112px] w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-[11px] leading-5 text-gray-600"
-                    onFocus={(event) => event.currentTarget.select()}
-                  />
+                  <div className="space-y-1">
+                    {(reportIdCopyState === 'failed' || summaryCopyState === 'failed') && (
+                      <div className="text-xs text-amber-700">
+                        {lang === 'zh'
+                          ? '复制失败时，可以点下面摘要框手动选择复制。'
+                          : 'If copy failed, tap the receipt below and copy it manually.'}
+                      </div>
+                    )}
+                    <textarea
+                      readOnly
+                      value={submittedSummary}
+                      aria-label={lang === 'zh' ? '反馈回执摘要' : 'Feedback receipt summary'}
+                      className="min-h-[112px] w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-[11px] leading-5 text-gray-600"
+                      onFocus={(event) => event.currentTarget.select()}
+                    />
+                  </div>
                 )}
               </div>
             )}
