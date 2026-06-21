@@ -28,6 +28,14 @@ const PRESSURE_REQUESTS = Number(process.env.PRESSURE_REQUESTS || 80)
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 90000)
 const RUN_PERSONA_QA = process.env.RUN_PERSONA_QA !== 'false'
 const PERSONA_LIMIT = Number(process.env.PERSONA_LIMIT || 4)
+const QA_ROUTES = splitEnvList(process.env.QA_ROUTES || '')
+const RUN_PAGE_QA = process.env.RUN_PAGE_QA !== 'false'
+const RUN_WEBSOCKET_QA = process.env.RUN_WEBSOCKET_QA !== 'false'
+const RUN_STUDY_PLAN_ROUTING_QA = process.env.RUN_STUDY_PLAN_ROUTING_QA !== 'false'
+const RUN_QUICK_QUESTION_QA = process.env.RUN_QUICK_QUESTION_QA !== 'false'
+const RUN_WEIRD_API_QA = process.env.RUN_WEIRD_API_QA !== 'false'
+const RUN_UPLOAD_EDGE_QA = process.env.RUN_UPLOAD_EDGE_QA !== 'false'
+const RUN_PRESSURE_QA = process.env.RUN_PRESSURE_QA !== 'false'
 const QA_INVITE_CODE = process.env.QA_INVITE_CODE || ''
 const QA_USERNAME_PROVIDED = Boolean(process.env.QA_USERNAME)
 const QA_PASSWORD_PROVIDED = Boolean(process.env.QA_PASSWORD)
@@ -2234,26 +2242,35 @@ async function main() {
 
   const browser = await chromium.launch({ headless: true })
   try {
-    const viewports = [
-      { name: 'desktop', size: { width: 1440, height: 900 } },
-      { name: 'ipad', size: { width: 820, height: 1180 } },
-      {
-        name: 'iphone',
-        size: { width: 390, height: 844 },
-        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-      },
-    ]
-    const routes = hasAuthSession()
-      ? ['/', '/ask', '/study-plan', '/lessons', '/seminar', ...(RUN_ADMIN_QA ? ['/admin/feedback'] : [])]
-      : ['/']
-    for (const viewport of viewports) {
-      for (const route of routes) {
-        await checkPage(browser, route, viewport)
+    if (RUN_PAGE_QA) {
+      const viewports = [
+        { name: 'desktop', size: { width: 1440, height: 900 } },
+        { name: 'ipad', size: { width: 820, height: 1180 } },
+        {
+          name: 'iphone',
+          size: { width: 390, height: 844 },
+          userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+        },
+      ]
+      const defaultRoutes = hasAuthSession()
+        ? ['/', '/ask', '/study-plan', '/lessons', '/seminar', ...(RUN_ADMIN_QA ? ['/admin/feedback'] : [])]
+        : ['/']
+      const routes = QA_ROUTES.length ? QA_ROUTES : defaultRoutes
+      for (const viewport of viewports) {
+        for (const route of routes) {
+          await checkPage(browser, route, viewport)
+        }
       }
     }
-    await testWebSocket(browser)
-    await testStudyPlanRouting(browser)
-    await testQuickQuestion(browser)
+    if (RUN_WEBSOCKET_QA) {
+      await testWebSocket(browser)
+    }
+    if (RUN_STUDY_PLAN_ROUTING_QA) {
+      await testStudyPlanRouting(browser)
+    }
+    if (RUN_QUICK_QUESTION_QA) {
+      await testQuickQuestion(browser)
+    }
     if (QA_RUN_UPLOAD_UI) {
       await testQuickQuestionUploadForms(browser)
     }
@@ -2275,9 +2292,15 @@ async function main() {
     await browser.close()
   }
 
-  await testWeirdApiWorkflows()
-  await testUploadEdges()
-  await pressureTest()
+  if (RUN_WEIRD_API_QA) {
+    await testWeirdApiWorkflows()
+  }
+  if (RUN_UPLOAD_EDGE_QA) {
+    await testUploadEdges()
+  }
+  if (RUN_PRESSURE_QA) {
+    await pressureTest()
+  }
   const report = await writeReport()
   console.log(JSON.stringify({
     run_id: RUN_ID,
