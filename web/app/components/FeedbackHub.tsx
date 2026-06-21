@@ -90,8 +90,9 @@ async function copyText(value: string): Promise<boolean> {
   } catch {
     // Fall through to the selection-based copy path below.
   }
+  let textarea: HTMLTextAreaElement | null = null
   try {
-    const textarea = document.createElement('textarea')
+    textarea = document.createElement('textarea')
     textarea.value = value
     textarea.setAttribute('readonly', 'true')
     textarea.style.position = 'fixed'
@@ -101,10 +102,11 @@ async function copyText(value: string): Promise<boolean> {
     textarea.focus()
     textarea.select()
     const ok = document.execCommand('copy')
-    textarea.remove()
     return ok
   } catch {
     return false
+  } finally {
+    textarea?.remove()
   }
 }
 
@@ -352,6 +354,15 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
                       : (lang === 'zh' ? '复制摘要' : 'Copy summary')}
                   </button>
                 </div>
+                {submittedSummary && (
+                  <textarea
+                    readOnly
+                    value={submittedSummary}
+                    aria-label={lang === 'zh' ? '反馈回执摘要' : 'Feedback receipt summary'}
+                    className="min-h-[112px] w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-[11px] leading-5 text-gray-600"
+                    onFocus={(event) => event.currentTarget.select()}
+                  />
+                )}
               </div>
             )}
             <button
