@@ -440,6 +440,7 @@ export default function AdminFeedbackPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null)
   const [copiedReportId, setCopiedReportId] = useState<string | null>(null)
+  const [copyingReportId, setCopyingReportId] = useState<string | null>(null)
   const [copyFailedReportId, setCopyFailedReportId] = useState<string | null>(null)
   const [contextByReportId, setContextByReportId] = useState<Record<string, FeedbackReportContextResponse>>({})
   const [contextLoadingId, setContextLoadingId] = useState<string | null>(null)
@@ -697,20 +698,26 @@ export default function AdminFeedbackPage() {
   }
 
   const copyReport = async (report: FeedbackReportRow) => {
-    const { context, error } = await fetchReportContext(report)
-    const ok = await copyText(reportMarkdown(report, context, error)).catch(() => false)
-    if (!ok) {
-      setCopyFailedReportId(report.id)
+    if (copyingReportId === report.id) return
+    setCopyingReportId(report.id)
+    try {
+      const { context, error } = await fetchReportContext(report)
+      const ok = await copyText(reportMarkdown(report, context, error)).catch(() => false)
+      if (!ok) {
+        setCopyFailedReportId(report.id)
+        window.setTimeout(() => {
+          setCopyFailedReportId((current) => (current === report.id ? null : current))
+        }, 2200)
+        return
+      }
+      setCopyFailedReportId(null)
+      setCopiedReportId(report.id)
       window.setTimeout(() => {
-        setCopyFailedReportId((current) => (current === report.id ? null : current))
-      }, 2200)
-      return
+        setCopiedReportId((current) => (current === report.id ? null : current))
+      }, 1800)
+    } finally {
+      setCopyingReportId((current) => (current === report.id ? null : current))
     }
-    setCopyFailedReportId(null)
-    setCopiedReportId(report.id)
-    window.setTimeout(() => {
-      setCopiedReportId((current) => (current === report.id ? null : current))
-    }, 1800)
   }
 
   const loadReportContext = async (report: FeedbackReportRow) => {
@@ -898,8 +905,11 @@ export default function AdminFeedbackPage() {
                                   type="button"
                                   className="btn btn-sm"
                                   onClick={() => copyReport(r)}
+                                  disabled={copyingReportId === r.id}
                                 >
-                                  {copiedReportId === r.id
+                                  {copyingReportId === r.id
+                                    ? lang === 'zh' ? '准备中' : 'Preparing'
+                                    : copiedReportId === r.id
                                     ? lang === 'zh' ? '已复制' : 'Copied'
                                     : copyFailedReportId === r.id
                                       ? lang === 'zh' ? '复制失败' : 'Copy failed'
@@ -1099,8 +1109,11 @@ export default function AdminFeedbackPage() {
                                   type="button"
                                   className="btn btn-sm"
                                   onClick={() => copyReport(r)}
+                                  disabled={copyingReportId === r.id}
                                 >
-                                  {copiedReportId === r.id
+                                  {copyingReportId === r.id
+                                    ? lang === 'zh' ? '准备中' : 'Preparing'
+                                    : copiedReportId === r.id
                                     ? lang === 'zh' ? '已复制' : 'Copied'
                                     : copyFailedReportId === r.id
                                       ? lang === 'zh' ? '复制失败' : 'Copy failed'
