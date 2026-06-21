@@ -971,9 +971,7 @@ export default function StudyPlanPage() {
         uiLanguage === 'zh'
           ? '网络错误，请检查连接后重试。'
           : 'Network error. Please check your connection and try again.'
-      setError(
-        err instanceof Error && err.message ? err.message : fallback
-      )
+      setError(fallback)
     } finally {
       setIsTyping(false)
     }
@@ -1181,9 +1179,7 @@ export default function StudyPlanPage() {
         uiLanguage === 'zh'
           ? '网络错误，请检查连接后重试。'
           : 'Network error. Please check your connection and try again.'
-      setError(
-        err instanceof Error && err.message ? err.message : fallback
-      )
+      setError(fallback)
     } finally {
       setIsTyping(false)
     }
@@ -1300,7 +1296,7 @@ export default function StudyPlanPage() {
             uiLanguage === 'zh'
               ? '网络错误，请检查连接后重试。'
               : 'Network error. Please check your connection and try again.'
-          setError(err instanceof Error && err.message ? err.message : fallback)
+          setError(fallback)
         } finally {
           setIsTyping(false)
         }

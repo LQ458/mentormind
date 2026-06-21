@@ -90,7 +90,8 @@ function BoardSessionInner() {
         }
       } catch (err) {
         if (cancelled) return
-        setTokenError(err instanceof Error ? err.message : 'auth token failed')
+        console.error('Board token error:', err)
+        setTokenError(language === 'zh' ? '登录状态校验失败，请刷新重试。' : 'Could not verify your session. Please refresh and try again.')
       }
     }
 
@@ -249,7 +250,8 @@ function BoardSessionInner() {
         setShareStatus(url)
       }
     } catch (err) {
-      setShareStatus(err instanceof Error ? err.message : (language === 'zh' ? '创建失败' : 'Could not create link'))
+      console.error('Board share link error:', err)
+      setShareStatus(language === 'zh' ? '创建失败' : 'Could not create link')
     }
   }, [sessionId, getToken, language])
 

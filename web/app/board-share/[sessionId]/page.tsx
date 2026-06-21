@@ -38,12 +38,13 @@ export default function BoardSharePage() {
         const data = await res.json()
         if (cancelled) return
         if (!res.ok || !data.success) {
-          setError(data.detail || data.error || 'This share link is unavailable.')
+          setError('This share link is unavailable.')
           return
         }
         setSession(data.session)
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Share link failed')
+        console.error('Board share load error:', err)
+        if (!cancelled) setError('Share link failed')
       } finally {
         if (!cancelled) setLoading(false)
       }
