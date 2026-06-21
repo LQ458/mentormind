@@ -284,6 +284,7 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
   const [contactEmail, setContactEmail] = useState('')
 
   const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const scaleLabels = lang === 'zh' ? SCALE_LABELS_ZH : SCALE_LABELS_EN
 
@@ -344,7 +345,8 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
     onClose()
   }
 
-  const postPayload = async (partial: boolean) => {
+  const postPayload = async (partial: boolean): Promise<SurveySubmitStatus> => {
+    setSubmitError(null)
     const payload: ExitSurveyPayload = {
       ...buildPayload(partial),
       partial,
@@ -354,6 +356,12 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
     const status = await submitSurveyPayload(payload)
     if (status === 'retry') {
       queuePendingSurveyPayload(payload)
+    } else if (status === 'rejected') {
+      setSubmitError(
+        lang === 'zh'
+          ? '提交没有被服务器接收。请先别关闭，检查邮箱格式后再试一次。'
+          : 'The server did not accept this response. Keep this open, check the email format, and try again.',
+      )
     }
     // Backwards-compatible analytics event
     try {
@@ -367,15 +375,17 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
     } catch {
       // ignore
     }
+    return status
   }
 
   const handleSkip = async () => {
     setSubmitting(true)
     try {
-      await postPayload(true)
+      const status = await postPayload(true)
+      if (status === 'rejected') return
+      dismiss()
     } finally {
       setSubmitting(false)
-      dismiss()
     }
   }
 
@@ -383,10 +393,11 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
     if (!page3Valid) return
     setSubmitting(true)
     try {
-      await postPayload(false)
+      const status = await postPayload(false)
+      if (status === 'rejected') return
+      dismiss()
     } finally {
       setSubmitting(false)
-      dismiss()
     }
   }
 
@@ -543,10 +554,8 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
         {/* Footer / actions */}
         <div
           style={{
-            display: 'flex',
-            gap: 8,
-            justifyContent: 'space-between',
-            alignItems: 'center',
+            display: 'grid',
+            gap: 10,
             padding: '16px 24px 20px',
             borderTop: '1px solid var(--line, #e8ecf0)',
             position: 'sticky',
@@ -554,51 +563,69 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
             background: 'var(--surface, #fff)',
           }}
         >
-          <button
-            type="button"
-            onClick={handleSkip}
-            className="btn btn-sm"
-            disabled={submitting}
-          >
-            {lang === 'zh' ? '跳过' : 'Skip'}
-          </button>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {step > 1 && (
-              <button
-                type="button"
-                onClick={() => setStep((s) => (s === 3 ? 2 : 1) as 1 | 2 | 3)}
-                className="btn btn-sm"
-                disabled={submitting}
-              >
-                {lang === 'zh' ? '上一步' : 'Back'}
-              </button>
-            )}
-            {step < 3 && (
-              <button
-                type="button"
-                onClick={() => setStep((s) => (s === 1 ? 2 : 3) as 1 | 2 | 3)}
-                className="btn btn-sm btn-primary"
-                disabled={
-                  submitting ||
-                  (step === 1 && !page1Valid) ||
-                  (step === 2 && !page2Valid)
-                }
-              >
-                {lang === 'zh' ? '下一步' : 'Next'}
-              </button>
-            )}
-            {step === 3 && (
-              <button
-                type="button"
-                onClick={handleSubmit}
-                className="btn btn-sm btn-primary"
-                disabled={submitting || !page3Valid}
-              >
-                {submitting
-                  ? lang === 'zh' ? '提交中…' : 'Submitting…'
-                  : lang === 'zh' ? '提交' : 'Submit'}
-              </button>
-            )}
+          {submitError && (
+            <div
+              role="alert"
+              style={{
+                border: '1px solid #fbbf24',
+                background: '#fffbeb',
+                color: '#92400e',
+                borderRadius: 10,
+                padding: '8px 10px',
+                fontSize: 12,
+                lineHeight: 1.5,
+              }}
+            >
+              {submitError}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={handleSkip}
+              className="btn btn-sm"
+              disabled={submitting}
+            >
+              {lang === 'zh' ? '跳过' : 'Skip'}
+            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {step > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setStep((s) => (s === 3 ? 2 : 1) as 1 | 2 | 3)}
+                  className="btn btn-sm"
+                  disabled={submitting}
+                >
+                  {lang === 'zh' ? '上一步' : 'Back'}
+                </button>
+              )}
+              {step < 3 && (
+                <button
+                  type="button"
+                  onClick={() => setStep((s) => (s === 1 ? 2 : 3) as 1 | 2 | 3)}
+                  className="btn btn-sm btn-primary"
+                  disabled={
+                    submitting ||
+                    (step === 1 && !page1Valid) ||
+                    (step === 2 && !page2Valid)
+                  }
+                >
+                  {lang === 'zh' ? '下一步' : 'Next'}
+                </button>
+              )}
+              {step === 3 && (
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  className="btn btn-sm btn-primary"
+                  disabled={submitting || !page3Valid}
+                >
+                  {submitting
+                    ? lang === 'zh' ? '提交中…' : 'Submitting…'
+                    : lang === 'zh' ? '提交' : 'Submit'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
