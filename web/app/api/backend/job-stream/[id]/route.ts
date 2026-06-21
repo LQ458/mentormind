@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { backendHeaders } from '../../_auth'
+import { backendErrorResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
 
 // Force Next.js to NEVER cache this route or buffer the response
 export const dynamic = 'force-dynamic'
@@ -27,8 +28,9 @@ export async function GET(
         })
 
         if (!backendResponse.ok) {
-            console.error(`[job-stream proxy] Backend returned error: ${backendResponse.status}`)
-            return new Response(`Backend Error: ${backendResponse.status}`, { status: backendResponse.status })
+            const errorText = await backendResponse.text()
+            logBackendProxyError('job-stream proxy', backendResponse.status, errorText)
+            return backendErrorResponse('Failed to stream job status', backendResponse.status)
         }
 
         // Return the ReadableStream directly to the client as an EventStream
@@ -43,6 +45,6 @@ export async function GET(
         })
     } catch (error) {
         console.error('[job-stream proxy] Error:', error)
-        return new Response('Internal Server Error', { status: 500 })
+        return proxyFailureResponse('Failed to stream job status')
     }
 }
