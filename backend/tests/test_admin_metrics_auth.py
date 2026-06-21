@@ -227,6 +227,8 @@ def test_feedback_report_admin_urls_redact_query_and_fragment():
         viewport_h=844,
         payload={
             "source": "inline_feedback_moment",
+            "user_note": "I pasted https://mentormind.cloud/study-plan?invite=abc#frag",
+            "expected_behavior": "Do not expose /study-plan?token=route-token",
             "context": {
                 "build": {
                     "sha": "abc123",
@@ -243,6 +245,8 @@ def test_feedback_report_admin_urls_redact_query_and_fragment():
 
     assert data["page"] == "/study-plan?..."
     assert data["url"] == "/study-plan?...#..."
+    assert data["user_note"] == "I pasted /study-plan?...#..."
+    assert data["expected_behavior"] == "Do not expose /study-plan?..."
     assert data["route"] == "/study-plan/abc?..."
     assert data["captured_url"] == "/study-plan/abc?...#..."
     assert data["build"]["sha"] == "abc123"

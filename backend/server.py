@@ -7087,10 +7087,18 @@ def _parse_admin_date_param(name: str, value: Optional[str]) -> Optional[datetim
         raise HTTPException(status_code=400, detail=f"Invalid {name}")
 
 
-def _payload_str(payload: Dict[str, Any], key: str, max_len: int = 240) -> str:
+def _payload_str(
+    payload: Dict[str, Any],
+    key: str,
+    max_len: int = 240,
+    *,
+    redact_embedded_urls: bool = False,
+) -> str:
     value = payload.get(key)
     if value is None:
         return ""
+    if redact_embedded_urls:
+        return _redact_embedded_urls_for_telemetry(value, max_len)
     return str(value)[:max_len]
 
 
@@ -7182,8 +7190,8 @@ def _feedback_report_to_dict(event: TelemetryEvent, tester: Optional[Dict[str, A
         "severity": _payload_str(payload, "severity"),
         "interaction_id": _payload_str(payload, "interaction_id", 255),
         "report_id": _payload_str(payload, "report_id", 80),
-        "user_note": _payload_str(payload, "user_note", 1200),
-        "expected_behavior": _payload_str(payload, "expected_behavior", 1200),
+        "user_note": _payload_str(payload, "user_note", 1200, redact_embedded_urls=True),
+        "expected_behavior": _payload_str(payload, "expected_behavior", 1200, redact_embedded_urls=True),
         "route": _admin_safe_url(context.get("route") or event.page, 240),
         "captured_url": _admin_safe_url(context.get("url") or event.url, 512),
         "build": _sanitize_admin_context_value(build),
