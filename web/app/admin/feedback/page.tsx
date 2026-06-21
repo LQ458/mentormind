@@ -827,6 +827,7 @@ export default function AdminFeedbackPage() {
                   value={reportSearch}
                   onChange={(event) => setReportSearch(event.target.value)}
                   aria-label={lang === 'zh' ? '搜索快速报告' : 'Search quick reports'}
+                  maxLength={160}
                   placeholder={lang === 'zh' ? 'Report ID / 页面 / 描述' : 'Report ID / page / note'}
                   style={{
                     width: 220,

@@ -6636,6 +6636,7 @@ FEEDBACK_MOMENT_ALLOWED_SEVERITIES = {
     "wrong",
 }
 FEEDBACK_MOMENT_SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$")
+FEEDBACK_REPORT_QUERY_MAX_CHARS = 160
 
 
 def _redact_url_for_telemetry(value: Any, max_len: int = 512) -> Optional[str]:
@@ -7191,7 +7192,7 @@ def _feedback_report_matches(
 
 
 def _feedback_report_matches_query(row: Dict[str, Any], query: Optional[str]) -> bool:
-    q = str(query or "").strip().lower()
+    q = _normalize_feedback_report_query(query).lower()
     if not q:
         return True
     tester = row.get("tester") if isinstance(row.get("tester"), dict) else {}
@@ -7223,6 +7224,10 @@ def _feedback_report_matches_query(row: Dict[str, Any], query: Optional[str]) ->
         haystack_parts.extend([build.get("sha"), build.get("image_tag"), build.get("version")])
     haystack = "\n".join(str(part) for part in haystack_parts if part is not None).lower()
     return q in haystack
+
+
+def _normalize_feedback_report_query(query: Optional[str]) -> str:
+    return str(query or "").strip()[:FEEDBACK_REPORT_QUERY_MAX_CHARS]
 
 
 def _feedback_report_unique_key(row: Dict[str, Any]) -> str:
@@ -7347,17 +7352,18 @@ async def get_admin_feedback_reports(
     _admin_only(current_user)
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
+    search_query = _normalize_feedback_report_query(q)
     start_dt = _parse_admin_date_param("start_date", start_date)
     end_dt = _parse_admin_date_param("end_date", end_date)
 
-    q = db.query(TelemetryEvent).filter(TelemetryEvent.event_type == "feedback_moment")
+    query = db.query(TelemetryEvent).filter(TelemetryEvent.event_type == "feedback_moment")
     if start_dt:
-        q = q.filter(TelemetryEvent.created_at >= start_dt)
+        query = query.filter(TelemetryEvent.created_at >= start_dt)
     if end_dt:
-        q = q.filter(TelemetryEvent.created_at <= end_dt)
+        query = query.filter(TelemetryEvent.created_at <= end_dt)
 
     raw_limit = min(max(limit + offset + 1000, 1000), 5000)
-    events = q.order_by(TelemetryEvent.created_at.desc()).limit(raw_limit).all()
+    events = query.order_by(TelemetryEvent.created_at.desc()).limit(raw_limit).all()
     testers = _feedback_report_user_summaries(db, events)
     rows = [
         row for row in (
@@ -7365,7 +7371,7 @@ async def get_admin_feedback_reports(
             for event in events
         )
         if _feedback_report_matches(row, source=source, surface=surface, kind=kind, severity=severity)
-        and _feedback_report_matches_query(row, q)
+        and _feedback_report_matches_query(row, search_query)
     ]
     unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
     return {
@@ -7381,7 +7387,7 @@ async def get_admin_feedback_reports(
             "surface": surface,
             "kind": kind,
             "severity": severity,
-            "q": q,
+            "q": search_query,
             "start_date": start_date,
             "end_date": end_date,
         },

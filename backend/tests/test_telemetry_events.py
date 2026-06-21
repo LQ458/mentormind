@@ -263,6 +263,13 @@ def test_feedback_report_query_matches_report_text_and_tester_metadata():
     assert not server._feedback_report_matches_query(row, "seminar-audio")
 
 
+def test_feedback_report_query_normalization_trims_and_caps_search_text():
+    long_query = f"  {'x' * 240}  "
+
+    assert server._normalize_feedback_report_query(long_query) == "x" * server.FEEDBACK_REPORT_QUERY_MAX_CHARS
+    assert server._normalize_feedback_report_query(None) == ""
+
+
 def test_feedback_report_priority_prefers_blocked_bug_with_errors():
     high = {
         "severity": "blocked",
