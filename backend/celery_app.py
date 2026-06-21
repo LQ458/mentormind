@@ -124,7 +124,7 @@ def sync_proactive_notifications_task(self):
             session.close()
     except Exception as exc:
         print(f"❌ Proactive notification sync failed: {exc}")
-        return {"success": False, "error": str(exc)}
+        return {"success": False, "error": "Notification sync failed"}
 
 @celery_app.task(bind=True, name="mentormind.create_class_video")
 def create_class_video_task(self, request_data: dict, job_id: str):
@@ -228,7 +228,7 @@ def create_class_video_task(self, request_data: dict, job_id: str):
         print(f"[{job_id}] ⚠️ Quality evaluation failed: {e}")
         quality_evaluation = {
             "overall_score": 0.0,
-            "error": str(e),
+            "error": "Quality evaluation unavailable",
             "assessment_quality": "unavailable"
         }
 
@@ -610,7 +610,7 @@ def transcribe_audio_task(self, file_path: str, language: str, job_id: str, targ
         response = loop.run_until_complete(_run())
     except Exception as e:
         print(f"[{job_id}] ❌ Transcription task failed: {e}")
-        response = {"success": False, "error": str(e)}
+        response = {"success": False, "error": "Audio transcription failed"}
     finally:
         loop.close()
         # Clean up temp file in worker
@@ -664,7 +664,7 @@ def ocr_image_task(self, file_path: str, language: str, job_id: str, target_lang
         response = loop.run_until_complete(_run())
     except Exception as e:
         print(f"[{job_id}] ❌ OCR task failed: {e}")
-        response = {"success": False, "error": str(e)}
+        response = {"success": False, "error": "Image OCR failed"}
     finally:
         loop.close()
         # Clean up temp file in worker
@@ -725,7 +725,7 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
         result = loop.run_until_complete(_run())
     except Exception as e:
         print(f"[unit:{unit_id}] ❌ Content generation failed: {e}")
-        result = {"error": str(e)}
+        result = {"error": "Unit content generation failed"}
     finally:
         loop.close()
 
@@ -889,6 +889,6 @@ def prune_telemetry_task(self, retention_days: int = 90):
     except Exception as exc:
         session.rollback()
         print(f"⚠️ prune_telemetry failed: {exc}")
-        return {"status": "error", "error": str(exc)}
+        return {"status": "error", "error": "Telemetry pruning failed"}
     finally:
         session.close()
