@@ -114,6 +114,11 @@ interface FeedbackReportContextResponse {
   detail?: string
 }
 
+interface FeedbackReportContextResult {
+  context: FeedbackReportContextResponse | null
+  error?: string
+}
+
 // ---------- Helpers ----------
 
 const LIKERT_LABELS: Record<string, { en: string; zh: string }> = {
@@ -254,7 +259,11 @@ function adminAccessRequiredMessage(lang: string): string {
     : 'Admin access required. Sign in with an admin account to view feedback data.'
 }
 
-function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextResponse | null): string {
+function reportMarkdown(
+  r: FeedbackReportRow,
+  context?: FeedbackReportContextResponse | null,
+  contextError?: string,
+): string {
   const page = r.page || r.route || '—'
   const url = r.captured_url || r.url || '—'
   const titleParts = [r.severity, r.surface || page].filter(Boolean).join(' / ')
@@ -320,6 +329,12 @@ function reportMarkdown(r: FeedbackReportRow, context?: FeedbackReportContextRes
       '',
       '### Context event timeline',
       codeBlock(context.events),
+    )
+  } else if (contextError) {
+    lines.push(
+      '',
+      '## Same-session context',
+      `- Load error: ${contextError}`,
     )
   }
   return lines.join('\n')
@@ -650,9 +665,9 @@ export default function AdminFeedbackPage() {
 
   const likertMax = 5
 
-  const fetchReportContext = async (report: FeedbackReportRow) => {
+  const fetchReportContext = async (report: FeedbackReportRow): Promise<FeedbackReportContextResult> => {
     if (contextByReportId[report.id]) {
-      return contextByReportId[report.id]
+      return { context: contextByReportId[report.id] }
     }
     setContextLoadingId(report.id)
     setContextErrorByReportId((prev) => ({ ...prev, [report.id]: '' }))
@@ -660,28 +675,30 @@ export default function AdminFeedbackPage() {
       const res = await fetch(`/api/backend/admin/feedback/reports/${encodeURIComponent(report.id)}/context`)
       const data = (await res.json().catch(() => ({}))) as FeedbackReportContextResponse
       if (!res.ok) {
+        const message = data.error || data.detail || `HTTP ${res.status}`
         setContextErrorByReportId((prev) => ({
           ...prev,
-          [report.id]: data.error || data.detail || `HTTP ${res.status}`,
+          [report.id]: message,
         }))
-        return null
+        return { context: null, error: message }
       }
       setContextByReportId((prev) => ({ ...prev, [report.id]: data }))
-      return data
+      return { context: data }
     } catch {
+      const message = lang === 'zh' ? '上下文加载失败' : 'Failed to load context'
       setContextErrorByReportId((prev) => ({
         ...prev,
-        [report.id]: lang === 'zh' ? '上下文加载失败' : 'Failed to load context',
+        [report.id]: message,
       }))
-      return null
+      return { context: null, error: message }
     } finally {
       setContextLoadingId((current) => (current === report.id ? null : current))
     }
   }
 
   const copyReport = async (report: FeedbackReportRow) => {
-    const context = await fetchReportContext(report)
-    const ok = await copyText(reportMarkdown(report, context)).catch(() => false)
+    const { context, error } = await fetchReportContext(report)
+    const ok = await copyText(reportMarkdown(report, context, error)).catch(() => false)
     if (!ok) {
       setCopyFailedReportId(report.id)
       window.setTimeout(() => {
@@ -697,7 +714,7 @@ export default function AdminFeedbackPage() {
   }
 
   const loadReportContext = async (report: FeedbackReportRow) => {
-    const context = await fetchReportContext(report)
+    const { context } = await fetchReportContext(report)
     if (context) setExpandedReportId(report.id)
   }
 
