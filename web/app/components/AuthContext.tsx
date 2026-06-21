@@ -126,7 +126,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error((data as any)?.detail || `Auth failed (${res.status})`)
       }
       const data = await res.json()
-      if (!data?.success || !data?.token) {
+      const persistBearerToken = shouldPersistBearerToken()
+      if (!data?.success || (persistBearerToken && !data?.token)) {
         throw new Error('Invalid response from server')
       }
       const u: AuthUser = {
@@ -138,7 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         firstName: data.user?.username || '',
         fullName: data.user?.username || '',
       }
-      if (shouldPersistBearerToken()) {
+      if (persistBearerToken && data.token) {
         localStorage.setItem(TOKEN_KEY, data.token)
       } else {
         localStorage.removeItem(TOKEN_KEY)

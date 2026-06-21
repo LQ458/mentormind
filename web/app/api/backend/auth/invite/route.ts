@@ -34,7 +34,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (data?.success && typeof data?.token === 'string' && data.token) {
-      const response = NextResponse.json(data, { status: res.status });
+      const responseBody = process.env.NODE_ENV === 'production'
+        ? { ...data, token: undefined }
+        : data
+      const response = NextResponse.json(responseBody, { status: res.status });
       response.cookies.set('mm_token', data.token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
