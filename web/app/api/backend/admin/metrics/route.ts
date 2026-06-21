@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
       headers: backendHeaders(req),
       cache: 'no-store',
     })
-    return await backendJsonResponse(res, 'admin metrics proxy')
+    return await backendJsonResponse(res, 'admin metrics proxy', { sanitizeErrors: true })
   } catch (err) {
     console.error('[admin metrics proxy] error:', err)
     return proxyFailureResponse('Failed to fetch admin metrics')

@@ -16,7 +16,7 @@ export async function GET(
       method: 'GET',
       headers: backendHeaders(req, { 'Content-Type': 'application/json' }),
     })
-    return await backendJsonResponse(res, 'admin feedback report context proxy')
+    return await backendJsonResponse(res, 'admin feedback report context proxy', { sanitizeErrors: true })
   } catch (err) {
     console.error('[admin feedback report context proxy] error:', err)
     return proxyFailureResponse('Failed to fetch feedback report context')

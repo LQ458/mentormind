@@ -68,9 +68,22 @@ export function backendErrorResponse(
 export async function backendJsonResponse(
   response: Response,
   scope: string,
-  options: { emptyBody?: unknown; invalidMessage?: string } = {},
+  options: {
+    emptyBody?: unknown
+    invalidMessage?: string
+    sanitizeErrors?: boolean
+    errorMessage?: string
+  } = {},
 ): Promise<NextResponse> {
   const text = await response.text()
+  if (!response.ok && options.sanitizeErrors) {
+    if (text) logBackendProxyError(scope, response.status, text)
+    return backendErrorResponse(
+      options.errorMessage || 'Backend request failed',
+      response.status,
+    )
+  }
+
   if (!text) {
     return NextResponse.json(options.emptyBody ?? {}, { status: response.status })
   }

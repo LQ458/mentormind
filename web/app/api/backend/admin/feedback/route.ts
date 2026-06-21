@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
       method: 'GET',
       headers,
     })
-    return await backendJsonResponse(res, 'admin feedback proxy')
+    return await backendJsonResponse(res, 'admin feedback proxy', { sanitizeErrors: true })
   } catch (err) {
     console.error('[admin feedback proxy] error:', err)
     return proxyFailureResponse('Failed to fetch feedback')

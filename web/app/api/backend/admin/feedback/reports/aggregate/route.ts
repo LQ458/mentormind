@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
       method: 'GET',
       headers: backendHeaders(req, { 'Content-Type': 'application/json' }),
     })
-    return await backendJsonResponse(res, 'admin feedback reports aggregate proxy')
+    return await backendJsonResponse(res, 'admin feedback reports aggregate proxy', { sanitizeErrors: true })
   } catch (err) {
     console.error('[admin feedback reports aggregate proxy] error:', err)
     return proxyFailureResponse('Failed to fetch feedback report aggregate')
