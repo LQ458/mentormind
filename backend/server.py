@@ -2072,6 +2072,7 @@ class InviteLoginPayload(BaseModel):
 INVITE_USERNAME_RE = re.compile(r"^[\w.-]{2,40}$", re.UNICODE)
 INVITE_CODE_RE = re.compile(r"^[A-Z0-9_-]{4,64}$")
 INVITE_PASSWORD_MAX_BYTES = 72
+INVITE_AUTH_INVALID_CREDENTIALS_DETAIL = "Incorrect username or password"
 
 
 def _validate_invite_username(value: str) -> str:
@@ -2101,6 +2102,10 @@ def _validate_invite_code(value: str) -> str:
             detail="Invite code must be 4-64 characters and can only use letters, numbers, dash, or underscore",
         )
     return code
+
+
+def _invalid_invite_credentials() -> HTTPException:
+    return HTTPException(status_code=401, detail=INVITE_AUTH_INVALID_CREDENTIALS_DETAIL)
 
 
 def _hash_password(password: str) -> str:
@@ -2165,11 +2170,11 @@ async def invite_login(request: Request):
         if not invite_code:
             user = db.query(User).filter(User.username == username).first()
             if not user:
-                raise HTTPException(status_code=401, detail="User not found. Please register first.")
+                raise _invalid_invite_credentials()
             if user.hashed_password == "invite_managed":
                 raise HTTPException(status_code=401, detail="This account was created via invite-only mode and requires the same device/browser. Please re-register with a password.")
             if not _verify_password(password, user.hashed_password):
-                raise HTTPException(status_code=401, detail="Incorrect password")
+                raise _invalid_invite_credentials()
             if not user.is_active:
                 raise HTTPException(status_code=403, detail="Account is inactive")
 

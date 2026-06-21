@@ -83,3 +83,11 @@ def test_invite_code_validation_rejects_unsafe_codes(value):
         server._validate_invite_code(value)
 
     assert exc_info.value.status_code == 400
+
+
+def test_invalid_invite_credentials_use_generic_detail():
+    exc = server._invalid_invite_credentials()
+
+    assert exc.status_code == 401
+    assert exc.detail == "Incorrect username or password"
+    assert "not found" not in exc.detail.lower()
