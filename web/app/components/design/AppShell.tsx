@@ -14,6 +14,14 @@ import FeedbackHub from '../FeedbackHub'
 import ReportIssueButton from '../ReportIssueButton'
 import { OPEN_FEEDBACK_EVENT, OPEN_SURVEY_EVENT, type FeedbackLaunchContext } from '../feedbackEvents'
 
+function feedbackSurfaceForPath(pathname: string): string {
+  const safe = pathname
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+  return safe ? `page:${safe}` : 'page:home'
+}
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || '/'
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -115,7 +123,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         }}
       />
       <ReportIssueButton
-        surface="global"
+        surface={feedbackSurfaceForPath(pathname)}
         snapshot={{ area: 'app_shell', page: pathname }}
         fixed
       />
