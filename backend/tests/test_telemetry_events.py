@@ -401,9 +401,20 @@ def test_feedback_report_cluster_summaries_rank_by_priority_and_count():
             "severity": "idea",
             "user_note": "Add another color theme.",
         },
+        {
+            "id": "evt-4",
+            "report_id": "report-4",
+            "created_at": "2026-06-20T11:00:00",
+            "surface": "auth",
+            "feedback_kind": "bug",
+            "severity": "blocked",
+            "triage_status": "resolved",
+            "user_note": "Login is broken.",
+        },
     ])
 
     clusters = server._feedback_report_cluster_summaries(rows)
+    clusters_with_closed = server._feedback_report_cluster_summaries(rows, include_closed=True)
 
     assert clusters[0]["count"] == 2
     assert clusters[0]["duplicate_count"] == 1
@@ -411,6 +422,8 @@ def test_feedback_report_cluster_summaries_rank_by_priority_and_count():
     assert clusters[0]["severity"] == "blocked"
     assert clusters[0]["representative_report_id"] == "report-2"
     assert clusters[0]["priority_score"] > clusters[1]["priority_score"]
+    assert all(cluster["triage_status"] != "resolved" for cluster in clusters)
+    assert any(cluster["triage_status"] == "resolved" for cluster in clusters_with_closed)
 
 
 def test_feedback_report_matches_supports_source_filter():

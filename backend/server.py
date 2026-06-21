@@ -7578,9 +7578,16 @@ def _feedback_report_priority_queue(rows: List[Dict[str, Any]], limit: int = 10)
     )[:limit]
 
 
-def _feedback_report_cluster_summaries(rows: List[Dict[str, Any]], limit: int = 20) -> List[Dict[str, Any]]:
+def _feedback_report_cluster_summaries(
+    rows: List[Dict[str, Any]],
+    limit: int = 20,
+    *,
+    include_closed: bool = False,
+) -> List[Dict[str, Any]]:
     cluster_map: Dict[str, Dict[str, Any]] = {}
     for row in rows:
+        if not include_closed and row.get("triage_status") in FEEDBACK_REPORT_CLOSED_TRIAGE_STATUSES:
+            continue
         key = str(row.get("cluster_key") or _feedback_report_unique_key(row))
         current = cluster_map.get(key)
         ranked = _feedback_report_with_priority(row)
