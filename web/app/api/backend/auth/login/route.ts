@@ -1,8 +1,13 @@
 export const dynamic = 'force-dynamic';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { backendJsonResponse, proxyFailureResponse } from '../../_proxyErrors'
 
 const BACKEND = process.env.BACKEND_URL || 'http://localhost:8000';
+
+function noStore(response: NextResponse): NextResponse {
+  response.headers.set('Cache-Control', 'no-store')
+  return response
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,9 +17,9 @@ export async function POST(req: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    return await backendJsonResponse(res, 'auth/login proxy');
+    return noStore(await backendJsonResponse(res, 'auth/login proxy'));
   } catch (err) {
     console.error('[auth/login proxy] error:', err)
-    return proxyFailureResponse('Failed to login')
+    return noStore(proxyFailureResponse('Failed to login'))
   }
 }
