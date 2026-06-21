@@ -205,6 +205,16 @@ function removeStorageValue(storage: Storage | undefined, key: string): void {
   }
 }
 
+function writeStorageValue(storage: Storage | undefined, key: string, value: string): boolean {
+  try {
+    if (!storage) return false
+    storage.setItem(key, value)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function readPendingFeedbackEvents(): TelemetryPayload[] {
   if (typeof window === 'undefined') return []
   const merged = new Map<string, TelemetryPayload>()
@@ -231,11 +241,10 @@ function writePendingFeedbackEvents(events: TelemetryPayload[]): void {
       removeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY)
       removeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY)
     } else {
-      try {
-        window.sessionStorage.setItem(PENDING_FEEDBACK_SESSION_KEY, text)
+      if (writeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY, text)) {
         removeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY)
-      } catch {
-        removeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY)
+      } else if (writeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY, text)) {
+        removeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY)
       }
     }
   } catch {
