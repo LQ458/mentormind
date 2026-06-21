@@ -33,6 +33,7 @@ export default function ReportIssueButton({
   const { language } = useLanguage()
   const lang = language === 'zh' ? 'zh' : 'en'
   const text = label || (lang === 'zh' ? '报告问题' : 'Report')
+  const feedbackSource = fixed ? 'global_feedback_button' : 'local_report_button'
 
   const baseClass = compact
     ? 'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-amber-300/70 bg-amber-50 px-3 text-xs font-semibold text-amber-800 shadow-sm hover:bg-amber-100'
@@ -55,6 +56,7 @@ export default function ReportIssueButton({
         })
         openFeedback({
           surface,
+          source: feedbackSource,
           interactionId: makeInteractionId(surface),
           feedbackKind,
           severity,

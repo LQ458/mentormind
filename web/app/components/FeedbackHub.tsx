@@ -218,6 +218,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     const userNote = message.trim()
     const expectedBehavior = expected.trim()
     const surface = launchContext?.surface || 'global'
+    const source = launchContext?.source || (surface === 'global' ? 'global_feedback_button' : 'local_report_button')
     const reportId = makeReportId(kind, surface)
     const context = getTelemetryContextSnapshot({
       ...(launchContext?.snapshot || {}),
@@ -241,7 +242,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     setSubmitError(null)
     const result = await trackNow('feedback_moment', {
       schema: 'mentormind.feedback_hub.v1',
-      source: launchContext?.surface ? 'local_report_button' : 'global_feedback_button',
+      source,
       report_id: reportId,
       feedback_kind: kind,
       surface,

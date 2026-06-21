@@ -94,6 +94,7 @@ export default function Topbar({ onMenuClick, menuOpen = false }: { onMenuClick?
           track('feedback_click', { source: 'topbar_feedback_icon', surface: 'topbar' })
           openFeedback({
             surface: 'topbar',
+            source: 'global_feedback_button',
             snapshot: { page_title: language === 'zh' ? meta.zh : meta.en },
           })
         }}

@@ -5,9 +5,11 @@ export const OPEN_FEEDBACK_EVENT = 'mm:open-feedback'
 
 export type FeedbackKind = 'bug' | 'function' | 'feeling' | 'general'
 export type FeedbackSeverity = 'blocked' | 'wrong' | 'confusing' | 'slow' | 'visual' | 'quality' | 'idea'
+export type FeedbackSource = 'global_feedback_button' | 'local_report_button'
 
 export interface FeedbackLaunchContext {
   surface?: string
+  source?: FeedbackSource
   interactionId?: string
   feedbackKind?: FeedbackKind
   severity?: FeedbackSeverity
