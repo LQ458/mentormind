@@ -227,8 +227,8 @@ function readPendingFeedbackEvents(): TelemetryPayload[] {
   return Array.from(merged.values()).slice(-PENDING_FEEDBACK_LIMIT)
 }
 
-function writePendingFeedbackEvents(events: TelemetryPayload[]): void {
-  if (typeof window === 'undefined') return
+function writePendingFeedbackEvents(events: TelemetryPayload[]): boolean {
+  if (typeof window === 'undefined') return false
   try {
     const bounded = events.slice(-PENDING_FEEDBACK_LIMIT)
     let text = JSON.stringify(bounded)
@@ -240,20 +240,25 @@ function writePendingFeedbackEvents(events: TelemetryPayload[]): void {
     if (trimmed.length === 0) {
       removeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY)
       removeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY)
+      return true
     } else {
       if (writeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY, text)) {
         removeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY)
-      } else if (writeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY, text)) {
+        return true
+      }
+      if (writeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY, text)) {
         removeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY)
+        return true
       }
     }
   } catch {
     // Losing the fallback buffer must not affect the app.
   }
+  return false
 }
 
-function queuePendingFeedbackEvent(event: TelemetryPayload): void {
-  if (event.event_type !== 'feedback_moment') return
+function queuePendingFeedbackEvent(event: TelemetryPayload): boolean {
+  if (event.event_type !== 'feedback_moment') return false
   try {
     const existing = readPendingFeedbackEvents()
     const key = pendingFeedbackKey(event)
@@ -261,11 +266,13 @@ function queuePendingFeedbackEvent(event: TelemetryPayload): void {
       ...existing.filter((item) => pendingFeedbackKey(item) !== key),
       event,
     ]
-    writePendingFeedbackEvents(next)
-    schedulePendingFeedbackFlush(15000)
+    const queued = writePendingFeedbackEvents(next)
+    if (queued) schedulePendingFeedbackFlush(15000)
+    return queued
   } catch {
     // swallow
   }
+  return false
 }
 
 async function flushPendingFeedbackEvents(): Promise<void> {
@@ -463,8 +470,7 @@ export async function trackNow(
     rememberEvent(event)
     const result = await sendInteractive(event)
     if (result === 'retry') {
-      queuePendingFeedbackEvent(event)
-      return 'queued'
+      return queuePendingFeedbackEvent(event) ? 'queued' : 'rejected'
     }
     if (result === 'recorded' && type === 'feedback_moment') {
       void flushPendingFeedbackEvents().catch(() => {})
