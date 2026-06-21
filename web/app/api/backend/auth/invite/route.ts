@@ -4,6 +4,11 @@ import { backendErrorResponse, logBackendProxyError, proxyFailureResponse } from
 
 const BACKEND = process.env.BACKEND_URL || 'http://localhost:8000';
 
+function noStore(response: NextResponse): NextResponse {
+  response.headers.set('Cache-Control', 'no-store')
+  return response
+}
+
 async function readBackendJson(res: Response): Promise<Record<string, unknown> | null> {
   const text = await res.text()
   if (!text) return {}
@@ -27,10 +32,10 @@ export async function POST(req: NextRequest) {
     const data = await readBackendJson(res)
     if (!data) {
       const status = res.status >= 400 ? res.status : 502
-      return backendErrorResponse('Auth service returned an invalid response', status, {
+      return noStore(backendErrorResponse('Auth service returned an invalid response', status, {
         code: 'invalid_backend_response',
         detail: 'The backend returned an invalid response.',
-      })
+      }))
     }
 
     if (data?.success && typeof data?.token === 'string' && data.token) {
@@ -45,12 +50,12 @@ export async function POST(req: NextRequest) {
         maxAge: 60 * 60 * 24 * 30,
         path: '/',
       });
-      return response;
+      return noStore(response);
     }
 
-    return NextResponse.json(data, { status: res.status });
+    return noStore(NextResponse.json(data, { status: res.status }));
   } catch (err) {
     console.error('[auth/invite proxy] error:', err)
-    return proxyFailureResponse('Failed to authenticate')
+    return noStore(proxyFailureResponse('Failed to authenticate'))
   }
 }
