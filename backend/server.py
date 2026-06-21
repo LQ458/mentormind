@@ -5956,10 +5956,10 @@ async def gaokao_chat(
             "suggested_actions": result["suggested_actions"],
             "needs_search": result["needs_search"],
         }
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"Gaokao chat failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Gaokao chat failed")
+        raise HTTPException(status_code=500, detail="Gaokao chat failed")
 
 
 @app.post("/gaokao/practice")
@@ -5983,9 +5983,9 @@ async def gaokao_practice(
         return {"success": True, "problems": result}
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Gaokao practice generation failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Gaokao practice generation failed")
+        raise HTTPException(status_code=500, detail="Failed to generate Gaokao practice")
 
 
 @app.post("/gaokao/save-plan")
@@ -6045,10 +6045,10 @@ async def gaokao_save_plan(
             "total_units": plan.total_units,
             "status": plan.status,
         }
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"Gaokao save plan failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Gaokao save plan failed")
+        raise HTTPException(status_code=500, detail="Failed to save Gaokao plan")
 
 
 @app.get("/gaokao/sessions/{plan_id}")
@@ -6079,9 +6079,9 @@ async def get_gaokao_sessions(
         }
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Failed to fetch gaokao sessions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Failed to fetch gaokao sessions")
+        raise HTTPException(status_code=500, detail="Failed to fetch Gaokao sessions")
 
 
 # ─── Board Streaming Endpoints (B4 + B6) ────────────────────────────────────
