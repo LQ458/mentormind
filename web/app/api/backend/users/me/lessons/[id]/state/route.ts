@@ -10,7 +10,8 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const res = await fetch(`${BACKEND}/users/me/lessons/${params.id}/state`, {
+    const id = encodeURIComponent(params.id)
+    const res = await fetch(`${BACKEND}/users/me/lessons/${id}/state`, {
       headers: backendHeaders(req),
     });
     return await backendJsonResponse(res, 'users/me lesson state proxy')
