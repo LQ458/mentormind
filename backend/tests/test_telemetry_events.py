@@ -303,6 +303,28 @@ def test_feedback_report_query_normalization_trims_and_caps_search_text():
     assert server._normalize_feedback_report_query(None) == ""
 
 
+def test_feedback_report_choice_filters_trim_and_normalize_valid_values():
+    assert (
+        server._normalize_feedback_report_choice_filter(" Bug ", server.FEEDBACK_MOMENT_ALLOWED_KINDS)
+        == "bug"
+    )
+    assert (
+        server._normalize_feedback_report_choice_filter("WRONG", server.FEEDBACK_MOMENT_ALLOWED_SEVERITIES)
+        == "wrong"
+    )
+    assert (
+        server._normalize_feedback_report_choice_filter("not-a-kind", server.FEEDBACK_MOMENT_ALLOWED_KINDS)
+        == "not-a-kind"
+    )
+    assert server._normalize_feedback_report_choice_filter(None, server.FEEDBACK_MOMENT_ALLOWED_KINDS) is None
+
+
+def test_feedback_report_token_filters_trim_without_disabling_invalid_values():
+    assert server._normalize_feedback_report_token_filter(" study-plan:hero ") == "study-plan:hero"
+    assert server._normalize_feedback_report_token_filter(" ") is None
+    assert server._normalize_feedback_report_token_filter("../secret") == "../secret"
+
+
 def test_feedback_report_id_query_accepts_only_safe_exact_ids():
     assert (
         server._normalize_feedback_report_id_query(" fb-study-plan-bug-abc123 ")

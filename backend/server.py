@@ -7313,6 +7313,19 @@ def _normalize_feedback_report_query(query: Optional[str]) -> str:
     return str(query or "").strip()[:FEEDBACK_REPORT_QUERY_MAX_CHARS]
 
 
+def _normalize_feedback_report_choice_filter(value: Optional[str], allowed: Set[str]) -> Optional[str]:
+    raw = str(value or "").strip()[:FEEDBACK_REPORT_QUERY_MAX_CHARS]
+    if not raw:
+        return None
+    normalized = raw.lower()
+    return normalized if normalized in allowed else raw
+
+
+def _normalize_feedback_report_token_filter(value: Optional[str]) -> Optional[str]:
+    raw = str(value or "").strip()[:FEEDBACK_REPORT_QUERY_MAX_CHARS]
+    return raw or None
+
+
 def _normalize_feedback_report_id_query(report_id: Optional[str]) -> str:
     value = str(report_id or "").strip()[:FEEDBACK_REPORT_QUERY_MAX_CHARS]
     return value if value and FEEDBACK_MOMENT_SAFE_TOKEN_RE.fullmatch(value) else ""
@@ -7449,6 +7462,10 @@ async def get_admin_feedback_reports(
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
     search_query = _normalize_feedback_report_query(q)
+    source_filter = _normalize_feedback_report_choice_filter(source, FEEDBACK_MOMENT_ALLOWED_SOURCES)
+    surface_filter = _normalize_feedback_report_token_filter(surface)
+    kind_filter = _normalize_feedback_report_choice_filter(kind, FEEDBACK_MOMENT_ALLOWED_KINDS)
+    severity_filter = _normalize_feedback_report_choice_filter(severity, FEEDBACK_MOMENT_ALLOWED_SEVERITIES)
     start_dt = _parse_admin_date_param("start_date", start_date)
     end_dt = _parse_admin_date_param("end_date", end_date)
 
@@ -7469,7 +7486,13 @@ async def get_admin_feedback_reports(
             _feedback_report_to_dict(event, testers.get(str(event.user_id or "")))
             for event in events
         )
-        if _feedback_report_matches(row, source=source, surface=surface, kind=kind, severity=severity)
+        if _feedback_report_matches(
+            row,
+            source=source_filter,
+            surface=surface_filter,
+            kind=kind_filter,
+            severity=severity_filter,
+        )
         and _feedback_report_matches_query(row, search_query)
     ]
     unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
@@ -7482,10 +7505,10 @@ async def get_admin_feedback_reports(
         "offset": offset,
         "truncated": len(events) >= raw_limit,
         "filters": {
-            "source": source,
-            "surface": surface,
-            "kind": kind,
-            "severity": severity,
+            "source": source_filter,
+            "surface": surface_filter,
+            "kind": kind_filter,
+            "severity": severity_filter,
             "q": search_query,
             "report_id": _normalize_feedback_report_id_query(report_id),
             "start_date": start_date,
