@@ -241,10 +241,10 @@ function writePendingFeedbackEvents(events: TelemetryPayload[]): void {
       removeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY)
       removeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY)
     } else {
-      if (writeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY, text)) {
-        removeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY)
-      } else if (writeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY, text)) {
+      if (writeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY, text)) {
         removeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY)
+      } else if (writeStorageValue(window.sessionStorage, PENDING_FEEDBACK_SESSION_KEY, text)) {
+        removeStorageValue(window.localStorage, PENDING_FEEDBACK_LOCAL_KEY)
       }
     }
   } catch {

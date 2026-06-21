@@ -337,8 +337,8 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
             <div className="mt-1 max-w-sm text-xs leading-5 text-gray-500">
               {submittedMode === 'queued'
                 ? (lang === 'zh'
-                  ? '网络或服务短暂不可用时，这条反馈仍会留在本次浏览器会话里。'
-                  : 'If the network or service is temporarily unavailable, this report stays in this browser session.')
+                  ? '网络或服务短暂不可用时，这条反馈仍会留在这个浏览器里。'
+                  : 'If the network or service is temporarily unavailable, this report stays in this browser.')
                 : submittedMode === 'local'
                   ? (lang === 'zh'
                     ? '请复制摘要发给我们；里面包含编号、页面、设备和你的原始反馈。'

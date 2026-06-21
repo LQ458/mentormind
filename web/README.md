@@ -69,6 +69,8 @@ The frontend has three first-party feedback/report entry points:
 
 All paths send `feedback_moment` telemetry events through `app/lib/telemetry.ts` to `POST /api/backend/telemetry/event`, including a bounded context snapshot: route, viewport, browser, user note, expected behavior, recent breadcrumbs, recent failed network calls, WebSocket errors, and surface-specific app state.
 
+If a feedback submit hits a transient network/backend failure, `trackNow('feedback_moment')` queues the structured event in browser storage and retries automatically on later app activity.
+
 `ErrorBoundary` also records React render crashes as `error_console` telemetry and shows a local report button with the error context.
 
 When adding a new major surface, add a local `ReportIssueButton` or `FeedbackMoment` to the exact user-visible card/turn/error banner instead of relying only on the global fixed button.
