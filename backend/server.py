@@ -138,6 +138,14 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Path-param validator: session_id must look like a UUID-ish lowercase hex
 # string (allow dashes; permissive on length to accommodate existing keys).
 _SESSION_ID_RE = re.compile(r"[0-9a-f-]{8,64}", re.I)
+JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+
+
+def _validate_job_id(job_id: str) -> str:
+    safe_job_id = str(job_id or "").strip()
+    if not JOB_ID_RE.fullmatch(safe_job_id):
+        raise HTTPException(status_code=400, detail="Invalid job id")
+    return safe_job_id
 
 
 def _validate_session_id_or_400(session_id: str) -> None:
@@ -2276,6 +2284,7 @@ async def get_lesson_generation_metrics(current_user: User = Depends(get_current
 @track_async_performance("get_detailed_job_status", "monitoring")
 async def get_detailed_job_status(job_id: str, current_user: User = Depends(get_current_user)):
     """Enhanced job status with performance metrics"""
+    job_id = _validate_job_id(job_id)
     basic_status = await get_job_status(job_id, current_user=current_user)
     job_metrics = celery_monitor.get_job_metrics(job_id)
     
@@ -2563,6 +2572,7 @@ async def create_class(
 @app.get("/job-status/{job_id}")
 async def get_job_status(job_id: str, current_user: User = Depends(get_current_user)):
     """Check status of a Celery job and return result from Redis if completed"""
+    job_id = _validate_job_id(job_id)
     from celery.result import AsyncResult
     from celery_app import celery_app, _redis_client
     
@@ -2609,6 +2619,8 @@ async def get_job_status(job_id: str, current_user: User = Depends(get_current_u
 @app.get("/job-stream/{job_id}")
 async def stream_job_status(job_id: str, current_user: User = Depends(get_current_user)):
     """Server-Sent Events (SSE) stream for job status updates"""
+    job_id = _validate_job_id(job_id)
+
     async def event_generator():
         from celery.result import AsyncResult
         from celery_app import celery_app, _redis_client
