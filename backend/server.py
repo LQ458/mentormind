@@ -2766,7 +2766,7 @@ async def ingest_audio(
         allowed_types = {"audio/wav", "audio/mpeg", "audio/mp4", "audio/ogg",
                          "audio/flac", "audio/x-m4a", "audio/webm"}
         if file.content_type and file.content_type not in allowed_types:
-            raise HTTPException(status_code=400, detail=f"Unsupported format: {file.content_type}")
+            raise HTTPException(status_code=415, detail=f"Unsupported format: {file.content_type}")
 
         suffix = os.path.splitext(file.filename or ".wav")[1] or ".wav"
         job_id = f"asr_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -2848,7 +2848,7 @@ async def ingest_image(
         allowed_types = {"image/jpeg", "image/png", "image/bmp", "image/tiff",
                          "image/webp", "application/pdf"}
         if file.content_type and file.content_type not in allowed_types:
-            raise HTTPException(status_code=400, detail=f"Unsupported format: {file.content_type}")
+            raise HTTPException(status_code=415, detail=f"Unsupported format: {file.content_type}")
 
         suffix = os.path.splitext(file.filename or ".jpg")[1] or ".jpg"
         job_id = f"ocr_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"

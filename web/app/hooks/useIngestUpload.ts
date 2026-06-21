@@ -70,7 +70,13 @@ function classifyUploadFailure(status: number | null, data: any, fallback: strin
   if (status === 413 || lower.includes('413 request entity too large') || lower.includes('request entity too large')) {
     return { type: 'too_large', detail }
   }
-  if (status === 400 || lower.includes('unsupported format') || lower.includes('unsupported file')) {
+  if (
+    status === 400 ||
+    status === 415 ||
+    code === 'unsupported_media_type' ||
+    lower.includes('unsupported format') ||
+    lower.includes('unsupported file')
+  ) {
     return { type: 'unsupported', detail }
   }
   if (status === 504 || lower.includes('timed out') || lower.includes('timeout')) {
