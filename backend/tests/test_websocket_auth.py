@@ -70,3 +70,16 @@ def test_invite_password_validation_rejects_unsafe_passwords(value):
         server._validate_invite_password(value)
 
     assert exc_info.value.status_code == 400
+
+
+def test_invite_code_validation_normalizes_safe_codes():
+    assert server._validate_invite_code(" mm-nx7k-alpha-2024 ") == "MM-NX7K-ALPHA-2024"
+    assert server._validate_invite_code("test_code_1") == "TEST_CODE_1"
+
+
+@pytest.mark.parametrize("value", ["abc", "bad code", "bad@example.com", "x" * 65])
+def test_invite_code_validation_rejects_unsafe_codes(value):
+    with pytest.raises(server.HTTPException) as exc_info:
+        server._validate_invite_code(value)
+
+    assert exc_info.value.status_code == 400

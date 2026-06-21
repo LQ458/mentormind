@@ -2070,6 +2070,7 @@ class InviteLoginPayload(BaseModel):
 
 
 INVITE_USERNAME_RE = re.compile(r"^[\w.-]{2,40}$", re.UNICODE)
+INVITE_CODE_RE = re.compile(r"^[A-Z0-9_-]{4,64}$")
 INVITE_PASSWORD_MAX_BYTES = 72
 
 
@@ -2090,6 +2091,16 @@ def _validate_invite_password(value: str) -> str:
     if len(password.encode("utf-8")) > INVITE_PASSWORD_MAX_BYTES:
         raise HTTPException(status_code=400, detail="Password must be at most 72 bytes")
     return password
+
+
+def _validate_invite_code(value: str) -> str:
+    code = value.strip().upper()
+    if not INVITE_CODE_RE.fullmatch(code):
+        raise HTTPException(
+            status_code=400,
+            detail="Invite code must be 4-64 characters and can only use letters, numbers, dash, or underscore",
+        )
+    return code
 
 
 def _hash_password(password: str) -> str:
@@ -2172,7 +2183,7 @@ async def invite_login(request: Request):
             }
 
         # ── Register mode: invite_code + username + password ──
-        invite_code = invite_code.upper()
+        invite_code = _validate_invite_code(invite_code)
         code_row = db.query(InviteCode).filter(InviteCode.code == invite_code).first()
         if not code_row:
             raise HTTPException(status_code=403, detail="Invalid invite code")

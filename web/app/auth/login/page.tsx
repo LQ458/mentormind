@@ -64,6 +64,14 @@ export default function LoginPage() {
       setError(language === 'zh' ? '密码最多 72 bytes' : 'Password must be at most 72 bytes')
       return
     }
+    if (code && !/^[A-Za-z0-9_-]{4,64}$/.test(code)) {
+      setError(
+        language === 'zh'
+          ? '邀请码需 4-64 个字符，只能使用字母、数字、短横线或下划线'
+          : 'Invite code must be 4-64 characters: letters, numbers, dash, or underscore',
+      )
+      return
+    }
 
     setError('')
     setSubmitting(true)
@@ -74,6 +82,12 @@ export default function LoginPage() {
       const msg = err?.message || ''
       if (msg.includes('403') || msg.includes('Invalid invite')) {
         setError(language === 'zh' ? '邀请码无效' : 'Invalid invite code')
+      } else if (msg.includes('Invite code must')) {
+        setError(
+          language === 'zh'
+            ? '邀请码需 4-64 个字符，只能使用字母、数字、短横线或下划线'
+            : 'Invite code must be 4-64 characters: letters, numbers, dash, or underscore',
+        )
       } else if (msg.includes('limit')) {
         setError(language === 'zh' ? '邀请码已达使用上限' : 'Invite code has reached its usage limit')
       } else if (msg.includes('409') || msg.includes('taken')) {
@@ -160,6 +174,7 @@ export default function LoginPage() {
             placeholder={language === 'zh' ? '邀请码（首次注册）' : 'Invite code for first-time registration'}
             autoComplete="one-time-code"
             disabled={submitting}
+            maxLength={64}
             className="h-12 w-full rounded-lg border border-[var(--line-strong)] bg-white px-4 text-base outline-none transition focus:border-[var(--accent)]"
           />
 
