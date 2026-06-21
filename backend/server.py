@@ -7584,11 +7584,14 @@ def _feedback_report_attach_clusters(rows: List[Dict[str, Any]]) -> List[Dict[st
 def _feedback_report_cluster_target_events(anchor_event: Any, candidate_events: List[Any]) -> List[Any]:
     """Return all candidate feedback reports that belong to the anchor issue cluster."""
     anchor_key = _feedback_report_unique_key(_feedback_report_to_dict(anchor_event))
+    anchor_simulation_source = _simulation_source_from_payload(getattr(anchor_event, "payload", None))
     targets: List[Any] = []
     seen_ids: Set[str] = set()
     for event in [anchor_event, *candidate_events]:
         event_id = str(getattr(event, "id", "") or "")
         if event_id in seen_ids or getattr(event, "event_type", "") != "feedback_moment":
+            continue
+        if _simulation_source_from_payload(getattr(event, "payload", None)) != anchor_simulation_source:
             continue
         if _feedback_report_unique_key(_feedback_report_to_dict(event)) == anchor_key:
             targets.append(event)

@@ -370,6 +370,65 @@ def test_feedback_report_cluster_target_events_returns_anchor_cluster_only():
     assert [event.id for event in targets] == ["evt-1", "evt-2"]
 
 
+def test_feedback_report_cluster_target_events_keeps_simulated_and_real_separate():
+    shared_payload = {
+        "user_note": "The unit generation spinner never ends.",
+        "expected_behavior": "Show generated units.",
+    }
+    real_anchor = SimpleNamespace(
+        id="evt-real",
+        event_type="feedback_moment",
+        created_at=datetime(2026, 6, 20, 8, 0, 0),
+        user_id="real-user",
+        session_id="session-real",
+        page="/study-plan",
+        url="/study-plan",
+        viewport_w=390,
+        viewport_h=844,
+        payload=valid_feedback_moment_payload(**shared_payload),
+    )
+    simulated_duplicate = SimpleNamespace(
+        id="evt-qa",
+        event_type="feedback_moment",
+        created_at=datetime(2026, 6, 20, 8, 1, 0),
+        user_id="qa-user",
+        session_id="session-qa",
+        page="/study-plan",
+        url="/study-plan",
+        viewport_w=390,
+        viewport_h=844,
+        payload=valid_feedback_moment_payload(
+            source="prod_autopilot_qa",
+            simulated=True,
+            simulation_source="prod_autopilot_qa",
+            report_id="fm-study_plan-review-qa123",
+            **shared_payload,
+        ),
+    )
+    real_duplicate = SimpleNamespace(
+        id="evt-real-2",
+        event_type="feedback_moment",
+        created_at=datetime(2026, 6, 20, 8, 2, 0),
+        user_id="real-user-2",
+        session_id="session-real-2",
+        page="/study-plan",
+        url="/study-plan",
+        viewport_w=390,
+        viewport_h=844,
+        payload=valid_feedback_moment_payload(
+            report_id="fm-study_plan-review-real456",
+            **shared_payload,
+        ),
+    )
+
+    targets = server._feedback_report_cluster_target_events(
+        real_anchor,
+        [simulated_duplicate, real_duplicate],
+    )
+
+    assert [event.id for event in targets] == ["evt-real", "evt-real-2"]
+
+
 def test_feedback_report_cluster_summaries_rank_by_priority_and_count():
     rows = server._feedback_report_attach_clusters([
         {
