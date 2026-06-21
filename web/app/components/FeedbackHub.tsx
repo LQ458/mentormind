@@ -212,7 +212,19 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     if (submitting) return
     const userNote = message.trim()
     const expectedBehavior = expected.trim()
-    if (!userNote && !expectedBehavior) {
+    const surface = launchContext?.surface || 'global'
+    const reportId = makeReportId(kind, surface)
+    const context = getTelemetryContextSnapshot({
+      ...(launchContext?.snapshot || {}),
+      feedback_kind: kind,
+      severity,
+      report_surface: surface,
+      report_id: reportId,
+      has_user_note: userNote.length > 0,
+      has_expected_behavior: expectedBehavior.length > 0,
+    })
+    const hasErrorContext = Array.isArray(context.recent_errors) && context.recent_errors.length > 0
+    if (!userNote && !expectedBehavior && !hasErrorContext) {
       setSubmitError(
         lang === 'zh'
           ? '写一句也可以。这样我们才能把这条反馈变成可复现的问题。'
@@ -222,8 +234,6 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     }
     setSubmitting(true)
     setSubmitError(null)
-    const surface = launchContext?.surface || 'global'
-    const reportId = makeReportId(kind, surface)
     const result = await trackNow('feedback_moment', {
       schema: 'mentormind.feedback_hub.v1',
       source: launchContext?.surface ? 'local_report_button' : 'global_feedback_button',
@@ -234,15 +244,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
       severity,
       user_note: userNote.slice(0, FEEDBACK_TEXT_LIMIT),
       expected_behavior: expectedBehavior.slice(0, FEEDBACK_TEXT_LIMIT),
-      context: getTelemetryContextSnapshot({
-        ...(launchContext?.snapshot || {}),
-        feedback_kind: kind,
-        severity,
-        report_surface: surface,
-        report_id: reportId,
-        has_user_note: userNote.length > 0,
-        has_expected_behavior: expectedBehavior.length > 0,
-      }),
+      context,
     })
     setSubmitting(false)
     if (result === 'rejected') {

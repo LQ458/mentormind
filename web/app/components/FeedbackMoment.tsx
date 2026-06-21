@@ -142,13 +142,23 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
     if (submitting) return
     const trimmedNote = note.trim()
     const trimmedExpected = expected.trim()
-    if (!trimmedNote && !trimmedExpected) {
+    const reportId = makeReportId(surface, interactionId)
+    const context = getTelemetryContextSnapshot({
+      ...(snapshot || {}),
+      report_id: reportId,
+      feedback_kind: 'bug',
+      severity,
+      report_surface: surface,
+      has_user_note: trimmedNote.length > 0,
+      has_expected_behavior: trimmedExpected.length > 0,
+    })
+    const hasErrorContext = Array.isArray(context.recent_errors) && context.recent_errors.length > 0
+    if (!trimmedNote && !trimmedExpected && !hasErrorContext) {
       setError(lang === 'zh' ? '写一句也可以，方便我们复现。' : 'Add one short note so we can reproduce it.')
       return
     }
     setSubmitting(true)
     setError(null)
-    const reportId = makeReportId(surface, interactionId)
     const result = await trackNow('feedback_moment', {
       schema: 'mentormind.feedback_moment.v1',
       source: 'inline_feedback_moment',
@@ -159,15 +169,7 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
       severity,
       user_note: trimmedNote.slice(0, FEEDBACK_TEXT_LIMIT),
       expected_behavior: trimmedExpected.slice(0, FEEDBACK_TEXT_LIMIT),
-      context: getTelemetryContextSnapshot({
-        ...(snapshot || {}),
-        report_id: reportId,
-        feedback_kind: 'bug',
-        severity,
-        report_surface: surface,
-        has_user_note: trimmedNote.length > 0,
-        has_expected_behavior: trimmedExpected.length > 0,
-      }),
+      context,
     })
     setSubmitting(false)
     if (result === 'rejected') {
