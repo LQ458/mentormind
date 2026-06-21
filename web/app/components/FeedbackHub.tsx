@@ -160,9 +160,13 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
   ): string => {
     const severityLabel = SEVERITIES.find((item) => item.value === severity)
     const page = typeof window === 'undefined' ? '' : window.location.pathname
+    const adminUrl = typeof window === 'undefined'
+      ? ''
+      : `${window.location.origin}/admin/feedback?report=${encodeURIComponent(reportId)}`
     return [
       lang === 'zh' ? 'MentorMind 反馈' : 'MentorMind feedback',
       `ID: ${reportId}`,
+      adminUrl ? `${lang === 'zh' ? '后台检索' : 'Admin lookup'}: ${adminUrl}` : '',
       `${lang === 'zh' ? '状态' : 'Status'}: ${mode === 'queued'
         ? (lang === 'zh' ? '已暂存待重试' : 'Queued for retry')
         : (lang === 'zh' ? '已记录' : 'Recorded')}`,
