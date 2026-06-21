@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo, Fragment } from 'react'
+import { useEffect, useState, useMemo, useRef, Fragment } from 'react'
 import { useLanguage } from '../../components/LanguageContext'
 import { PageHead, Section, Progress } from '../../components/design/primitives'
 
@@ -377,8 +377,11 @@ export default function AdminFeedbackPage() {
   const [reportsUniqueTotal, setReportsUniqueTotal] = useState(0)
   const [rows, setRows] = useState<FeedbackRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [statusCode, setStatusCode] = useState<number | null>(null)
+  const hasLoadedOnceRef = useRef(false)
+  const requestSeqRef = useRef(0)
 
   // Filters
   const [examFilter, setExamFilter] = useState<string>('')
@@ -400,7 +403,11 @@ export default function AdminFeedbackPage() {
   const [contextErrorByReportId, setContextErrorByReportId] = useState<Record<string, string>>({})
 
   const fetchData = async () => {
-    setLoading(true)
+    const requestSeq = requestSeqRef.current + 1
+    requestSeqRef.current = requestSeq
+    const firstLoad = !hasLoadedOnceRef.current
+    if (firstLoad) setLoading(true)
+    else setRefreshing(true)
     setError(null)
     setStatusCode(null)
     try {
@@ -429,6 +436,7 @@ export default function AdminFeedbackPage() {
 
       const failedResponse = [reportAggRes, reportListRes, aggRes, listRes].find((res) => !res.ok)
       if (failedResponse) {
+        if (requestSeq !== requestSeqRef.current) return
         setStatusCode(failedResponse.status)
         const message = await responseErrorMessage(failedResponse)
         if (failedResponse.status === 401 || failedResponse.status === 403) {
@@ -450,6 +458,7 @@ export default function AdminFeedbackPage() {
       const aggData = (await aggRes.json().catch(() => ({}))) as AggregateResponse
       const listData = (await listRes.json().catch(() => ({}))) as FeedbackListResponse
 
+      if (requestSeq !== requestSeqRef.current) return
       setReportsAggregate(reportAggData)
       setReports(reportListData.rows || [])
       setReportsTotal(reportListData.total || 0)
@@ -457,10 +466,15 @@ export default function AdminFeedbackPage() {
       setAggregate(aggData)
       setRows(listData.rows || [])
     } catch (err) {
+      if (requestSeq !== requestSeqRef.current) return
       console.error('[admin feedback] fetch failed:', err)
       setError(lang === 'zh' ? '加载失败' : 'Failed to load')
     } finally {
-      setLoading(false)
+      if (requestSeq === requestSeqRef.current) {
+        hasLoadedOnceRef.current = true
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
   }
 
@@ -812,6 +826,7 @@ export default function AdminFeedbackPage() {
                 <input
                   value={reportSearch}
                   onChange={(event) => setReportSearch(event.target.value)}
+                  aria-label={lang === 'zh' ? '搜索快速报告' : 'Search quick reports'}
                   placeholder={lang === 'zh' ? 'Report ID / 页面 / 描述' : 'Report ID / page / note'}
                   style={{
                     width: 220,
@@ -823,6 +838,11 @@ export default function AdminFeedbackPage() {
                   }}
                 />
               </label>
+              {refreshing && (
+                <span className="muted" style={{ alignSelf: 'center', fontSize: 12 }}>
+                  {lang === 'zh' ? '更新中…' : 'Updating…'}
+                </span>
+              )}
               <FilterSelect
                 label={lang === 'zh' ? '来源' : 'Source'}
                 value={sourceFilter}
