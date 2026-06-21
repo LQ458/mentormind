@@ -125,6 +125,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
   const [submittedSummary, setSubmittedSummary] = useState<string | null>(null)
   const [reportIdCopyState, setReportIdCopyState] = useState<CopyState>('idle')
   const [summaryCopyState, setSummaryCopyState] = useState<CopyState>('idle')
+  const [receiptOpen, setReceiptOpen] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -138,6 +139,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     setSubmittedSummary(null)
     setReportIdCopyState('idle')
     setSummaryCopyState('idle')
+    setReceiptOpen(false)
     setMessage('')
     setExpected('')
   }, [launchContext, open])
@@ -146,6 +148,8 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
 
   const selectedKind = KIND_OPTIONS.find((item) => item.value === kind) || KIND_OPTIONS[0]
   const hasDraft = message.trim().length > 0 || expected.trim().length > 0
+  const copyFailed = reportIdCopyState === 'failed' || summaryCopyState === 'failed'
+  const receiptVisible = receiptOpen || copyFailed
 
   const requestClose = () => {
     if (submitting) return
@@ -164,6 +168,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     if (!submittedReportId) return
     const ok = await copyText(submittedReportId)
     setReportIdCopyState(ok ? 'copied' : 'failed')
+    if (!ok) setReceiptOpen(true)
     window.setTimeout(() => setReportIdCopyState('idle'), ok ? 1400 : 2200)
   }
 
@@ -171,6 +176,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     if (!submittedSummary) return
     const ok = await copyText(submittedSummary)
     setSummaryCopyState(ok ? 'copied' : 'failed')
+    if (!ok) setReceiptOpen(true)
     window.setTimeout(() => setSummaryCopyState('idle'), ok ? 1400 : 2200)
   }
 
@@ -355,21 +361,36 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
                   </button>
                 </div>
                 {submittedSummary && (
-                  <div className="space-y-1">
-                    {(reportIdCopyState === 'failed' || summaryCopyState === 'failed') && (
-                      <div className="text-xs text-amber-700">
-                        {lang === 'zh'
-                          ? '复制失败时，可以点下面摘要框手动选择复制。'
-                          : 'If copy failed, tap the receipt below and copy it manually.'}
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setReceiptOpen((value) => !value)}
+                      aria-expanded={receiptVisible}
+                      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                    >
+                      <MessageSquare size={13} />
+                      {receiptVisible
+                        ? (lang === 'zh' ? '隐藏回执' : 'Hide receipt')
+                        : (lang === 'zh' ? '显示回执' : 'Show receipt')}
+                    </button>
+                    {receiptVisible && (
+                      <div className="space-y-1">
+                        {copyFailed && (
+                          <div className="text-xs text-amber-700">
+                            {lang === 'zh'
+                              ? '复制失败时，可以点下面摘要框手动选择复制。'
+                              : 'If copy failed, tap the receipt below and copy it manually.'}
+                          </div>
+                        )}
+                        <textarea
+                          readOnly
+                          value={submittedSummary}
+                          aria-label={lang === 'zh' ? '反馈回执摘要' : 'Feedback receipt summary'}
+                          className="min-h-[112px] w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-[11px] leading-5 text-gray-600"
+                          onFocus={(event) => event.currentTarget.select()}
+                        />
                       </div>
                     )}
-                    <textarea
-                      readOnly
-                      value={submittedSummary}
-                      aria-label={lang === 'zh' ? '反馈回执摘要' : 'Feedback receipt summary'}
-                      className="min-h-[112px] w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-[11px] leading-5 text-gray-600"
-                      onFocus={(event) => event.currentTarget.select()}
-                    />
                   </div>
                 )}
               </div>
