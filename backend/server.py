@@ -4,6 +4,8 @@ Production API with bilingual support and clean organization
 """
 
 import asyncio
+from collections import Counter
+import hashlib
 import importlib.util
 import json
 import logging
@@ -7298,6 +7300,8 @@ def _feedback_report_to_dict(event: TelemetryEvent, tester: Optional[Dict[str, A
         "triage_note": _sanitize_feedback_triage_note(payload.get("triage_note")),
         "triage_updated_at": _payload_str(payload, "triage_updated_at", 80),
         "triage_updated_by": _payload_str(payload, "triage_updated_by", 255),
+        "bug_key": _payload_str(payload, "bug_key", 160),
+        "issue_fingerprint": _payload_str(payload, "issue_fingerprint", 160),
         "interaction_id": _payload_str(payload, "interaction_id", 255),
         "report_id": _payload_str(payload, "report_id", 80),
         "user_note": _payload_str(payload, "user_note", 1200, redact_embedded_urls=True),
@@ -7413,12 +7417,66 @@ def _feedback_report_id_filter_clause(report_id: Optional[str]):
     return TelemetryEvent.payload["report_id"].as_string() == value
 
 
+def _feedback_report_normalized_text(value: Any, max_len: int = 160) -> str:
+    text = str(value or "").lower()
+    text = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:max_len]
+
+
+def _feedback_report_error_fingerprint(row: Dict[str, Any]) -> str:
+    recent_errors = row.get("recent_errors")
+    if not isinstance(recent_errors, list):
+        return ""
+    signatures: List[str] = []
+    for error in recent_errors[:3]:
+        if not isinstance(error, dict):
+            continue
+        payload = error.get("payload") if isinstance(error.get("payload"), dict) else error
+        signatures.append(_admin_telemetry_error_signature(payload))
+    return "|".join(sig for sig in signatures if sig)[:240]
+
+
 def _feedback_report_unique_key(row: Dict[str, Any]) -> str:
-    """Stable key for triage counts; only collapse reports with explicit ids."""
-    report_id = str(row.get("report_id") or "").strip()
-    if report_id:
-        return f"report:{report_id}"
-    return f"event:{row.get('id')}"
+    """Stable issue-cluster key for triage counts and duplicate grouping."""
+    explicit_key = str(
+        row.get("bug_key")
+        or row.get("issue_fingerprint")
+        or ""
+    ).strip()
+    if explicit_key and FEEDBACK_MOMENT_SAFE_TOKEN_RE.fullmatch(explicit_key):
+        return f"explicit:{explicit_key}"
+
+    note = _feedback_report_normalized_text(row.get("user_note"))
+    expected = _feedback_report_normalized_text(row.get("expected_behavior"))
+    error_sig = _feedback_report_error_fingerprint(row)
+    if len(f"{note} {expected}".strip()) < 12 and not error_sig:
+        return f"event:{row.get('id')}"
+
+    basis = [
+        str(row.get("surface") or ""),
+        str(row.get("feedback_kind") or ""),
+        str(row.get("severity") or ""),
+        str(row.get("route") or row.get("page") or ""),
+        note,
+        expected,
+        error_sig,
+    ]
+    digest = hashlib.sha256(json.dumps(basis, ensure_ascii=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:20]
+    return f"cluster:{digest}"
+
+
+def _feedback_report_attach_clusters(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    counts = Counter(_feedback_report_unique_key(row) for row in rows)
+    clustered: List[Dict[str, Any]] = []
+    for row in rows:
+        key = _feedback_report_unique_key(row)
+        with_cluster = dict(row)
+        with_cluster["cluster_key"] = key
+        with_cluster["cluster_size"] = int(counts.get(key, 1))
+        with_cluster["duplicate_count"] = max(0, int(counts.get(key, 1)) - 1)
+        clustered.append(with_cluster)
+    return clustered
 
 
 _FEEDBACK_PRIORITY_SEVERITY_SCORE = {
@@ -7458,6 +7516,11 @@ def _feedback_report_priority(row: Dict[str, Any]) -> Tuple[int, List[str]]:
     if row.get("expected_behavior"):
         score += 4
         reasons.append("has_expected")
+
+    cluster_size = int(row.get("cluster_size") or 1)
+    if cluster_size > 1:
+        score += min(30, (cluster_size - 1) * 10)
+        reasons.append(f"duplicates:{cluster_size}")
 
     return score, reasons
 
@@ -7575,6 +7638,7 @@ async def get_admin_feedback_reports(
         )
         and _feedback_report_matches_query(row, search_query)
     ]
+    rows = _feedback_report_attach_clusters(rows)
     unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
     return {
         "total": len(rows),
@@ -7723,13 +7787,12 @@ async def get_admin_feedback_reports_aggregate(
     if end_dt:
         q = q.filter(TelemetryEvent.created_at <= end_dt)
 
-    from collections import Counter
     events = q.order_by(TelemetryEvent.created_at.desc()).limit(5000).all()
     testers = _feedback_report_user_summaries(db, events)
-    rows = [
+    rows = _feedback_report_attach_clusters([
         _feedback_report_to_dict(event, testers.get(str(event.user_id or "")))
         for event in events
-    ]
+    ])
     unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
     priority_reports = _feedback_report_priority_queue(rows)
     by_source = Counter(row.get("source") or "unknown" for row in rows)

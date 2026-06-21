@@ -52,6 +52,11 @@ interface FeedbackReportRow {
   triage_note?: string
   triage_updated_at?: string
   triage_updated_by?: string
+  bug_key?: string
+  issue_fingerprint?: string
+  cluster_key?: string
+  cluster_size?: number
+  duplicate_count?: number
   interaction_id?: string
   report_id?: string
   user_note?: string
@@ -330,6 +335,7 @@ function reportMarkdown(
     `- Severity: ${r.severity || '—'}`,
     `- Triage status: ${r.triage_status || 'new'}`,
     `- Triage note: ${r.triage_note || '—'}`,
+    `- Similar reports: ${r.cluster_size || 1}`,
     `- Priority: ${r.priority_score ?? '—'}${r.priority_reasons?.length ? ` (${r.priority_reasons.join(', ')})` : ''}`,
     `- Page: ${page}`,
     `- URL: ${url}`,
@@ -427,7 +433,7 @@ async function copyText(text: string): Promise<boolean> {
 function downloadReportCsv(rows: FeedbackReportRow[]) {
   const headers = [
     'id', 'report_id', 'created_at', 'source', 'tester', 'signed_in_tester',
-    'surface', 'feedback_kind', 'severity', 'triage_status', 'triage_note', 'page', 'user_note', 'expected_behavior', 'captured_url',
+    'surface', 'feedback_kind', 'severity', 'triage_status', 'triage_note', 'cluster_key', 'cluster_size', 'page', 'user_note', 'expected_behavior', 'captured_url',
     'build', 'browser', 'recent_errors', 'app_snapshot', 'admin_lookup',
   ]
   const lines = [headers.join(',')]
@@ -435,7 +441,7 @@ function downloadReportCsv(rows: FeedbackReportRow[]) {
     lines.push([
       r.id, r.report_id || '', r.created_at, r.source || '',
       formatTesterForIssue(r), r.user_id ? 'true' : 'false',
-      r.surface || '', r.feedback_kind || '', r.severity || '', r.triage_status || 'new', r.triage_note || '', r.page || r.route || '',
+      r.surface || '', r.feedback_kind || '', r.severity || '', r.triage_status || 'new', r.triage_note || '', r.cluster_key || '', r.cluster_size || 1, r.page || r.route || '',
       r.user_note || '', r.expected_behavior || '', r.captured_url || r.url || '',
       compactJson(r.build), compactJson(r.browser), compactJson(r.recent_errors), compactJson(r.app_snapshot),
       adminReportLookupUrl(r) || 'Use Report ID in the admin dashboard for full tester details.',
@@ -990,7 +996,7 @@ export default function AdminFeedbackPage() {
                 value={String(reportsAggregate?.total ?? reportsTotal)}
               />
               <KpiCard
-                label={lang === 'zh' ? '去重问题数' : 'Unique reports'}
+                label={lang === 'zh' ? '去重问题数' : 'Unique issues'}
                 value={String(reportsAggregate?.unique_reports ?? reportsTotal)}
               />
               <KpiCard
@@ -998,7 +1004,7 @@ export default function AdminFeedbackPage() {
                 value={String(reportsTotal)}
               />
               <KpiCard
-                label={lang === 'zh' ? '筛选去重' : 'Filtered unique'}
+                label={lang === 'zh' ? '筛选去重' : 'Filtered issues'}
                 value={String(reportsUniqueTotal)}
               />
               <KpiCard
@@ -1049,6 +1055,7 @@ export default function AdminFeedbackPage() {
                       <Th>{lang === 'zh' ? '分数' : 'Score'}</Th>
                       <Th>{lang === 'zh' ? '严重度' : 'Severity'}</Th>
                       <Th>{lang === 'zh' ? '状态' : 'Status'}</Th>
+                      <Th>{lang === 'zh' ? '同类' : 'Similar'}</Th>
                       <Th>{lang === 'zh' ? '表面' : 'Surface'}</Th>
                       <Th>{lang === 'zh' ? '测试者' : 'Tester'}</Th>
                       <Th>Build</Th>
@@ -1066,6 +1073,7 @@ export default function AdminFeedbackPage() {
                             <Td>{r.priority_score ?? 0}</Td>
                             <Td>{r.severity || '—'}</Td>
                             <Td>{triageStatusLabel(r.triage_status, lang)}</Td>
+                            <Td>{r.cluster_size || 1}</Td>
                             <Td>{r.surface || r.page || r.route || '—'}</Td>
                             <Td>{formatTester(r)}</Td>
                             <Td>{formatBuild(r.build)}</Td>
@@ -1113,7 +1121,7 @@ export default function AdminFeedbackPage() {
                           {isPriorityOpen && (
                             <tr key={`priority-${r.id}-detail`}>
                               <td
-                                colSpan={9}
+                                colSpan={10}
                                 style={{
                                   background: 'var(--surface-2, #f5f7fa)',
                                   padding: 16,
@@ -1121,6 +1129,8 @@ export default function AdminFeedbackPage() {
                                 }}
                               >
                                 <DetailBlock label="Report ID" value={r.report_id || r.id} />
+                                <DetailBlock label={lang === 'zh' ? '同类上报数' : 'Similar reports'} value={String(r.cluster_size || 1)} />
+                                <DetailBlock label={lang === 'zh' ? '问题簇' : 'Issue cluster'} value={r.cluster_key} />
                                 <DetailBlock label={lang === 'zh' ? '状态' : 'Status'} value={triageStatusLabel(r.triage_status, lang)} />
                                 {renderTriageControls(r)}
                                 <DetailBlock label={lang === 'zh' ? '分拣备注' : 'Triage note'} value={r.triage_note} />
@@ -1274,6 +1284,7 @@ export default function AdminFeedbackPage() {
                       <Th>{lang === 'zh' ? '类型' : 'Kind'}</Th>
                       <Th>{lang === 'zh' ? '严重度' : 'Severity'}</Th>
                       <Th>{lang === 'zh' ? '状态' : 'Status'}</Th>
+                      <Th>{lang === 'zh' ? '同类' : 'Similar'}</Th>
                       <Th>{lang === 'zh' ? '页面' : 'Page'}</Th>
                       <Th>{lang === 'zh' ? '用户描述' : 'Note'}</Th>
                       <Th>{lang === 'zh' ? '错误线索' : 'Errors'}</Th>
@@ -1294,6 +1305,7 @@ export default function AdminFeedbackPage() {
                             <Td>{r.feedback_kind || '—'}</Td>
                             <Td>{r.severity || '—'}</Td>
                             <Td>{triageStatusLabel(r.triage_status, lang)}</Td>
+                            <Td>{r.cluster_size || 1}</Td>
                             <Td>{r.page || r.route || '—'}</Td>
                             <Td>
                               <span style={{ display: 'block', maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1345,7 +1357,7 @@ export default function AdminFeedbackPage() {
                           {isOpen && (
                             <tr key={`${r.id}-detail`}>
                               <td
-                                colSpan={12}
+                                colSpan={13}
                                 style={{
                                   background: 'var(--surface-2, #f5f7fa)',
                                   padding: 16,
@@ -1355,6 +1367,14 @@ export default function AdminFeedbackPage() {
                                 <DetailBlock
                                   label={lang === 'zh' ? 'Report ID' : 'Report ID'}
                                   value={r.report_id || r.id}
+                                />
+                                <DetailBlock
+                                  label={lang === 'zh' ? '同类上报数' : 'Similar reports'}
+                                  value={String(r.cluster_size || 1)}
+                                />
+                                <DetailBlock
+                                  label={lang === 'zh' ? '问题簇' : 'Issue cluster'}
+                                  value={r.cluster_key}
                                 />
                                 <DetailBlock
                                   label={lang === 'zh' ? '状态' : 'Status'}

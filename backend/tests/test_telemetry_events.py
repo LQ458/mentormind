@@ -240,12 +240,70 @@ def test_validate_feedback_moment_payload_rejects_empty_or_unstructured_reports(
     assert exc.value.status_code == 400
 
 
-def test_feedback_report_unique_key_dedupes_explicit_report_ids_only():
+def test_feedback_report_unique_key_groups_explicit_bug_keys():
     assert (
-        server._feedback_report_unique_key({"id": "1", "report_id": "qa-abc"})
-        == server._feedback_report_unique_key({"id": "2", "report_id": "qa-abc"})
+        server._feedback_report_unique_key({"id": "1", "bug_key": "qa-study-plan-spinner"})
+        == server._feedback_report_unique_key({"id": "2", "bug_key": "qa-study-plan-spinner"})
     )
-    assert server._feedback_report_unique_key({"id": "1", "report_id": ""}) != server._feedback_report_unique_key({"id": "2"})
+    assert server._feedback_report_unique_key({"id": "1", "bug_key": "../bad"}) != server._feedback_report_unique_key({"id": "2", "bug_key": "../bad"})
+
+
+def test_feedback_report_unique_key_clusters_similar_manual_reports():
+    first = {
+        "id": "1",
+        "surface": "study-plan",
+        "feedback_kind": "bug",
+        "severity": "blocked",
+        "page": "/study-plan",
+        "user_note": "The plan keeps spinning forever after I choose AP math.",
+        "expected_behavior": "Show all generated units.",
+    }
+    second = {
+        "id": "2",
+        "surface": "study-plan",
+        "feedback_kind": "bug",
+        "severity": "blocked",
+        "page": "/study-plan",
+        "user_note": "The plan keeps spinning forever after I choose AP math!",
+        "expected_behavior": "Show all generated units",
+    }
+
+    assert server._feedback_report_unique_key(first) == server._feedback_report_unique_key(second)
+    assert server._feedback_report_unique_key({**second, "severity": "wrong"}) != server._feedback_report_unique_key(first)
+
+
+def test_feedback_report_attach_clusters_marks_duplicate_counts():
+    rows = server._feedback_report_attach_clusters([
+        {
+            "id": "1",
+            "surface": "study-plan",
+            "feedback_kind": "bug",
+            "severity": "blocked",
+            "page": "/study-plan",
+            "user_note": "The unit generation spinner never ends.",
+        },
+        {
+            "id": "2",
+            "surface": "study-plan",
+            "feedback_kind": "bug",
+            "severity": "blocked",
+            "page": "/study-plan",
+            "user_note": "The unit generation spinner never ends.",
+        },
+        {
+            "id": "3",
+            "surface": "ask",
+            "feedback_kind": "bug",
+            "severity": "blocked",
+            "page": "/ask",
+            "user_note": "Bad",
+        },
+    ])
+
+    assert rows[0]["cluster_key"] == rows[1]["cluster_key"]
+    assert rows[0]["cluster_size"] == 2
+    assert rows[0]["duplicate_count"] == 1
+    assert rows[2]["cluster_size"] == 1
 
 
 def test_feedback_report_matches_supports_source_filter():
@@ -404,6 +462,7 @@ def test_feedback_report_priority_prefers_blocked_bug_with_errors():
         "user_note": "The plan never finishes.",
         "expected_behavior": "Show a failure state.",
         "recent_errors": [{"event_type": "error_network"}, {"event_type": "ws_close"}],
+        "cluster_size": 3,
     }
     low = {
         "severity": "idea",
@@ -419,6 +478,7 @@ def test_feedback_report_priority_prefers_blocked_bug_with_errors():
     assert "severity:blocked" in high_reasons
     assert "bug" in high_reasons
     assert "errors:2" in high_reasons
+    assert "duplicates:3" in high_reasons
     assert low_reasons == ["severity:idea", "has_note"]
 
 
@@ -466,7 +526,7 @@ def test_feedback_report_priority_queue_dedupes_and_orders_newest_ties():
 
     queue = server._feedback_report_priority_queue(rows, limit=3)
 
-    assert [row["id"] for row in queue] == ["newer-blocked", "newer-idea", "older-idea"]
+    assert [row["id"] for row in queue] == ["newer-blocked", "newer-idea"]
     assert queue[0]["priority_reasons"] == ["severity:blocked", "bug", "errors:1"]
     assert [row.get("report_id") for row in queue].count("same-bug") == 1
     assert "closed-blocked" not in [row["id"] for row in queue]
