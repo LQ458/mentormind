@@ -10,7 +10,8 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const res = await fetch(`${BACKEND}/users/me/notifications/${params.id}/dismiss`, {
+    const id = encodeURIComponent(params.id)
+    const res = await fetch(`${BACKEND}/users/me/notifications/${id}/dismiss`, {
       method: 'POST',
       headers: backendHeaders(req),
     });
