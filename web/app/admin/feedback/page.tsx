@@ -109,9 +109,27 @@ interface FeedbackReportsAggregateResponse {
   severity_distribution?: Record<string, number>
   status_distribution?: Record<string, number>
   page_distribution?: Record<string, number>
+  issue_clusters?: FeedbackIssueCluster[]
   priority_reports?: FeedbackReportRow[]
   truncated?: boolean
   error?: string
+}
+
+interface FeedbackIssueCluster {
+  cluster_key: string
+  count: number
+  duplicate_count: number
+  surface?: string
+  feedback_kind?: string
+  severity?: string
+  triage_status?: string
+  priority_score?: number
+  priority_reasons?: string[]
+  latest_created_at?: string
+  representative_report_id?: string
+  representative_event_id?: string
+  user_note?: string
+  expected_behavior?: string
 }
 
 interface FeedbackReportContextResponse {
@@ -929,6 +947,15 @@ export default function AdminFeedbackPage() {
   }, [reports])
 
   const priorityReports = reportsAggregate?.priority_reports || []
+  const issueClusters = reportsAggregate?.issue_clusters || []
+
+  const openIssueCluster = (cluster: FeedbackIssueCluster) => {
+    const lookup = cluster.representative_report_id || cluster.representative_event_id || ''
+    if (!lookup) return
+    setReportSearch(lookup)
+    setDebouncedReportSearch(lookup)
+    setExpandedReportId(null)
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -1055,6 +1082,78 @@ export default function AdminFeedbackPage() {
                 accent={(reportsAggregate?.severity_distribution?.blocked || 0) > 0 ? 'warn' : undefined}
               />
             </div>
+
+            {issueClusters.length > 0 && (
+              <div
+                style={{
+                  marginTop: 16,
+                  border: '1px solid var(--line, #e8ecf0)',
+                  borderRadius: 12,
+                  overflow: 'hidden',
+                  background: 'var(--surface, #fff)',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    alignItems: 'center',
+                    padding: '10px 12px',
+                    background: 'var(--surface-2, #f5f7fa)',
+                    borderBottom: '1px solid var(--line, #e8ecf0)',
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>
+                    {lang === 'zh' ? 'Top 问题簇' : 'Top issue clusters'}
+                  </div>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    {lang === 'zh' ? '按优先级和同类上报数汇总' : 'Grouped by priority and similar report count'}
+                  </div>
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <Th>{lang === 'zh' ? '分数' : 'Score'}</Th>
+                      <Th>{lang === 'zh' ? '同类' : 'Similar'}</Th>
+                      <Th>{lang === 'zh' ? '严重度' : 'Severity'}</Th>
+                      <Th>{lang === 'zh' ? '状态' : 'Status'}</Th>
+                      <Th>{lang === 'zh' ? '表面' : 'Surface'}</Th>
+                      <Th>{lang === 'zh' ? '代表描述' : 'Representative note'}</Th>
+                      <Th>{lang === 'zh' ? '最近' : 'Latest'}</Th>
+                      <Th>{lang === 'zh' ? '操作' : ''}</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {issueClusters.map((cluster) => (
+                      <tr key={cluster.cluster_key} style={{ borderTop: '1px solid var(--line, #e8ecf0)' }}>
+                        <Td>{cluster.priority_score ?? 0}</Td>
+                        <Td>{cluster.count || 1}</Td>
+                        <Td>{cluster.severity || '—'}</Td>
+                        <Td>{triageStatusLabel(cluster.triage_status, lang)}</Td>
+                        <Td>{cluster.surface || '—'}</Td>
+                        <Td>
+                          <span style={{ display: 'block', maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {cluster.user_note || cluster.expected_behavior || '—'}
+                          </span>
+                        </Td>
+                        <Td>{cluster.latest_created_at ? formatDate(cluster.latest_created_at) : '—'}</Td>
+                        <Td>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => openIssueCluster(cluster)}
+                            disabled={!cluster.representative_report_id && !cluster.representative_event_id}
+                          >
+                            {lang === 'zh' ? '打开代表报告' : 'Open report'}
+                          </button>
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             {priorityReports.length > 0 && (
               <div

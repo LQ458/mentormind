@@ -370,6 +370,49 @@ def test_feedback_report_cluster_target_events_returns_anchor_cluster_only():
     assert [event.id for event in targets] == ["evt-1", "evt-2"]
 
 
+def test_feedback_report_cluster_summaries_rank_by_priority_and_count():
+    rows = server._feedback_report_attach_clusters([
+        {
+            "id": "evt-1",
+            "report_id": "report-1",
+            "created_at": "2026-06-20T08:00:00",
+            "surface": "study-plan",
+            "feedback_kind": "bug",
+            "severity": "blocked",
+            "user_note": "The unit generation spinner never ends.",
+            "expected_behavior": "Show generated units.",
+        },
+        {
+            "id": "evt-2",
+            "report_id": "report-2",
+            "created_at": "2026-06-20T09:00:00",
+            "surface": "study-plan",
+            "feedback_kind": "bug",
+            "severity": "blocked",
+            "user_note": "The unit generation spinner never ends!",
+            "expected_behavior": "Show generated units",
+        },
+        {
+            "id": "evt-3",
+            "report_id": "report-3",
+            "created_at": "2026-06-20T10:00:00",
+            "surface": "home",
+            "feedback_kind": "general",
+            "severity": "idea",
+            "user_note": "Add another color theme.",
+        },
+    ])
+
+    clusters = server._feedback_report_cluster_summaries(rows)
+
+    assert clusters[0]["count"] == 2
+    assert clusters[0]["duplicate_count"] == 1
+    assert clusters[0]["surface"] == "study-plan"
+    assert clusters[0]["severity"] == "blocked"
+    assert clusters[0]["representative_report_id"] == "report-2"
+    assert clusters[0]["priority_score"] > clusters[1]["priority_score"]
+
+
 def test_feedback_report_matches_supports_source_filter():
     row = {
         "source": "prod_autopilot_qa",

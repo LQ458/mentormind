@@ -7578,6 +7578,56 @@ def _feedback_report_priority_queue(rows: List[Dict[str, Any]], limit: int = 10)
     )[:limit]
 
 
+def _feedback_report_cluster_summaries(rows: List[Dict[str, Any]], limit: int = 20) -> List[Dict[str, Any]]:
+    cluster_map: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        key = str(row.get("cluster_key") or _feedback_report_unique_key(row))
+        current = cluster_map.get(key)
+        ranked = _feedback_report_with_priority(row)
+        if current is None:
+            cluster_map[key] = {
+                "cluster_key": key,
+                "count": 0,
+                "duplicate_count": 0,
+                "surface": row.get("surface") or row.get("page") or row.get("route") or "unknown",
+                "feedback_kind": row.get("feedback_kind") or "unknown",
+                "severity": row.get("severity") or "unknown",
+                "triage_status": row.get("triage_status") or "new",
+                "priority_score": ranked.get("priority_score") or 0,
+                "priority_reasons": ranked.get("priority_reasons") or [],
+                "latest_created_at": row.get("created_at"),
+                "representative_report_id": row.get("report_id") or row.get("id"),
+                "representative_event_id": row.get("id"),
+                "user_note": row.get("user_note") or "",
+                "expected_behavior": row.get("expected_behavior") or "",
+            }
+        else:
+            if str(row.get("created_at") or "") > str(current.get("latest_created_at") or ""):
+                current["latest_created_at"] = row.get("created_at")
+                current["representative_report_id"] = row.get("report_id") or row.get("id")
+                current["representative_event_id"] = row.get("id")
+                current["user_note"] = row.get("user_note") or current.get("user_note") or ""
+                current["expected_behavior"] = row.get("expected_behavior") or current.get("expected_behavior") or ""
+            if int(ranked.get("priority_score") or 0) > int(current.get("priority_score") or 0):
+                current["priority_score"] = ranked.get("priority_score") or 0
+                current["priority_reasons"] = ranked.get("priority_reasons") or []
+                current["severity"] = row.get("severity") or current.get("severity") or "unknown"
+                current["feedback_kind"] = row.get("feedback_kind") or current.get("feedback_kind") or "unknown"
+
+        cluster_map[key]["count"] = int(cluster_map[key].get("count") or 0) + 1
+        cluster_map[key]["duplicate_count"] = max(0, int(cluster_map[key].get("count") or 0) - 1)
+
+    return sorted(
+        cluster_map.values(),
+        key=lambda row: (
+            int(row.get("priority_score") or 0),
+            int(row.get("count") or 0),
+            str(row.get("latest_created_at") or ""),
+        ),
+        reverse=True,
+    )[:limit]
+
+
 def _telemetry_context_event_to_dict(event: TelemetryEvent) -> Dict[str, Any]:
     """Bounded event shape for admin bug triage context.
 
@@ -7831,6 +7881,7 @@ async def get_admin_feedback_reports_aggregate(
     ])
     unique_report_keys = {_feedback_report_unique_key(row) for row in rows}
     priority_reports = _feedback_report_priority_queue(rows)
+    issue_clusters = _feedback_report_cluster_summaries(rows)
     by_source = Counter(row.get("source") or "unknown" for row in rows)
     by_surface = Counter(row.get("surface") or "unknown" for row in rows)
     by_kind = Counter(row.get("feedback_kind") or "unknown" for row in rows)
@@ -7847,6 +7898,7 @@ async def get_admin_feedback_reports_aggregate(
         "severity_distribution": dict(by_severity.most_common(20)),
         "status_distribution": dict(by_status.most_common(20)),
         "page_distribution": dict(by_page.most_common(50)),
+        "issue_clusters": issue_clusters,
         "priority_reports": priority_reports,
         "truncated": len(events) >= 5000,
         "filters": {
