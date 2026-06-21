@@ -342,6 +342,14 @@ function browserFamily(): string {
   return 'Other'
 }
 
+function browserTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+  } catch {
+    return ''
+  }
+}
+
 function compactPayload(payload?: Record<string, unknown>): Record<string, unknown> | undefined {
   if (!payload) return undefined
   const compact: Record<string, unknown> = {}
@@ -412,11 +420,16 @@ export function getTelemetryContextSnapshot(appSnapshot?: Record<string, unknown
     viewport: {
       width: window.innerWidth,
       height: window.innerHeight,
+      scroll_x: Math.round(window.scrollX || 0),
+      scroll_y: Math.round(window.scrollY || 0),
+      pixel_ratio: Math.round((window.devicePixelRatio || 1) * 100) / 100,
     },
     browser: {
       language: navigator.language,
       family: browserFamily(),
       mobile: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || ''),
+      online: navigator.onLine,
+      timezone: browserTimezone(),
     },
     recent_events: recentEvents,
     recent_errors: recentErrors,
