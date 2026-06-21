@@ -80,9 +80,11 @@ function DefaultFallback({
                 ? '页面渲染时遇到错误。可以重试，或把错误发给我们。'
                 : 'The page hit a rendering error. You can retry or send us the error.'}
             </p>
-            <pre className="mt-3 text-xs bg-white/70 border border-rose-100 rounded p-2 overflow-auto max-h-32 text-rose-800">
-              {error.message}
-            </pre>
+            <div className="mt-3 rounded border border-rose-100 bg-white/70 p-2 text-xs text-rose-800">
+              {lang === 'zh'
+                ? '错误详情会随报告一起提交。'
+                : 'Error details will be attached to the report.'}
+            </div>
             <div className="mt-4 flex gap-2">
               <button
                 type="button"
