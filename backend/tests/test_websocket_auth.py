@@ -44,3 +44,16 @@ def test_invite_jwt_signing_requires_configured_secret(monkeypatch):
 
     with pytest.raises(RuntimeError, match="BETTER_AUTH_SECRET"):
         server._sign_jwt("user-1", "tester")
+
+
+def test_invite_username_validation_accepts_safe_usernames():
+    assert server._validate_invite_username(" Cr_user-1.2 ") == "Cr_user-1.2"
+    assert server._validate_invite_username("测试_user") == "测试_user"
+
+
+@pytest.mark.parametrize("value", ["a", "bad user", "bad@example.com", "x" * 41])
+def test_invite_username_validation_rejects_unsafe_usernames(value):
+    with pytest.raises(server.HTTPException) as exc_info:
+        server._validate_invite_username(value)
+
+    assert exc_info.value.status_code == 400

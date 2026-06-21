@@ -2069,6 +2069,19 @@ class InviteLoginPayload(BaseModel):
     language: Optional[str] = "zh"
 
 
+INVITE_USERNAME_RE = re.compile(r"^[\w.-]{2,40}$", re.UNICODE)
+
+
+def _validate_invite_username(value: str) -> str:
+    username = value.strip()
+    if not INVITE_USERNAME_RE.fullmatch(username):
+        raise HTTPException(
+            status_code=400,
+            detail="Username must be 2-40 characters and can only use letters, numbers, dot, dash, or underscore",
+        )
+    return username
+
+
 def _hash_password(password: str) -> str:
     return _bcrypt.hashpw(password.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
 
@@ -2119,8 +2132,7 @@ async def invite_login(request: Request):
     if not username or not password:
         raise HTTPException(status_code=400, detail="Username and password are required")
 
-    if len(username) < 2:
-        raise HTTPException(status_code=400, detail="Username must be at least 2 characters")
+    username = _validate_invite_username(username)
     if len(password) < 4:
         raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
 

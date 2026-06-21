@@ -73,6 +73,12 @@ export default function HomePage() {
         setError(language === 'zh' ? '邀请码已达使用上限' : 'Invite code has reached its usage limit')
       } else if (msg.includes('409') || msg.includes('taken')) {
         setError(language === 'zh' ? '用户名已被占用' : 'Username already taken')
+      } else if (msg.includes('2-40') || msg.includes('letters, numbers')) {
+        setError(
+          language === 'zh'
+            ? '用户名需 2-40 个字符，只能使用字母、数字、点、短横线或下划线'
+            : 'Username must be 2-40 characters: letters, numbers, dot, dash, or underscore',
+        )
       } else if (msg.includes('401') || msg.includes('not found') || msg.includes('Incorrect')) {
         setError(language === 'zh' ? '用户名或密码错误' : 'Incorrect username or password')
       } else if (msg.includes('429') || msg.includes('rate')) {
@@ -122,6 +128,7 @@ export default function HomePage() {
             autoFocus
             disabled={submitting}
             autoComplete="username"
+            maxLength={40}
             className="h-12 w-full rounded-lg border border-[var(--line-strong)] bg-white px-4 text-base outline-none transition focus:border-[var(--accent)]"
           />
 
