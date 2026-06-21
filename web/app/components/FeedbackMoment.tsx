@@ -5,6 +5,7 @@ import { AlertTriangle, Check, Copy, Flag, Send, X } from 'lucide-react'
 import { useLanguage } from './LanguageContext'
 import { getTelemetryContextSnapshot, trackNow } from '../lib/telemetry'
 import type { FeedbackSeverity } from './feedbackEvents'
+import { feedbackReceiptContextLines } from './feedbackReceipt'
 
 type Severity = Exclude<FeedbackSeverity, 'idea'>
 
@@ -101,6 +102,7 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
     reportId: string,
     userNote: string,
     expectedBehavior: string,
+    context: Record<string, unknown>,
   ): string => {
     const severityLabel = SEVERITIES.find((item) => item.value === severity)
     const page = typeof window === 'undefined' ? '' : window.location.pathname
@@ -116,6 +118,7 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
         : (lang === 'zh' ? '已记录' : 'Recorded')}`,
       `${lang === 'zh' ? '位置' : 'Surface'}: ${surface}`,
       page ? `${lang === 'zh' ? '页面' : 'Page'}: ${page}` : '',
+      ...feedbackReceiptContextLines(context, lang),
       `${lang === 'zh' ? '严重度' : 'Severity'}: ${severityLabel ? (lang === 'zh' ? severityLabel.zh : severityLabel.en) : severity}`,
       userNote ? `${lang === 'zh' ? '反馈' : 'Note'}: ${userNote}` : '',
       expectedBehavior ? `${lang === 'zh' ? '期望' : 'Expected'}: ${expectedBehavior}` : '',
@@ -179,7 +182,7 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
     if (result === 'queued') {
       setSubmittedReportId(reportId)
       setSubmittedMode('queued')
-      setSubmittedSummary(makeSubmittedSummary('queued', reportId, trimmedNote, trimmedExpected))
+      setSubmittedSummary(makeSubmittedSummary('queued', reportId, trimmedNote, trimmedExpected, context))
       setReportIdCopyState('idle')
       setSummaryCopyState('idle')
       setReceiptOpen(false)
@@ -191,7 +194,7 @@ export function FeedbackMoment({ surface, interactionId, snapshot }: FeedbackMom
     }
     setSubmittedReportId(reportId)
     setSubmittedMode('recorded')
-    setSubmittedSummary(makeSubmittedSummary('recorded', reportId, trimmedNote, trimmedExpected))
+    setSubmittedSummary(makeSubmittedSummary('recorded', reportId, trimmedNote, trimmedExpected, context))
     setReportIdCopyState('idle')
     setSummaryCopyState('idle')
     setReceiptOpen(false)

@@ -5,6 +5,7 @@ import { AlertTriangle, Bug, Check, Copy, Heart, Lightbulb, MessageSquare, Send,
 import { useLanguage } from './LanguageContext'
 import { getTelemetryContextSnapshot, trackNow } from '../lib/telemetry'
 import type { FeedbackKind, FeedbackLaunchContext, FeedbackSeverity } from './feedbackEvents'
+import { feedbackReceiptContextLines } from './feedbackReceipt'
 
 type Severity = FeedbackSeverity
 
@@ -186,6 +187,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     userNote: string,
     expectedBehavior: string,
     surface: string,
+    context: Record<string, unknown>,
   ): string => {
     const severityLabel = SEVERITIES.find((item) => item.value === severity)
     const page = typeof window === 'undefined' ? '' : window.location.pathname
@@ -203,6 +205,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
       `${lang === 'zh' ? '严重度' : 'Severity'}: ${severityLabel ? (lang === 'zh' ? severityLabel.zh : severityLabel.en) : severity}`,
       `${lang === 'zh' ? '位置' : 'Surface'}: ${surface}`,
       page ? `${lang === 'zh' ? '页面' : 'Page'}: ${page}` : '',
+      ...feedbackReceiptContextLines(context, lang),
       userNote ? `${lang === 'zh' ? '反馈' : 'Note'}: ${userNote}` : '',
       expectedBehavior ? `${lang === 'zh' ? '期望' : 'Expected'}: ${expectedBehavior}` : '',
     ].filter(Boolean).join('\n')
@@ -258,7 +261,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     if (result === 'queued') {
       setSubmittedReportId(reportId)
       setSubmittedMode('queued')
-      setSubmittedSummary(makeSubmittedSummary('queued', reportId, userNote, expectedBehavior, surface))
+      setSubmittedSummary(makeSubmittedSummary('queued', reportId, userNote, expectedBehavior, surface, context))
       setSubmitted(true)
       setMessage('')
       setExpected('')
@@ -266,7 +269,7 @@ export default function FeedbackHub({ open, onClose, launchContext }: FeedbackHu
     }
     setSubmittedReportId(reportId)
     setSubmittedMode('recorded')
-    setSubmittedSummary(makeSubmittedSummary('recorded', reportId, userNote, expectedBehavior, surface))
+    setSubmittedSummary(makeSubmittedSummary('recorded', reportId, userNote, expectedBehavior, surface, context))
     setSubmitted(true)
     setMessage('')
     setExpected('')
