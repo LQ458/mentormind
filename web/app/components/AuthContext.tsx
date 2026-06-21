@@ -40,6 +40,10 @@ const AuthCtx = createContext<AuthContextValue>({
 const TOKEN_KEY = 'mm_token'
 const USER_KEY = 'mm_user'
 
+function shouldPersistBearerToken(): boolean {
+  return process.env.NODE_ENV !== 'production'
+}
+
 function toAuthUser(data: any): AuthUser | null {
   if (!data?.id) return null
   const username = String(data.username || '')
@@ -72,7 +76,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const load = async () => {
       try {
-        const token = localStorage.getItem(TOKEN_KEY)
+        const persistBearerToken = shouldPersistBearerToken()
+        const token = persistBearerToken ? localStorage.getItem(TOKEN_KEY) : null
+        if (!persistBearerToken) localStorage.removeItem(TOKEN_KEY)
         const savedUser = localStorage.getItem(USER_KEY)
         if (token && savedUser) {
           const parsedUser = JSON.parse(savedUser)
@@ -132,7 +138,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         firstName: data.user?.username || '',
         fullName: data.user?.username || '',
       }
-      localStorage.setItem(TOKEN_KEY, data.token)
+      if (shouldPersistBearerToken()) {
+        localStorage.setItem(TOKEN_KEY, data.token)
+      } else {
+        localStorage.removeItem(TOKEN_KEY)
+      }
       localStorage.setItem(USER_KEY, JSON.stringify(u))
       setUser(u)
       return u
@@ -141,6 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   )
 
   const getToken = useCallback(async (): Promise<string | null> => {
+    if (!shouldPersistBearerToken()) return null
     try {
       return localStorage.getItem(TOKEN_KEY)
     } catch {
