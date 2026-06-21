@@ -253,6 +253,12 @@ function redactedTesterForIssue(r: FeedbackReportRow): Record<string, unknown> |
   }
 }
 
+function adminReportLookupUrl(r: FeedbackReportRow): string {
+  const reportId = r.report_id || r.id
+  if (!reportId || typeof window === 'undefined') return ''
+  return `${window.location.origin}/admin/feedback?report=${encodeURIComponent(reportId)}`
+}
+
 function adminAccessRequiredMessage(lang: string): string {
   return lang === 'zh'
     ? '需要管理员权限。请使用管理员账号登录后再查看反馈数据。'
@@ -269,11 +275,13 @@ function reportMarkdown(
   const titleParts = [r.severity, r.surface || page].filter(Boolean).join(' / ')
   const title = titleParts || r.report_id || r.id
   const viewport = r.viewport_w && r.viewport_h ? `${r.viewport_w}x${r.viewport_h}` : '—'
+  const lookupUrl = adminReportLookupUrl(r)
   const lines = [
     `# ${title}`,
     '',
     '## Summary',
     `- Report ID: ${r.report_id || r.id}`,
+    `- Admin lookup: ${lookupUrl || 'Use Report ID in the admin feedback dashboard.'}`,
     `- Created: ${r.created_at}`,
     `- Source: ${r.source || '—'}`,
     `- Tester: ${formatTesterForIssue(r)}`,
