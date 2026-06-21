@@ -382,6 +382,8 @@ export default function AdminFeedbackPage() {
   const [statusCode, setStatusCode] = useState<number | null>(null)
   const hasLoadedOnceRef = useRef(false)
   const requestSeqRef = useRef(0)
+  const reportRequestSeqRef = useRef(0)
+  const surveyRequestSeqRef = useRef(0)
 
   // Filters
   const [examFilter, setExamFilter] = useState<string>('')
@@ -402,6 +404,28 @@ export default function AdminFeedbackPage() {
   const [contextLoadingId, setContextLoadingId] = useState<string | null>(null)
   const [contextErrorByReportId, setContextErrorByReportId] = useState<Record<string, string>>({})
 
+  const buildSurveyParams = () => {
+    const params = new URLSearchParams()
+    params.set('limit', '50')
+    params.set('offset', '0')
+    if (examFilter) params.set('exam', examFilter)
+    if (pmfFilter) params.set('pmf', pmfFilter)
+    if (langFilter) params.set('language', langFilter)
+    return params
+  }
+
+  const buildReportParams = () => {
+    const reportParams = new URLSearchParams()
+    reportParams.set('limit', '80')
+    reportParams.set('offset', '0')
+    if (sourceFilter) reportParams.set('source', sourceFilter)
+    if (surfaceFilter) reportParams.set('surface', surfaceFilter)
+    if (kindFilter) reportParams.set('kind', kindFilter)
+    if (severityFilter) reportParams.set('severity', severityFilter)
+    if (debouncedReportSearch.trim()) reportParams.set('q', debouncedReportSearch.trim())
+    return reportParams
+  }
+
   const fetchData = async () => {
     const requestSeq = requestSeqRef.current + 1
     requestSeqRef.current = requestSeq
@@ -411,21 +435,8 @@ export default function AdminFeedbackPage() {
     setError(null)
     setStatusCode(null)
     try {
-      const params = new URLSearchParams()
-      params.set('limit', '50')
-      params.set('offset', '0')
-      if (examFilter) params.set('exam', examFilter)
-      if (pmfFilter) params.set('pmf', pmfFilter)
-      if (langFilter) params.set('language', langFilter)
-
-      const reportParams = new URLSearchParams()
-      reportParams.set('limit', '80')
-      reportParams.set('offset', '0')
-      if (sourceFilter) reportParams.set('source', sourceFilter)
-      if (surfaceFilter) reportParams.set('surface', surfaceFilter)
-      if (kindFilter) reportParams.set('kind', kindFilter)
-      if (severityFilter) reportParams.set('severity', severityFilter)
-      if (debouncedReportSearch.trim()) reportParams.set('q', debouncedReportSearch.trim())
+      const params = buildSurveyParams()
+      const reportParams = buildReportParams()
 
       const [reportAggRes, reportListRes, aggRes, listRes] = await Promise.all([
         fetch('/api/backend/admin/feedback/reports/aggregate'),
@@ -478,10 +489,89 @@ export default function AdminFeedbackPage() {
     }
   }
 
+  const fetchReportsData = async () => {
+    const requestSeq = reportRequestSeqRef.current + 1
+    reportRequestSeqRef.current = requestSeq
+    setRefreshing(true)
+    setError(null)
+    setStatusCode(null)
+    try {
+      const reportParams = buildReportParams()
+      const res = await fetch(`/api/backend/admin/feedback/reports?${reportParams.toString()}`)
+      if (!res.ok) {
+        if (requestSeq !== reportRequestSeqRef.current) return
+        setStatusCode(res.status)
+        setError(res.status === 401 || res.status === 403 ? 'admin_access_required' : await responseErrorMessage(res))
+        setReports([])
+        setReportsTotal(0)
+        setReportsUniqueTotal(0)
+        return
+      }
+      const data = (await res.json().catch(() => ({}))) as FeedbackReportsResponse
+      if (requestSeq !== reportRequestSeqRef.current) return
+      setReports(data.rows || [])
+      setReportsTotal(data.total || 0)
+      setReportsUniqueTotal(data.unique_reports ?? data.total ?? 0)
+    } catch (err) {
+      if (requestSeq !== reportRequestSeqRef.current) return
+      console.error('[admin feedback] report fetch failed:', err)
+      setError(lang === 'zh' ? '快速报告加载失败' : 'Failed to load quick reports')
+    } finally {
+      if (requestSeq === reportRequestSeqRef.current) setRefreshing(false)
+    }
+  }
+
+  const fetchSurveyData = async () => {
+    const requestSeq = surveyRequestSeqRef.current + 1
+    surveyRequestSeqRef.current = requestSeq
+    setRefreshing(true)
+    setError(null)
+    setStatusCode(null)
+    try {
+      const params = buildSurveyParams()
+      const [aggRes, listRes] = await Promise.all([
+        fetch('/api/backend/admin/feedback/aggregate'),
+        fetch(`/api/backend/admin/feedback?${params.toString()}`),
+      ])
+      const failedResponse = [aggRes, listRes].find((res) => !res.ok)
+      if (failedResponse) {
+        if (requestSeq !== surveyRequestSeqRef.current) return
+        setStatusCode(failedResponse.status)
+        setError(failedResponse.status === 401 || failedResponse.status === 403 ? 'admin_access_required' : await responseErrorMessage(failedResponse))
+        setAggregate(null)
+        setRows([])
+        return
+      }
+      const aggData = (await aggRes.json().catch(() => ({}))) as AggregateResponse
+      const listData = (await listRes.json().catch(() => ({}))) as FeedbackListResponse
+      if (requestSeq !== surveyRequestSeqRef.current) return
+      setAggregate(aggData)
+      setRows(listData.rows || [])
+    } catch (err) {
+      if (requestSeq !== surveyRequestSeqRef.current) return
+      console.error('[admin feedback] survey fetch failed:', err)
+      setError(lang === 'zh' ? '问卷反馈加载失败' : 'Failed to load survey feedback')
+    } finally {
+      if (requestSeq === surveyRequestSeqRef.current) setRefreshing(false)
+    }
+  }
+
   useEffect(() => {
     fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [examFilter, pmfFilter, langFilter, sourceFilter, surfaceFilter, kindFilter, severityFilter, debouncedReportSearch])
+  }, [])
+
+  useEffect(() => {
+    if (!hasLoadedOnceRef.current) return
+    fetchReportsData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceFilter, surfaceFilter, kindFilter, severityFilter, debouncedReportSearch])
+
+  useEffect(() => {
+    if (!hasLoadedOnceRef.current) return
+    fetchSurveyData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [examFilter, pmfFilter, langFilter])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
