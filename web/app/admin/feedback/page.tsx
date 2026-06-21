@@ -408,6 +408,7 @@ export default function AdminFeedbackPage() {
   const requestSeqRef = useRef(0)
   const reportRequestSeqRef = useRef(0)
   const surveyRequestSeqRef = useRef(0)
+  const initialReportSearchRef = useRef<string | null>(null)
 
   // Filters
   const [examFilter, setExamFilter] = useState<string>('')
@@ -439,6 +440,13 @@ export default function AdminFeedbackPage() {
     return params
   }
 
+  const getInitialReportSearch = () => {
+    if (initialReportSearchRef.current === null) {
+      initialReportSearchRef.current = readInitialReportSearch()
+    }
+    return initialReportSearchRef.current
+  }
+
   const buildReportParams = () => {
     const reportParams = new URLSearchParams()
     reportParams.set('limit', '80')
@@ -447,7 +455,8 @@ export default function AdminFeedbackPage() {
     if (surfaceFilter) reportParams.set('surface', surfaceFilter)
     if (kindFilter) reportParams.set('kind', kindFilter)
     if (severityFilter) reportParams.set('severity', severityFilter)
-    if (debouncedReportSearch.trim()) reportParams.set('q', debouncedReportSearch.trim())
+    const activeSearch = debouncedReportSearch.trim() || (!hasLoadedOnceRef.current ? getInitialReportSearch() : '')
+    if (activeSearch) reportParams.set('q', activeSearch.slice(0, REPORT_SEARCH_LIMIT))
     return reportParams
   }
 
@@ -579,7 +588,7 @@ export default function AdminFeedbackPage() {
   }, [])
 
   useEffect(() => {
-    const initialSearch = readInitialReportSearch()
+    const initialSearch = getInitialReportSearch()
     if (!initialSearch) return
     setReportSearch(initialSearch)
     setDebouncedReportSearch(initialSearch)
