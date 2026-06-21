@@ -204,6 +204,12 @@ def test_admin_telemetry_group_and_error_signatures_redact_urls():
         })
         == "/ask?...#..."
     )
+    assert (
+        server._admin_telemetry_error_signature({
+            "message": "Failed fetch https://mentormind.cloud/ask?token=secret#frag"
+        })
+        == "Failed fetch /ask?...#..."
+    )
     assert server._admin_telemetry_error_signature({"status_code": 500}) == "500"
 
 

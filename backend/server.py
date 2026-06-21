@@ -6619,6 +6619,7 @@ TELEMETRY_MAX_RAW_BYTES = 64 * 1024
 TELEMETRY_URL_KEYS = {"url", "captured_url", "href", "page", "path", "pathname", "route"}
 TELEMETRY_REDACTED_VALUE = "[redacted]"
 TELEMETRY_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,254}$")
+ADMIN_TEXT_URL_RE = re.compile(r"https?://[^\s\"'<>]+|/[A-Za-z0-9._~:/%+-][^\s\"'<>]*[?#][^\s\"'<>]*")
 FEEDBACK_MOMENT_ALLOWED_SOURCES = {
     "global_feedback_button",
     "inline_feedback_moment",
@@ -7056,10 +7057,19 @@ def _admin_telemetry_group_key(group_by: Optional[str], value: Any) -> str:
     return str(value or "")[:120]
 
 
+def _redact_embedded_urls_for_admin(value: Any, max_len: int = 200) -> str:
+    raw = str(value or "")
+    redacted = ADMIN_TEXT_URL_RE.sub(
+        lambda match: _redact_url_for_telemetry(match.group(0), max_len) or "",
+        raw,
+    )
+    return redacted[:max_len]
+
+
 def _admin_telemetry_error_signature(payload: Dict[str, Any]) -> str:
     message = payload.get("message")
     if message:
-        return str(message)[:200]
+        return _redact_embedded_urls_for_admin(message, 200)
     status_code = payload.get("status_code")
     if status_code is not None:
         return str(status_code)[:200]
