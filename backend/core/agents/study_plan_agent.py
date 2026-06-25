@@ -5,6 +5,7 @@ Max 3 diagnostic questions before auto-advancing to plan generation.
 Recognizes intent signals like "just start" / "generate" and skips straight to generation.
 """
 
+import os
 import json
 import re
 import asyncio
@@ -49,8 +50,14 @@ class PlanResponse:
 
 # Diagnostic turn cap (was 3, raised to 6 for the dynamic flow)
 MAX_DIAGNOSTIC_TURNS = 6
-PLAN_REVIEW_LLM_TIMEOUT_SECONDS = 25
-PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS = 20
+# Plan-review generation budgets. Must total under the wrapping
+# STUDY_PLAN_CHAT_BACKEND_TIMEOUT_SECONDS (default 75s) and the frontend
+# STUDY_PLAN_CHAT_TIMEOUT_MS (default 75000). Attempt 1 is a fast FLASH pass with
+# enough tokens to avoid truncation; attempt 2 escalates to the PRO model (the
+# >=3000 max_tokens threshold in api_client._select_model) for stronger JSON
+# structure on hard subjects. 38 + 30 = 68s leaves margin under 75s.
+PLAN_REVIEW_LLM_TIMEOUT_SECONDS = int(os.getenv("PLAN_REVIEW_LLM_TIMEOUT_SECONDS", "38"))
+PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS = int(os.getenv("PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS", "30"))
 VALID_LEARNER_TIERS = {"accelerated", "standard", "scaffolded", "foundation_rebuild"}
 
 
@@ -94,6 +101,63 @@ def _chat_completion_content(response: Any) -> str:
     return response.data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
 
 
+def _salvage_truncated_json(text: str) -> Optional[Dict[str, Any]]:
+    """Best-effort recovery of a JSON object truncated by the LLM token limit.
+
+    Plan output is sometimes cut off mid-array (e.g. inside ``units``), leaving an
+    unparseable but mostly-complete object. Walk from the first ``{``, tracking
+    string state and bracket depth, cut back to the last *structurally safe*
+    boundary (after a closed bracket or a comma — never mid key/value), strip a
+    dangling comma, then append the closers needed to balance. Returns the parsed
+    dict (unwrapping ``proposed_plan``) or None if nothing usable can be recovered.
+    Never raises.
+    """
+    if not text:
+        return None
+    start = text.find("{")
+    if start < 0:
+        return None
+    s = text[start:]
+    stack: List[str] = []
+    in_string = False
+    escape = False
+    cut = -1
+    cut_stack: List[str] = []
+    for i, ch in enumerate(s):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+            cut, cut_stack = i + 1, list(stack)
+        elif ch == ",":
+            cut, cut_stack = i + 1, list(stack)
+    # cut_stack empty => the object was already balanced (normal parse handles it).
+    if cut <= 0 or not cut_stack:
+        return None
+    head = s[:cut].rstrip()
+    if head.endswith(","):
+        head = head[:-1].rstrip()
+    closers = "".join("}" if b == "{" else "]" for b in reversed(cut_stack))
+    try:
+        parsed = json.loads(head + closers)
+    except Exception:
+        return None
+    if isinstance(parsed, dict) and isinstance(parsed.get("proposed_plan"), dict):
+        parsed = parsed["proposed_plan"]
+    return parsed if isinstance(parsed, dict) else None
+
+
 def _parse_plan_json(full_content: str) -> tuple[str, Optional[Dict[str, Any]]]:
     thinking_process = ""
     proposed_plan = None
@@ -114,6 +178,9 @@ def _parse_plan_json(full_content: str) -> tuple[str, Optional[Dict[str, Any]]]:
                     break
                 except json.JSONDecodeError:
                     continue
+        if parsed is None:
+            # Last resort: repair a truncated object (LLM hit the token limit).
+            parsed = _salvage_truncated_json(candidate)
         if isinstance(parsed, dict) and isinstance(parsed.get("proposed_plan"), dict):
             parsed = parsed["proposed_plan"]
         return parsed if isinstance(parsed, dict) else None
@@ -1051,8 +1118,13 @@ Schema:
 """
 
         attempts = [
-            (prompt, 1200, PLAN_REVIEW_LLM_TIMEOUT_SECONDS, 0.2, False),
-            (retry_prompt, 1000, PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS, 0.1, True),
+            # Attempt 1: fast FLASH pass with enough tokens for a full 6-10 unit
+            # plan so the JSON is not truncated (the old 1200 cap routinely cut off
+            # content-heavy subjects, e.g. AP Gov & Politics, producing unparseable output).
+            (prompt, int(os.getenv("PLAN_REVIEW_MAX_TOKENS", "2800")), PLAN_REVIEW_LLM_TIMEOUT_SECONDS, 0.2, False),
+            # Attempt 2: escalate to the PRO model (>=3000 max_tokens in
+            # api_client._select_model) for stronger structured-JSON adherence.
+            (retry_prompt, int(os.getenv("PLAN_REVIEW_RETRY_MAX_TOKENS", "3200")), PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS, 0.1, True),
         ]
         last_error_source = "llm_plan_review_error"
         thinking_process = ""
