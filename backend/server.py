@@ -2828,7 +2828,9 @@ def _save_upload_with_limit(file: UploadFile, dest_path: str, max_bytes: int) ->
 
 
 @app.post("/ingest/audio")
+@limiter.limit(os.getenv("INGEST_AUDIO_RATE_LIMIT", "15/minute"))
 async def ingest_audio(
+    request: Request,
     file: UploadFile = File(...),
     language: str = Form(default="auto"),
     display_language: str = Form(default="en"),
@@ -2845,6 +2847,9 @@ async def ingest_audio(
     current_user: User = Depends(get_current_user),
 ):
     """Transcribe user-uploaded audio (ASR) via background task."""
+    # Per-user daily cap: a runaway client or abusive tester cannot exhaust disk
+    # or the ASR/LLM budget. Checked before any file is written. Raises 429 quota_exceeded.
+    _enforce_quota(current_user, "ingest_audio")
     tmp_path = None
     try:
         # Validate file type
@@ -2920,7 +2925,9 @@ async def ingest_audio(
 
 
 @app.post("/ingest/image")
+@limiter.limit(os.getenv("INGEST_IMAGE_RATE_LIMIT", "30/minute"))
 async def ingest_image(
+    request: Request,
     file: UploadFile = File(...),
     language: str = Form(default="zh"),
     display_language: str = Form(default="en"),
@@ -2928,6 +2935,8 @@ async def ingest_image(
     current_user: User = Depends(get_current_user),
 ):
     """Extract text from image (OCR) via background task."""
+    # Per-user daily cap on uploads (disk + OCR budget protection). Raises 429.
+    _enforce_quota(current_user, "ingest_image")
     tmp_path = None
     try:
         allowed_types = {"image/jpeg", "image/png", "image/bmp", "image/tiff",
@@ -3854,6 +3863,10 @@ EXPENSIVE_ACTION_LIMITS = {
     "study_plan_chat": (120, 3600),
     "unit_generate": (20, 24 * 3600),
     "board_lesson": (30, 24 * 3600),
+    # Per-user daily upload caps: bound disk growth and ASR/OCR budget so a single
+    # tester or a runaway client loop cannot exhaust the shared VPS.
+    "ingest_audio": (int(os.getenv("INGEST_AUDIO_DAILY_QUOTA", "30")), 24 * 3600),
+    "ingest_image": (int(os.getenv("INGEST_IMAGE_DAILY_QUOTA", "80")), 24 * 3600),
 }
 
 STUDY_PLAN_HISTORY_MAX_MESSAGES = int(os.getenv("STUDY_PLAN_HISTORY_MAX_MESSAGES", "24"))
