@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "qa:board-local": "BASE_URL=http://localhost:3000 RUN_LOCAL_BOARD_TEST=true node ../scripts/board-pacing-qa.mjs",
     "qa:install-browsers": "playwright install chromium",
     "qa:prod": "node ../scripts/prod-autopilot-qa.mjs",
     "qa:prod:smoke": "node ../scripts/prod-autopilot-qa.mjs --smoke"

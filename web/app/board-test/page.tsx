@@ -1,8 +1,18 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import BoardCanvas from '../components/board/BoardCanvas'
 import type { BoardElement, BoardWSState } from '../hooks/useBoardWebSocket'
+
+const TANGENT_LINE_IMAGE = `data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360">
+  <rect width="640" height="360" fill="#0f172a"/>
+  <path d="M60 300 Q320 40 580 300" fill="none" stroke="#38bdf8" stroke-width="12" stroke-linecap="round"/>
+  <path d="M118 244 L520 102" stroke="#fde68a" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="320" cy="160" r="16" fill="#f97316"/>
+  <text x="320" y="330" fill="#e2e8f0" font-family="Inter, Arial, sans-serif" font-size="34" text-anchor="middle">Tangent line</text>
+</svg>
+`)}`
 
 function mkEl(
   id: string,
@@ -108,7 +118,7 @@ print(derivative(lambda t: t**2, 3))  # ~6`,
       },
     },
   ),
-  mkEl('image-1', 'image', 'https://placehold.co/640x360/0f172a/38bdf8?text=Tangent+Line', {
+  mkEl('image-1', 'image', TANGENT_LINE_IMAGE, {
     style: { size: 'medium', color: 'text', animation: 'fade_in' },
     metadata: { alt: 'Tangent line illustration' } as any,
   }),
@@ -117,6 +127,11 @@ print(derivative(lambda t: t**2, 3))  # ~6`,
 export default function BoardTestPage() {
   const [paused, setPaused] = useState(false)
   const [elements, setElements] = useState<BoardElement[]>(TEST_ELEMENTS.slice(0, 3))
+  const [hydrated, setHydrated] = useState(false)
+
+  useEffect(() => {
+    setHydrated(true)
+  }, [])
 
   const state: BoardWSState = {
     board: {
@@ -155,13 +170,18 @@ export default function BoardTestPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      <header className="flex items-center gap-2 px-6 py-3 border-b border-slate-800 bg-slate-900/80">
+    <div
+      className="min-h-screen max-w-full overflow-x-hidden bg-slate-950 text-slate-100 flex flex-col"
+      data-testid="board-test-root"
+      data-hydrated={hydrated ? 'true' : 'false'}
+      data-count={elements.length}
+    >
+      <header className="flex flex-wrap items-center gap-2 px-4 sm:px-6 py-3 border-b border-slate-800 bg-slate-900/80">
         <h1 className="text-sm font-semibold">Board Layout Test Harness</h1>
-        <span className="text-xs text-slate-400 ml-4">
+        <span className="text-xs text-slate-400 sm:ml-4">
           {elements.length}/{TEST_ELEMENTS.length} elements
         </span>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-0 flex flex-wrap gap-2 sm:ml-auto">
           <button
             onClick={addNext}
             className="text-xs px-3 py-1.5 rounded-lg border border-sky-500/60 bg-sky-600/30 text-sky-100 hover:bg-sky-600/50"
