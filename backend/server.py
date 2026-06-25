@@ -2277,6 +2277,15 @@ async def invite_login(request: Request):
         if existing:
             raise HTTPException(status_code=409, detail="Username already taken. Please choose another.")
 
+        # Stronger minimum on NEW accounts only. _validate_invite_password() above
+        # keeps the lenient >=4 check (shared with login), so existing testers with
+        # short passwords are not locked out; only fresh registrations require >=8.
+        if len(password) < 8:
+            raise HTTPException(
+                status_code=400,
+                detail="Password must be at least 8 characters" if lang != "zh" else "密码至少需要 8 位",
+            )
+
         code_row.used_count += 1
 
         user_id = str(_uuid.uuid4())

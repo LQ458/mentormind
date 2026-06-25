@@ -729,7 +729,24 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
     finally:
         loop.close()
 
-    # Store result in Redis for polling
+    # Classify before persisting anything. Treat partial success as usable content:
+    # missing tabs stay disabled in the UI and can be regenerated later.
+    status_to_set, succeeded_types, missing = _unit_content_status(result, content_types)
+
+    # Total failure (every content block failed) is usually a transient upstream
+    # blip — LLM rate limit / network / open circuit breaker hitting all parallel
+    # calls at once — rather than a permanent error. Retry BEFORE writing anything so
+    # the learner is not stranded on a recoverable error AND no stale error blob is
+    # published to Redis mid-retry. The DB status stays 'generating' across retries,
+    # so the polling client keeps showing progress instead of a premature failure.
+    if status_to_set == "failed" and self.request.retries < self.max_retries:
+        print(
+            f"[unit:{unit_id}] ⚠️ All content failed "
+            f"(attempt {self.request.retries + 1}/{self.max_retries + 1}); retrying in 15s…"
+        )
+        raise self.retry(countdown=15)
+
+    # Store result in Redis for polling (only the final/usable result is published).
     try:
         _redis_client.setex(
             f"unit_content:{unit_id}",
@@ -739,9 +756,6 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
     except Exception as e:
         print(f"[unit:{unit_id}] ⚠️ Failed to store result in Redis: {e}")
 
-    # Update the unit in the database. Treat partial success as usable content:
-    # missing tabs stay disabled in the UI and can be regenerated later.
-    status_to_set, succeeded_types, missing = _unit_content_status(result, content_types)
     if missing and succeeded_types:
         print(f"[unit:{unit_id}] ⚠️ Partial content generated. Missing: {missing}; usable: {succeeded_types}")
     elif missing:
