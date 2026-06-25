@@ -96,7 +96,9 @@ const defaultIntake = (): PlanIntake => ({
   targetScore: '',
   weeklyHours: '6',
   prepMonths: '3',
-  studyDays: [],
+  // Sensible default so a low-motivation tester can generate immediately without
+  // being forced to click through the schedule. Still fully editable.
+  studyDays: ['mon', 'wed', 'fri'],
   hoursPerSession: '1.5',
   weakAreas: '',
   baselineConfidence: {},
@@ -2024,7 +2026,7 @@ export default function StudyPlanPage() {
           <button
             type="button"
             onClick={startChatFromIntake}
-            disabled={!intake.foundation || !intake.examTimeline || !intake.weeklyHours || intake.studyDays.length === 0 || isTyping}
+            disabled={!intake.weeklyHours || intake.studyDays.length === 0 || isTyping}
             className="w-full rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {uiLanguage === 'zh'
