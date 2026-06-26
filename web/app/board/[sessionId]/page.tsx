@@ -14,6 +14,7 @@ import BoardChatPanel from '../../components/board/BoardChatPanel'
 import BoardFooterControls from '../../components/board/BoardFooterControls'
 import BoardHelpControls from '../../components/board/BoardHelpControls'
 import BoardInviteCard from '../../components/board/BoardInviteCard'
+import BoardRecapCheck from '../../components/board/BoardRecapCheck'
 import AgentActivityBar from '../../components/board/AgentActivityBar'
 import SummaryPanel from '../../components/board/SummaryPanel'
 import AuthGate from '../../components/AuthGate'
@@ -569,6 +570,13 @@ function BoardSessionInner() {
                 language={language}
                 onSend={sendUserMessage}
                 onDismiss={pacing.dismissInvite}
+              />
+            )}
+            {state.pendingCheck && (
+              <BoardRecapCheck
+                check={state.pendingCheck}
+                language={language}
+                onAsk={sendUserMessage}
               />
             )}
             {pacing.canContinue && (

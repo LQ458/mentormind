@@ -269,6 +269,8 @@ export interface ComprehensionCheckEvent extends BaseEvent {
   }
 }
 
+export type ComprehensionCheckData = ComprehensionCheckEvent['data']
+
 // Phase 1b — optional non-blocking inline invite attached to a segment boundary.
 export interface SegmentInvite {
   kind: 'predict' | 'choose' | 'restate' | 'do_step'
@@ -338,6 +340,8 @@ export interface BoardWSState {
   writingElementId: string | null
   /** Optional so board-replay / board-test snapshot construction stays valid. */
   pendingInvite?: SegmentInvite | null
+  /** Phase 1b — end-of-lesson recap check; rendered inline and non-blocking. */
+  pendingCheck?: ComprehensionCheckData | null
 }
 
 // ── Hook options ─────────────────────────────────────────────────────────────

@@ -219,6 +219,55 @@ class StreamingLessonGenerator:
         custom_requirements: Optional[str] = None,
         resume_messages: Optional[List[Dict[str, Any]]] = None,
     ) -> AsyncGenerator[BoardEvent, None]:
+        """Stream the lesson, then emit one guaranteed end-of-lesson recap.
+
+        Thin wrapper over ``_generate_lesson_core``: every normal termination of
+        the core generator funnels here, so the recap is emitted exactly once at
+        the very end regardless of which exit path the core took.
+        """
+        async for event in self._generate_lesson_core(
+            topic=topic,
+            language=language,
+            student_level=student_level,
+            duration_minutes=duration_minutes,
+            custom_requirements=custom_requirements,
+            resume_messages=resume_messages,
+        ):
+            yield event
+        # Phase 1b: a single non-blocking retrieval check at the very end. The
+        # board WS forwards it like any other event, so no server.py change is
+        # needed. Best-effort — a failure must never break the clean stream end.
+        try:
+            yield self._recap_event(topic, language)
+        except Exception:
+            logger.warning("Recap comprehension_check emission failed", exc_info=True)
+
+    def _recap_event(self, topic: str, language: str) -> BoardEvent:
+        """A final, lesson-wide free-recall prompt as a comprehension_check.
+
+        Free recall (restating the key idea) is a stronger retrieval-practice
+        signal than recognition, and needs no extra LLM call. Rendered inline and
+        non-blocking on the client; the learner can answer in chat or skip.
+        """
+        question = (
+            "用你自己的话回忆一下：这节课最关键的一点是什么？"
+            if language == "zh"
+            else "In your own words — what was the single most important idea in this lesson?"
+        )
+        return self.board_server.state_manager.emit_comprehension_check(
+            question=question,
+            segment_summary=topic,
+        )
+
+    async def _generate_lesson_core(
+        self,
+        topic: str,
+        language: str = "zh",
+        student_level: str = "beginner",
+        duration_minutes: int = 10,
+        custom_requirements: Optional[str] = None,
+        resume_messages: Optional[List[Dict[str, Any]]] = None,
+    ) -> AsyncGenerator[BoardEvent, None]:
         """Stream board events for a lesson on the given topic.
 
         If ``resume_messages`` is provided the generator continues an existing
