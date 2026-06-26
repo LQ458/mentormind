@@ -150,6 +150,9 @@ function BoardSessionInner() {
         const elements = (snap.elements as Record<string, unknown> | undefined) ?? {}
         if (Object.keys(elements).length === 0) return
         hydrate(snap)
+        // Reveal the segments we just restored so a refresh mid-lesson doesn't
+        // re-pace the learner from segment 1.
+        pacing.markResumed()
         const updatedAt = snap.updated_at
         const resumedTime =
           typeof updatedAt === 'number'
@@ -163,7 +166,7 @@ function BoardSessionInner() {
       }
     })()
     return () => { cancelled = true }
-  }, [sessionId, token, isSignedIn, hydrate])
+  }, [sessionId, token, isSignedIn, hydrate, pacing.markResumed])
 
   const handleDiscardResume = useCallback(() => {
     setBannerDismissed(true)

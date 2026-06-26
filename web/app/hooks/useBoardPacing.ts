@@ -57,6 +57,9 @@ export interface UseBoardPacingResult {
   markAudioEnded: (elementId: string | null) => void
   /** All revealed segments are shown (nothing left to unlock). */
   isFullyRevealed: boolean
+  /** Call after hydrating a saved snapshot so already-generated segments are
+   *  revealed instead of re-pacing the resumed lesson from segment 1. */
+  markResumed: () => void
 }
 
 function readSegmentIndex(el: BoardElement | undefined): number {
@@ -100,15 +103,16 @@ function buildSegments(
 
 export function useBoardPacing(state: BoardWSState): UseBoardPacingResult {
   const [pacingMode, setPacingMode] = useState<PacingMode>(defaultPacingMode)
-  // Starts at 1 (first segment unlocked). NOTE (Phase 1b): on resume-from-snapshot
-  // of an *in-progress* lesson this resets to 1, so the learner re-advances
-  // through already-seen segments. Fix by persisting this in the snapshot or
-  // auto-revealing existing segments on hydrate; the autoplay toggle and the
-  // status==='done' reveal-all override are the interim escapes.
+  // Starts at 1 (first segment unlocked). On resume-from-snapshot, page.tsx calls
+  // markResumed() so already-generated segments are revealed rather than re-paced
+  // from segment 1 (see the resumePending effect below).
   const [revealedSegments, setRevealedSegments] = useState(1)
   const [completedAudioIds, setCompletedAudioIds] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
   )
+  // Set by markResumed(); the effect below reveals all existing segments once
+  // they are grouped (the count isn't known synchronously at hydrate time).
+  const [resumePending, setResumePending] = useState(false)
 
   const segments = useMemo(
     () => buildSegments(state.elements, state.elementOrder),
@@ -121,15 +125,28 @@ export function useBoardPacing(state: BoardWSState): UseBoardPacingResult {
   // not have to click through segments again.
   const revealAll = pacingMode === 'autoplay' || state.status === 'done'
 
-  // Reset pacing when a different board loads (new lesson / hard reset).
+  // Reset pacing only on a genuine board switch (one real board replaced by a
+  // different one). null->id (first load or resume) must NOT reset, so a resumed
+  // lesson keeps the reveal position restored by markResumed().
   const boardId = state.board?.board_id ?? null
   const lastBoardIdRef = useRef<string | null>(boardId)
   useEffect(() => {
-    if (lastBoardIdRef.current === boardId) return
+    const prev = lastBoardIdRef.current
+    if (prev === boardId) return
     lastBoardIdRef.current = boardId
-    setRevealedSegments(1)
-    setCompletedAudioIds(new Set<string>())
+    if (prev !== null && boardId !== null) {
+      setRevealedSegments(1)
+      setCompletedAudioIds(new Set<string>())
+    }
   }, [boardId])
+
+  // Resume: once the hydrated snapshot's elements are grouped into segments,
+  // reveal all of them so the learner doesn't re-pace already-seen content.
+  useEffect(() => {
+    if (!resumePending || totalSegments <= 0) return
+    setRevealedSegments(totalSegments)
+    setResumePending(false)
+  }, [resumePending, totalSegments])
 
   // In autoplay, keep every generated segment unlocked. Doing this by advancing
   // the same counter (rather than a separate "reveal all" flag) means switching
@@ -193,6 +210,8 @@ export function useBoardPacing(state: BoardWSState): UseBoardPacingResult {
     })
   }, [])
 
+  const markResumed = useCallback(() => setResumePending(true), [])
+
   return {
     pacingMode,
     setPacingMode,
@@ -205,5 +224,6 @@ export function useBoardPacing(state: BoardWSState): UseBoardPacingResult {
     continueToNext,
     markAudioEnded,
     isFullyRevealed,
+    markResumed,
   }
 }
