@@ -64,4 +64,5 @@ export const SHORTCUTS_REGISTRY: Array<ShortcutSpec & { description: string }> =
   { key: 'Escape', description: 'Close modal / panel' },
   { key: ' ', description: 'Pause / resume lesson (board only)' },
   { key: 'Enter', meta: true, description: 'Send message' },
+  { key: 'Enter', description: 'Continue to next segment (board only)' },
 ]

@@ -418,8 +418,8 @@ function BoardSessionInner() {
                   : 'Switch between self-paced (reveal by segment) and autoplay'}
               >
                 {pacing.pacingMode === 'autoplay'
-                  ? (language === 'zh' ? '连续播放' : 'Autoplay')
-                  : (language === 'zh' ? '自主节奏' : 'Self-paced')}
+                  ? (language === 'zh' ? '节奏：连续播放' : 'Pacing: Autoplay')
+                  : (language === 'zh' ? '节奏：自主' : 'Pacing: Self-paced')}
               </button>
             )}
             <NarrationPlayer

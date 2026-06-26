@@ -100,6 +100,11 @@ function buildSegments(
 
 export function useBoardPacing(state: BoardWSState): UseBoardPacingResult {
   const [pacingMode, setPacingMode] = useState<PacingMode>(defaultPacingMode)
+  // Starts at 1 (first segment unlocked). NOTE (Phase 1b): on resume-from-snapshot
+  // of an *in-progress* lesson this resets to 1, so the learner re-advances
+  // through already-seen segments. Fix by persisting this in the snapshot or
+  // auto-revealing existing segments on hydrate; the autoplay toggle and the
+  // status==='done' reveal-all override are the interim escapes.
   const [revealedSegments, setRevealedSegments] = useState(1)
   const [completedAudioIds, setCompletedAudioIds] = useState<ReadonlySet<string>>(
     () => new Set<string>(),

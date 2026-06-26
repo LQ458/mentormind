@@ -6,7 +6,9 @@ import VoiceInput from './VoiceInput'
 interface BoardFooterControlsProps {
   language: string
   draft: string
-  onDraftChange: (value: string) => void
+  /** Accepts a value or an updater (React setState signature) so the voice
+   *  handler can append via the functional form without a stale-closure race. */
+  onDraftChange: React.Dispatch<React.SetStateAction<string>>
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void
   onSend: () => void
   canAskTeacher: boolean
@@ -31,7 +33,7 @@ export default function BoardFooterControls({
         <VoiceInput
           language={language === 'zh' ? 'zh-CN' : 'en-US'}
           onTranscript={(text, isFinal) => {
-            if (isFinal) onDraftChange((draft ? draft + ' ' : '') + text)
+            if (isFinal) onDraftChange(prev => (prev ? prev + ' ' : '') + text)
           }}
         />
         <textarea

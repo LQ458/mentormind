@@ -147,7 +147,10 @@ export default function NarrationPlayer({
     const playPromise = el.play()
     if (playPromise && typeof playPromise.catch === 'function') {
       playPromise.catch(() => {
-        // Autoplay blocked; skip to next so UI keeps moving.
+        // Autoplay blocked: mark this track completed so learner-paced gating
+        // (which waits on onPlaybackEnd) is not deadlocked at the boundary, then
+        // skip to next so the UI keeps moving.
+        if (currentTrack) onPlaybackEnd(currentTrack.element_id)
         setCursor(c => c + 1)
       })
     }
