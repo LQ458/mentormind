@@ -95,6 +95,10 @@ celery_app.conf.beat_schedule = {
         "task": "mentormind.prune_telemetry",
         "schedule": _timedelta(hours=24),
     },
+    "replay_spooled_telemetry": {
+        "task": "mentormind.replay_spooled_telemetry",
+        "schedule": _timedelta(minutes=10),
+    },
 }
 
 
@@ -904,5 +908,49 @@ def prune_telemetry_task(self, retention_days: int = 90):
         session.rollback()
         print(f"⚠️ prune_telemetry failed: {exc}")
         return {"status": "error", "error": "Telemetry pruning failed"}
+    finally:
+        session.close()
+
+
+@celery_app.task(bind=True, name="mentormind.replay_spooled_telemetry")
+def replay_spooled_telemetry_task(self, batch: int = 200):
+    """Drain Redis-spooled telemetry (high-value events stashed by the API when their
+    DB insert failed) back into Postgres. Peek-then-pop: an event is only removed from
+    the spool after a successful commit, so nothing is lost if the DB is still down."""
+    from database.models.telemetry import TelemetryEvent
+    key = "mm:telemetry_spool"
+    fields = (
+        "user_id", "session_id", "event_type", "page", "url", "latency_ms",
+        "payload", "viewport_w", "viewport_h", "user_agent", "ip_address",
+    )
+    replayed = 0
+    try:
+        init_database()
+        session = SessionLocal()
+    except Exception as exc:
+        print(f"⚠️ replay_spooled_telemetry: DB init failed: {exc}")
+        return {"status": "error", "replayed": 0}
+    try:
+        for _ in range(max(1, batch)):
+            raw = _redis_client.lindex(key, 0)
+            if not raw:
+                break
+            try:
+                rec = json.loads(raw)
+            except Exception:
+                _redis_client.lpop(key)  # drop an unparseable entry
+                continue
+            try:
+                session.add(TelemetryEvent(**{f: rec.get(f) for f in fields}))
+                session.commit()
+            except Exception as exc:
+                session.rollback()
+                print(f"⚠️ replay_spooled_telemetry: insert failed, leaving spooled: {exc}")
+                break  # DB likely still unavailable; retry on the next beat tick
+            _redis_client.lpop(key)  # only remove after a successful commit
+            replayed += 1
+        if replayed:
+            print(f"📥 replay_spooled_telemetry: replayed {replayed} spooled events")
+        return {"status": "ok", "replayed": replayed}
     finally:
         session.close()

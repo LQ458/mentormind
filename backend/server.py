@@ -7003,6 +7003,33 @@ def _validate_feedback_moment_payload(payload: Dict[str, Any]) -> None:
         raise HTTPException(status_code=400, detail="Feedback report needs a note or error context")
 
 
+# High-value telemetry whose loss actually matters for a bug-collection MVP.
+DURABLE_TELEMETRY_TYPES = {"feedback_moment", "survey_response", "error_console", "error_network"}
+TELEMETRY_SPOOL_KEY = "mm:telemetry_spool"
+TELEMETRY_SPOOL_MAX = 2000
+_TELEMETRY_SPOOL_FIELDS = (
+    "user_id", "session_id", "event_type", "page", "url", "latency_ms",
+    "payload", "viewport_w", "viewport_h", "user_agent", "ip_address",
+)
+
+
+def _spool_telemetry_event(event) -> bool:
+    """On a DB-insert failure, stash a high-value event in Redis so a brief DB
+    outage never silently loses real tester feedback / error reports. Drained back
+    into Postgres by the Celery task mentormind.replay_spooled_telemetry. Never raises."""
+    try:
+        r = _redis_for_limits()
+        if r is None:
+            return False
+        record = {f: getattr(event, f, None) for f in _TELEMETRY_SPOOL_FIELDS}
+        r.rpush(TELEMETRY_SPOOL_KEY, json.dumps(record, default=str))
+        r.ltrim(TELEMETRY_SPOOL_KEY, -TELEMETRY_SPOOL_MAX, -1)
+        return True
+    except Exception as exc:
+        logger.warning(f"telemetry spool failed: {exc}")
+        return False
+
+
 @app.post("/telemetry/event")
 @limiter.limit("60/minute")
 async def post_telemetry_event(
@@ -7075,9 +7102,12 @@ async def post_telemetry_event(
     except Exception as exc:
         db.rollback()
         logger.warning(f"telemetry insert failed: {exc}")
-        # Telemetry failure must never block the user-facing flow.
-        return {"ok": True, "recorded": False}
-    return {"ok": True}
+        # Telemetry failure must never block the user-facing flow, but for a
+        # bug-collection MVP a dropped feedback/error report is unacceptable: spool
+        # high-value events to Redis so replay_spooled_telemetry can re-insert them.
+        spooled = _spool_telemetry_event(event) if event_type in DURABLE_TELEMETRY_TYPES else False
+        return {"ok": True, "recorded": False, "spooled": spooled}
+    return {"ok": True, "recorded": True}
 
 
 def _percentile(values: List[float], pct: float) -> Optional[float]:

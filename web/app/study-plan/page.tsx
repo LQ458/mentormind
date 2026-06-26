@@ -2529,7 +2529,7 @@ export default function StudyPlanPage() {
             {uiLanguage === 'zh' ? '正在生成你的学习计划…' : 'Creating your study plan…'}
           </p>
           <p className="text-sm text-gray-500">
-            {uiLanguage === 'zh' ? '这可能需要几秒钟，请稍候。' : 'This may take a few seconds.'}
+            {uiLanguage === 'zh' ? '通常需要 30–60 秒，Mina 正在规划整门课程，请稍候。' : 'This usually takes 30–60 seconds while Mina plans the full course — hang tight.'}
           </p>
         </div>
       )}
