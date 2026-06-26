@@ -1,4 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { backendHeaders } from '../../_auth'
+import { backendErrorResponse, backendJsonResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -10,19 +12,15 @@ export async function GET(
     { params }: { params: { id: string } }
 ) {
     try {
-        const { id } = params
+        const id = encodeURIComponent(params.id)
         const url = `${BACKEND_URL}/job-status/${id}`
-        console.log(`[job-status proxy] Fetching: ${url}`)
+        console.info('[job-status proxy] fetching status')
 
         // Prevent Next.js fetch() from caching the "processing" state
-        const authHeader = request.headers.get('Authorization')
-        const headers: Record<string, string> = {
+        const headers = backendHeaders(request, {
             'Content-Type': 'application/json',
             'Cache-Control': 'no-store, no-cache, must-revalidate'
-        }
-        if (authHeader) {
-            headers.Authorization = authHeader
-        }
+        })
         const backendResponse = await fetch(url, {
             method: 'GET',
             headers,
@@ -31,18 +29,13 @@ export async function GET(
 
         if (!backendResponse.ok) {
             const errorText = await backendResponse.text()
-            console.error('Job status error:', backendResponse.status, errorText)
-            throw new Error(`Backend error: ${backendResponse.status}`)
+            logBackendProxyError('job-status proxy', backendResponse.status, errorText)
+            return backendErrorResponse('Failed to get job status', backendResponse.status)
         }
 
-        const data = await backendResponse.json()
-        console.log(`[job-status proxy] Backend returned status: ${data.status}`)
-        return NextResponse.json(data)
+        return await backendJsonResponse(backendResponse, 'job-status proxy')
     } catch (error) {
         console.error('Job status proxy error:', error)
-        return NextResponse.json(
-            { error: 'Failed to get job status', details: error instanceof Error ? error.message : 'Unknown error' },
-            { status: 500 }
-        )
+        return proxyFailureResponse('Failed to get job status')
     }
 }

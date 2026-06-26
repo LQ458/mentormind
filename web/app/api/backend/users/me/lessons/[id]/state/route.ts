@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { backendHeaders } from '../../../../../_auth'
+import { backendJsonResponse, proxyFailureResponse } from '../../../../../_proxyErrors'
 
 const BACKEND = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -7,9 +9,14 @@ export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const res = await fetch(`${BACKEND}/users/me/lessons/${params.id}/state`, {
-    headers: { Authorization: req.headers.get('Authorization') || '' },
-  });
-  const data = await res.json();
-  return NextResponse.json(data, { status: res.status });
+  try {
+    const id = encodeURIComponent(params.id)
+    const res = await fetch(`${BACKEND}/users/me/lessons/${id}/state`, {
+      headers: backendHeaders(req),
+    });
+    return await backendJsonResponse(res, 'users/me lesson state proxy')
+  } catch (err) {
+    console.error('[users/me lesson state proxy] error:', err)
+    return proxyFailureResponse('Failed to fetch lesson state')
+  }
 }

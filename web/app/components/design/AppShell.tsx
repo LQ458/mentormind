@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useCallback } from 'react'
+import { usePathname } from 'next/navigation'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
 import ErrorBoundary from '../ErrorBoundary'
@@ -9,16 +10,42 @@ import CommandPalette from '../CommandPalette'
 import SurveyTrigger from '../SurveyTrigger'
 import ExitSurvey, { SURVEY_KEY } from '../ExitSurvey'
 import PWAClient from '../PWAClient'
+import FeedbackHub from '../FeedbackHub'
+import ReportIssueButton from '../ReportIssueButton'
+import { OPEN_FEEDBACK_EVENT, OPEN_SURVEY_EVENT, type FeedbackLaunchContext } from '../feedbackEvents'
 
-export const OPEN_SURVEY_EVENT = 'mm:open-survey'
+function feedbackSurfaceForPath(pathname: string): string {
+  const parts = pathname.split('/').filter(Boolean)
+  const stablePath = (() => {
+    if (parts.length === 0) return 'home'
+    const [first, second] = parts
+    if (first === 'study-plan' && second) return 'study-plan-detail'
+    if (first === 'lessons' && second) return 'lesson-detail'
+    if (first === 'board' && second) return 'board-session'
+    if (first === 'board-share' && second) return 'board-share'
+    if (first === 'admin') return 'admin'
+    if (first === 'auth') return 'auth'
+    return parts.join('-')
+  })()
+  const safe = stablePath
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+  return safe ? `page:${safe}` : 'page:home'
+}
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname() || '/'
   const [mobileOpen, setMobileOpen] = useState(false)
   const [surveyOpen, setSurveyOpen] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedbackContext, setFeedbackContext] = useState<FeedbackLaunchContext | null>(null)
   const openMenu = useCallback(() => setMobileOpen(true), [])
   const closeMenu = useCallback(() => setMobileOpen(false), [])
+  const isPublicHome = pathname === '/'
 
   React.useEffect(() => {
+    if (isPublicHome) return
     if (!mobileOpen) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') closeMenu()
@@ -30,10 +57,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [mobileOpen, closeMenu])
+  }, [mobileOpen, closeMenu, isPublicHome])
 
   // Listen for the global open-survey event (fired by Topbar feedback button)
   React.useEffect(() => {
+    if (isPublicHome) return
     const handler = () => {
       if (localStorage.getItem(SURVEY_KEY) !== '1') {
         setSurveyOpen(true)
@@ -44,7 +72,40 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
     window.addEventListener(OPEN_SURVEY_EVENT, handler)
     return () => window.removeEventListener(OPEN_SURVEY_EVENT, handler)
-  }, [])
+  }, [isPublicHome])
+
+  // Listen for the global feedback event (fired by Topbar feedback button).
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail as FeedbackLaunchContext : null
+      setFeedbackContext(detail || null)
+      setFeedbackOpen(true)
+    }
+    window.addEventListener(OPEN_FEEDBACK_EVENT, handler)
+    return () => window.removeEventListener(OPEN_FEEDBACK_EVENT, handler)
+  }, [isPublicHome])
+
+  if (isPublicHome) {
+    return (
+      <div className="min-h-screen bg-[var(--bg)]">
+        <ErrorBoundary>{children}</ErrorBoundary>
+        <FeedbackHub
+          open={feedbackOpen}
+          launchContext={feedbackContext}
+          onClose={() => {
+            setFeedbackOpen(false)
+            setFeedbackContext(null)
+          }}
+        />
+        <ReportIssueButton
+          surface="public_home"
+          snapshot={{ area: 'public_home', page: pathname }}
+          fixed
+        />
+        <PWAClient />
+      </div>
+    )
+  }
 
   return (
     <div className="app">
@@ -65,6 +126,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <SurveyTrigger onTrigger={() => setSurveyOpen(true)} />
       {/* Controlled survey modal */}
       <ExitSurvey open={surveyOpen} onClose={() => setSurveyOpen(false)} />
+      <FeedbackHub
+        open={feedbackOpen}
+        launchContext={feedbackContext}
+        onClose={() => {
+          setFeedbackOpen(false)
+          setFeedbackContext(null)
+        }}
+      />
+      <ReportIssueButton
+        surface={feedbackSurfaceForPath(pathname)}
+        snapshot={{ area: 'app_shell', page: pathname }}
+        fixed
+      />
       <PWAClient />
     </div>
   )

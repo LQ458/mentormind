@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic';
-import { NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { backendHeaders } from '../../_auth'
+import { backendErrorResponse, backendJsonResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
 import http from 'http'
 import https from 'https'
 
@@ -27,19 +29,11 @@ async function fetchWithLongTimeout(url: string, init: RequestInit): Promise<Res
     return fetch(url, { ...init, agent } as any)
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
     console.log('📬 [PROXY] Audio ingest request received (Streaming Mode)')
     try {
         const contentType = request.headers.get('content-type') || ''
-        const authHeader = request.headers.get('Authorization')
-        
-        // Prepare headers for forwarding
-        const headers: Record<string, string> = {
-            'Content-Type': contentType,
-        }
-        if (authHeader) {
-            headers['Authorization'] = authHeader
-        }
+        const headers = backendHeaders(request, { 'Content-Type': contentType })
 
         // Zero-Copy Proxy: Stream the request body directly to the backend
         // We do NOT call request.formData() here.
@@ -53,20 +47,13 @@ export async function POST(request: Request) {
 
         if (!backendResponse.ok) {
             const errorText = await backendResponse.text()
-            console.error('Audio ingest backend error:', errorText)
-            return NextResponse.json(
-                { error: 'Backend error', details: errorText }, 
-                { status: backendResponse.status }
-            )
+            logBackendProxyError('audio ingest proxy', backendResponse.status, errorText)
+            return backendErrorResponse('Audio upload failed', backendResponse.status)
         }
 
-        const data = await backendResponse.json()
-        return NextResponse.json(data)
+        return await backendJsonResponse(backendResponse, 'audio ingest proxy')
     } catch (error) {
         console.error('Audio ingest proxy streaming error:', error)
-        return NextResponse.json(
-            { error: 'Failed to proxy audio upload', details: error instanceof Error ? error.message : 'Unknown error' },
-            { status: 500 }
-        )
+        return proxyFailureResponse('Failed to proxy audio upload')
     }
 }

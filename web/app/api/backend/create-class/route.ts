@@ -1,9 +1,11 @@
 export const dynamic = 'force-dynamic';
-import { NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { backendHeaders } from '../_auth'
+import { backendErrorResponse, backendJsonResponse, logBackendProxyError, proxyFailureResponse } from '../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
     try {
         const body = await request.json()
         const normalizedBody = {
@@ -19,13 +21,7 @@ export async function POST(request: Request) {
             target_audience: body.target_audience ?? body.targetAudience,
             difficulty_level: body.difficulty_level ?? body.difficultyLevel,
         }
-        const authHeader = request.headers.get('Authorization')
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-        }
-        if (authHeader) {
-            headers.Authorization = authHeader
-        }
+        const headers = backendHeaders(request, { 'Content-Type': 'application/json' })
 
         const backendResponse = await fetch(`${BACKEND_URL}/create-class`, {
             method: 'POST',
@@ -35,17 +31,13 @@ export async function POST(request: Request) {
 
         if (!backendResponse.ok) {
             const errorText = await backendResponse.text()
-            console.error('create-class backend error:', errorText)
-            throw new Error(`Backend error: ${backendResponse.status}`)
+            logBackendProxyError('create-class proxy', backendResponse.status, errorText)
+            return backendErrorResponse('Failed to create class', backendResponse.status)
         }
 
-        const data = await backendResponse.json()
-        return NextResponse.json(data)
+        return await backendJsonResponse(backendResponse, 'create-class proxy')
     } catch (error) {
         console.error('create-class proxy error:', error)
-        return NextResponse.json(
-            { error: 'Failed to create class', details: error instanceof Error ? error.message : 'Unknown error' },
-            { status: 500 }
-        )
+        return proxyFailureResponse('Failed to create class')
     }
 }

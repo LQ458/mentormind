@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { backendHeaders } from '../../_auth'
+import { backendJsonResponse, proxyFailureResponse } from '../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -8,30 +10,14 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
-    const authHeader = request.headers.get('Authorization');
-    const headers: Record<string, string> = {};
-    if (authHeader) {
-      headers.Authorization = authHeader;
-    }
+    const id = encodeURIComponent(params.id);
+    const headers = backendHeaders(request)
 
     const backendResponse = await fetch(`${BACKEND_URL}/study-plan/${id}`, { headers });
-
-    if (!backendResponse.ok) {
-      return NextResponse.json(
-        { error: 'Study plan not found' },
-        { status: backendResponse.status }
-      );
-    }
-
-    const data = await backendResponse.json();
-    return NextResponse.json(data);
+    return await backendJsonResponse(backendResponse, 'study-plan read proxy')
   } catch (error) {
     console.error('API proxy error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch study plan', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    );
+    return proxyFailureResponse('Failed to fetch study plan');
   }
 }
 
@@ -40,24 +26,16 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
-    const authHeader = request.headers.get('Authorization');
-    const headers: Record<string, string> = {};
-    if (authHeader) {
-      headers.Authorization = authHeader;
-    }
+    const id = encodeURIComponent(params.id);
+    const headers = backendHeaders(request)
 
     const backendResponse = await fetch(`${BACKEND_URL}/study-plan/${id}`, {
       method: 'DELETE',
       headers,
     });
-    const data = await backendResponse.json();
-    return NextResponse.json(data, { status: backendResponse.status });
+    return await backendJsonResponse(backendResponse, 'study-plan delete proxy')
   } catch (error) {
     console.error('API proxy error:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete study plan', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    );
+    return proxyFailureResponse('Failed to delete study plan');
   }
 }

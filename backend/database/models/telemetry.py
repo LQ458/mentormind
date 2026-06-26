@@ -30,6 +30,7 @@ ALLOWED_EVENT_TYPES: Set[str] = {
     "study_plan_chat_rtt",
     "survey_response",
     "feedback_click",
+    "feedback_moment",
 }
 
 
@@ -49,7 +50,7 @@ class TelemetryEvent(Base):
         page (str): Logical page name, e.g. "dashboard", "board"
         url (str): Full URL where event fired
         latency_ms (int): Optional latency measurement
-        payload (JSON): Free-form payload (capped 8KB at endpoint)
+        payload (JSON): Free-form payload (64KB request envelope, recursively sanitized at endpoint)
         viewport_w (int): Optional viewport width in CSS pixels
         viewport_h (int): Optional viewport height in CSS pixels
         user_agent (str): Captured from request header

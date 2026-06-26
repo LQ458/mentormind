@@ -1,21 +1,15 @@
 export const dynamic = 'force-dynamic';
-import { NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { backendHeaders } from '../../_auth'
+import { backendErrorResponse, backendJsonResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
     console.log('📬 [PROXY] Image ingest request received (Streaming Mode)')
     try {
         const contentType = request.headers.get('content-type') || ''
-        const authHeader = request.headers.get('Authorization')
-        
-        // Prepare headers for forwarding
-        const headers: Record<string, string> = {
-            'Content-Type': contentType,
-        }
-        if (authHeader) {
-            headers['Authorization'] = authHeader
-        }
+        const headers = backendHeaders(request, { 'Content-Type': contentType })
 
         // Zero-Copy Proxy: Stream the request body directly to the backend
         const backendResponse = await fetch(`${BACKEND_URL}/ingest/image`, {
@@ -28,20 +22,13 @@ export async function POST(request: Request) {
 
         if (!backendResponse.ok) {
             const errorText = await backendResponse.text()
-            console.error('Image ingest backend error:', errorText)
-            return NextResponse.json(
-                { error: 'Backend error', details: errorText }, 
-                { status: backendResponse.status }
-            )
+            logBackendProxyError('image ingest proxy', backendResponse.status, errorText)
+            return backendErrorResponse('Image upload failed', backendResponse.status)
         }
 
-        const data = await backendResponse.json()
-        return NextResponse.json(data)
+        return await backendJsonResponse(backendResponse, 'image ingest proxy')
     } catch (error) {
         console.error('Image ingest proxy streaming error:', error)
-        return NextResponse.json(
-            { error: 'Failed to proxy image upload', details: error instanceof Error ? error.message : 'Unknown error' },
-            { status: 500 }
-        )
+        return proxyFailureResponse('Failed to proxy image upload')
     }
 }

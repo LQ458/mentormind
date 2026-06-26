@@ -29,7 +29,7 @@ _mock_config.get_models.return_value = {
 # Minimal api_client mock (async chat_completion)
 _mock_api_client = MagicMock()
 _mock_api_client.deepseek = MagicMock()
-_mock_api_client.deepseek.chat_completion = AsyncMock()
+_mock_api_client.study_plan_chat_completion = AsyncMock()
 
 _mock_get_language_instruction = MagicMock(return_value="Respond in English.")
 
@@ -52,6 +52,7 @@ with patch.dict(
         StudyPlanAgent,
         _count_diagnostic_turns,
         _detection_to_dict,
+        _infer_learner_tier,
         _wants_to_start,
     )
     from core.agents.subject_detector import SubjectDetection  # noqa: E402
@@ -66,7 +67,7 @@ def _reset_mock_api_client():
     """Reset shared mock state before each test to prevent ordering leaks."""
     _mock_api_client.reset_mock()
     _mock_api_client.deepseek = MagicMock()
-    _mock_api_client.deepseek.chat_completion = AsyncMock()
+    _mock_api_client.study_plan_chat_completion = AsyncMock()
     _mock_get_language_instruction.reset_mock()
     _mock_get_language_instruction.return_value = "Respond in English."
     yield
@@ -75,6 +76,7 @@ def _reset_mock_api_client():
 def _make_llm_response(content: str) -> MagicMock:
     """Build a mock object that mimics api_client response shape."""
     mock_resp = MagicMock()
+    mock_resp.success = True
     mock_resp.data = {
         "choices": [{"message": {"content": content}}]
     }
@@ -188,6 +190,42 @@ class TestWantsToStart:
         assert _wants_to_start("I have a question about derivatives") is False
 
 
+class TestInferLearnerTier:
+    def test_extra_smart_maps_to_accelerated(self):
+        text = (
+            "Aiming high. Already fast with algebra and vectors. "
+            "Needs Olympiad-like challenge and gets bored by long basic explanations."
+        )
+        assert _infer_learner_tier(text) == "accelerated"
+
+    def test_smart_maps_to_standard(self):
+        text = (
+            "Intermediate. Understands class lectures and can solve routine problems. "
+            "Mistakes appear on multi-step force/energy questions and graphs."
+        )
+        assert _infer_learner_tier(text) == "standard"
+
+    def test_medium_maps_to_scaffolded(self):
+        text = (
+            "Some foundation. Can follow examples after seeing them, but struggles to start "
+            "problems alone and is weak in free-body diagrams."
+        )
+        assert _infer_learner_tier(text) == "scaffolded"
+
+    def test_slow_unmotivated_maps_to_foundation_rebuild(self):
+        text = (
+            "Need quick wins. Not confident. Not confident. Not confident. "
+            "Gets overwhelmed by formulas and gives up when a problem has multiple steps."
+        )
+        assert _infer_learner_tier(text) == "foundation_rebuild"
+
+    def test_need_quick_wins_without_baseline_maps_to_foundation_rebuild(self):
+        assert _infer_learner_tier("Need quick wins. Please keep it fun and low pressure.") == "foundation_rebuild"
+
+    def test_chinese_quick_wins_maps_to_foundation_rebuild(self):
+        assert _infer_learner_tier("需要先有成就感。先跳过自测，低压力开始。") == "foundation_rebuild"
+
+
 # ---------------------------------------------------------------------------
 # 3. _count_diagnostic_turns
 # ---------------------------------------------------------------------------
@@ -292,7 +330,7 @@ class TestStudyPlanAgentGetNextResponse:
     async def test_opening_with_user_input_detects_subject_moves_to_diagnostic(self):
         agent = _make_agent()
         # Provide a diagnostic-style LLM response
-        _mock_api_client.deepseek.chat_completion = AsyncMock(
+        _mock_api_client.study_plan_chat_completion = AsyncMock(
             return_value=_make_llm_response("Great! Can you solve basic derivatives?")
         )
         history = [{"role": "user", "content": "AP Calculus BC"}]
@@ -307,29 +345,29 @@ class TestStudyPlanAgentGetNextResponse:
     # -----------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_diagnostic_first_turn_asks_question_via_llm(self):
+    async def test_diagnostic_first_turn_asks_deterministic_timeline_question(self):
         agent = _make_agent()
         agent._cached_detection = _make_detection()
-        _mock_api_client.deepseek.chat_completion = AsyncMock(
+        _mock_api_client.study_plan_chat_completion = AsyncMock(
             return_value=_make_llm_response("Can you solve basic integrals?")
         )
         history = [{"role": "user", "content": "AP Calculus BC"}]
         response = await agent.get_next_response(history, PlanStage.DIAGNOSTIC, language="en")
         assert response.stage == PlanStage.DIAGNOSTIC
-        assert response.content == "Can you solve basic integrals?"
-        assert response.diagnostic_question == "Can you solve basic integrals?"
-        _mock_api_client.deepseek.chat_completion.assert_called_once()
+        assert "When do you need to be ready" in response.content
+        assert response.options == ["Within 4 weeks", "1-3 months", "3+ months", "Not sure"]
+        _mock_api_client.study_plan_chat_completion.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_diagnostic_after_3_turns_auto_advances_to_plan_review(self):
+    async def test_diagnostic_after_max_turns_auto_advances_to_plan_review(self):
         agent = _make_agent()
         agent._cached_detection = _make_detection()
         plan_json = json.dumps({"title": "AP Calculus BC Mastery", "units": [{"title": "Limits"}]})
         plan_content = f"Here's your plan!\n\n```json\n{plan_json}\n```"
-        _mock_api_client.deepseek.chat_completion = AsyncMock(
+        _mock_api_client.study_plan_chat_completion = AsyncMock(
             return_value=_make_llm_response(plan_content)
         )
-        # 3 assistant messages in history → auto-advance
+        # MAX_DIAGNOSTIC_TURNS assistant messages in history -> auto-advance.
         history = [
             {"role": "user", "content": "AP Calculus BC"},
             {"role": "assistant", "content": "Q1"},
@@ -338,6 +376,12 @@ class TestStudyPlanAgentGetNextResponse:
             {"role": "user", "content": "A2"},
             {"role": "assistant", "content": "Q3"},
             {"role": "user", "content": "A3"},
+            {"role": "assistant", "content": "Q4"},
+            {"role": "user", "content": "A4"},
+            {"role": "assistant", "content": "Q5"},
+            {"role": "user", "content": "A5"},
+            {"role": "assistant", "content": "Q6"},
+            {"role": "user", "content": "A6"},
         ]
         response = await agent.get_next_response(history, PlanStage.DIAGNOSTIC, language="en")
         assert response.stage == PlanStage.PLAN_REVIEW
@@ -348,7 +392,7 @@ class TestStudyPlanAgentGetNextResponse:
         agent._cached_detection = _make_detection()
         plan_json = json.dumps({"title": "AP Calc", "units": []})
         plan_content = f"Sure!\n\n```json\n{plan_json}\n```"
-        _mock_api_client.deepseek.chat_completion = AsyncMock(
+        _mock_api_client.study_plan_chat_completion = AsyncMock(
             return_value=_make_llm_response(plan_content)
         )
         history = [
@@ -369,7 +413,7 @@ class TestStudyPlanAgentGetNextResponse:
         agent._cached_detection = _make_detection()
         plan_dict = {"title": "AP Calculus BC Mastery", "units": [{"title": "Limits"}]}
         plan_content = f"Here's your plan!\n\n```json\n{json.dumps(plan_dict)}\n```"
-        _mock_api_client.deepseek.chat_completion = AsyncMock(
+        _mock_api_client.study_plan_chat_completion = AsyncMock(
             return_value=_make_llm_response(plan_content)
         )
         history = [
@@ -378,35 +422,61 @@ class TestStudyPlanAgentGetNextResponse:
         ]
         response = await agent.get_next_response(history, PlanStage.PLAN_REVIEW, language="en")
         assert response.stage == PlanStage.PLAN_REVIEW
-        assert response.proposed_plan == plan_dict
+        assert response.proposed_plan["title"] == plan_dict["title"]
+        assert response.proposed_plan["learner_tier"] == "standard"
+        assert "pedagogy_profile" in response.proposed_plan
         assert response.thinking_process == "Here's your plan!"
         assert response.next_action_label is not None
 
     @pytest.mark.asyncio
-    async def test_plan_review_malformed_json_proposed_plan_is_none(self):
+    async def test_plan_review_invalid_llm_tier_falls_back_to_inferred_tier(self):
+        agent = _make_agent()
+        agent._cached_detection = _make_detection()
+        plan_dict = {
+            "title": "AP Calculus BC Mastery",
+            "learner_tier": "accelerated|standard|scaffolded|foundation_rebuild",
+            "units": [{"title": "Limits and Continuity"}],
+        }
+        plan_content = f"Plan\n\n```json\n{json.dumps(plan_dict)}\n```"
+        _mock_api_client.study_plan_chat_completion = AsyncMock(
+            return_value=_make_llm_response(plan_content)
+        )
+        history = [
+            {"role": "user", "content": "AP Calculus BC"},
+            {"role": "user", "content": "Need quick wins. Please let me skip the baseline first."},
+        ]
+        response = await agent.get_next_response(history, PlanStage.PLAN_REVIEW, language="en")
+        assert response.proposed_plan["learner_tier"] == "foundation_rebuild"
+        assert "motivation_safeguards" in response.proposed_plan
+
+    @pytest.mark.asyncio
+    async def test_plan_review_malformed_json_returns_failure_without_fallback(self):
         agent = _make_agent()
         agent._cached_detection = _make_detection()
         bad_content = "Here's your plan!\n\n```json\n{this is not valid json\n```"
-        _mock_api_client.deepseek.chat_completion = AsyncMock(
+        _mock_api_client.study_plan_chat_completion = AsyncMock(
             return_value=_make_llm_response(bad_content)
         )
         history = [{"role": "user", "content": "AP Calculus BC"}]
         response = await agent.get_next_response(history, PlanStage.PLAN_REVIEW, language="en")
-        assert response.stage == PlanStage.PLAN_REVIEW
+        assert response.stage == PlanStage.DIAGNOSTIC
         assert response.proposed_plan is None
+        assert response.response_source == "llm_plan_review_parse_error"
+        assert "did not finish" in response.content
 
     @pytest.mark.asyncio
-    async def test_plan_review_no_json_block_proposed_plan_is_none(self):
+    async def test_plan_review_no_json_block_returns_failure_without_fallback(self):
         agent = _make_agent()
         agent._cached_detection = _make_detection()
         plain_content = "I'll create a study plan for you based on your responses."
-        _mock_api_client.deepseek.chat_completion = AsyncMock(
+        _mock_api_client.study_plan_chat_completion = AsyncMock(
             return_value=_make_llm_response(plain_content)
         )
         history = [{"role": "user", "content": "AP Calculus BC"}]
         response = await agent.get_next_response(history, PlanStage.PLAN_REVIEW, language="en")
+        assert response.stage == PlanStage.DIAGNOSTIC
         assert response.proposed_plan is None
-        assert response.thinking_process == plain_content
+        assert response.response_source == "llm_plan_review_parse_error"
 
     # -----------------------------------------------------------------------
     # LOCKED stage
@@ -433,7 +503,7 @@ class TestStudyPlanAgentGetNextResponse:
         agent._cached_detection = _make_detection()
         plan_dict = {"title": "AP Calc", "units": []}
         plan_content = f"Plan!\n\n```json\n{json.dumps(plan_dict)}\n```"
-        _mock_api_client.deepseek.chat_completion = AsyncMock(
+        _mock_api_client.study_plan_chat_completion = AsyncMock(
             return_value=_make_llm_response(plan_content)
         )
         # "go" triggers the start-signal fast-path → _handle_plan_review → PLAN_REVIEW
@@ -455,7 +525,7 @@ class TestStudyPlanAgentGetNextResponse:
         agent._cached_detection = _make_detection()
         plan_dict = {"title": "Revised Plan", "units": []}
         plan_content = f"Updated plan!\n\n```json\n{json.dumps(plan_dict)}\n```"
-        _mock_api_client.deepseek.chat_completion = AsyncMock(
+        _mock_api_client.study_plan_chat_completion = AsyncMock(
             return_value=_make_llm_response(plan_content)
         )
         history = [
@@ -465,7 +535,8 @@ class TestStudyPlanAgentGetNextResponse:
         response = await agent.get_next_response(history, PlanStage.LOCKED, language="en")
         # Should re-generate — falls through to _handle_plan_review
         assert response.stage == PlanStage.PLAN_REVIEW
-        assert response.proposed_plan == plan_dict
+        assert response.proposed_plan["title"] == plan_dict["title"]
+        assert "pedagogy_profile" in response.proposed_plan
 
     # -----------------------------------------------------------------------
     # Language variants
@@ -498,7 +569,7 @@ class TestStudyPlanAgentGetNextResponse:
         agent = _make_agent()
         detection = _make_detection()
         agent._cached_detection = detection
-        _mock_api_client.deepseek.chat_completion = AsyncMock(
+        _mock_api_client.study_plan_chat_completion = AsyncMock(
             return_value=_make_llm_response("What are your weakest units?")
         )
         history = [{"role": "user", "content": "AP Calculus BC"}]
@@ -514,7 +585,7 @@ class TestStudyPlanAgentGetNextResponse:
         agent._cached_detection = detection
         plan_dict = {"title": "AP Calculus BC Mastery", "units": []}
         plan_content = f"Plan!\n\n```json\n{json.dumps(plan_dict)}\n```"
-        _mock_api_client.deepseek.chat_completion = AsyncMock(
+        _mock_api_client.study_plan_chat_completion = AsyncMock(
             return_value=_make_llm_response(plan_content)
         )
         history = [{"role": "user", "content": "AP Calculus BC"}]

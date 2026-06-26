@@ -7,6 +7,7 @@ for individual study plan units using subject-specific prompts.
 import asyncio
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from config import config
@@ -139,9 +140,19 @@ class UnitContentGenerator:
             ", ".join(unit_data.get("topics", [])),
         )
 
-        # Run all generation tasks + image fetch in parallel
+        # Bound concurrency so we don't fire all content-type LLM calls at once:
+        # simultaneous calls were tripping the provider rate limit / circuit breaker
+        # together, making the whole unit fail. Staggering 2-at-a-time lets transient
+        # pressure clear and dramatically cuts all-or-nothing failures.
+        sem = asyncio.Semaphore(int(os.getenv("UNIT_CONTENT_CONCURRENCY", "2")))
+
+        async def _bounded(coro):
+            async with sem:
+                return await coro
+
+        # Run generation tasks (bounded) + best-effort image fetch (unbounded) together.
         keys = list(tasks.keys())
-        all_tasks = [tasks[k] for k in keys] + [image_task]
+        all_tasks = [_bounded(tasks[k]) for k in keys] + [image_task]
         results = await asyncio.gather(*all_tasks, return_exceptions=True)
 
         # Separate content results from image results

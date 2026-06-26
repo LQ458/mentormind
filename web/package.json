@@ -6,16 +6,19 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "qa:board-local": "BASE_URL=http://localhost:3000 RUN_LOCAL_BOARD_TEST=true node ../scripts/board-pacing-qa.mjs",
+    "qa:install-browsers": "playwright install chromium",
+    "qa:prod": "node ../scripts/prod-autopilot-qa.mjs",
+    "qa:prod:smoke": "node ../scripts/prod-autopilot-qa.mjs --smoke"
   },
   "dependencies": {
-    "better-auth": "^1.3.9",
-    "pg": "^8.14.1",
     "@remotion/cli": "^4.0.417",
     "@remotion/player": "^4.0.417",
     "@types/dompurify": "^3.2.0",
     "autoprefixer": "^10.4.0",
     "axios": "^1.6.2",
+    "better-auth": "^1.3.9",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "d3": "^7.8.5",
@@ -26,6 +29,7 @@
     "lucide-react": "^0.309.0",
     "mathjs": "^15.2.0",
     "next": "14.2.29",
+    "pg": "^8.14.1",
     "postcss": "^8.4.0",
     "react": "^18",
     "react-dom": "^18",
@@ -45,6 +49,7 @@
     "@types/react-dom": "^18",
     "@types/react-katex": "^3.0.4",
     "css-loader": "^7.1.3",
+    "playwright": "^1.61.0",
     "postcss-loader": "^8.2.0",
     "style-loader": "^4.0.0",
     "typescript": "^5"

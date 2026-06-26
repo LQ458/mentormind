@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { backendHeaders } from '../../../_auth'
+import { backendJsonResponse, proxyFailureResponse } from '../../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -8,20 +10,17 @@ export async function GET(
   { params }: { params: { sessionId: string } },
 ) {
   try {
-    const { sessionId } = params
+    const sessionId = encodeURIComponent(params.sessionId)
     const res = await fetch(`${BACKEND_URL}/board/${sessionId}/state`, {
       method: 'GET',
-      headers: {
-        Authorization: req.headers.get('Authorization') || '',
-      },
+      cache: 'no-store',
+      headers: backendHeaders(req),
     })
-    const data = await res.json().catch(() => ({}))
-    return NextResponse.json(data, { status: res.status })
+    const response = await backendJsonResponse(res, 'board state proxy')
+    response.headers.set('Cache-Control', 'no-store')
+    return response
   } catch (err) {
     console.error('[board state proxy] error:', err)
-    return NextResponse.json(
-      { error: 'Failed to reach board service' },
-      { status: 502 },
-    )
+    return proxyFailureResponse('Failed to fetch board state')
   }
 }

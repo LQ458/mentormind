@@ -23,7 +23,11 @@ load_dotenv()
 
 # Language instruction injected into every AI prompt to enforce output language
 LANGUAGE_INSTRUCTION = {
-    "zh": "请用中文回复。所有内容、标题、说明和练习题均必须用中文书写。禁止使用英文。",
+    "zh": (
+        "请用中文回复。所有面向学生的内容、标题、说明和练习题均必须用中文书写；"
+        "AP、IB、A Level、FRQ、DBQ、IA、SAT、ACT、课程代码、变量名、公式符号等"
+        "官方缩写或标准术语可以保留英文。不要把整句解释或段落写成英文。"
+    ),
     "en": "Reply entirely in English. All content, titles, explanations, and exercises must be in English. Do not mix languages.",
     "ja": "日本語で回答してください。すべてのコンテンツは日本語で書いてください。",
     "ko": "한국어로 답변해 주세요. 모든 내용은 한국어로 작성해 주세요.",
@@ -94,7 +98,7 @@ class APIRetryManager:
                     self.logger.error(f"Max retries ({self.max_retries}) exceeded for {func.__name__}: {e}")
                     return APIResponse(
                         success=False,
-                        error=f"Max retries exceeded: {str(e)}",
+                        error="AI service request failed after retries",
                         status_code=0,
                         retry_count=attempt + 1
                     )
@@ -112,10 +116,10 @@ class APIRetryManager:
             
             except Exception as e:
                 # For non-retryable exceptions, fail immediately
-                self.logger.error(f"Non-retryable error in {func.__name__}: {e}")
+                self.logger.exception("Non-retryable error in %s", func.__name__)
                 return APIResponse(
                     success=False,
-                    error=f"Non-retryable error: {str(e)}",
+                    error="AI service request failed",
                     status_code=0,
                     retry_count=attempt + 1
                 )
@@ -123,7 +127,7 @@ class APIRetryManager:
         # This should not be reached, but just in case
         return APIResponse(
             success=False,
-            error=f"Unexpected retry failure: {str(last_exception)}",
+            error="AI service request failed",
             status_code=0,
             retry_count=self.max_retries
         )
@@ -244,13 +248,14 @@ class DeepSeekClient:
             if isinstance(e, CircuitBreakerException):
                 return APIResponse(
                     success=False,
-                    error=f"Service temporarily unavailable: {str(e)}",
+                    error="AI service temporarily unavailable",
                     status_code=503
                 )
             else:
+                self.logger.exception("DeepSeek chat completion failed")
                 return APIResponse(
                     success=False,
-                    error=f"API call failed: {str(e)}",
+                    error="AI service request failed",
                     status_code=500
                 )
     
@@ -285,7 +290,7 @@ class DeepSeekClient:
         if not self.api_key:
             return APIResponse(
                 success=False,
-                error="DEEPSEEK_API_KEY not set in environment variables",
+                error="AI service is not configured",
                 status_code=500,
             )
         url = f"{self.base_url}/chat/completions"
@@ -342,7 +347,7 @@ class DeepSeekClient:
                         )
                         return APIResponse(
                             success=False,
-                            error=f"API error {response.status}: {error_text}",
+                            error=f"AI service request failed with status {response.status}",
                             status_code=response.status
                         )
                         
@@ -360,7 +365,7 @@ class DeepSeekClient:
             self.logger.error(f"Unexpected error in API call: {e}\n{error_details}")
             return APIResponse(
                 success=False,
-                error=f"Unexpected error: {str(e)}\nDetails: {error_details}",
+                error="AI service request failed",
                 status_code=0
             )
     
@@ -379,7 +384,7 @@ class DeepSeekClient:
         tool_call_complete chunk when the full tool call is assembled.
         """
         if not self.api_key:
-            yield StreamChunk(chunk_type="error", content="DEEPSEEK_API_KEY not set in environment variables")
+            yield StreamChunk(chunk_type="error", content="AI service is not configured")
             return
 
         url = f"{self.base_url}/chat/completions"

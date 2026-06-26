@@ -44,8 +44,13 @@ from core.agents.study_plan_agent import (
     _has_level_signal,
     _has_timeline_signal,
     _parse_ask_user_block,
+    _parse_plan_json,
     _strip_ask_user_block,
     _build_curriculum_note,
+    _framework_exclusivity_contract,
+    _plan_json_language_contract,
+    _build_weekly_schedule,
+    _extract_requested_study_days,
 )
 
 
@@ -63,6 +68,21 @@ def test_T2_gaokao_catalog_loads():
     assert "courses" in cat
     assert len(cat["courses"]) >= 5
     assert any(c["id"] == "gaokao_math" for c in cat["courses"])
+
+
+def test_T2b_framework_exclusivity_contract_blocks_ap_gaokao_mix():
+    ap_contract = _framework_exclusivity_contract(
+        SubjectDetection(subject="math", framework="ap", difficulty="intermediate", topics=[], confidence=1.0)
+    )
+    gaokao_contract = _framework_exclusivity_contract(
+        SubjectDetection(subject="math", framework="gaokao", difficulty="intermediate", topics=[], confidence=1.0)
+    )
+
+    assert "mutually exclusive" in ap_contract
+    assert "高考" in ap_contract
+    assert "130+" in ap_contract
+    assert "Advanced Placement" in gaokao_contract
+    assert "College Board" in gaokao_contract
 
 
 def test_T3_ib_catalog_loads_with_levels():
@@ -142,6 +162,16 @@ def test_T10_no_forced_zh_for_gaokao():
     assert 'output_language = "zh"' not in src
     # The bilingual hint helper must remain (so en+gaokao still gets terminology)
     assert "bilingual_terminology_hint" in src
+
+
+def test_T10b_zh_plan_json_contract_localizes_student_fields():
+    contract = _plan_json_language_contract("zh")
+    assert "title" in contract
+    assert "unit titles" in contract
+    assert "learning_objectives" in contract
+    assert "AP" in contract
+    assert "周一" in contract
+    assert "Do not leave descriptions or objectives as English sentences" in contract
 
 
 # ── Module-singleton state-leak fix (T11) ───────────────────────────────────
@@ -258,6 +288,7 @@ def test_T21_get_next_response_accepts_preselected_kwargs():
     sig = inspect.signature(StudyPlanAgent.get_next_response)
     assert "preselected_subject" in sig.parameters
     assert "preselected_framework" in sig.parameters
+    assert "preselected_course" in sig.parameters
 
 
 def test_T22_preselected_framework_overrides_detection():
@@ -291,6 +322,27 @@ def test_T23_preselected_clears_stale_ap_course_id():
     # Curriculum note should be IB-flavoured, not AP
     note = _build_curriculum_note(detection)
     assert "OFFICIAL AP CURRICULUM" not in note
+
+
+def test_T23b_preselected_course_overrides_conflicting_free_text():
+    """The exact course chip should anchor catalog selection even when the
+    student's free text includes conflicting score jargon from another system."""
+    agent = StudyPlanAgent()
+    history = [{"role": "user", "content": "I need a 130+ plan and keep mentioning 高考 by mistake"}]
+    detection = asyncio.run(
+        agent._detect_for(
+            history,
+            "en",
+            preselected_subject="math",
+            preselected_framework="ap",
+            preselected_course="AP Calculus BC",
+        )
+    )
+    assert detection is not None
+    assert detection.framework == "ap"
+    assert detection.subject == "math"
+    assert detection.course_id == "ap_calculus_bc"
+    assert detection.course_name == "AP Calculus BC"
 
 
 def test_T24_preselected_ap_chip_flow_marks_deterministic_sources():
@@ -515,3 +567,55 @@ def test_T32_plan_review_parse_error_returns_retryable_error(monkeypatch):
     assert response.proposed_plan is None
     assert response.response_source == "llm_plan_review_parse_error_after_retry_fast"
     assert "没有生成完成" in response.content
+
+
+def test_T33_parse_plan_json_accepts_prose_wrapped_object():
+    _, plan = _parse_plan_json(
+        'Here is the plan:\n'
+        '{"title":"AP Calculus BC Plan","subject":"math","framework":"ap",'
+        '"estimated_hours":40,"units":[{"title":"Series","topics":["Taylor"],"estimated_minutes":300}]}\n'
+        'Use this schedule.'
+    )
+
+    assert plan is not None
+    assert plan["title"] == "AP Calculus BC Plan"
+    assert plan["units"][0]["title"] == "Series"
+
+
+def test_T34_parse_plan_json_unwraps_proposed_plan_payload():
+    _, plan = _parse_plan_json(
+        '```json\n'
+        '{"proposed_plan":{"title":"Wrapped Plan","subject":"math","framework":"ap",'
+        '"estimated_hours":20,"units":[{"title":"Polar","topics":["area"],"estimated_minutes":180}]}}\n'
+        '```'
+    )
+
+    assert plan is not None
+    assert plan["title"] == "Wrapped Plan"
+    assert plan["units"][0]["title"] == "Polar"
+
+
+def test_T35_extract_requested_study_days_from_intake_summary():
+    days = _extract_requested_study_days(
+        "Schedule: Mon, Wed, Fri, Sun, 2 hours per session",
+        "en",
+    )
+
+    assert days == ["Mon", "Wed", "Fri", "Sun"]
+
+
+def test_T36_weekly_schedule_preserves_requested_days():
+    schedule = _build_weekly_schedule("accelerated", "en", ["Mon", "Wed", "Fri", "Sun"])
+
+    assert [slot["day"] for slot in schedule] == ["Mon", "Wed", "Fri", "Sun"]
+    assert "hard" in schedule[0]["focus"].lower()
+    assert "hard" in schedule[3]["focus"].lower()
+
+
+def test_T37_extract_requested_zh_study_days_from_intake_summary():
+    days = _extract_requested_study_days(
+        "学习安排：周二, 周四, 周日，每次 1 小时",
+        "zh",
+    )
+
+    assert days == ["周二", "周四", "周日"]

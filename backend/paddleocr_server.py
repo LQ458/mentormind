@@ -10,12 +10,14 @@ import os
 import base64
 import traceback
 import tempfile
+import logging
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
 app = FastAPI(title="PaddleOCR Local Server", version="1.0.0")
+logger = logging.getLogger(__name__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,11 +34,18 @@ async def load_model():
     try:
         from paddleocr import PaddleOCR
         print("⏳ Loading PaddleOCR model...")
-        ocr_model = PaddleOCR(
-            use_angle_cls=True,
-            lang="ch",
-            use_gpu=False,
-        )
+        for kwargs in (
+            {"use_angle_cls": True, "lang": "ch"},
+            {"use_textline_orientation": True, "lang": "ch"},
+            {"lang": "ch"},
+        ):
+            try:
+                ocr_model = PaddleOCR(**kwargs)
+                break
+            except TypeError:
+                continue
+        if ocr_model is None:
+            raise RuntimeError("PaddleOCR did not initialize with supported arguments")
         print("✅ PaddleOCR model loaded")
     except ImportError:
         print("⚠️  paddleocr not installed. Run: pip install paddleocr paddlepaddle")
@@ -61,7 +70,10 @@ async def ocr_base64(req: Base64Request):
         tmp_path = tmp.name
 
     try:
-        result = ocr_model.ocr(tmp_path, cls=True)
+        try:
+            result = ocr_model.ocr(tmp_path, cls=True)
+        except TypeError:
+            result = ocr_model.ocr(tmp_path)
         lines = []
         for block in (result or []):
             for line in (block or []):
@@ -71,8 +83,9 @@ async def ocr_base64(req: Base64Request):
                     lines.append({"text": text, "confidence": float(conf)})
         full_text = " ".join(l["text"] for l in lines)
         return {"success": True, "text": full_text, "lines": lines}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("PaddleOCR base64 OCR failed")
+        raise HTTPException(status_code=500, detail="Image OCR failed")
     finally:
         os.unlink(tmp_path)
 
@@ -87,7 +100,10 @@ async def ocr_upload(image: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        result = ocr_model.ocr(tmp_path, cls=True)
+        try:
+            result = ocr_model.ocr(tmp_path, cls=True)
+        except TypeError:
+            result = ocr_model.ocr(tmp_path)
         lines = []
         for block in (result or []):
             for line in (block or []):
@@ -96,8 +112,9 @@ async def ocr_upload(image: UploadFile = File(...)):
                     lines.append({"text": text, "confidence": float(conf)})
         full_text = " ".join(l["text"] for l in lines)
         return {"success": True, "text": full_text, "lines": lines}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("PaddleOCR upload OCR failed")
+        raise HTTPException(status_code=500, detail="Image OCR failed")
     finally:
         os.unlink(tmp_path)
 

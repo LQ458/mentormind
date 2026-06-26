@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, Home, Layers, Book, Settings, X, type LucideIcon } from 'lucide-react'
+import { CalendarDays, Home, Layers, Book, Settings, Users, X, type LucideIcon } from 'lucide-react'
 import { Progress } from './primitives'
 import { useAuth, useUser } from '../AuthContext'
 import { useLanguage } from '../LanguageContext'
@@ -21,6 +21,7 @@ const NAV: NavItem[] = [
   { href: '/dashboard', label: 'Today', zh: '今日', icon: Home },
   { href: '/today', label: 'Daily review', zh: '每日复习', icon: CalendarDays },
   { href: '/study-plan', label: 'Study plan', zh: '学习计划', icon: Layers },
+  { href: '/seminar', label: 'Seminar', zh: '研讨', icon: Users },
   { href: '/lessons', label: 'Library', zh: '文库', icon: Book },
 ]
 
@@ -90,8 +91,12 @@ export default function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean;
   useEffect(() => {
     let cancelled = false
     const load = async () => {
-      if (!isLoaded) return
+      if (!isLoaded) {
+        setPlansLoaded(false)
+        return
+      }
       if (!isSignedIn) {
+        setPlans([])
         setPlansLoaded(true)
         return
       }
@@ -122,12 +127,17 @@ export default function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean;
   const subjectRows = useMemo(() => aggregateSubjects(plans, lang), [plans, lang])
 
   const initial = (user?.firstName?.[0] || user?.username?.[0] || 'M').toUpperCase()
-  const displayName = user?.fullName || user?.username || 'Guest'
-  const role = 'Learner'
+  const displayName = !isLoaded
+    ? lang === 'zh' ? '正在确认登录' : 'Checking session'
+    : user?.fullName || user?.username || 'Guest'
+  const role = !isLoaded
+    ? lang === 'zh' ? '请稍候' : 'Please wait'
+    : lang === 'zh' ? '学员' : 'Learner'
 
   const isActive = (href: string) => {
     if (href === '/dashboard') return pathname === '/dashboard' || pathname === '/'
     if (href === '/today') return pathname === '/today'
+    if (href === '/seminar') return pathname.startsWith('/seminar')
     if (href === '/lessons') return pathname.startsWith('/lessons')
     return pathname === href || pathname.startsWith(href + '/')
   }

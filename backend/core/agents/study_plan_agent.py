@@ -5,6 +5,7 @@ Max 3 diagnostic questions before auto-advancing to plan generation.
 Recognizes intent signals like "just start" / "generate" and skips straight to generation.
 """
 
+import os
 import json
 import re
 import asyncio
@@ -49,8 +50,15 @@ class PlanResponse:
 
 # Diagnostic turn cap (was 3, raised to 6 for the dynamic flow)
 MAX_DIAGNOSTIC_TURNS = 6
-PLAN_REVIEW_LLM_TIMEOUT_SECONDS = 25
-PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS = 20
+# Plan-review generation budgets. Must total under the wrapping
+# STUDY_PLAN_CHAT_BACKEND_TIMEOUT_SECONDS (default 75s) and the frontend
+# STUDY_PLAN_CHAT_TIMEOUT_MS (default 75000). Attempt 1 is a fast FLASH pass with
+# enough tokens to avoid truncation; attempt 2 escalates to the PRO model (the
+# >=3000 max_tokens threshold in api_client._select_model) for stronger JSON
+# structure on hard subjects. 38 + 30 = 68s leaves margin under 75s.
+PLAN_REVIEW_LLM_TIMEOUT_SECONDS = int(os.getenv("PLAN_REVIEW_LLM_TIMEOUT_SECONDS", "38"))
+PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS = int(os.getenv("PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS", "30"))
+VALID_LEARNER_TIERS = {"accelerated", "standard", "scaffolded", "foundation_rebuild"}
 
 
 _ASK_USER_BLOCK_RE = re.compile(r"```ask_user\s*(\{.*?\})\s*```", re.DOTALL)
@@ -93,31 +101,102 @@ def _chat_completion_content(response: Any) -> str:
     return response.data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
 
 
+def _salvage_truncated_json(text: str) -> Optional[Dict[str, Any]]:
+    """Best-effort recovery of a JSON object truncated by the LLM token limit.
+
+    Plan output is sometimes cut off mid-array (e.g. inside ``units``), leaving an
+    unparseable but mostly-complete object. Walk from the first ``{``, tracking
+    string state and bracket depth, cut back to the last *structurally safe*
+    boundary (after a closed bracket or a comma — never mid key/value), strip a
+    dangling comma, then append the closers needed to balance. Returns the parsed
+    dict (unwrapping ``proposed_plan``) or None if nothing usable can be recovered.
+    Never raises.
+    """
+    if not text:
+        return None
+    start = text.find("{")
+    if start < 0:
+        return None
+    s = text[start:]
+    stack: List[str] = []
+    in_string = False
+    escape = False
+    cut = -1
+    cut_stack: List[str] = []
+    for i, ch in enumerate(s):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+            cut, cut_stack = i + 1, list(stack)
+        elif ch == ",":
+            cut, cut_stack = i + 1, list(stack)
+    # cut_stack empty => the object was already balanced (normal parse handles it).
+    if cut <= 0 or not cut_stack:
+        return None
+    head = s[:cut].rstrip()
+    if head.endswith(","):
+        head = head[:-1].rstrip()
+    closers = "".join("}" if b == "{" else "]" for b in reversed(cut_stack))
+    try:
+        parsed = json.loads(head + closers)
+    except Exception:
+        return None
+    if isinstance(parsed, dict) and isinstance(parsed.get("proposed_plan"), dict):
+        parsed = parsed["proposed_plan"]
+    return parsed if isinstance(parsed, dict) else None
+
+
 def _parse_plan_json(full_content: str) -> tuple[str, Optional[Dict[str, Any]]]:
     thinking_process = ""
     proposed_plan = None
+
+    def parse_candidate(raw: str) -> Optional[Dict[str, Any]]:
+        candidate = (raw or "").strip()
+        if candidate.startswith("json"):
+            candidate = candidate[4:].strip()
+        try:
+            parsed = json.loads(candidate)
+        except Exception:
+            parsed = None
+        if parsed is None:
+            decoder = json.JSONDecoder()
+            for match in re.finditer(r"\{", candidate):
+                try:
+                    parsed, _ = decoder.raw_decode(candidate[match.start():])
+                    break
+                except json.JSONDecodeError:
+                    continue
+        if parsed is None:
+            # Last resort: repair a truncated object (LLM hit the token limit).
+            parsed = _salvage_truncated_json(candidate)
+        if isinstance(parsed, dict) and isinstance(parsed.get("proposed_plan"), dict):
+            parsed = parsed["proposed_plan"]
+        return parsed if isinstance(parsed, dict) else None
 
     if "```json" in full_content:
         parts = full_content.split("```json")
         thinking_process = parts[0].strip()
         json_str = parts[1].split("```")[0].strip()
-        try:
-            proposed_plan = json.loads(json_str)
-        except Exception:
-            proposed_plan = None
+        proposed_plan = parse_candidate(json_str)
     elif "```" in full_content:
         parts = full_content.split("```")
         thinking_process = parts[0].strip()
-        try:
-            proposed_plan = json.loads(parts[1].strip())
-        except Exception:
-            proposed_plan = None
+        proposed_plan = parse_candidate(parts[1])
     else:
         thinking_process = full_content
-        try:
-            proposed_plan = json.loads(full_content.strip())
-        except Exception:
-            proposed_plan = None
+        proposed_plan = parse_candidate(full_content)
 
     return thinking_process, proposed_plan
 
@@ -148,20 +227,331 @@ def _plan_generation_error_response(
     source: str,
     detection: Optional[SubjectDetection],
 ) -> PlanResponse:
+    is_timeout = "timeout" in source
     content = (
-        "The plan did not finish generating. Please retry once, or add one shorter detail and try again."
+        (
+            "The plan did not finish before the server timeout. Retry once, or add exam timing and weekly hours so the next attempt can be shorter."
+            if is_timeout
+            else "The plan did not finish as a usable study-plan draft. Mina received an AI response, but it was not structured enough to save. Retry once, or add exam timing, weekly hours, and target score."
+        )
         if language == "en"
-        else "学习计划没有生成完成。请再试一次，或补充一句更短的信息后重试。"
+        else (
+            "学习计划没有生成完成：Mina 在服务器超时前没有完成计划。可以重试一次，或先补充考试时间和每周学习时长，让下一次生成更短更稳。"
+            if is_timeout
+            else "学习计划没有生成完成：Mina 收到了 AI 回复，但不是可保存的学习计划草稿。可以重试一次，或补充考试时间、每周学习时长和目标分数。"
+        )
+    )
+    options = (
+        ["Retry generation", "Add weekly hours", "Add exam date", "Add target score"]
+        if language == "en"
+        else ["重试生成", "补充每周时长", "补充考试时间", "补充目标分数"]
     )
     return PlanResponse(
         stage=PlanStage.DIAGNOSTIC,
         content=content,
         response_source=source,
         diagnostic_question=content,
-        options=["Retry", "Add one detail"] if language == "en" else ["重试生成", "补充信息"],
+        options=options,
         allow_free_text=True,
         detected_subject=_detection_to_dict(detection) if detection else None,
     )
+
+
+def _infer_learner_tier(diagnostic_text: str) -> str:
+    text = (diagnostic_text or "").lower()
+    very_confident = text.count("very confident")
+    not_confident = text.count("not confident")
+    somewhat = text.count("somewhat")
+
+    if any(term in text for term in ["aiming high", "冲高分", "olympiad", "edge case", "gets bored", "challenge pacing"]):
+        return "accelerated"
+    if any(term in text for term in ["new to this", "零基础", "need quick wins", "quick wins", "需要先有成就感", "unmotivated", "overwhelmed", "压力很大", "gives up", "confidence first", "建立信心", "not confident", "没把握"]):
+        if (
+            not_confident >= 3
+            or "new to this" in text
+            or "零基础" in text
+            or "need quick wins" in text
+            or "quick wins" in text
+            or "需要先有成就感" in text
+            or "overwhelmed" in text
+            or "压力很大" in text
+            or "gives up" in text
+            or "没把握" in text
+        ):
+            return "foundation_rebuild"
+    if (
+        any(term in text for term in ["intermediate", "中等基础", "understands class lectures", "routine problems"])
+        and not any(term in text for term in ["struggles to start", "weak in", "new to this", "零基础", "overwhelmed", "压力很大"])
+        and not_confident <= 1
+    ):
+        return "standard"
+    if any(term in text for term in ["some foundation", "有一点基础", "struggles to start", "weak in", "not confident", "没把握"]) or somewhat >= 2:
+        return "scaffolded"
+    if very_confident >= 4:
+        return "accelerated"
+    return "standard"
+
+
+def _tier_profile(learner_tier: str, language: str) -> Dict[str, Any]:
+    if language == "zh":
+        profiles = {
+            "accelerated": {
+                "pace": "accelerated",
+                "support_pattern": "诊断跳过基础，挑战题优先",
+                "concept_example_practice_test_ratio": "10/15/55/20",
+                "engagement_mode": "高难挑战、错因复盘、限时 FRQ",
+            },
+            "standard": {
+                "pace": "normal",
+                "support_pattern": "概念修补 + 高频练习",
+                "concept_example_practice_test_ratio": "25/25/35/15",
+                "engagement_mode": "目标进度条、限时小测、错题升级",
+            },
+            "scaffolded": {
+                "pace": "guided",
+                "support_pattern": "例题示范 → 引导尝试 → 独立练习",
+                "concept_example_practice_test_ratio": "30/35/25/10",
+                "engagement_mode": "小胜利、步骤卡、每节一个可见进步",
+            },
+            "foundation_rebuild": {
+                "pace": "slow",
+                "support_pattern": "信心优先，先少量输入，再做短练习",
+                "concept_example_practice_test_ratio": "35/40/20/5",
+                "engagement_mode": "小游戏式任务、可视化直觉、低压力连胜",
+            },
+        }
+    else:
+        profiles = {
+            "accelerated": {
+                "pace": "accelerated",
+                "support_pattern": "diagnose and skip basics; challenge-first",
+                "concept_example_practice_test_ratio": "10/15/55/20",
+                "engagement_mode": "hard-mode challenges, traps, timed FRQs",
+            },
+            "standard": {
+                "pace": "normal",
+                "support_pattern": "concept repair plus frequent AP practice",
+                "concept_example_practice_test_ratio": "25/25/35/15",
+                "engagement_mode": "progress streaks, timed mini-checks, error upgrades",
+            },
+            "scaffolded": {
+                "pace": "guided",
+                "support_pattern": "worked example -> guided attempt -> independent attempt",
+                "concept_example_practice_test_ratio": "30/35/25/10",
+                "engagement_mode": "small wins, step cards, visible progress each session",
+            },
+            "foundation_rebuild": {
+                "pace": "slow",
+                "support_pattern": "confidence-first; tiny input before short practice",
+                "concept_example_practice_test_ratio": "35/40/20/5",
+                "engagement_mode": "game-like missions, visual intuition, low-pressure streaks",
+            },
+        }
+    return profiles.get(learner_tier, profiles["standard"])
+
+
+def _extract_requested_study_days(diagnostic_text: str, language: str) -> Optional[List[str]]:
+    """Extract user-selected weekly study days from the intake summary."""
+    text = diagnostic_text or ""
+    schedule_line = ""
+    for line in text.splitlines():
+        lowered = line.lower()
+        if "schedule:" in lowered or "学习安排" in line:
+            schedule_line = line
+            break
+    if not schedule_line:
+        return None
+
+    if language == "zh":
+        day_map = [
+            ("周一", "周一"), ("周二", "周二"), ("周三", "周三"), ("周四", "周四"),
+            ("周五", "周五"), ("周六", "周六"), ("周日", "周日"), ("周天", "周日"),
+        ]
+        days = []
+        for needle, label in day_map:
+            if needle in schedule_line and label not in days:
+                days.append(label)
+        return days or None
+
+    day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    found = []
+    for label in day_labels:
+        if re.search(rf"\b{label}\b", schedule_line, re.IGNORECASE):
+            found.append(label)
+    return found or None
+
+
+def _build_weekly_schedule(learner_tier: str, language: str, requested_days: Optional[List[str]] = None) -> List[Dict[str, str]]:
+    if language == "zh":
+        if learner_tier == "foundation_rebuild":
+            focus_cycle = [
+                "10分钟直觉图 + 1个例题 + 1个小胜利",
+                "词汇/公式解码 + 引导练习",
+                "低压力复盘 + 2题连胜挑战",
+            ]
+        elif learner_tier == "scaffolded":
+            focus_cycle = [
+                "概念修补 + 例题拆解",
+                "引导练习 + 错因标记",
+                "独立练习 + 迷你测验",
+            ]
+        elif learner_tier == "accelerated":
+            focus_cycle = [
+                "快速诊断 + 难题组",
+                "FRQ/实验设计限时训练",
+                "错题升级 + 跨单元挑战",
+            ]
+        else:
+            focus_cycle = [
+                "核心概念 + 典型题",
+                "AP风格练习 + 图像/数据",
+                "限时小测 + 错题复盘",
+            ]
+        days = requested_days or ["周一", "周三", "周五"]
+        return [{"day": day, "focus": focus_cycle[i % len(focus_cycle)]} for i, day in enumerate(days)]
+
+    if learner_tier == "foundation_rebuild":
+        focus_cycle = [
+            "10-min intuition picture + 1 worked example + 1 confidence win",
+            "vocabulary/formula decoding + guided practice",
+            "low-pressure recap + 2-question streak challenge",
+        ]
+    elif learner_tier == "scaffolded":
+        focus_cycle = [
+            "concept repair + worked example",
+            "guided practice + error tagging",
+            "independent attempt + mini-check",
+        ]
+    elif learner_tier == "accelerated":
+        focus_cycle = [
+            "fast diagnostic + hard problem set",
+            "timed FRQ / experimental design",
+            "error upgrade + cross-unit challenge",
+        ]
+    else:
+        focus_cycle = [
+            "core concept + typical problems",
+            "AP-style practice + graph/data work",
+            "timed mini-check + error review",
+        ]
+    days = requested_days or ["Mon", "Wed", "Fri"]
+    return [{"day": day, "focus": focus_cycle[i % len(focus_cycle)]} for i, day in enumerate(days)]
+
+
+def _enhance_plan_for_tier(
+    plan: Dict[str, Any],
+    learner_tier: str,
+    language: str,
+    diagnostic_text: str = "",
+) -> Dict[str, Any]:
+    """Normalize the LLM plan and inject required learner-tier supports.
+
+    The LLM is good at course coverage but can drift toward a generic syllabus.
+    This deterministic layer keeps the output usable for all four learner bands.
+    """
+    if not isinstance(plan, dict):
+        return plan
+    if learner_tier not in VALID_LEARNER_TIERS:
+        learner_tier = "standard"
+    units = plan.get("units") if isinstance(plan.get("units"), list) else []
+    total_hours = int(plan.get("estimated_hours") or 0)
+    if not total_hours:
+        total_hours = max(40, len(units) * 8)
+        plan["estimated_hours"] = total_hours
+
+    if units:
+        default_hours = max(1, round(total_hours / len(units)))
+        for unit in units:
+            if not isinstance(unit, dict):
+                continue
+            hours = unit.get("estimated_hours")
+            if not isinstance(hours, (int, float)) or hours <= 0:
+                unit["estimated_hours"] = default_hours
+            if not isinstance(unit.get("estimated_minutes"), (int, float)) or unit.get("estimated_minutes") <= 0:
+                unit["estimated_minutes"] = int(unit["estimated_hours"] * 60)
+
+    plan["learner_tier"] = learner_tier
+    plan["pedagogy_profile"] = _tier_profile(learner_tier, language)
+    plan["weekly_schedule"] = _build_weekly_schedule(
+        learner_tier,
+        language,
+        _extract_requested_study_days(diagnostic_text, language),
+    )
+
+    if language == "zh":
+        hooks = {
+            "accelerated": ["Hard mode FRQ", "误区陷阱题", "实验设计挑战"],
+            "standard": ["进度条", "错题升级", "周末小测"],
+            "scaffolded": ["步骤卡", "例题接力", "三题小胜利"],
+            "foundation_rebuild": ["公式解码小游戏", "画图猜物理", "两题连胜徽章"],
+        }
+    else:
+        hooks = {
+            "accelerated": ["Hard-mode FRQ", "misconception traps", "experimental design challenge"],
+            "standard": ["progress bar", "error upgrade", "weekly mini-check"],
+            "scaffolded": ["step cards", "worked-example relay", "three-question win"],
+            "foundation_rebuild": ["formula-decoder game", "draw-the-physics prompt", "two-question streak badge"],
+        }
+    plan["engagement_hooks"] = hooks.get(learner_tier, hooks["standard"])
+
+    if learner_tier == "foundation_rebuild":
+        title = "Foundations & Confidence" if language == "en" else "基础与信心建立"
+        subject = str(plan.get("subject") or "general")
+        topics = _foundation_topics_for_subject(subject, language)
+        objectives = (
+            ["Decode symbols without panic", "Set up a one-step physics problem", "Build a two-question confidence streak"]
+            if language == "en"
+            else ["不慌张地读懂符号", "能搭建一步物理题", "建立两题连胜信心"]
+        )
+        if not units or title.lower() not in str(units[0].get("title", "")).lower():
+            units.insert(0, {
+                "title": title,
+                "description": "Low-pressure prerequisite rebuild before AP pacing." if language == "en" else "进入 AP 节奏前的低压力基础重建。",
+                "topics": topics,
+                "learning_objectives": objectives,
+                "estimated_hours": 8,
+                "estimated_minutes": 480,
+            })
+        plan["motivation_safeguards"] = (
+            ["Keep pretests optional", "Start with a visible win", "Use short sessions with a choice of mission", "Delay timed tests until setup is stable"]
+            if language == "en"
+            else ["预测试可跳过", "先给一个可见小胜利", "短任务并允许选择", "能稳定列式后再限时"]
+        )
+    elif learner_tier == "scaffolded":
+        plan["scaffolding_rule"] = (
+            "Every unit should use: worked example -> guided attempt -> independent attempt -> error review."
+            if language == "en"
+            else "每个单元遵循：例题示范 → 引导尝试 → 独立练习 → 错因复盘。"
+        )
+    elif learner_tier == "accelerated":
+        plan["challenge_rule"] = (
+            "Skip basics after a quick diagnostic; spend saved time on FRQ rubrics, traps, lab design, and cross-unit synthesis."
+            if language == "en"
+            else "快速诊断后跳过已会基础，把时间给 FRQ 评分、陷阱题、实验设计和跨单元综合。"
+        )
+
+    plan["units"] = units[:10]
+    return plan
+
+
+def _foundation_topics_for_subject(subject: str, language: str) -> List[str]:
+    if language == "zh":
+        topics = {
+            "math": ["符号和词汇", "一步例题", "图像直觉", "公式从哪里来"],
+            "physics": ["物理词汇", "单位和符号", "公式解码", "图像直觉"],
+            "chemistry": ["化学词汇", "符号和单位", "反应式怎么读", "微观图像"],
+            "biology": ["核心词汇", "结构图", "过程顺序", "概念卡片"],
+            "history": ["人物地点时间", "事件脉络", "证据怎么读", "一句话观点"],
+        }
+        return topics.get(subject, ["核心词汇", "符号和概念", "例子直觉", "如何开始"])
+    topics = {
+        "math": ["symbols and vocabulary", "one-step examples", "graph intuition", "where formulas come from"],
+        "physics": ["physics vocabulary", "units and symbols", "formula decoding", "visual intuition"],
+        "chemistry": ["chemistry vocabulary", "symbols and units", "reading equations", "particle-level pictures"],
+        "biology": ["core vocabulary", "structure diagrams", "process order", "concept cards"],
+        "history": ["people/place/time", "event timeline", "reading evidence", "one-sentence claims"],
+    }
+    return topics.get(subject, ["core vocabulary", "symbols and concepts", "example intuition", "how to start"])
 
 
 def _build_curriculum_note(detection: SubjectDetection) -> str:
@@ -211,6 +601,51 @@ def _build_curriculum_note(detection: SubjectDetection) -> str:
         "gaokao": "按照高考全国卷考纲编排单元，涵盖必修和选修内容，重点标注高频考点。",
     }
     return fallback_notes.get(framework, "")
+
+
+def _plan_json_language_contract(language: str) -> str:
+    """Field-level language contract for study-plan JSON values."""
+    if language.startswith("zh"):
+        return (
+            "JSON value language contract:\n"
+            "- Write all learner-facing JSON string values in Chinese, including title, course_name display text, "
+            "pedagogy_profile values, weekly_schedule focus, engagement_hooks, unit titles, descriptions, topics, "
+            "and learning_objectives.\n"
+            "- Keep official abbreviations and exam/framework names such as AP, IB, A Level, FRQ, DBQ, IA, SAT, ACT, "
+            "course codes, formulas, and standard symbols unchanged when needed.\n"
+            "- If official curriculum units are supplied in English, translate each unit title into natural Chinese "
+            "and optionally keep the official English title in parentheses. Do not leave descriptions or objectives "
+            "as English sentences.\n"
+            "- Use Chinese day labels in weekly_schedule.day, such as 周一、周三、周五."
+        )
+    return (
+        "JSON value language contract:\n"
+        "- Write all learner-facing JSON string values in English, including title, course_name display text, "
+        "pedagogy_profile values, weekly_schedule focus, engagement_hooks, unit titles, descriptions, topics, "
+        "and learning_objectives.\n"
+        "- Keep official non-English exam terms only when they are standard, and add a concise English gloss when useful.\n"
+        "- Use short English day labels in weekly_schedule.day, such as Mon, Wed, Fri."
+    )
+
+
+def _framework_exclusivity_contract(detection: Optional[SubjectDetection]) -> str:
+    """Prevent prompt-level cross-contamination between incompatible exams."""
+    framework = detection.framework if detection else None
+    if framework == "ap":
+        return (
+            "Framework exclusivity contract:\n"
+            "- The selected framework is AP. Treat AP as mutually exclusive with 高考/Gaokao.\n"
+            "- Do not include 高考, Gaokao, 全国卷, or Gaokao score targets such as 130+ in any JSON value.\n"
+            "- If diagnostic answers mention Gaokao-style targets, reinterpret them as general ambition only and keep the plan AP-only."
+        )
+    if framework == "gaokao":
+        return (
+            "Framework exclusivity contract:\n"
+            "- The selected framework is 高考/Gaokao. Treat Gaokao as mutually exclusive with AP/Advanced Placement.\n"
+            "- Do not include AP, Advanced Placement, College Board, FRQ, DBQ, or AP score targets in any JSON value.\n"
+            "- If diagnostic answers mention AP-style targets, reinterpret them as general ambition only and keep the plan Gaokao-only."
+        )
+    return ""
 
 
 # Phrases that mean "stop asking and just generate"
@@ -287,12 +722,14 @@ class StudyPlanAgent:
         language: str,
         preselected_subject: Optional[str] = None,
         preselected_framework: Optional[str] = None,
+        preselected_course: Optional[str] = None,
     ) -> Optional[SubjectDetection]:
         """Detection scoped to a single call — no shared mutable state on self.
         When the frontend has already collected a subject/framework choice via
         the picker UI, those are AUTHORITATIVE: we still run keyword detection
         for course_id matching, but the explicit user choice always wins for
-        framework/subject."""
+        framework/subject. If the frontend also sends an exact course chip, that
+        course is authoritative too."""
         user_messages = [m for m in history if m["role"] == "user"]
         first_user = user_messages[0]["content"] if user_messages else ""
 
@@ -324,6 +761,15 @@ class StudyPlanAgent:
                 if preselected_subject:
                     detection.subject = preselected_subject
 
+            if preselected_course:
+                from core.agents.subject_detector import _detect_course
+                selected_course = _detect_course(preselected_course.lower(), framework=preselected_framework)
+                if selected_course:
+                    detection.course_id = selected_course["id"]
+                    detection.course_name = selected_course.get("name")
+                    detection.framework = preselected_framework or selected_course.get("_framework") or detection.framework
+                    detection.subject = preselected_subject or selected_course.get("subject") or detection.subject
+
             # If the user-selected framework changed and we don't have a course_id
             # for it, scan the chat history for an explicit course mention in
             # that framework's catalog.
@@ -353,6 +799,7 @@ class StudyPlanAgent:
         language: str = "en",
         preselected_subject: Optional[str] = None,
         preselected_framework: Optional[str] = None,
+        preselected_course: Optional[str] = None,
     ) -> PlanResponse:
         """Determines the next move in the study plan conversation."""
 
@@ -361,15 +808,15 @@ class StudyPlanAgent:
 
         # If user says "just start" at any stage → go straight to plan_review then lock
         if current_stage != PlanStage.OPENING and _wants_to_start(last_user):
-            detection = await self._detect_for(history, language, preselected_subject, preselected_framework)
+            detection = await self._detect_for(history, language, preselected_subject, preselected_framework, preselected_course)
             return await self._handle_plan_review(history, language, lang_instruction, detection, fast=True)
 
         if current_stage == PlanStage.OPENING:
-            return await self._handle_opening(history, language, lang_instruction, preselected_subject, preselected_framework)
+            return await self._handle_opening(history, language, lang_instruction, preselected_subject, preselected_framework, preselected_course)
         elif current_stage == PlanStage.DIAGNOSTIC:
-            return await self._handle_diagnostic(history, language, lang_instruction, preselected_subject, preselected_framework)
+            return await self._handle_diagnostic(history, language, lang_instruction, preselected_subject, preselected_framework, preselected_course)
         elif current_stage == PlanStage.PLAN_REVIEW:
-            detection = await self._detect_for(history, language, preselected_subject, preselected_framework)
+            detection = await self._detect_for(history, language, preselected_subject, preselected_framework, preselected_course)
             return await self._handle_plan_review(history, language, lang_instruction, detection)
         elif current_stage == PlanStage.LOCKED:
             return await self._handle_co_creation(history, language, lang_instruction)
@@ -387,6 +834,7 @@ class StudyPlanAgent:
         lang_instr,
         preselected_subject: Optional[str] = None,
         preselected_framework: Optional[str] = None,
+        preselected_course: Optional[str] = None,
     ) -> PlanResponse:
         """Stage 1: Ask what subject and exam framework the student is preparing for."""
         if history and history[-1]["role"] == "user":
@@ -397,6 +845,7 @@ class StudyPlanAgent:
                 lang_instr,
                 preselected_subject,
                 preselected_framework,
+                preselected_course,
             )
 
         content = (
@@ -414,13 +863,14 @@ class StudyPlanAgent:
         lang_instr,
         preselected_subject: Optional[str] = None,
         preselected_framework: Optional[str] = None,
+        preselected_course: Optional[str] = None,
     ) -> PlanResponse:
         """Stage 2: Diagnostic — dynamic AI-driven Q&A capped at MAX_DIAGNOSTIC_TURNS.
         The LLM may emit a structured ```ask_user {...}``` block to surface clickable
         option chips; otherwise the model just asks a free-form question or signals
         readiness via the start-signal phrases."""
         diagnostic_turns = _count_diagnostic_turns(history)
-        detection = await self._detect_for(history, language, preselected_subject, preselected_framework)
+        detection = await self._detect_for(history, language, preselected_subject, preselected_framework, preselected_course)
 
         # Hard cap: after MAX_DIAGNOSTIC_TURNS turns, force plan generation
         if diagnostic_turns >= MAX_DIAGNOSTIC_TURNS:
@@ -539,8 +989,8 @@ Keep total response ≤ 60 words excluding the ask_user block.
         user_messages = [m for m in history if m["role"] == "user"]
         subject_input = user_messages[0]["content"] if user_messages else "the subject"
         diagnostic_summary = (
-            " | ".join(m["content"] for m in user_messages[1:])
-            if len(user_messages) > 1
+            " | ".join(m["content"] for m in user_messages)
+            if user_messages
             else "Not much diagnostic info — use sensible defaults."
         )
 
@@ -570,6 +1020,8 @@ Keep total response ≤ 60 words excluding the ask_user block.
                 "Keep the response in English but include the Chinese term in parentheses "
                 "for any 高考-specific topic, e.g., 'derivatives (导数)', '解析几何 (analytic geometry)'."
             )
+        json_language_contract = _plan_json_language_contract(language)
+        framework_exclusivity_contract = _framework_exclusivity_contract(detection)
 
         prompt = f"""{lang_instr}
 
@@ -580,8 +1032,19 @@ Student's subject/framework input: {subject_input}
 Diagnostic answers: {diagnostic_summary}
 {curriculum_note}
 {bilingual_terminology_hint}
+{json_language_contract}
+{framework_exclusivity_contract}
 
-Generate a compact full-course study plan with 6-10 units covering the complete syllabus.
+Infer one learner_tier from the diagnostic answers:
+- accelerated: already strong, bored by basics, aiming high, wants challenge.
+- standard: typical motivated learner with some weak areas.
+- scaffolded: some foundation but struggles to start problems independently.
+- foundation_rebuild: new/unconfident/overwhelmed/unmotivated; needs fun, low-friction engagement.
+
+Generate a compact full-course study plan with 6-10 units covering the complete syllabus, but adapt the pedagogy.
+For accelerated learners, compress basics and add hard FRQ/lab/challenge work.
+For scaffolded learners, require worked example -> guided attempt -> independent attempt.
+For foundation_rebuild learners, reduce pretest pressure, add prerequisite rebuild, concrete/visual explanations, short fun missions, and confidence wins.
 Keep descriptions and objectives short. Prefer official curriculum unit names when provided.
 
 Required JSON schema:
@@ -590,7 +1053,20 @@ Required JSON schema:
     "subject": "{detection.subject if detection else 'general'}",
     "framework": "{detection.framework if detection and detection.framework else ''}",
     "course_name": "{detection.course_name if detection and detection.course_name else 'Full course name'}",
+    "learner_tier": "accelerated|standard|scaffolded|foundation_rebuild",
     "estimated_hours": <integer>,
+    "pedagogy_profile": {{
+        "pace": "accelerated|normal|guided|slow",
+        "support_pattern": "short description",
+        "concept_example_practice_test_ratio": "e.g. 30/35/25/10",
+        "engagement_mode": "short description"
+    }},
+    "weekly_schedule": [
+        {{"day": "Mon", "focus": "session focus"}},
+        {{"day": "Wed", "focus": "session focus"}},
+        {{"day": "Fri", "focus": "session focus"}}
+    ],
+    "engagement_hooks": ["hook1", "hook2", "hook3"],
     "units": [
         {{
             "title": "Unit title",
@@ -611,15 +1087,23 @@ Student input: {subject_input}
 Diagnostic answers: {diagnostic_summary}
 {curriculum_note}
 {bilingual_terminology_hint}
+{json_language_contract}
+{framework_exclusivity_contract}
 
 Create a compact full-course study plan with 6-10 units. Use the official curriculum units when provided.
+Adapt to learner_tier: accelerated, standard, scaffolded, or foundation_rebuild.
+For weak/unmotivated learners, include one foundation/confidence unit and game-like short missions instead of a long pretest.
 Schema:
 {{
   "title": "Course plan title",
   "subject": "{detection.subject if detection else 'general'}",
   "framework": "{detection.framework if detection and detection.framework else ''}",
   "course_name": "{detection.course_name if detection and detection.course_name else 'Full course name'}",
+  "learner_tier": "standard",
   "estimated_hours": 40,
+  "pedagogy_profile": {{"pace": "normal", "support_pattern": "balanced", "concept_example_practice_test_ratio": "25/25/35/15", "engagement_mode": "progress"}},
+  "weekly_schedule": [{{"day": "Mon", "focus": "concept"}}, {{"day": "Wed", "focus": "practice"}}, {{"day": "Fri", "focus": "review"}}],
+  "engagement_hooks": ["progress bar", "mini-check"],
   "units": [
     {{
       "title": "Unit title",
@@ -634,8 +1118,13 @@ Schema:
 """
 
         attempts = [
-            (prompt, 1200, PLAN_REVIEW_LLM_TIMEOUT_SECONDS, 0.2, False),
-            (retry_prompt, 1000, PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS, 0.1, True),
+            # Attempt 1: fast FLASH pass with enough tokens for a full 6-10 unit
+            # plan so the JSON is not truncated (the old 1200 cap routinely cut off
+            # content-heavy subjects, e.g. AP Gov & Politics, producing unparseable output).
+            (prompt, int(os.getenv("PLAN_REVIEW_MAX_TOKENS", "2800")), PLAN_REVIEW_LLM_TIMEOUT_SECONDS, 0.2, False),
+            # Attempt 2: escalate to the PRO model (>=3000 max_tokens in
+            # api_client._select_model) for stronger structured-JSON adherence.
+            (retry_prompt, int(os.getenv("PLAN_REVIEW_RETRY_MAX_TOKENS", "3200")), PLAN_REVIEW_LLM_RETRY_TIMEOUT_SECONDS, 0.1, True),
         ]
         last_error_source = "llm_plan_review_error"
         thinking_process = ""
@@ -669,11 +1158,16 @@ Schema:
             last_error_source = "llm_plan_review_parse_error"
 
         if not proposed_plan:
-            return _plan_generation_error_response(
-                language,
-                _source_name(last_error_source, fast=fast, after_retry=True),
-                detection,
-            )
+            failure_source = _source_name(last_error_source, fast=fast, after_retry=used_retry if fast else False)
+            return _plan_generation_error_response(language, failure_source, detection)
+
+        inferred_tier = _infer_learner_tier(diagnostic_summary)
+        proposed_plan = _enhance_plan_for_tier(
+            proposed_plan,
+            proposed_plan.get("learner_tier") if proposed_plan.get("learner_tier") in VALID_LEARNER_TIERS else inferred_tier,
+            language,
+            diagnostic_summary,
+        )
 
         summary = (
             "Here's your personalized study plan — review it and hit **Let's go!** when ready."

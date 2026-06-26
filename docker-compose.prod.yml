@@ -1,8 +1,19 @@
 name: mentormind-prod
 
 x-backend-image: &backend_image mentormind-backend:${MENTORMIND_IMAGE_TAG:-prod}
+
+# Bound container log growth so logs cannot fill the VPS disk. Docker's default
+# json-file driver has no rotation; this caps each container to 20m x 5 files.
+x-logging: &default_logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 x-backend-env: &backend_env
   MENTORMIND_ENV: ${MENTORMIND_ENV:-production}
+  MENTORMIND_BUILD_SHA: ${MENTORMIND_BUILD_SHA:-}
+  MENTORMIND_IMAGE_TAG: ${MENTORMIND_IMAGE_TAG:-prod}
   POSTGRES_HOST: postgres
   POSTGRES_PORT: 5432
   POSTGRES_USER: ${POSTGRES_USER:-mentormind}
@@ -10,8 +21,12 @@ x-backend-env: &backend_env
   DATABASE_URL: postgresql://${POSTGRES_USER:-mentormind}:${POSTGRES_PASSWORD:-mentormind}@postgres:5432/${POSTGRES_DB:-mentormind_metadata}
   CELERY_BROKER_URL: redis://redis:6379/0
   BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
+  MENTORMIND_ADMIN_USERS: ${MENTORMIND_ADMIN_USERS:-}
+  PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+  NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
   DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
   SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
+  SEMINAR_ASR_TIMEOUT_SECONDS: ${SEMINAR_ASR_TIMEOUT_SECONDS:-90}
   UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
   PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
   HEYGEN_API_KEY: ${HEYGEN_API_KEY:-}
@@ -33,6 +48,8 @@ services:
     image: postgres:15-alpine
     container_name: mentormind-postgres
     restart: unless-stopped
+    logging: *default_logging
+    mem_limit: ${POSTGRES_MEM_LIMIT:-1500m}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-mentormind}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mentormind}
@@ -52,6 +69,8 @@ services:
     image: redis:7-alpine
     container_name: mentormind-redis
     restart: unless-stopped
+    logging: *default_logging
+    mem_limit: ${REDIS_MEM_LIMIT:-512m}
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
@@ -69,6 +88,8 @@ services:
       context: ./backend
     container_name: mentormind-backend
     restart: unless-stopped
+    logging: *default_logging
+    mem_limit: ${BACKEND_MEM_LIMIT:-2g}
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,6 +106,10 @@ services:
     command: sh -c "python migrate_db.py && uvicorn server:app --host 0.0.0.0 --port 8000"
     expose:
       - "8000"
+    ports:
+      # Loopback-only so a host-level TLS nginx can proxy /ws/ to the FastAPI
+      # WebSocket endpoints without exposing the backend directly to the public net.
+      - "${BACKEND_BIND:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")'"]
       interval: 15s
@@ -98,6 +123,8 @@ services:
     image: *backend_image
     container_name: mentormind-celery-orchestration
     restart: unless-stopped
+    logging: *default_logging
+    mem_limit: ${CELERY_ORCH_MEM_LIMIT:-1g}
     depends_on:
       backend:
         condition: service_healthy
@@ -107,6 +134,15 @@ services:
       - backend_data:/app/data
       - backend_logs:/app/logs
     command: celery -A celery_app worker --loglevel=info --concurrency=4 -Q orchestration
+    healthcheck:
+      # Detect a wedged worker (alive process but not consuming). Targeted at the
+      # local node (celery@$HOSTNAME) so a healthy sibling cannot mask a stuck one.
+      # $$ escapes compose interpolation; the container shell expands $HOSTNAME.
+      test: ["CMD-SHELL", "celery -A celery_app inspect ping -d celery@$$HOSTNAME -t 10 >/dev/null 2>&1 || exit 1"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 90s
     networks:
       - mentormind-net
 
@@ -114,6 +150,8 @@ services:
     image: *backend_image
     container_name: mentormind-celery-rendering
     restart: unless-stopped
+    logging: *default_logging
+    mem_limit: ${CELERY_RENDER_MEM_LIMIT:-2g}
     depends_on:
       backend:
         condition: service_healthy
@@ -123,6 +161,12 @@ services:
       - backend_data:/app/data
       - backend_logs:/app/logs
     command: celery -A celery_app worker --loglevel=info --concurrency=1 -Q rendering
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A celery_app inspect ping -d celery@$$HOSTNAME -t 10 >/dev/null 2>&1 || exit 1"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 90s
     networks:
       - mentormind-net
 
@@ -130,6 +174,8 @@ services:
     image: *backend_image
     container_name: mentormind-celery-heavy-ml
     restart: unless-stopped
+    logging: *default_logging
+    mem_limit: ${CELERY_HEAVYML_MEM_LIMIT:-3500m}
     depends_on:
       backend:
         condition: service_healthy
@@ -142,6 +188,13 @@ services:
       - whisper_cache:/root/.cache/whisper
       - paddleocr_cache:/root/.paddleocr
     command: celery -A celery_app worker --loglevel=info --concurrency=2 -Q heavy_ml
+    healthcheck:
+      # heavy_ml loads large ASR/OCR models; allow a long start_period before health counts.
+      test: ["CMD-SHELL", "celery -A celery_app inspect ping -d celery@$$HOSTNAME -t 15 >/dev/null 2>&1 || exit 1"]
+      interval: 60s
+      timeout: 25s
+      retries: 3
+      start_period: 180s
     networks:
       - mentormind-net
 
@@ -152,8 +205,14 @@ services:
       args:
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
         NEXT_PUBLIC_BACKEND_WS_URL: ${NEXT_PUBLIC_BACKEND_WS_URL:-}
+        NEXT_PUBLIC_AUDIO_INGEST_POLL_MINUTES: ${NEXT_PUBLIC_AUDIO_INGEST_POLL_MINUTES:-30}
+        NEXT_PUBLIC_BUILD_SHA: ${MENTORMIND_BUILD_SHA:-}
+        NEXT_PUBLIC_IMAGE_TAG: ${MENTORMIND_IMAGE_TAG:-prod}
+        ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-}
     container_name: mentormind-frontend
     restart: unless-stopped
+    logging: *default_logging
+    mem_limit: ${FRONTEND_MEM_LIMIT:-768m}
     depends_on:
       backend:
         condition: service_healthy
@@ -165,10 +224,23 @@ services:
       ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
       NEXT_PUBLIC_BACKEND_WS_URL: ${NEXT_PUBLIC_BACKEND_WS_URL:-}
+      NEXT_PUBLIC_AUDIO_INGEST_POLL_MINUTES: ${NEXT_PUBLIC_AUDIO_INGEST_POLL_MINUTES:-30}
+      NEXT_PUBLIC_BUILD_SHA: ${MENTORMIND_BUILD_SHA:-}
+      NEXT_PUBLIC_IMAGE_TAG: ${MENTORMIND_IMAGE_TAG:-prod}
+      SEMINAR_AUDIO_TIMEOUT_MS: ${SEMINAR_AUDIO_TIMEOUT_MS:-120000}
+      SEMINAR_TURN_TIMEOUT_MS: ${SEMINAR_TURN_TIMEOUT_MS:-90000}
     expose:
       - "3000"
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      # The public entrypoint should be nginx. Keep raw Next.js local to the VPS.
+      - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      # node:20-alpine ships a global fetch(); avoids depending on curl/wget being present.
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - mentormind-net
 
@@ -178,6 +250,8 @@ services:
       context: ./nginx
     container_name: mentormind-nginx
     restart: unless-stopped
+    logging: *default_logging
+    mem_limit: ${NGINX_MEM_LIMIT:-256m}
     depends_on:
       frontend:
         condition: service_started

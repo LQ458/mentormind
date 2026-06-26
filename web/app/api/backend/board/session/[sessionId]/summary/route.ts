@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../../../../_auth'
+import { backendJsonResponse, proxyFailureResponse } from '../../../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -8,26 +10,21 @@ export async function POST(
   { params }: { params: { sessionId: string } },
 ) {
   try {
-    const { sessionId } = params
+    const sessionId = encodeURIComponent(params.sessionId)
     const body = await request.json().catch(() => ({}))
     const res = await fetch(
       `${BACKEND_URL}/board/session/${sessionId}/summary`,
       {
         method: 'POST',
-        headers: {
+        headers: backendHeaders(request, {
           'Content-Type': 'application/json',
-          Authorization: request.headers.get('Authorization') || '',
-        },
+        }),
         body: JSON.stringify(body),
       },
     )
-    const data = await res.json().catch(() => ({}))
-    return NextResponse.json(data, { status: res.status })
+    return await backendJsonResponse(res, 'board summary proxy')
   } catch (err) {
     console.error('[board summary proxy] error:', err)
-    return NextResponse.json(
-      { error: 'Failed to request summary', details: err instanceof Error ? err.message : 'Unknown error' },
-      { status: 502 },
-    )
+    return proxyFailureResponse('Failed to request summary')
   }
 }

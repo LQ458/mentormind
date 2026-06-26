@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
+import { backendHeaders } from '../../_auth'
+import { backendErrorResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -8,32 +10,24 @@ export async function GET(
     { params }: { params: { path: string[] } }
 ) {
     try {
-        // Reconstruct the original path from the array
-        const mediaPath = params.path.join('/');
+        const backendMediaPath = params.path.map((segment) => encodeURIComponent(segment)).join('/');
 
-
-        console.log(`[Media Proxy] Fetching: ${BACKEND_URL}/media/${mediaPath}`);
-
-        // Forward auth token and range headers
-        const authHeader = request.headers.get('Authorization')
+        // Forward auth token/cookie and range headers
         const rangeHeader = request.headers.get('range') || ''
-        const requestHeaders: Record<string, string> = {
-            'Range': rangeHeader,
-        }
-        if (authHeader) {
-            requestHeaders.Authorization = authHeader
-        }
+        const baseHeaders: Record<string, string> = {}
+        if (rangeHeader) baseHeaders.Range = rangeHeader
+        const requestHeaders = backendHeaders(request, baseHeaders)
 
-        // Call the FastAPI backend's media streaming endpoint
-        // We pass the entire absolute path because the backend handles it that way
-        const response = await fetch(`${BACKEND_URL}/media/${mediaPath}`, {
+        // Call the FastAPI backend's media endpoint with encoded path segments.
+        const response = await fetch(`${BACKEND_URL}/media/${backendMediaPath}`, {
             method: 'GET',
             headers: requestHeaders,
         });
 
         if (!response.ok) {
-            console.error(`[Media Proxy] Backend returned ${response.status} for ${mediaPath}`);
-            return new NextResponse(`Media not found: ${response.status}`, { status: response.status });
+            const errorText = await response.text()
+            logBackendProxyError('media proxy', response.status, errorText)
+            return backendErrorResponse('Failed to load media', response.status)
         }
 
         // Forward the response exactly as it came from FastAPI (with all video headers)
@@ -48,6 +42,6 @@ export async function GET(
 
     } catch (error) {
         console.error('[Media Proxy] Error:', error);
-        return new NextResponse('Internal Server Error', { status: 500 });
+        return proxyFailureResponse('Failed to load media');
     }
 }

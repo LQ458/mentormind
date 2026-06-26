@@ -1,70 +1,45 @@
-import { NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { backendHeaders } from '../_auth'
+import { backendErrorResponse, backendJsonResponse, logBackendProxyError, proxyFailureResponse } from '../_proxyErrors'
 
 export const dynamic = 'force-dynamic';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('Authorization')
     // Call real backend results endpoint
     const backendResponse = await fetch(`${BACKEND_URL}/results`, {
-      headers: authHeader ? { Authorization: authHeader } : {},
+      headers: backendHeaders(request),
     })
 
-    if (backendResponse.status === 401) {
-      return NextResponse.json({
-        success: true,
-        results: [],
-        total: 0,
-        timestamp: new Date().toISOString()
-      })
-    }
-
-    if (!backendResponse.ok) {
-      throw new Error(`Backend results error: ${backendResponse.status}`)
-    }
-
-    const resultsData = await backendResponse.json()
-    return NextResponse.json(resultsData)
+    return await backendJsonResponse(backendResponse, 'results list proxy')
   } catch (error) {
     console.error('Failed to get backend results:', error)
-    // Return empty results if backend is unavailable
-    return NextResponse.json({
-      success: true,
-      results: [],
-      total: 0,
-      timestamp: new Date().toISOString()
-    })
+    return proxyFailureResponse('Failed to get results')
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const authHeader = request.headers.get('Authorization')
 
     // Call real backend results endpoint (POST)
     const backendResponse = await fetch(`${BACKEND_URL}/results`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(authHeader ? { Authorization: authHeader } : {}),
-      },
+      headers: backendHeaders(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     })
 
     if (!backendResponse.ok) {
-      throw new Error(`Backend results error: ${backendResponse.status}`)
+      const errorText = await backendResponse.text()
+      logBackendProxyError('results create proxy', backendResponse.status, errorText)
+      return backendErrorResponse('Failed to get results', backendResponse.status)
     }
 
-    const resultsData = await backendResponse.json()
-    return NextResponse.json(resultsData)
+    return await backendJsonResponse(backendResponse, 'results create proxy')
   } catch (error) {
     console.error('Failed to get backend results:', error)
-    return NextResponse.json(
-      { error: 'Failed to get results', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    )
+    return proxyFailureResponse('Failed to get results')
   }
 }

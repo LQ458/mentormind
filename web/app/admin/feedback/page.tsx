@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo, Fragment } from 'react'
+import { useEffect, useState, useMemo, useRef, Fragment } from 'react'
 import { useLanguage } from '../../components/LanguageContext'
 import { PageHead, Section, Progress } from '../../components/design/primitives'
 
@@ -13,7 +13,7 @@ interface FeedbackRow {
   school_year: string
   prior_tools: string[]
   language: string
-  pmf_score: string
+  pmf_score: string | null
   nps: number | null
   likert: Record<string, number>
   pain_point: string
@@ -24,10 +24,69 @@ interface FeedbackRow {
   derived_board_lessons?: number | null
 }
 
+interface FeedbackReportRow {
+  id: string
+  created_at: string
+  user_id?: string | null
+  tester?: {
+    id?: string
+    username?: string
+    email?: string
+    role?: string
+    language_preference?: string
+    created_at?: string | null
+    last_login_at?: string | null
+    simulated?: boolean
+    simulation_source?: string
+  } | null
+  session_id?: string | null
+  page?: string | null
+  url?: string | null
+  captured_url?: string | null
+  route?: string | null
+  viewport_w?: number | null
+  viewport_h?: number | null
+  source?: string
+  simulated?: boolean
+  simulation_source?: string
+  surface?: string
+  feedback_kind?: string
+  severity?: string
+  triage_status?: string
+  triage_note?: string
+  triage_updated_at?: string
+  triage_updated_by?: string
+  bug_key?: string
+  issue_fingerprint?: string
+  cluster_key?: string
+  cluster_size?: number
+  duplicate_count?: number
+  interaction_id?: string
+  report_id?: string
+  user_note?: string
+  expected_behavior?: string
+  recent_events?: Array<Record<string, unknown>>
+  recent_errors?: Array<Record<string, unknown>>
+  build?: Record<string, unknown>
+  browser?: Record<string, unknown>
+  app_snapshot?: Record<string, unknown>
+  priority_score?: number
+  priority_reasons?: string[]
+}
+
 interface FeedbackListResponse {
   rows?: FeedbackRow[]
   total?: number
   // Allow pass-through error shapes
+  error?: string
+}
+
+interface FeedbackReportsResponse {
+  rows?: FeedbackReportRow[]
+  total?: number
+  unique_reports?: number
+  duplicate_reports?: number
+  truncated?: boolean
   error?: string
 }
 
@@ -41,6 +100,57 @@ interface AggregateResponse {
   exam_distribution?: Record<string, number>
   school_year_distribution?: Record<string, number>
   language_distribution?: Record<string, number>
+  error?: string
+}
+
+interface FeedbackReportsAggregateResponse {
+  total?: number
+  real_reports?: number
+  simulated_reports?: number
+  unique_reports?: number
+  duplicate_reports?: number
+  source_distribution?: Record<string, number>
+  surface_distribution?: Record<string, number>
+  kind_distribution?: Record<string, number>
+  severity_distribution?: Record<string, number>
+  status_distribution?: Record<string, number>
+  page_distribution?: Record<string, number>
+  issue_clusters?: FeedbackIssueCluster[]
+  priority_reports?: FeedbackReportRow[]
+  truncated?: boolean
+  error?: string
+}
+
+interface FeedbackIssueCluster {
+  cluster_key: string
+  count: number
+  duplicate_count: number
+  surface?: string
+  feedback_kind?: string
+  severity?: string
+  triage_status?: string
+  priority_score?: number
+  priority_reasons?: string[]
+  latest_created_at?: string
+  representative_report_id?: string
+  representative_event_id?: string
+  user_note?: string
+  expected_behavior?: string
+}
+
+interface FeedbackReportContextResponse {
+  report?: FeedbackReportRow
+  events?: Array<Record<string, unknown>>
+  errors?: Array<Record<string, unknown>>
+  event_count?: number
+  error_count?: number
+  truncated?: boolean
+  error?: string
+  detail?: string
+}
+
+interface FeedbackReportContextResult {
+  context: FeedbackReportContextResponse | null
   error?: string
 }
 
@@ -60,9 +170,49 @@ const PMF_LABELS: Record<string, { en: string; zh: string }> = {
   not: { en: 'Not disappointed', zh: '不会失望' },
 }
 
+const REPORT_SEARCH_LIMIT = 160
+const TRIAGE_STATUSES = ['new', 'engineering', 'content_ceo', 'triaged', 'resolved', 'wontfix']
+type ReportDataMode = 'real' | 'all' | 'simulated'
+
+const TRIAGE_STATUS_LABELS: Record<string, { en: string; zh: string }> = {
+  new: { en: 'New', zh: '新反馈' },
+  engineering: { en: 'Engineering', zh: '工程可修' },
+  content_ceo: { en: 'CEO / content', zh: 'CEO/内容' },
+  triaged: { en: 'Triaged', zh: '已分拣' },
+  resolved: { en: 'Resolved', zh: '已解决' },
+  wontfix: { en: 'Won’t fix', zh: '不处理' },
+}
+
+function triageStatusLabel(status: string | null | undefined, lang: 'zh' | 'en'): string {
+  const normalized = status || 'new'
+  return TRIAGE_STATUS_LABELS[normalized]?.[lang] || normalized
+}
+
+function readInitialReportSearch(): string {
+  if (typeof window === 'undefined') return ''
+  try {
+    const params = new URLSearchParams(window.location.search)
+    return (params.get('report_id') || params.get('report') || params.get('q') || '').trim().slice(0, REPORT_SEARCH_LIMIT)
+  } catch {
+    return ''
+  }
+}
+
+function readInitialReportId(): string {
+  if (typeof window === 'undefined') return ''
+  try {
+    const params = new URLSearchParams(window.location.search)
+    return (params.get('report_id') || params.get('report') || '').trim().slice(0, REPORT_SEARCH_LIMIT)
+  } catch {
+    return ''
+  }
+}
+
 function csvEscape(v: unknown): string {
   if (v === null || v === undefined) return ''
-  const s = typeof v === 'string' ? v : JSON.stringify(v)
+  let s = typeof v === 'string' ? v : JSON.stringify(v)
+  // Prevent tester-provided text from being interpreted as a spreadsheet formula.
+  if (typeof v === 'string' && /^[\s]*[=+\-@]/.test(s)) s = `'${s}`
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
   return s
 }
@@ -71,8 +221,8 @@ function downloadCsv(rows: FeedbackRow[]) {
   const headers = [
     'id', 'created_at', 'exam', 'school_year', 'language', 'pmf_score', 'nps',
     'plan_useful', 'lesson_clarity', 'latency_ok', 'smooth', 'return_next_week',
-    'prior_tools', 'pain_point', 'feature_request', 'other_feedback', 'contact_email',
-    'derived_session_minutes', 'derived_board_lessons',
+    'prior_tools', 'pain_point', 'feature_request', 'other_feedback', 'contact_provided',
+    'derived_session_minutes', 'derived_board_lessons', 'admin_lookup',
   ]
   const lines = [headers.join(',')]
   for (const r of rows) {
@@ -81,8 +231,9 @@ function downloadCsv(rows: FeedbackRow[]) {
       r.likert?.plan_useful ?? '', r.likert?.lesson_clarity ?? '', r.likert?.latency_ok ?? '',
       r.likert?.smooth ?? '', r.likert?.return_next_week ?? '',
       (r.prior_tools || []).join('|'),
-      r.pain_point, r.feature_request, r.other_feedback, r.contact_email,
+      r.pain_point, r.feature_request, r.other_feedback, r.contact_email ? 'true' : 'false',
       r.derived_session_minutes ?? '', r.derived_board_lessons ?? '',
+      'Use feedback ID in the admin dashboard for contact details.',
     ].map(csvEscape).join(','))
   }
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
@@ -96,6 +247,258 @@ function downloadCsv(rows: FeedbackRow[]) {
   URL.revokeObjectURL(url)
 }
 
+function compactJson(value: unknown): string {
+  if (!value) return ''
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function prettyJson(value: unknown): string {
+  if (!value) return ''
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function markdownFence(text: string): string {
+  const matches: string[] = text.match(/`+/g) || []
+  const longest = matches.reduce((max, item) => Math.max(max, item.length), 0)
+  return '`'.repeat(Math.max(3, longest + 1))
+}
+
+function codeBlock(value: unknown): string {
+  const text = prettyJson(value)
+  if (!text || text === '[]' || text === '{}') return '—'
+  const fence = markdownFence(text)
+  return `${fence}json\n${text}\n${fence}`
+}
+
+function textBlock(value: string | null | undefined): string {
+  const text = String(value || '').trim()
+  if (!text) return '—'
+  const fence = markdownFence(text)
+  return `${fence}text\n${text}\n${fence}`
+}
+
+function formatBuild(build?: Record<string, unknown>): string {
+  if (!build) return '—'
+  const sha = typeof build.sha === 'string' ? build.sha : ''
+  const tag = typeof build.image_tag === 'string' ? build.image_tag : ''
+  return [sha, tag].filter(Boolean).join(' / ') || '—'
+}
+
+function formatBrowser(browser?: Record<string, unknown>): string {
+  if (!browser) return '—'
+  const family = typeof browser.family === 'string' ? browser.family : ''
+  const language = typeof browser.language === 'string' ? browser.language : ''
+  const mobile = typeof browser.mobile === 'boolean' ? (browser.mobile ? 'mobile' : 'desktop') : ''
+  return [family, mobile, language].filter(Boolean).join(' / ') || '—'
+}
+
+function formatTester(r: FeedbackReportRow): string {
+  const username = r.tester?.username || ''
+  const email = r.tester?.email || ''
+  const userId = r.user_id || ''
+  const identity = username && email ? `${username} / ${email}` : username || email || userId || '—'
+  return r.simulated ? `${identity} · QA` : identity
+}
+
+function formatTesterForIssue(r: FeedbackReportRow): string {
+  return r.user_id ? 'Signed-in tester (see admin dashboard)' : 'Anonymous tester'
+}
+
+function redactedTesterForIssue(r: FeedbackReportRow): Record<string, unknown> | null {
+  if (!r.tester && !r.user_id) return null
+  return {
+    signed_in: Boolean(r.user_id),
+    role: r.tester?.role || undefined,
+    language_preference: r.tester?.language_preference || undefined,
+    admin_lookup: 'Use Report ID in the admin feedback dashboard for full tester details.',
+  }
+}
+
+function adminReportLookupUrl(r: FeedbackReportRow): string {
+  const reportId = r.report_id || r.id
+  if (!reportId || typeof window === 'undefined') return ''
+  return `${window.location.origin}/admin/feedback?report_id=${encodeURIComponent(reportId)}`
+}
+
+function adminAccessRequiredMessage(lang: string): string {
+  return lang === 'zh'
+    ? '需要管理员权限。请使用管理员账号登录后再查看反馈数据。'
+    : 'Admin access required. Sign in with an admin account to view feedback data.'
+}
+
+function reportMarkdown(
+  r: FeedbackReportRow,
+  context?: FeedbackReportContextResponse | null,
+  contextError?: string,
+): string {
+  const page = r.page || r.route || '—'
+  const url = r.captured_url || r.url || '—'
+  const titleParts = [r.severity, r.surface || page].filter(Boolean).join(' / ')
+  const title = titleParts || r.report_id || r.id
+  const viewport = r.viewport_w && r.viewport_h ? `${r.viewport_w}x${r.viewport_h}` : '—'
+  const browser = formatBrowser(r.browser)
+  const lookupUrl = adminReportLookupUrl(r)
+  const lines = [
+    `# ${title}`,
+    '',
+    '## Summary',
+    `- Report ID: ${r.report_id || r.id}`,
+    `- Admin lookup: ${lookupUrl || 'Use Report ID in the admin feedback dashboard.'}`,
+    `- Created: ${r.created_at}`,
+    `- Source: ${r.source || '—'}`,
+    `- Tester: ${formatTesterForIssue(r)}`,
+    `- Surface: ${r.surface || '—'}`,
+    `- Kind: ${r.feedback_kind || '—'}`,
+    `- Severity: ${r.severity || '—'}`,
+    `- Triage status: ${r.triage_status || 'new'}`,
+    `- Triage note: ${r.triage_note || '—'}`,
+    `- Similar reports: ${r.cluster_size || 1}`,
+    `- Priority: ${r.priority_score ?? '—'}${r.priority_reasons?.length ? ` (${r.priority_reasons.join(', ')})` : ''}`,
+    `- Page: ${page}`,
+    `- URL: ${url}`,
+    `- Viewport: ${viewport}`,
+    `- Browser: ${browser}`,
+    `- Build: ${formatBuild(r.build)}`,
+    '',
+    '## User note',
+    textBlock(r.user_note),
+    '',
+    '## Expected behavior',
+    textBlock(r.expected_behavior),
+    '',
+    '## Reproduction checklist',
+    `- Start at: ${url}`,
+    `- Page/surface: ${page} / ${r.surface || '—'}`,
+    `- Tester context: ${formatTesterForIssue(r)}`,
+    `- Device: ${viewport}`,
+    `- Browser: ${browser}`,
+    `- Build: ${formatBuild(r.build)}`,
+    '- Reproduce the user note above, then compare against the expected behavior.',
+    '- Check recent errors and same-session context below before assigning.',
+    '',
+    '## Recent errors',
+    codeBlock(r.recent_errors),
+    '',
+    '## Recent events',
+    codeBlock(r.recent_events),
+    '',
+    '## App snapshot',
+    codeBlock(r.app_snapshot),
+    '',
+    '## Build',
+    codeBlock(r.build),
+    '',
+    '## Browser',
+    codeBlock(r.browser),
+    '',
+    '## Tester',
+    codeBlock(redactedTesterForIssue(r)),
+  ]
+  if (context) {
+    lines.push(
+      '',
+      '## Same-session context',
+      `- Event count: ${context.event_count ?? context.events?.length ?? 0}`,
+      `- Error count: ${context.error_count ?? context.errors?.length ?? 0}`,
+      `- Truncated: ${context.truncated ? 'yes' : 'no'}`,
+      '',
+      '### Context errors',
+      codeBlock(context.errors),
+      '',
+      '### Context event timeline',
+      codeBlock(context.events),
+    )
+  } else if (contextError) {
+    lines.push(
+      '',
+      '## Same-session context',
+      `- Load error: ${contextError}`,
+    )
+  }
+  return lines.join('\n')
+}
+
+async function copyText(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // Fall back to a temporary textarea below.
+    }
+  }
+  let textarea: HTMLTextAreaElement | null = null
+  try {
+    textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.setAttribute('readonly', 'true')
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    textarea.style.left = '0'
+    textarea.style.top = '0'
+    document.body.appendChild(textarea)
+    textarea.focus()
+    textarea.select()
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    textarea?.remove()
+  }
+}
+
+function downloadReportCsv(rows: FeedbackReportRow[]) {
+  const headers = [
+    'id', 'report_id', 'created_at', 'source', 'simulated', 'simulation_source', 'tester', 'signed_in_tester',
+    'surface', 'feedback_kind', 'severity', 'triage_status', 'triage_note', 'cluster_key', 'cluster_size', 'page', 'user_note', 'expected_behavior', 'captured_url',
+    'build', 'browser', 'recent_errors', 'app_snapshot', 'admin_lookup',
+  ]
+  const lines = [headers.join(',')]
+  for (const r of rows) {
+    lines.push([
+      r.id, r.report_id || '', r.created_at, r.source || '',
+      r.simulated ? 'true' : 'false', r.simulation_source || '',
+      formatTesterForIssue(r), r.user_id ? 'true' : 'false',
+      r.surface || '', r.feedback_kind || '', r.severity || '', r.triage_status || 'new', r.triage_note || '', r.cluster_key || '', r.cluster_size || 1, r.page || r.route || '',
+      r.user_note || '', r.expected_behavior || '', r.captured_url || r.url || '',
+      compactJson(r.build), compactJson(r.browser), compactJson(r.recent_errors), compactJson(r.app_snapshot),
+      adminReportLookupUrl(r) || 'Use Report ID in the admin dashboard for full tester details.',
+    ].map(csvEscape).join(','))
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `mm-bug-reports-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+async function responseErrorMessage(res: Response): Promise<string> {
+  const data = (await res.json().catch(() => ({}))) as { error?: string; detail?: string }
+  return data.error || data.detail || `HTTP ${res.status}`
+}
+
+function appendReportDataModeParams(params: URLSearchParams, mode: ReportDataMode) {
+  if (mode === 'all') params.set('include_simulated', 'true')
+  if (mode === 'simulated') params.set('simulated_only', 'true')
+}
+
+function querySuffix(params: URLSearchParams): string {
+  const query = params.toString()
+  return query ? `?${query}` : ''
+}
+
 // ---------- Page ----------
 
 export default function AdminFeedbackPage() {
@@ -103,66 +506,259 @@ export default function AdminFeedbackPage() {
   const lang: 'zh' | 'en' = language === 'zh' ? 'zh' : 'en'
 
   const [aggregate, setAggregate] = useState<AggregateResponse | null>(null)
+  const [reportsAggregate, setReportsAggregate] = useState<FeedbackReportsAggregateResponse | null>(null)
+  const [reports, setReports] = useState<FeedbackReportRow[]>([])
+  const [reportsTotal, setReportsTotal] = useState(0)
+  const [reportsUniqueTotal, setReportsUniqueTotal] = useState(0)
   const [rows, setRows] = useState<FeedbackRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
   const [statusCode, setStatusCode] = useState<number | null>(null)
+  const hasLoadedOnceRef = useRef(false)
+  const requestSeqRef = useRef(0)
+  const reportRequestSeqRef = useRef(0)
+  const surveyRequestSeqRef = useRef(0)
+  const initialReportSearchRef = useRef<string | null>(null)
+  const initialReportIdRef = useRef<string | null>(null)
+  const initialReportAutoOpenedRef = useRef(false)
 
   // Filters
   const [examFilter, setExamFilter] = useState<string>('')
   const [pmfFilter, setPmfFilter] = useState<string>('')
   const [langFilter, setLangFilter] = useState<string>('')
+  const [sourceFilter, setSourceFilter] = useState<string>('')
+  const [surfaceFilter, setSurfaceFilter] = useState<string>('')
+  const [kindFilter, setKindFilter] = useState<string>('')
+  const [severityFilter, setSeverityFilter] = useState<string>('')
+  const [statusFilter, setStatusFilter] = useState<string>('')
+  const [reportDataMode, setReportDataMode] = useState<ReportDataMode>('real')
+  const [reportSearch, setReportSearch] = useState<string>('')
+  const [debouncedReportSearch, setDebouncedReportSearch] = useState<string>('')
 
   // Expanded row
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [expandedReportId, setExpandedReportId] = useState<string | null>(null)
+  const [copiedReportId, setCopiedReportId] = useState<string | null>(null)
+  const [copyingReportId, setCopyingReportId] = useState<string | null>(null)
+  const [copyFailedReportId, setCopyFailedReportId] = useState<string | null>(null)
+  const [contextByReportId, setContextByReportId] = useState<Record<string, FeedbackReportContextResponse>>({})
+  const [contextLoadingId, setContextLoadingId] = useState<string | null>(null)
+  const [contextErrorByReportId, setContextErrorByReportId] = useState<Record<string, string>>({})
+  const [triageUpdatingId, setTriageUpdatingId] = useState<string | null>(null)
+  const [triageError, setTriageError] = useState<string | null>(null)
+  const [triageNotice, setTriageNotice] = useState<string | null>(null)
+
+  const buildSurveyParams = () => {
+    const params = new URLSearchParams()
+    params.set('limit', '50')
+    params.set('offset', '0')
+    if (examFilter) params.set('exam', examFilter)
+    if (pmfFilter) params.set('pmf', pmfFilter)
+    if (langFilter) params.set('language', langFilter)
+    return params
+  }
+
+  const getInitialReportSearch = () => {
+    if (initialReportSearchRef.current === null) {
+      initialReportSearchRef.current = readInitialReportSearch()
+    }
+    return initialReportSearchRef.current
+  }
+
+  const getInitialReportId = () => {
+    if (initialReportIdRef.current === null) {
+      initialReportIdRef.current = readInitialReportId()
+    }
+    return initialReportIdRef.current
+  }
+
+  const buildReportParams = () => {
+    const reportParams = new URLSearchParams()
+    reportParams.set('limit', '80')
+    reportParams.set('offset', '0')
+    appendReportDataModeParams(reportParams, reportDataMode)
+    if (sourceFilter) reportParams.set('source', sourceFilter)
+    if (surfaceFilter) reportParams.set('surface', surfaceFilter)
+    if (kindFilter) reportParams.set('kind', kindFilter)
+    if (severityFilter) reportParams.set('severity', severityFilter)
+    if (statusFilter) reportParams.set('status', statusFilter)
+    const activeSearch = debouncedReportSearch.trim() || (!hasLoadedOnceRef.current ? getInitialReportSearch() : '')
+    const initialReportId = getInitialReportId()
+    if (initialReportId && (!activeSearch || activeSearch === initialReportId)) {
+      reportParams.set('report_id', initialReportId)
+    }
+    if (activeSearch) reportParams.set('q', activeSearch.slice(0, REPORT_SEARCH_LIMIT))
+    return reportParams
+  }
+
+  const buildReportAggregateParams = () => {
+    const reportParams = new URLSearchParams()
+    appendReportDataModeParams(reportParams, reportDataMode)
+    return reportParams
+  }
 
   const fetchData = async () => {
-    setLoading(true)
+    const requestSeq = requestSeqRef.current + 1
+    requestSeqRef.current = requestSeq
+    const firstLoad = !hasLoadedOnceRef.current
+    if (firstLoad) setLoading(true)
+    else setRefreshing(true)
     setError(null)
+    setRefreshError(null)
     setStatusCode(null)
     try {
-      const params = new URLSearchParams()
-      params.set('limit', '50')
-      params.set('offset', '0')
-      if (examFilter) params.set('exam', examFilter)
-      if (pmfFilter) params.set('pmf_score', pmfFilter)
-      if (langFilter) params.set('language', langFilter)
+      const params = buildSurveyParams()
+      const reportParams = buildReportParams()
+      const reportAggregateParams = buildReportAggregateParams()
 
-      const [aggRes, listRes] = await Promise.all([
+      const [reportAggRes, reportListRes, aggRes, listRes] = await Promise.all([
+        fetch(`/api/backend/admin/feedback/reports/aggregate${querySuffix(reportAggregateParams)}`),
+        fetch(`/api/backend/admin/feedback/reports?${reportParams.toString()}`),
         fetch('/api/backend/admin/feedback/aggregate'),
         fetch(`/api/backend/admin/feedback?${params.toString()}`),
       ])
 
-      if (!listRes.ok) {
-        setStatusCode(listRes.status)
-        const data = (await listRes.json().catch(() => ({}))) as { error?: string; detail?: string }
-        if (listRes.status === 401 || listRes.status === 403) {
-          setError(lang === 'zh' ? '需要管理员权限' : 'Sign in required (admin only)')
+      const failedResponse = [reportAggRes, reportListRes, aggRes, listRes].find((res) => !res.ok)
+      if (failedResponse) {
+        if (requestSeq !== requestSeqRef.current) return
+        setStatusCode(failedResponse.status)
+        const message = await responseErrorMessage(failedResponse)
+        if (failedResponse.status === 401 || failedResponse.status === 403) {
+          setError('admin_access_required')
         } else {
-          setError(data.error || data.detail || `HTTP ${listRes.status}`)
+          setError(message)
         }
         setAggregate(null)
+        setReportsAggregate(null)
+        setReports([])
+        setReportsTotal(0)
+        setReportsUniqueTotal(0)
         setRows([])
         return
       }
 
+      const reportAggData = (await reportAggRes.json().catch(() => ({}))) as FeedbackReportsAggregateResponse
+      const reportListData = (await reportListRes.json().catch(() => ({}))) as FeedbackReportsResponse
       const aggData = (await aggRes.json().catch(() => ({}))) as AggregateResponse
       const listData = (await listRes.json().catch(() => ({}))) as FeedbackListResponse
 
+      if (requestSeq !== requestSeqRef.current) return
+      setReportsAggregate(reportAggData)
+      setReports(reportListData.rows || [])
+      setReportsTotal(reportListData.total || 0)
+      setReportsUniqueTotal(reportListData.unique_reports ?? reportListData.total ?? 0)
       setAggregate(aggData)
       setRows(listData.rows || [])
     } catch (err) {
+      if (requestSeq !== requestSeqRef.current) return
       console.error('[admin feedback] fetch failed:', err)
       setError(lang === 'zh' ? '加载失败' : 'Failed to load')
     } finally {
-      setLoading(false)
+      if (requestSeq === requestSeqRef.current) {
+        hasLoadedOnceRef.current = true
+        setLoading(false)
+        setRefreshing(false)
+      }
+    }
+  }
+
+  const fetchReportsData = async () => {
+    const requestSeq = reportRequestSeqRef.current + 1
+    reportRequestSeqRef.current = requestSeq
+    setRefreshing(true)
+    setRefreshError(null)
+    try {
+      const reportParams = buildReportParams()
+      const reportAggregateParams = buildReportAggregateParams()
+      const [aggRes, res] = await Promise.all([
+        fetch(`/api/backend/admin/feedback/reports/aggregate${querySuffix(reportAggregateParams)}`),
+        fetch(`/api/backend/admin/feedback/reports?${reportParams.toString()}`),
+      ])
+      const failedResponse = [aggRes, res].find((response) => !response.ok)
+      if (failedResponse) {
+        if (requestSeq !== reportRequestSeqRef.current) return
+        setRefreshError(failedResponse.status === 401 || failedResponse.status === 403 ? adminAccessRequiredMessage(lang) : await responseErrorMessage(failedResponse))
+        return
+      }
+      const aggData = (await aggRes.json().catch(() => ({}))) as FeedbackReportsAggregateResponse
+      const data = (await res.json().catch(() => ({}))) as FeedbackReportsResponse
+      if (requestSeq !== reportRequestSeqRef.current) return
+      setReportsAggregate(aggData)
+      setReports(data.rows || [])
+      setReportsTotal(data.total || 0)
+      setReportsUniqueTotal(data.unique_reports ?? data.total ?? 0)
+    } catch (err) {
+      if (requestSeq !== reportRequestSeqRef.current) return
+      console.error('[admin feedback] report fetch failed:', err)
+      setRefreshError(lang === 'zh' ? '快速报告加载失败' : 'Failed to load quick reports')
+    } finally {
+      if (requestSeq === reportRequestSeqRef.current) setRefreshing(false)
+    }
+  }
+
+  const fetchSurveyData = async () => {
+    const requestSeq = surveyRequestSeqRef.current + 1
+    surveyRequestSeqRef.current = requestSeq
+    setRefreshing(true)
+    setRefreshError(null)
+    try {
+      const params = buildSurveyParams()
+      const [aggRes, listRes] = await Promise.all([
+        fetch('/api/backend/admin/feedback/aggregate'),
+        fetch(`/api/backend/admin/feedback?${params.toString()}`),
+      ])
+      const failedResponse = [aggRes, listRes].find((res) => !res.ok)
+      if (failedResponse) {
+        if (requestSeq !== surveyRequestSeqRef.current) return
+        setRefreshError(failedResponse.status === 401 || failedResponse.status === 403 ? adminAccessRequiredMessage(lang) : await responseErrorMessage(failedResponse))
+        return
+      }
+      const aggData = (await aggRes.json().catch(() => ({}))) as AggregateResponse
+      const listData = (await listRes.json().catch(() => ({}))) as FeedbackListResponse
+      if (requestSeq !== surveyRequestSeqRef.current) return
+      setAggregate(aggData)
+      setRows(listData.rows || [])
+    } catch (err) {
+      if (requestSeq !== surveyRequestSeqRef.current) return
+      console.error('[admin feedback] survey fetch failed:', err)
+      setRefreshError(lang === 'zh' ? '问卷反馈加载失败' : 'Failed to load survey feedback')
+    } finally {
+      if (requestSeq === surveyRequestSeqRef.current) setRefreshing(false)
     }
   }
 
   useEffect(() => {
     fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const initialSearch = getInitialReportSearch()
+    if (!initialSearch) return
+    setReportSearch(initialSearch)
+    setDebouncedReportSearch(initialSearch)
+  }, [])
+
+  useEffect(() => {
+    if (!hasLoadedOnceRef.current) return
+    fetchReportsData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceFilter, surfaceFilter, kindFilter, severityFilter, statusFilter, reportDataMode, debouncedReportSearch])
+
+  useEffect(() => {
+    if (!hasLoadedOnceRef.current) return
+    fetchSurveyData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [examFilter, pmfFilter, langFilter])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedReportSearch(reportSearch.trim())
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [reportSearch])
 
   const examOptions = useMemo(() => {
     const seen = new Set<string>()
@@ -170,6 +766,33 @@ export default function AdminFeedbackPage() {
     Object.keys(aggregate?.exam_distribution || {}).forEach((k) => seen.add(k))
     return Array.from(seen).filter(Boolean).sort()
   }, [rows, aggregate])
+
+  const sourceOptions = useMemo(() => {
+    const seen = new Set<string>()
+    reports.forEach((r) => {
+      if (r.source) seen.add(r.source)
+    })
+    Object.keys(reportsAggregate?.source_distribution || {}).forEach((k) => seen.add(k))
+    return Array.from(seen).filter(Boolean).sort()
+  }, [reports, reportsAggregate])
+
+  const surfaceOptions = useMemo(() => {
+    const seen = new Set<string>()
+    reports.forEach((r) => {
+      if (r.surface) seen.add(r.surface)
+    })
+    Object.keys(reportsAggregate?.surface_distribution || {}).forEach((k) => seen.add(k))
+    return Array.from(seen).filter(Boolean).sort()
+  }, [reports, reportsAggregate])
+
+  const statusOptions = useMemo(() => {
+    const seen = new Set<string>(TRIAGE_STATUSES)
+    reports.forEach((r) => {
+      if (r.triage_status) seen.add(r.triage_status)
+    })
+    Object.keys(reportsAggregate?.status_distribution || {}).forEach((k) => seen.add(k))
+    return Array.from(seen).filter(Boolean)
+  }, [reports, reportsAggregate])
 
   const formatDate = (s: string) => {
     try {
@@ -182,6 +805,191 @@ export default function AdminFeedbackPage() {
   }
 
   const likertMax = 5
+
+  const fetchReportContext = async (report: FeedbackReportRow): Promise<FeedbackReportContextResult> => {
+    if (contextByReportId[report.id]) {
+      return { context: contextByReportId[report.id] }
+    }
+    setContextLoadingId(report.id)
+    setContextErrorByReportId((prev) => ({ ...prev, [report.id]: '' }))
+    try {
+      const res = await fetch(`/api/backend/admin/feedback/reports/${encodeURIComponent(report.id)}/context`)
+      const data = (await res.json().catch(() => ({}))) as FeedbackReportContextResponse
+      if (!res.ok) {
+        const message = data.error || data.detail || `HTTP ${res.status}`
+        setContextErrorByReportId((prev) => ({
+          ...prev,
+          [report.id]: message,
+        }))
+        return { context: null, error: message }
+      }
+      setContextByReportId((prev) => ({ ...prev, [report.id]: data }))
+      return { context: data }
+    } catch {
+      const message = lang === 'zh' ? '上下文加载失败' : 'Failed to load context'
+      setContextErrorByReportId((prev) => ({
+        ...prev,
+        [report.id]: message,
+      }))
+      return { context: null, error: message }
+    } finally {
+      setContextLoadingId((current) => (current === report.id ? null : current))
+    }
+  }
+
+  const copyReport = async (report: FeedbackReportRow) => {
+    if (copyingReportId === report.id) return
+    setCopyingReportId(report.id)
+    try {
+      const { context, error } = await fetchReportContext(report)
+      const ok = await copyText(reportMarkdown(report, context, error)).catch(() => false)
+      if (!ok) {
+        setCopyFailedReportId(report.id)
+        window.setTimeout(() => {
+          setCopyFailedReportId((current) => (current === report.id ? null : current))
+        }, 2200)
+        return
+      }
+      setCopyFailedReportId(null)
+      setCopiedReportId(report.id)
+      window.setTimeout(() => {
+        setCopiedReportId((current) => (current === report.id ? null : current))
+      }, 1800)
+    } finally {
+      setCopyingReportId((current) => (current === report.id ? null : current))
+    }
+  }
+
+  const loadReportContext = async (report: FeedbackReportRow) => {
+    const { context } = await fetchReportContext(report)
+    if (context) setExpandedReportId(report.id)
+  }
+
+  const applyUpdatedReport = (updated: FeedbackReportRow, source: FeedbackReportRow = updated) => {
+    const clusterKey = source.cluster_key || updated.cluster_key || ''
+    const triagePatch = {
+      triage_status: updated.triage_status,
+      triage_note: updated.triage_note,
+      triage_updated_at: updated.triage_updated_at,
+      triage_updated_by: updated.triage_updated_by,
+    }
+    const matchesUpdatedScope = (row: FeedbackReportRow) => row.id === updated.id || Boolean(clusterKey && row.cluster_key === clusterKey)
+    const shouldKeep = (row: FeedbackReportRow) => !statusFilter || (row.triage_status || 'new') === statusFilter
+    setReports((prev) => prev
+      .map((row) => (matchesUpdatedScope(row) ? { ...row, ...triagePatch } : row))
+      .filter(shouldKeep))
+    setReportsAggregate((prev) => {
+      if (!prev) return prev
+      const nextPriority = (prev.priority_reports || [])
+        .map((row) => (matchesUpdatedScope(row) ? { ...row, ...triagePatch } : row))
+        .filter((row) => !['resolved', 'wontfix'].includes(row.triage_status || 'new'))
+      return { ...prev, priority_reports: nextPriority }
+    })
+    setContextByReportId((prev) => {
+      const current = prev[updated.id]
+      return current ? { ...prev, [updated.id]: { ...current, report: updated } } : prev
+    })
+  }
+
+  const updateReportTriage = async (report: FeedbackReportRow, status: string, note = report.triage_note || '') => {
+    if (triageUpdatingId === report.id) return
+    setTriageUpdatingId(report.id)
+    setTriageError(null)
+    setTriageNotice(null)
+    try {
+      const res = await fetch(`/api/backend/admin/feedback/reports/${encodeURIComponent(report.id)}/triage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, note, scope: 'cluster' }),
+      })
+      const data = (await res.json().catch(() => ({}))) as {
+        report?: FeedbackReportRow
+        updated_count?: number
+        error?: string
+        detail?: string
+      }
+      if (!res.ok || !data.report) {
+        setTriageError(data.error || data.detail || `HTTP ${res.status}`)
+        return
+      }
+      applyUpdatedReport(data.report, report)
+      const updatedCount = data.updated_count || 1
+      setTriageNotice(
+        updatedCount > 1
+          ? (lang === 'zh' ? `已同步更新 ${updatedCount} 条同类报告。` : `Updated ${updatedCount} similar reports.`)
+          : (lang === 'zh' ? '状态已更新。' : 'Triage status updated.'),
+      )
+    } catch {
+      setTriageError(lang === 'zh' ? '状态更新失败' : 'Failed to update triage status')
+    } finally {
+      setTriageUpdatingId((current) => (current === report.id ? null : current))
+    }
+  }
+
+  const promptTriageNote = (report: FeedbackReportRow) => {
+    const next = window.prompt(
+      lang === 'zh' ? '分拣备注' : 'Triage note',
+      report.triage_note || '',
+    )
+    if (next === null) return
+    void updateReportTriage(report, report.triage_status || 'new', next)
+  }
+
+  const renderTriageControls = (report: FeedbackReportRow) => {
+    const current = report.triage_status || 'new'
+    return (
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {TRIAGE_STATUSES.map((status) => (
+          <button
+            key={status}
+            type="button"
+            className="btn btn-sm"
+            onClick={() => updateReportTriage(report, status)}
+            disabled={triageUpdatingId === report.id || current === status}
+            style={{
+              fontSize: 11,
+              opacity: current === status ? 0.72 : 1,
+              borderColor: current === status ? 'var(--accent, #2563eb)' : undefined,
+            }}
+          >
+            {triageStatusLabel(status, lang)}
+          </button>
+        ))}
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={() => promptTriageNote(report)}
+          disabled={triageUpdatingId === report.id}
+          style={{ fontSize: 11 }}
+        >
+          {lang === 'zh' ? '备注' : 'Note'}
+        </button>
+      </div>
+    )
+  }
+
+  useEffect(() => {
+    if (initialReportAutoOpenedRef.current) return
+    const initialReportId = getInitialReportId()
+    if (!initialReportId || reports.length === 0) return
+    const report = reports.find((row) => row.report_id === initialReportId || row.id === initialReportId)
+    if (!report) return
+    initialReportAutoOpenedRef.current = true
+    setExpandedReportId(report.id)
+    void fetchReportContext(report)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reports])
+
+  const priorityReports = reportsAggregate?.priority_reports || []
+  const issueClusters = reportsAggregate?.issue_clusters || []
+
+  const openIssueCluster = (cluster: FeedbackIssueCluster) => {
+    const lookup = cluster.representative_report_id || cluster.representative_event_id || ''
+    if (!lookup) return
+    setReportSearch(lookup)
+    setDebouncedReportSearch(lookup)
+    setExpandedReportId(null)
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -209,13 +1017,633 @@ export default function AdminFeedbackPage() {
             fontSize: 13,
           }}
         >
-          {error}
+          {statusCode === 401 || statusCode === 403 ? adminAccessRequiredMessage(lang) : error}
           {statusCode != null && <span style={{ marginLeft: 8 }}>(HTTP {statusCode})</span>}
         </div>
       )}
 
       {!loading && !error && (
         <>
+          {refreshError && (
+            <div
+              style={{
+                padding: 12,
+                border: '1px solid var(--line, #e8ecf0)',
+                borderRadius: 10,
+                background: 'var(--surface-2, #f5f7fa)',
+                color: 'var(--ink-muted)',
+                fontSize: 13,
+              }}
+            >
+              {refreshError}
+            </div>
+          )}
+          {triageError && (
+            <div
+              style={{
+                padding: 12,
+                border: '1px solid var(--line, #e8ecf0)',
+                borderRadius: 10,
+                background: 'var(--surface-2, #f5f7fa)',
+                color: 'var(--ink-muted)',
+                fontSize: 13,
+              }}
+            >
+              {triageError}
+            </div>
+          )}
+          {triageNotice && (
+            <div
+              style={{
+                padding: 12,
+                border: '1px solid var(--line, #e8ecf0)',
+                borderRadius: 10,
+                background: 'var(--surface-2, #f5f7fa)',
+                color: 'var(--ink-muted)',
+                fontSize: 13,
+              }}
+            >
+              {triageNotice}
+            </div>
+          )}
+          {/* ---- Quick bug reports ---- */}
+          <Section
+            title={lang === 'zh' ? '快速 Bug 报告' : 'Quick bug reports'}
+            tools={
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <ReportDataModeControl value={reportDataMode} onChange={setReportDataMode} lang={lang} />
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => downloadReportCsv(reports)}
+                  disabled={reports.length === 0}
+                >
+                  {lang === 'zh' ? '导出报告 CSV' : 'Export reports CSV'}
+                </button>
+              </div>
+            }
+          >
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: 16,
+              }}
+            >
+              <KpiCard
+                label={lang === 'zh' ? '快速报告数' : 'Quick reports'}
+                value={String(reportsAggregate?.total ?? reportsTotal)}
+              />
+              <KpiCard
+                label={lang === 'zh' ? '真实报告数' : 'Real reports'}
+                value={String(reportsAggregate?.real_reports ?? (reportDataMode === 'simulated' ? 0 : reportsAggregate?.total ?? reportsTotal))}
+              />
+              <KpiCard
+                label={lang === 'zh' ? '自动化 QA' : 'Automated QA'}
+                value={String(reportsAggregate?.simulated_reports ?? 0)}
+                accent={reportDataMode === 'simulated' ? 'warn' : undefined}
+              />
+              <KpiCard
+                label={lang === 'zh' ? '去重问题数' : 'Unique issues'}
+                value={String(reportsAggregate?.unique_reports ?? reportsTotal)}
+              />
+              <KpiCard
+                label={lang === 'zh' ? '当前筛选命中' : 'Filtered matches'}
+                value={String(reportsTotal)}
+              />
+              <KpiCard
+                label={lang === 'zh' ? '筛选去重' : 'Filtered issues'}
+                value={String(reportsUniqueTotal)}
+              />
+              <KpiCard
+                label={lang === 'zh' ? '重复上报' : 'Duplicates'}
+                value={String(reportsAggregate?.duplicate_reports ?? 0)}
+              />
+              <KpiCard
+                label={lang === 'zh' ? '最近严重问题' : 'Blocked / wrong'}
+                value={String(
+                  (reportsAggregate?.severity_distribution?.blocked || 0) +
+                  (reportsAggregate?.severity_distribution?.wrong || 0),
+                )}
+                accent={(reportsAggregate?.severity_distribution?.blocked || 0) > 0 ? 'warn' : undefined}
+              />
+            </div>
+
+            {issueClusters.length > 0 && (
+              <div
+                style={{
+                  marginTop: 16,
+                  border: '1px solid var(--line, #e8ecf0)',
+                  borderRadius: 12,
+                  overflow: 'hidden',
+                  background: 'var(--surface, #fff)',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    alignItems: 'center',
+                    padding: '10px 12px',
+                    background: 'var(--surface-2, #f5f7fa)',
+                    borderBottom: '1px solid var(--line, #e8ecf0)',
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>
+                    {lang === 'zh' ? 'Top 问题簇' : 'Top issue clusters'}
+                  </div>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    {lang === 'zh' ? '按优先级和同类上报数汇总' : 'Grouped by priority and similar report count'}
+                  </div>
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <Th>{lang === 'zh' ? '分数' : 'Score'}</Th>
+                      <Th>{lang === 'zh' ? '同类' : 'Similar'}</Th>
+                      <Th>{lang === 'zh' ? '严重度' : 'Severity'}</Th>
+                      <Th>{lang === 'zh' ? '状态' : 'Status'}</Th>
+                      <Th>{lang === 'zh' ? '表面' : 'Surface'}</Th>
+                      <Th>{lang === 'zh' ? '代表描述' : 'Representative note'}</Th>
+                      <Th>{lang === 'zh' ? '最近' : 'Latest'}</Th>
+                      <Th>{lang === 'zh' ? '操作' : ''}</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {issueClusters.map((cluster) => (
+                      <tr key={cluster.cluster_key} style={{ borderTop: '1px solid var(--line, #e8ecf0)' }}>
+                        <Td>{cluster.priority_score ?? 0}</Td>
+                        <Td>{cluster.count || 1}</Td>
+                        <Td>{cluster.severity || '—'}</Td>
+                        <Td>{triageStatusLabel(cluster.triage_status, lang)}</Td>
+                        <Td>{cluster.surface || '—'}</Td>
+                        <Td>
+                          <span style={{ display: 'block', maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {cluster.user_note || cluster.expected_behavior || '—'}
+                          </span>
+                        </Td>
+                        <Td>{cluster.latest_created_at ? formatDate(cluster.latest_created_at) : '—'}</Td>
+                        <Td>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => openIssueCluster(cluster)}
+                            disabled={!cluster.representative_report_id && !cluster.representative_event_id}
+                          >
+                            {lang === 'zh' ? '打开代表报告' : 'Open report'}
+                          </button>
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {priorityReports.length > 0 && (
+              <div
+                style={{
+                  marginTop: 16,
+                  border: '1px solid var(--line, #e8ecf0)',
+                  borderRadius: 12,
+                  overflow: 'hidden',
+                  background: 'var(--surface, #fff)',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    alignItems: 'center',
+                    padding: '10px 12px',
+                    background: 'var(--surface-2, #f5f7fa)',
+                    borderBottom: '1px solid var(--line, #e8ecf0)',
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>
+                    {lang === 'zh' ? '建议优先处理' : 'Suggested triage queue'}
+                  </div>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    {lang === 'zh' ? '按阻塞、错误线索和可复现信息排序' : 'Ranked by severity, error clues, and reproducibility detail'}
+                  </div>
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <Th>{lang === 'zh' ? '分数' : 'Score'}</Th>
+                      <Th>{lang === 'zh' ? '严重度' : 'Severity'}</Th>
+                      <Th>{lang === 'zh' ? '状态' : 'Status'}</Th>
+                      <Th>{lang === 'zh' ? '同类' : 'Similar'}</Th>
+                      <Th>{lang === 'zh' ? '表面' : 'Surface'}</Th>
+                      <Th>{lang === 'zh' ? '测试者' : 'Tester'}</Th>
+                      <Th>Build</Th>
+                      <Th>{lang === 'zh' ? '描述' : 'Note'}</Th>
+                      <Th>{lang === 'zh' ? '原因' : 'Reasons'}</Th>
+                      <Th>{lang === 'zh' ? '操作' : ''}</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {priorityReports.map((r) => {
+                      const isPriorityOpen = expandedReportId === r.id
+                      return (
+                        <Fragment key={`priority-${r.id}`}>
+                          <tr style={{ borderTop: '1px solid var(--line, #e8ecf0)' }}>
+                            <Td>{r.priority_score ?? 0}</Td>
+                            <Td>{r.severity || '—'}</Td>
+                            <Td>{triageStatusLabel(r.triage_status, lang)}</Td>
+                            <Td>{r.cluster_size || 1}</Td>
+                            <Td>{r.surface || r.page || r.route || '—'}</Td>
+                            <Td>{formatTester(r)}</Td>
+                            <Td>{formatBuild(r.build)}</Td>
+                            <Td>
+                              <span style={{ display: 'block', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {r.user_note || r.expected_behavior || '—'}
+                              </span>
+                            </Td>
+                            <Td>
+                              <span className="muted" style={{ fontSize: 12 }}>
+                                {(r.priority_reasons || []).join(', ') || '—'}
+                              </span>
+                            </Td>
+                            <Td>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  onClick={() => {
+                                    setExpandedReportId(isPriorityOpen ? null : r.id)
+                                    if (!isPriorityOpen) void fetchReportContext(r)
+                                  }}
+                                >
+                                  {isPriorityOpen
+                                    ? lang === 'zh' ? '收起' : 'Hide'
+                                    : lang === 'zh' ? '查看' : 'View'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  onClick={() => copyReport(r)}
+                                  disabled={copyingReportId === r.id}
+                                >
+                                  {copyingReportId === r.id
+                                    ? lang === 'zh' ? '准备中' : 'Preparing'
+                                    : copiedReportId === r.id
+                                    ? lang === 'zh' ? '已复制' : 'Copied'
+                                    : copyFailedReportId === r.id
+                                      ? lang === 'zh' ? '复制失败' : 'Copy failed'
+                                    : lang === 'zh' ? '复制 Issue' : 'Copy issue'}
+                                </button>
+                              </div>
+                            </Td>
+                          </tr>
+                          {isPriorityOpen && (
+                            <tr key={`priority-${r.id}-detail`}>
+                              <td
+                                colSpan={10}
+                                style={{
+                                  background: 'var(--surface-2, #f5f7fa)',
+                                  padding: 16,
+                                  borderTop: '1px solid var(--line, #e8ecf0)',
+                                }}
+                              >
+                                <DetailBlock label="Report ID" value={r.report_id || r.id} />
+                                <DetailBlock label={lang === 'zh' ? '同类上报数' : 'Similar reports'} value={String(r.cluster_size || 1)} />
+                                <DetailBlock label={lang === 'zh' ? '问题簇' : 'Issue cluster'} value={r.cluster_key} />
+                                <DetailBlock label={lang === 'zh' ? '状态' : 'Status'} value={triageStatusLabel(r.triage_status, lang)} />
+                                {renderTriageControls(r)}
+                                <DetailBlock label={lang === 'zh' ? '分拣备注' : 'Triage note'} value={r.triage_note} />
+                                <DetailBlock label={lang === 'zh' ? '测试者' : 'Tester'} value={formatTester(r)} />
+                                <DetailBlock label="Session ID" value={r.session_id || ''} />
+                                <DetailBlock label={lang === 'zh' ? '用户描述' : 'User note'} value={r.user_note} />
+                                <DetailBlock label={lang === 'zh' ? '期望行为' : 'Expected behavior'} value={r.expected_behavior} />
+                                <DetailBlock label="Build" value={formatBuild(r.build)} />
+                                <DetailBlock label="URL" value={r.captured_url || r.url || ''} />
+                                <JsonBlock label={lang === 'zh' ? '测试者信息' : 'Tester metadata'} value={r.tester} />
+                                <JsonBlock label="Build metadata" value={r.build} />
+                                <JsonBlock label="Browser metadata" value={r.browser} />
+                                <JsonBlock label={lang === 'zh' ? '最近错误' : 'Recent errors'} value={r.recent_errors} />
+                                <JsonBlock label={lang === 'zh' ? '页面快照' : 'App snapshot'} value={r.app_snapshot} />
+                                {contextErrorByReportId[r.id] && (
+                                  <DetailBlock
+                                    label={lang === 'zh' ? '上下文加载错误' : 'Context error'}
+                                    value={contextErrorByReportId[r.id]}
+                                  />
+                                )}
+                                {contextByReportId[r.id] && (
+                                  <FeedbackContextPanel context={contextByReportId[r.id]} lang={lang} />
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div
+              style={{
+                marginTop: 16,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                gap: 16,
+              }}
+            >
+              <DistCard
+                title={lang === 'zh' ? '来源' : 'Source'}
+                dist={reportsAggregate?.source_distribution}
+              />
+              <DistCard
+                title={lang === 'zh' ? '问题表面' : 'Surface'}
+                dist={reportsAggregate?.surface_distribution}
+              />
+              <DistCard
+                title={lang === 'zh' ? '反馈类型' : 'Kind'}
+                dist={reportsAggregate?.kind_distribution}
+              />
+              <DistCard
+                title={lang === 'zh' ? '严重程度' : 'Severity'}
+                dist={reportsAggregate?.severity_distribution}
+              />
+              <DistCard
+                title={lang === 'zh' ? '分拣状态' : 'Triage status'}
+                dist={reportsAggregate?.status_distribution}
+                relabel={(k) => triageStatusLabel(k, lang)}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '16px 0 12px' }}>
+              <label
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 12,
+                  color: 'var(--ink-muted)',
+                }}
+              >
+                <span>{lang === 'zh' ? '搜索' : 'Search'}:</span>
+                <input
+                  value={reportSearch}
+                  onChange={(event) => setReportSearch(event.target.value)}
+                  aria-label={lang === 'zh' ? '搜索快速报告' : 'Search quick reports'}
+                  maxLength={REPORT_SEARCH_LIMIT}
+                  placeholder={lang === 'zh' ? 'Report ID / 页面 / 描述' : 'Report ID / page / note'}
+                  style={{
+                    width: 220,
+                    fontSize: 12,
+                    padding: '5px 8px',
+                    border: '1px solid var(--line, #e8ecf0)',
+                    borderRadius: 6,
+                    background: 'var(--surface, #fff)',
+                  }}
+                />
+              </label>
+              {refreshing && (
+                <span className="muted" style={{ alignSelf: 'center', fontSize: 12 }}>
+                  {lang === 'zh' ? '更新中…' : 'Updating…'}
+                </span>
+              )}
+              <FilterSelect
+                label={lang === 'zh' ? '来源' : 'Source'}
+                value={sourceFilter}
+                onChange={setSourceFilter}
+                options={sourceOptions}
+              />
+              <FilterSelect
+                label={lang === 'zh' ? '表面' : 'Surface'}
+                value={surfaceFilter}
+                onChange={setSurfaceFilter}
+                options={surfaceOptions}
+              />
+              <FilterSelect
+                label={lang === 'zh' ? '类型' : 'Kind'}
+                value={kindFilter}
+                onChange={setKindFilter}
+                options={['bug', 'function', 'feeling', 'general']}
+              />
+              <FilterSelect
+                label={lang === 'zh' ? '严重度' : 'Severity'}
+                value={severityFilter}
+                onChange={setSeverityFilter}
+                options={['blocked', 'wrong', 'confusing', 'slow', 'visual', 'quality', 'idea']}
+              />
+              <FilterSelect
+                label={lang === 'zh' ? '状态' : 'Status'}
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={statusOptions}
+                relabel={(k) => triageStatusLabel(k, lang)}
+              />
+            </div>
+
+            {reports.length === 0 ? (
+              <div className="muted" style={{ padding: 16, fontSize: 13 }}>
+                {lang === 'zh' ? '没有匹配的快速报告' : 'No matching quick reports'}
+              </div>
+            ) : (
+              <div
+                style={{
+                  border: '1px solid var(--line, #e8ecf0)',
+                  borderRadius: 12,
+                  overflow: 'hidden',
+                }}
+              >
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: 'var(--surface-2, #f5f7fa)' }}>
+                      <Th>{lang === 'zh' ? '时间' : 'When'}</Th>
+                      <Th>{lang === 'zh' ? '来源' : 'Source'}</Th>
+                      <Th>{lang === 'zh' ? '测试者' : 'Tester'}</Th>
+                      <Th>Build</Th>
+                      <Th>{lang === 'zh' ? '表面' : 'Surface'}</Th>
+                      <Th>{lang === 'zh' ? '类型' : 'Kind'}</Th>
+                      <Th>{lang === 'zh' ? '严重度' : 'Severity'}</Th>
+                      <Th>{lang === 'zh' ? '状态' : 'Status'}</Th>
+                      <Th>{lang === 'zh' ? '同类' : 'Similar'}</Th>
+                      <Th>{lang === 'zh' ? '页面' : 'Page'}</Th>
+                      <Th>{lang === 'zh' ? '用户描述' : 'Note'}</Th>
+                      <Th>{lang === 'zh' ? '错误线索' : 'Errors'}</Th>
+                      <Th>{lang === 'zh' ? '操作' : ''}</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reports.map((r) => {
+                      const isOpen = expandedReportId === r.id
+                      return (
+                        <Fragment key={r.id}>
+                          <tr style={{ borderTop: '1px solid var(--line, #e8ecf0)' }}>
+                            <Td>{formatDate(r.created_at)}</Td>
+                            <Td>
+                              <span>{r.source || '—'}</span>
+                              {r.simulated && <SimulationBadge lang={lang} />}
+                            </Td>
+                            <Td>{formatTester(r)}</Td>
+                            <Td>{formatBuild(r.build)}</Td>
+                            <Td>{r.surface || '—'}</Td>
+                            <Td>{r.feedback_kind || '—'}</Td>
+                            <Td>{r.severity || '—'}</Td>
+                            <Td>{triageStatusLabel(r.triage_status, lang)}</Td>
+                            <Td>{r.cluster_size || 1}</Td>
+                            <Td>{r.page || r.route || '—'}</Td>
+                            <Td>
+                              <span style={{ display: 'block', maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {r.user_note || r.expected_behavior || '—'}
+                              </span>
+                            </Td>
+                            <Td>{r.recent_errors?.length || 0}</Td>
+                            <Td>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  onClick={() => {
+                                    setExpandedReportId(isOpen ? null : r.id)
+                                    if (!isOpen) void fetchReportContext(r)
+                                  }}
+                                >
+                                  {isOpen
+                                    ? lang === 'zh' ? '收起' : 'Hide'
+                                    : lang === 'zh' ? '查看' : 'View'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  onClick={() => copyReport(r)}
+                                  disabled={copyingReportId === r.id}
+                                >
+                                  {copyingReportId === r.id
+                                    ? lang === 'zh' ? '准备中' : 'Preparing'
+                                    : copiedReportId === r.id
+                                    ? lang === 'zh' ? '已复制' : 'Copied'
+                                    : copyFailedReportId === r.id
+                                      ? lang === 'zh' ? '复制失败' : 'Copy failed'
+                                    : lang === 'zh' ? '复制 Issue' : 'Copy issue'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  onClick={() => loadReportContext(r)}
+                                  disabled={contextLoadingId === r.id}
+                                >
+                                  {contextLoadingId === r.id
+                                    ? lang === 'zh' ? '加载中' : 'Loading'
+                                    : lang === 'zh' ? '上下文' : 'Context'}
+                                </button>
+                              </div>
+                            </Td>
+                          </tr>
+                          {isOpen && (
+                            <tr key={`${r.id}-detail`}>
+                              <td
+                                colSpan={13}
+                                style={{
+                                  background: 'var(--surface-2, #f5f7fa)',
+                                  padding: 16,
+                                  borderTop: '1px solid var(--line, #e8ecf0)',
+                                }}
+                              >
+                                <DetailBlock
+                                  label={lang === 'zh' ? 'Report ID' : 'Report ID'}
+                                  value={r.report_id || r.id}
+                                />
+                                <DetailBlock
+                                  label={lang === 'zh' ? '数据口径' : 'Data mode'}
+                                  value={r.simulated ? `QA (${r.simulation_source || 'simulated'})` : (lang === 'zh' ? '真实' : 'Real')}
+                                />
+                                <DetailBlock
+                                  label={lang === 'zh' ? '同类上报数' : 'Similar reports'}
+                                  value={String(r.cluster_size || 1)}
+                                />
+                                <DetailBlock
+                                  label={lang === 'zh' ? '问题簇' : 'Issue cluster'}
+                                  value={r.cluster_key}
+                                />
+                                <DetailBlock
+                                  label={lang === 'zh' ? '状态' : 'Status'}
+                                  value={triageStatusLabel(r.triage_status, lang)}
+                                />
+                                {renderTriageControls(r)}
+                                <DetailBlock
+                                  label={lang === 'zh' ? '分拣备注' : 'Triage note'}
+                                  value={r.triage_note}
+                                />
+                                <DetailBlock
+                                  label={lang === 'zh' ? '测试者' : 'Tester'}
+                                  value={formatTester(r)}
+                                />
+                                <DetailBlock
+                                  label="Session ID"
+                                  value={r.session_id || ''}
+                                />
+                                <DetailBlock
+                                  label={lang === 'zh' ? '用户描述' : 'User note'}
+                                  value={r.user_note}
+                                />
+                                <DetailBlock
+                                  label={lang === 'zh' ? '期望行为' : 'Expected behavior'}
+                                  value={r.expected_behavior}
+                                />
+                                <DetailBlock
+                                  label="Build"
+                                  value={formatBuild(r.build)}
+                                />
+                                <DetailBlock
+                                  label="URL"
+                                  value={r.captured_url || r.url || ''}
+                                />
+                                <JsonBlock
+                                  label={lang === 'zh' ? '测试者信息' : 'Tester metadata'}
+                                  value={r.tester}
+                                />
+                                <JsonBlock
+                                  label="Build metadata"
+                                  value={r.build}
+                                />
+                                <JsonBlock
+                                  label="Browser metadata"
+                                  value={r.browser}
+                                />
+                                <JsonBlock
+                                  label={lang === 'zh' ? '最近错误' : 'Recent errors'}
+                                  value={r.recent_errors}
+                                />
+                                <JsonBlock
+                                  label={lang === 'zh' ? '最近事件' : 'Recent events'}
+                                  value={r.recent_events}
+                                />
+                                <JsonBlock
+                                  label={lang === 'zh' ? '页面快照' : 'App snapshot'}
+                                  value={r.app_snapshot}
+                                />
+                                {contextErrorByReportId[r.id] && (
+                                  <DetailBlock
+                                    label={lang === 'zh' ? '上下文加载错误' : 'Context error'}
+                                    value={contextErrorByReportId[r.id]}
+                                  />
+                                )}
+                                {contextByReportId[r.id] && (
+                                  <FeedbackContextPanel
+                                    context={contextByReportId[r.id]}
+                                    lang={lang}
+                                  />
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Section>
+
           {/* ---- Aggregates ---- */}
           <Section title={lang === 'zh' ? '汇总指标' : 'Aggregate metrics'}>
             <div
@@ -444,6 +1872,83 @@ export default function AdminFeedbackPage() {
 
 // ---------- Sub-components ----------
 
+function ReportDataModeControl({
+  value,
+  onChange,
+  lang,
+}: {
+  value: ReportDataMode
+  onChange: (mode: ReportDataMode) => void
+  lang: 'zh' | 'en'
+}) {
+  const options: Array<{ value: ReportDataMode; label: string }> = [
+    { value: 'real', label: lang === 'zh' ? '真实' : 'Real' },
+    { value: 'all', label: lang === 'zh' ? '全部' : 'All' },
+    { value: 'simulated', label: lang === 'zh' ? '仅 QA' : 'QA only' },
+  ]
+  return (
+    <div
+      role="radiogroup"
+      aria-label={lang === 'zh' ? '报告数据口径' : 'Report data mode'}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        border: '1px solid var(--line, #e8ecf0)',
+        borderRadius: 8,
+        overflow: 'hidden',
+        background: 'var(--surface, #fff)',
+      }}
+    >
+      {options.map((option) => {
+        const selected = option.value === value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onChange(option.value)}
+            style={{
+              minWidth: 58,
+              padding: '5px 9px',
+              border: 0,
+              borderLeft: option.value === 'real' ? 0 : '1px solid var(--line, #e8ecf0)',
+              background: selected ? 'var(--ink, #111827)' : 'transparent',
+              color: selected ? 'var(--surface, #fff)' : 'var(--ink-muted, #667085)',
+              fontSize: 12,
+              fontWeight: selected ? 700 : 500,
+              cursor: 'pointer',
+            }}
+          >
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function SimulationBadge({ lang }: { lang: 'zh' | 'en' }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        marginLeft: 6,
+        padding: '1px 5px',
+        border: '1px solid var(--line, #e8ecf0)',
+        borderRadius: 6,
+        color: 'var(--warn, #d97706)',
+        background: 'var(--surface-2, #f5f7fa)',
+        fontSize: 11,
+        fontWeight: 700,
+      }}
+    >
+      {lang === 'zh' ? 'QA' : 'QA'}
+    </span>
+  )
+}
+
 function KpiCard({
   label,
   value,
@@ -592,6 +2097,81 @@ function DetailBlock({ label, value }: { label: string; value?: string }) {
         {label}
       </div>
       <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{value}</div>
+    </div>
+  )
+}
+
+function JsonBlock({ label, value }: { label: string; value?: unknown }) {
+  const text = compactJson(value)
+  if (!text || text === '[]' || text === '{}') return null
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div className="muted" style={{ fontSize: 11, fontWeight: 600, marginBottom: 2 }}>
+        {label}
+      </div>
+      <pre
+        style={{
+          margin: 0,
+          maxHeight: 220,
+          overflow: 'auto',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          border: '1px solid var(--line, #e8ecf0)',
+          borderRadius: 8,
+          background: 'var(--surface, #fff)',
+          padding: 10,
+          fontSize: 12,
+        }}
+      >
+        {text}
+      </pre>
+    </div>
+  )
+}
+
+function FeedbackContextPanel({
+  context,
+  lang,
+}: {
+  context: FeedbackReportContextResponse
+  lang: 'zh' | 'en'
+}) {
+  const events = context.events || []
+  const errors = context.errors || []
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        padding: 12,
+        border: '1px solid var(--line, #e8ecf0)',
+        borderRadius: 10,
+        background: 'var(--surface, #fff)',
+      }}
+    >
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+        <span style={{ fontSize: 12, fontWeight: 700 }}>
+          {lang === 'zh' ? '同会话上下文' : 'Same-session context'}
+        </span>
+        <span className="muted" style={{ fontSize: 12 }}>
+          {lang === 'zh' ? '事件' : 'Events'}: {context.event_count ?? events.length}
+        </span>
+        <span className="muted" style={{ fontSize: 12 }}>
+          {lang === 'zh' ? '错误' : 'Errors'}: {context.error_count ?? errors.length}
+        </span>
+        {context.truncated && (
+          <span style={{ fontSize: 12, color: 'var(--warn, #d97706)' }}>
+            {lang === 'zh' ? '已截断' : 'Truncated'}
+          </span>
+        )}
+      </div>
+      <JsonBlock
+        label={lang === 'zh' ? '上下文错误' : 'Context errors'}
+        value={errors}
+      />
+      <JsonBlock
+        label={lang === 'zh' ? '上下文事件时间线' : 'Context event timeline'}
+        value={events}
+      />
     </div>
   )
 }

@@ -242,6 +242,20 @@ WebSocket upgrade headers. Use `nginx/external-tls-proxy.example.conf` as the
 reference. A broken `/ws/` route usually shows up as browser-only board lesson
 failures while normal HTTP API calls still work.
 
+Audio upload/transcription is intentionally allowed to run longer than normal
+chat/API requests:
+
+- The bundled production nginx allows large request bodies and has a dedicated
+  `/api/backend/ingest/audio` location with request buffering disabled.
+- If a VPS-level TLS nginx sits in front of the bundled nginx, it must also set
+  a large enough `client_max_body_size` and long read/send timeouts. Use
+  `nginx/external-tls-proxy.example.conf` as the reference.
+- Set `NEXT_PUBLIC_AUDIO_INGEST_POLL_MINUTES` high enough for long audio files;
+  `.env.example` defaults it to 30 minutes.
+- The backend checks whether a `heavy_ml` Celery worker is serving the audio
+  queue before accepting a transcription job. If that worker is down, users get
+  an actionable worker-unavailable error instead of a silent timeout.
+
 ### Deploy
 
 ```bash
@@ -250,6 +264,25 @@ chmod +x scripts/deploy-prod.sh
 ```
 
 Routine code deploys use the same command. Docker will reuse dependency layers; only changed app layers rebuild.
+
+For this VPS, routine Codex-managed production updates should be git-based:
+
+```bash
+# local machine
+git checkout master
+git status --short
+git add <changed files>
+git commit -m "<message>"
+git push origin master
+
+# VPS checkout
+cd /root/mentormind-clean_20260306115658
+git pull --ff-only origin master
+./scripts/deploy-prod.sh deploy
+PUBLIC_APP_URL=https://mentormind.cloud ./scripts/deploy-prod.sh smoke
+```
+
+Avoid long-term production drift from manual file copies. If an emergency server-side patch is copied directly to the VPS, immediately commit/push the same change locally and pull it on the VPS before the next deploy.
 
 Useful commands:
 

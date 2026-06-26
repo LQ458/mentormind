@@ -514,6 +514,14 @@ body {
   z-index: 300;
   box-shadow: var(--shadow-lg);
 }
+
+@media (max-width: 640px) {
+  .tweaks-float,
+  .tweaks,
+  .tweaks-reveal {
+    display: none;
+  }
+}
 .tweaks h3 {
   font-family: var(--display);
   font-size: 16px; font-weight: 500;
@@ -666,7 +674,8 @@ body {
     height: 64px;
     gap: 8px;
     padding: 0 12px;
-    overflow: hidden;
+    overflow: visible;
+    position: static;
   }
   .topbar .page-title {
     flex: 1 1 auto;
@@ -706,6 +715,8 @@ body {
   .main { padding: 8px 12px 80px; }
   .topbar { gap: 6px; }
   .topbar .page-title { max-width: 7ch; }
+  .topbar .icon-btn[aria-label="打开反馈"],
+  .topbar .icon-btn[aria-label="Open feedback"],
   .topbar .icon-btn[aria-label="发送反馈"],
   .topbar .icon-btn[aria-label="Send feedback"],
   .avatar-btn {

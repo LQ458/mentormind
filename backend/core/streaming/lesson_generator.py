@@ -183,6 +183,32 @@ class StreamingLessonGenerator:
         messages.append({"role": "user", "content": continuation})
         return messages
 
+    def _plain_text_to_board_event(self, text: str) -> Optional[BoardEvent]:
+        """Render a model's plain-text reply as board content when possible.
+
+        The lesson contract asks the model to use board tools. In practice,
+        follow-up answers can sometimes arrive as ordinary assistant text.
+        If a board already exists, preserve that AI-generated content as a
+        text block instead of dropping it from the transcript. If no board was
+        created yet, return None so the caller can treat the stream as invalid.
+        """
+        content = (text or "").strip()
+        if not content:
+            return None
+        if getattr(self.board_server.state_manager, "state", None) is None:
+            return None
+        return self.board_server.handle_tool_call_safe(
+            "board_add_element",
+            {
+                "element_type": "text_block",
+                "content": content[:1800],
+                "position": {"region": "center"},
+                "style": {"color": "text", "size": "medium", "animation": "fade_in"},
+                "narration": content[:500],
+                "metadata": {"source": "plain_text_assistant_response"},
+            },
+        )
+
     async def generate_lesson(
         self,
         topic: str,
@@ -352,6 +378,13 @@ class StreamingLessonGenerator:
 
                 elif chunk.chunk_type == "done":
                     if not tool_calls_in_round:
+                        assistant_content = "".join(assistant_content_parts).strip()
+                        plain_event = self._plain_text_to_board_event(assistant_content)
+                        if plain_event is not None:
+                            yield plain_event
+                            messages.append({"role": "assistant", "content": assistant_content})
+                            self._current_messages = messages
+                            return
                         # LLM finished without tool calls. Give the student a
                         # window to ask a follow-up before we terminate the
                         # session; if one arrives, continue the conversation.
@@ -366,6 +399,13 @@ class StreamingLessonGenerator:
                 continue
 
             if not tool_calls_in_round:
+                assistant_content = "".join(assistant_content_parts).strip()
+                plain_event = self._plain_text_to_board_event(assistant_content)
+                if plain_event is not None:
+                    yield plain_event
+                    messages.append({"role": "assistant", "content": assistant_content})
+                    self._current_messages = messages
+                    return
                 # Reached here if the stream didn't emit an explicit done chunk
                 # but produced no tool calls. Same follow-up window.
                 if await self._wait_for_follow_up(messages):

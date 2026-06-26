@@ -24,6 +24,18 @@ Before applying any fix, check what other files reference the affected table/col
 
 After making backend changes (especially to routes, endpoints, or server config), always restart the relevant server/service before testing.
 
+## Production Deployment Workflow
+
+The user expects Codex to keep `mentormind.cloud` up to date when cloud access is available. For deployable fixes, use git as the source of truth:
+
+1. Fix and test locally.
+2. Commit and push the change to `master`/`origin`.
+3. SSH to the VPS checkout, pull the pushed commit, and deploy with `./scripts/deploy-prod.sh deploy`.
+4. Run production smoke/QA checks against `https://mentormind.cloud`.
+5. Report what was deployed and the production test result.
+
+Do not patch production by manually copying files except as an emergency temporary recovery step; if that happens, follow up by committing/pushing and pulling on the VPS so production matches git again.
+
 ## Testing
 
 Before analyzing test coverage, check for existing test files using `find . -name 'test_*' -o -name '*_test.*' -o -path '*/tests/*'` first. Do not assume no tests exist.

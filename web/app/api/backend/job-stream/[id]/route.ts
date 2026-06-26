@@ -1,4 +1,6 @@
 import { NextRequest } from 'next/server'
+import { backendHeaders } from '../../_auth'
+import { backendErrorResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
 
 // Force Next.js to NEVER cache this route or buffer the response
 export const dynamic = 'force-dynamic'
@@ -8,19 +10,15 @@ export async function GET(
     { params }: { params: { id: string } }
 ) {
     try {
-        const { id } = params
+        const id = encodeURIComponent(params.id)
         const url = `${process.env.BACKEND_URL || 'http://localhost:8000'}/job-stream/${id}`
-        console.log(`[job-stream proxy] Fetching SSE from: ${url}`)
 
-        // Forward auth token to backend
-        const authHeader = request.headers.get('Authorization')
-        const headers: Record<string, string> = {
+        // Forward auth token to backend. EventSource cannot set custom headers,
+        // so the proxy also derives Authorization from the session cookie.
+        const headers = backendHeaders(request, {
             'Accept': 'text/event-stream',
             'Cache-Control': 'no-store, no-cache, must-revalidate',
-        }
-        if (authHeader) {
-            headers.Authorization = authHeader
-        }
+        })
 
         // Fetch from backend using native Node.js fetch (passes streams through)
         const backendResponse = await fetch(url, {
@@ -30,8 +28,9 @@ export async function GET(
         })
 
         if (!backendResponse.ok) {
-            console.error(`[job-stream proxy] Backend returned error: ${backendResponse.status}`)
-            return new Response(`Backend Error: ${backendResponse.status}`, { status: backendResponse.status })
+            const errorText = await backendResponse.text()
+            logBackendProxyError('job-stream proxy', backendResponse.status, errorText)
+            return backendErrorResponse('Failed to stream job status', backendResponse.status)
         }
 
         // Return the ReadableStream directly to the client as an EventStream
@@ -46,6 +45,6 @@ export async function GET(
         })
     } catch (error) {
         console.error('[job-stream proxy] Error:', error)
-        return new Response('Internal Server Error', { status: 500 })
+        return proxyFailureResponse('Failed to stream job status')
     }
 }

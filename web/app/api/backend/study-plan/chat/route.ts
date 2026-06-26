@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { backendHeaders } from '../../_auth'
+import { backendErrorResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 const CHAT_TIMEOUT_MS = Number(process.env.STUDY_PLAN_CHAT_TIMEOUT_MS || 75000)
@@ -21,14 +23,21 @@ async function readUpstreamJson(res: Response) {
     try {
       return text ? JSON.parse(text) : {}
     } catch {
-      return { success: false, error: 'Invalid JSON from study-plan service' }
+      logBackendProxyError('study-plan/chat proxy', res.status, text)
+      return {
+        success: false,
+        error: 'Study-plan service returned an invalid response',
+        code: 'invalid_backend_response',
+        status: res.status >= 400 ? res.status : 502,
+      }
     }
   }
+  logBackendProxyError('study-plan/chat proxy', res.status, text)
   return {
     success: false,
-    error: res.status === 504 ? 'Study-plan service timed out' : 'Study-plan service returned a non-JSON response',
-    upstream_status: res.status,
-    upstream_preview: text.slice(0, 240),
+    error: res.status === 504 ? 'Study-plan service timed out' : 'Study-plan service returned an invalid response',
+    code: res.status === 504 ? 'timeout' : 'invalid_backend_response',
+    status: res.status >= 400 ? res.status : 502,
   }
 }
 
@@ -53,10 +62,7 @@ export async function POST(req: NextRequest) {
     })
     const res = await fetch(`${BACKEND_URL}/study-plan/chat`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: req.headers.get('Authorization') || '',
-      },
+      headers: backendHeaders(req, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
       signal: controller.signal,
     })
@@ -67,7 +73,11 @@ export async function POST(req: NextRequest) {
       source: data?.response_source ?? 'unknown',
       elapsedMs: Date.now() - startedAt,
     })
-    return NextResponse.json(data, { status: res.status })
+    const responseStatus =
+      typeof data?.status === 'number' && data.status >= 400
+        ? data.status
+        : res.status
+    return NextResponse.json(data, { status: responseStatus })
   } catch (err) {
     console.error('[study-plan/chat proxy] error:', {
       requestId,
@@ -75,15 +85,15 @@ export async function POST(req: NextRequest) {
       error: err,
     })
     const timedOut = err instanceof Error && err.name === 'AbortError'
-    return NextResponse.json(
-      {
-        success: false,
-        error: timedOut
-          ? 'Study-plan chat took too long. Please retry once.'
-          : 'Failed to reach study-plan service',
-      },
-      { status: timedOut ? 504 : 502 },
-    )
+    if (timedOut) {
+      const response = backendErrorResponse(
+        'Study-plan chat took too long. Please retry once.',
+        504,
+        { code: 'timeout' },
+      )
+      return response
+    }
+    return proxyFailureResponse('Failed to reach study-plan service')
   } finally {
     clearTimeout(timeout)
   }

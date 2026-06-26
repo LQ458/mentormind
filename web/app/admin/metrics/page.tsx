@@ -56,7 +56,7 @@ export default function AdminMetricsPage() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('http://localhost:8000/admin/metrics')
+      const res = await fetch('/api/backend/admin/metrics')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       if (data.success) {

@@ -4,7 +4,7 @@ Sets up SQLAlchemy engine, session, and base classes
 """
 
 import os
-from sqlalchemy import create_engine, text, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
@@ -48,6 +48,27 @@ SessionLocal = sessionmaker(
 Base = declarative_base()
 
 
+def _apply_additive_runtime_migrations() -> None:
+    """Apply tiny additive patches needed before the full migration command runs.
+
+    Production compose still runs migrate_db.py, but local/dev and hand-run VPS
+    processes often start server.py directly. create_all() will not add columns
+    to existing tables, so keep startup safe for backwards-compatible fields
+    that the request path now reads immediately.
+    """
+    ddl = [
+        "ALTER TABLE study_plans ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+        "ALTER TABLE study_plans ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ",
+        "CREATE INDEX IF NOT EXISTS idx_study_plans_purge_after ON study_plans(purge_after)",
+        "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+        "ALTER TABLE study_plan_units ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ",
+        "CREATE INDEX IF NOT EXISTS idx_study_plan_units_purge_after ON study_plan_units(purge_after)",
+    ]
+    with engine.begin() as conn:
+        for statement in ddl:
+            conn.execute(text(statement))
+
+
 def get_db():
     """
     Dependency for FastAPI to get database session.
@@ -75,6 +96,7 @@ def init_database():
         
         # Create tables
         Base.metadata.create_all(bind=engine)
+        _apply_additive_runtime_migrations()
         print("✅ Database tables created successfully")
         return True
         

@@ -447,8 +447,11 @@ node_modules/
 .next/*
 web/.next/
 web/.next/**
+.browser-sessions/
+web/.browser-sessions/
 
 backend/.omc/*
+.claude/plugins/
 .superpowers/*
 web/.omc/*
 

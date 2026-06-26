@@ -1070,7 +1070,7 @@ export default function CreateLessonPage() {
         toast.success(t('create.courseCreatedSuccess'))
       } else {
         setPipelineProgress(null)
-        toast.error(t('create.creationFailed') + (data.error_message || t('create.unknownError')))
+        toast.error(t('create.creationFailed') + t('create.unknownError'))
       }
     } catch (error) {
       console.error('Create failed:', error)
@@ -1078,8 +1078,8 @@ export default function CreateLessonPage() {
       setWorkflowPhase('chatting')
       setGenerating(false)
       toast.error(uiLanguage === 'zh'
-        ? `课程生成失败：${error instanceof Error ? error.message : '未知错误，请重试。'}`
-        : `Lesson creation failed: ${error instanceof Error ? error.message : 'Unknown error. Please try again.'}`
+        ? '课程生成失败：未知错误，请重试。'
+        : 'Lesson creation failed: Unknown error. Please try again.'
       )
     } finally {
       setGenerating(false)

@@ -45,7 +45,7 @@ interface ProseSegment {
 export function parseProse(raw: string): ProseSegment[] {
   const out: ProseSegment[] = []
   // Normalize literal escape sequences from JSON.
-  const normalized = raw.replace(/\\r\\n|\\n/g, '\n').replace(/\r\n/g, '\n')
+  const normalized = normalizeBoardProse(raw)
   const lines = normalized.split('\n')
 
   for (let line of lines) {
@@ -82,6 +82,23 @@ export function parseProse(raw: string): ProseSegment[] {
     splitInlineCode(line, out)
   }
   return out
+}
+
+function normalizeBoardProse(raw: string): string {
+  return raw
+    .replace(/\\r\\n|\\n/g, '\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<(?:b|strong)>([\s\S]*?)<\/(?:b|strong)>/gi, '**$1**')
+    .replace(/<(?:i|em)>([\s\S]*?)<\/(?:i|em)>/gi, '*$1*')
+    .replace(/<code>([\s\S]*?)<\/code>/gi, '`$1`')
+    .replace(/<\/?[^>]+>/g, '')
 }
 
 // Split a prose line that mixes inline code into prose + code chunks.

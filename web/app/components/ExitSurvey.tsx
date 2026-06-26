@@ -1,12 +1,15 @@
 'use client'
 
-import { useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { X } from 'lucide-react'
 import { useLanguage } from './LanguageContext'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { track, getOrCreateSessionId } from '../lib/telemetry'
 
 const SURVEY_KEY = 'mm-survey-dismissed'
+const PENDING_SURVEY_KEY = 'mm_pending_exit_surveys_v1'
+const PENDING_SURVEY_LIMIT = 5
+const PENDING_SURVEY_MAX_BYTES = 64 * 1024
 
 // ---------- Option constants (values are stable backend keys) ----------
 
@@ -103,6 +106,149 @@ const TRADEOFF_OPTIONS = [
 
 type TradeoffKey = typeof TRADEOFF_OPTIONS[number]['key']
 
+type ExitSurveyPayload = {
+  exam: string
+  school_year: string
+  prior_tools: string[]
+  likert: Partial<Record<LikertKey, number>>
+  pmf_score: PmfValue | null
+  nps: number | null
+  pain_point: string
+  feature_request: string
+  other_feedback: string
+  contact_email: string
+  language: 'zh' | 'en'
+  session_id: string
+  partial: boolean
+  submitted_at: string
+  queued_at?: string
+}
+
+type SurveySubmitStatus = 'sent' | 'retry' | 'rejected' | 'invalid_email'
+
+function surveyStorage(): Storage | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.sessionStorage
+  } catch {
+    return null
+  }
+}
+
+function isExitSurveyPayload(value: unknown): value is ExitSurveyPayload {
+  if (!value || typeof value !== 'object') return false
+  const payload = value as Record<string, unknown>
+  return (
+    typeof payload.session_id === 'string' &&
+    typeof payload.language === 'string' &&
+    typeof payload.submitted_at === 'string' &&
+    typeof payload.partial === 'boolean'
+  )
+}
+
+function readPendingSurveyPayloads(): ExitSurveyPayload[] {
+  const storage = surveyStorage()
+  if (!storage) return []
+  try {
+    const raw = storage.getItem(PENDING_SURVEY_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed)
+      ? parsed.filter(isExitSurveyPayload).slice(-PENDING_SURVEY_LIMIT)
+      : []
+  } catch {
+    return []
+  }
+}
+
+function writePendingSurveyPayloads(payloads: ExitSurveyPayload[]): void {
+  const storage = surveyStorage()
+  if (!storage) return
+  try {
+    let bounded = payloads.slice(-PENDING_SURVEY_LIMIT)
+    let text = JSON.stringify(bounded)
+    while (text.length > PENDING_SURVEY_MAX_BYTES && bounded.length > 0) {
+      bounded = bounded.slice(1)
+      text = JSON.stringify(bounded)
+    }
+    if (bounded.length === 0) {
+      storage.removeItem(PENDING_SURVEY_KEY)
+    } else {
+      storage.setItem(PENDING_SURVEY_KEY, text)
+    }
+  } catch {
+    // Feedback fallback storage should never interrupt the user.
+  }
+}
+
+function surveyPayloadKey(payload: ExitSurveyPayload): string {
+  return [
+    payload.session_id,
+    payload.partial ? 'partial' : 'complete',
+    payload.pmf_score,
+    payload.nps,
+    payload.pain_point.slice(0, 120),
+    payload.feature_request.slice(0, 80),
+  ].join(':')
+}
+
+function queuePendingSurveyPayload(payload: ExitSurveyPayload): void {
+  try {
+    const key = surveyPayloadKey(payload)
+    const pending = readPendingSurveyPayloads()
+    const next = [
+      ...pending.filter((item) => surveyPayloadKey(item) !== key),
+      { ...payload, queued_at: new Date().toISOString() },
+    ]
+    writePendingSurveyPayloads(next)
+  } catch {
+    // Losing the fallback buffer is unfortunate, but must not block exit.
+  }
+}
+
+async function submitSurveyPayload(payload: ExitSurveyPayload): Promise<SurveySubmitStatus> {
+  try {
+    const res = await fetch('/api/backend/feedback/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    })
+    if (!res.ok) {
+      if (res.status === 408 || res.status === 429 || res.status >= 500) {
+        return 'retry'
+      }
+      const data = await res.json().catch(() => ({}))
+      const detail = typeof data?.detail === 'string' ? data.detail : ''
+      if (res.status === 400 && detail === 'Invalid contact_email') {
+        return 'invalid_email'
+      }
+      return 'rejected'
+    }
+    const data = await res.json().catch(() => ({}))
+    return data?.success !== false && data?.ok !== false && data?.recorded !== false
+      ? 'sent'
+      : 'rejected'
+  } catch {
+    return 'retry'
+  }
+}
+
+async function flushPendingSurveyPayloads(): Promise<void> {
+  const pending = readPendingSurveyPayloads()
+  if (pending.length === 0) return
+
+  const remaining: ExitSurveyPayload[] = []
+  for (const payload of pending) {
+    const status = await submitSurveyPayload(payload)
+    if (status === 'retry') remaining.push(payload)
+  }
+  writePendingSurveyPayloads(remaining)
+}
+
+function isRejectedSurveyStatus(status: SurveySubmitStatus): boolean {
+  return status === 'rejected' || status === 'invalid_email'
+}
+
 // ---------- Component ----------
 
 interface ExitSurveyProps {
@@ -147,8 +293,14 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
   const [contactEmail, setContactEmail] = useState('')
 
   const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const scaleLabels = lang === 'zh' ? SCALE_LABELS_ZH : SCALE_LABELS_EN
+
+  useEffect(() => {
+    if (!open) return
+    void flushPendingSurveyPayloads().catch(() => {})
+  }, [open])
 
   // ---- Validation ----
   const page1Valid = !!exam && !!schoolYear && priorTools.length >= 1
@@ -170,19 +322,21 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
   }
 
   const buildPayload = (partial: boolean) => {
+    const likertPayload: Partial<Record<LikertKey, number>> = {}
+    for (const question of LIKERT_QUESTIONS) {
+      const value = likert[question.key]
+      if (typeof value === 'number' && value >= 1 && value <= 5) {
+        likertPayload[question.key] = value
+      }
+    }
+
     return {
       exam: exam ?? (partial ? 'other' : 'other'),
       school_year: schoolYear ?? (partial ? 'other' : 'other'),
       prior_tools: priorTools,
-      likert: {
-        plan_useful: likert.plan_useful ?? 0,
-        lesson_clarity: likert.lesson_clarity ?? 0,
-        latency_ok: likert.latency_ok ?? 0,
-        smooth: likert.smooth ?? 0,
-        return_next_week: likert.return_next_week ?? 0,
-      },
-      pmf_score: pmf ?? 'not',
-      nps: typeof nps === 'number' ? nps : 0,
+      likert: likertPayload,
+      pmf_score: pmf,
+      nps: typeof nps === 'number' ? nps : null,
       pain_point: painPoint.slice(0, 4000),
       feature_request: featureRequest.slice(0, 4000),
       other_feedback: [
@@ -200,36 +354,51 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
     onClose()
   }
 
-  const postPayload = async (partial: boolean) => {
-    const payload = buildPayload(partial)
-    try {
-      await fetch('/api/backend/feedback/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        keepalive: true,
-      })
-    } catch {
-      // best-effort
+  const postPayload = async (partial: boolean): Promise<SurveySubmitStatus> => {
+    setSubmitError(null)
+    const payload: ExitSurveyPayload = {
+      ...buildPayload(partial),
+      partial,
+      submitted_at: new Date().toISOString(),
+    }
+    void flushPendingSurveyPayloads().catch(() => {})
+    const status = await submitSurveyPayload(payload)
+    if (status === 'retry') {
+      queuePendingSurveyPayload(payload)
+    } else if (isRejectedSurveyStatus(status)) {
+      setSubmitError(
+        status === 'invalid_email'
+          ? (lang === 'zh'
+            ? '邮箱格式不对。请修改邮箱，或清空邮箱后再试一次。'
+            : 'The email format is invalid. Edit the email, or clear it and try again.')
+        : lang === 'zh'
+          ? '提交没有被服务器接收。请先别关闭，检查表单后再试一次。'
+          : 'The server did not accept this response. Keep this open, check the form, and try again.',
+      )
     }
     // Backwards-compatible analytics event
     try {
       track('survey_response', {
-        pmf: payload.pmf_score,
+        pmf: payload.pmf_score ?? 'unanswered',
         nps: payload.nps,
+        partial,
+        queued: status === 'retry',
+        rejected: status === 'rejected',
       })
     } catch {
       // ignore
     }
+    return status
   }
 
   const handleSkip = async () => {
     setSubmitting(true)
     try {
-      await postPayload(true)
+      const status = await postPayload(true)
+      if (isRejectedSurveyStatus(status)) return
+      dismiss()
     } finally {
       setSubmitting(false)
-      dismiss()
     }
   }
 
@@ -237,10 +406,11 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
     if (!page3Valid) return
     setSubmitting(true)
     try {
-      await postPayload(false)
+      const status = await postPayload(false)
+      if (isRejectedSurveyStatus(status)) return
+      dismiss()
     } finally {
       setSubmitting(false)
-      dismiss()
     }
   }
 
@@ -389,7 +559,10 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
               otherFeedback={otherFeedback}
               setOtherFeedback={setOtherFeedback}
               contactEmail={contactEmail}
-              setContactEmail={setContactEmail}
+              setContactEmail={(value) => {
+                setContactEmail(value)
+                if (submitError) setSubmitError(null)
+              }}
             />
           )}
         </div>
@@ -397,10 +570,8 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
         {/* Footer / actions */}
         <div
           style={{
-            display: 'flex',
-            gap: 8,
-            justifyContent: 'space-between',
-            alignItems: 'center',
+            display: 'grid',
+            gap: 10,
             padding: '16px 24px 20px',
             borderTop: '1px solid var(--line, #e8ecf0)',
             position: 'sticky',
@@ -408,51 +579,69 @@ export default function ExitSurvey({ open, onClose }: ExitSurveyProps) {
             background: 'var(--surface, #fff)',
           }}
         >
-          <button
-            type="button"
-            onClick={handleSkip}
-            className="btn btn-sm"
-            disabled={submitting}
-          >
-            {lang === 'zh' ? '跳过' : 'Skip'}
-          </button>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {step > 1 && (
-              <button
-                type="button"
-                onClick={() => setStep((s) => (s === 3 ? 2 : 1) as 1 | 2 | 3)}
-                className="btn btn-sm"
-                disabled={submitting}
-              >
-                {lang === 'zh' ? '上一步' : 'Back'}
-              </button>
-            )}
-            {step < 3 && (
-              <button
-                type="button"
-                onClick={() => setStep((s) => (s === 1 ? 2 : 3) as 1 | 2 | 3)}
-                className="btn btn-sm btn-primary"
-                disabled={
-                  submitting ||
-                  (step === 1 && !page1Valid) ||
-                  (step === 2 && !page2Valid)
-                }
-              >
-                {lang === 'zh' ? '下一步' : 'Next'}
-              </button>
-            )}
-            {step === 3 && (
-              <button
-                type="button"
-                onClick={handleSubmit}
-                className="btn btn-sm btn-primary"
-                disabled={submitting || !page3Valid}
-              >
-                {submitting
-                  ? lang === 'zh' ? '提交中…' : 'Submitting…'
-                  : lang === 'zh' ? '提交' : 'Submit'}
-              </button>
-            )}
+          {submitError && (
+            <div
+              role="alert"
+              style={{
+                border: '1px solid #fbbf24',
+                background: '#fffbeb',
+                color: '#92400e',
+                borderRadius: 10,
+                padding: '8px 10px',
+                fontSize: 12,
+                lineHeight: 1.5,
+              }}
+            >
+              {submitError}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={handleSkip}
+              className="btn btn-sm"
+              disabled={submitting}
+            >
+              {lang === 'zh' ? '跳过' : 'Skip'}
+            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {step > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setStep((s) => (s === 3 ? 2 : 1) as 1 | 2 | 3)}
+                  className="btn btn-sm"
+                  disabled={submitting}
+                >
+                  {lang === 'zh' ? '上一步' : 'Back'}
+                </button>
+              )}
+              {step < 3 && (
+                <button
+                  type="button"
+                  onClick={() => setStep((s) => (s === 1 ? 2 : 3) as 1 | 2 | 3)}
+                  className="btn btn-sm btn-primary"
+                  disabled={
+                    submitting ||
+                    (step === 1 && !page1Valid) ||
+                    (step === 2 && !page2Valid)
+                  }
+                >
+                  {lang === 'zh' ? '下一步' : 'Next'}
+                </button>
+              )}
+              {step === 3 && (
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  className="btn btn-sm btn-primary"
+                  disabled={submitting || !page3Valid}
+                >
+                  {submitting
+                    ? lang === 'zh' ? '提交中…' : 'Submitting…'
+                    : lang === 'zh' ? '提交' : 'Submit'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

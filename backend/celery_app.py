@@ -95,6 +95,10 @@ celery_app.conf.beat_schedule = {
         "task": "mentormind.prune_telemetry",
         "schedule": _timedelta(hours=24),
     },
+    "replay_spooled_telemetry": {
+        "task": "mentormind.replay_spooled_telemetry",
+        "schedule": _timedelta(minutes=10),
+    },
 }
 
 
@@ -124,7 +128,7 @@ def sync_proactive_notifications_task(self):
             session.close()
     except Exception as exc:
         print(f"❌ Proactive notification sync failed: {exc}")
-        return {"success": False, "error": str(exc)}
+        return {"success": False, "error": "Notification sync failed"}
 
 @celery_app.task(bind=True, name="mentormind.create_class_video")
 def create_class_video_task(self, request_data: dict, job_id: str):
@@ -228,7 +232,7 @@ def create_class_video_task(self, request_data: dict, job_id: str):
         print(f"[{job_id}] ⚠️ Quality evaluation failed: {e}")
         quality_evaluation = {
             "overall_score": 0.0,
-            "error": str(e),
+            "error": "Quality evaluation unavailable",
             "assessment_quality": "unavailable"
         }
 
@@ -610,7 +614,7 @@ def transcribe_audio_task(self, file_path: str, language: str, job_id: str, targ
         response = loop.run_until_complete(_run())
     except Exception as e:
         print(f"[{job_id}] ❌ Transcription task failed: {e}")
-        response = {"success": False, "error": str(e)}
+        response = {"success": False, "error": "Audio transcription failed"}
     finally:
         loop.close()
         # Clean up temp file in worker
@@ -664,7 +668,7 @@ def ocr_image_task(self, file_path: str, language: str, job_id: str, target_lang
         response = loop.run_until_complete(_run())
     except Exception as e:
         print(f"[{job_id}] ❌ OCR task failed: {e}")
-        response = {"success": False, "error": str(e)}
+        response = {"success": False, "error": "Image OCR failed"}
     finally:
         loop.close()
         # Clean up temp file in worker
@@ -685,6 +689,20 @@ def ocr_image_task(self, file_path: str, language: str, job_id: str, target_lang
 
 
 # ── Study Plan: Unit Content Generation ─────────────────────────────────────
+
+def _unit_content_status(result: dict, content_types: list) -> tuple[str, list[str], list[str]]:
+    """Return (status, succeeded_types, missing_types) for generated unit content.
+
+    A single optional block can fail to parse while the study guide/quiz is
+    usable. For the beta MVP, showing partial usable content is better than
+    marking the entire unit failed and leaving the learner on a dead screen.
+    """
+    if not isinstance(result, dict) or result.get("error"):
+        return "failed", [], list(content_types or [])
+    succeeded = [ct for ct in (content_types or []) if result.get(ct) is not None]
+    missing = [ct for ct in (content_types or []) if result.get(ct) is None]
+    return ("ready" if succeeded else "failed"), succeeded, missing
+
 
 @celery_app.task(bind=True, name="mentormind.generate_unit_content", time_limit=600,
                  max_retries=2, default_retry_delay=10)
@@ -711,11 +729,28 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
         result = loop.run_until_complete(_run())
     except Exception as e:
         print(f"[unit:{unit_id}] ❌ Content generation failed: {e}")
-        result = {"error": str(e)}
+        result = {"error": "Unit content generation failed"}
     finally:
         loop.close()
 
-    # Store result in Redis for polling
+    # Classify before persisting anything. Treat partial success as usable content:
+    # missing tabs stay disabled in the UI and can be regenerated later.
+    status_to_set, succeeded_types, missing = _unit_content_status(result, content_types)
+
+    # Total failure (every content block failed) is usually a transient upstream
+    # blip — LLM rate limit / network / open circuit breaker hitting all parallel
+    # calls at once — rather than a permanent error. Retry BEFORE writing anything so
+    # the learner is not stranded on a recoverable error AND no stale error blob is
+    # published to Redis mid-retry. The DB status stays 'generating' across retries,
+    # so the polling client keeps showing progress instead of a premature failure.
+    if status_to_set == "failed" and self.request.retries < self.max_retries:
+        print(
+            f"[unit:{unit_id}] ⚠️ All content failed "
+            f"(attempt {self.request.retries + 1}/{self.max_retries + 1}); retrying in 15s…"
+        )
+        raise self.retry(countdown=15)
+
+    # Store result in Redis for polling (only the final/usable result is published).
     try:
         _redis_client.setex(
             f"unit_content:{unit_id}",
@@ -725,14 +760,10 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
     except Exception as e:
         print(f"[unit:{unit_id}] ⚠️ Failed to store result in Redis: {e}")
 
-    # Update the unit in the database
-    # Mark as failed if there's an explicit error OR if any requested content type is None
-    has_error = bool(result.get("error"))
-    has_missing = any(ct in result and result[ct] is None for ct in content_types)
-    if has_missing and not has_error:
-        missing = [ct for ct in content_types if ct in result and result[ct] is None]
-        print(f"[unit:{unit_id}] ⚠️ Content types returned None (parse failure): {missing}")
-    status_to_set = "ready" if (not has_error and not has_missing) else "failed"
+    if missing and succeeded_types:
+        print(f"[unit:{unit_id}] ⚠️ Partial content generated. Missing: {missing}; usable: {succeeded_types}")
+    elif missing:
+        print(f"[unit:{unit_id}] ⚠️ Content generation returned no usable blocks. Missing: {missing}")
     if cache_key and status_to_set == "ready":
         try:
             _redis_client.setex(
@@ -752,7 +783,7 @@ def generate_unit_content_task(self, unit_id: str, plan_data: dict, unit_data: d
                 unit = session.query(StudyPlanUnit).filter(StudyPlanUnit.id == unit_id).first()
                 if unit:
                     if status_to_set == "ready":
-                        for ct in content_types:
+                        for ct in succeeded_types:
                             if ct in result and result[ct] is not None:
                                 setattr(unit, ct, result[ct])
                     unit.content_status = status_to_set
@@ -876,6 +907,50 @@ def prune_telemetry_task(self, retention_days: int = 90):
     except Exception as exc:
         session.rollback()
         print(f"⚠️ prune_telemetry failed: {exc}")
-        return {"status": "error", "error": str(exc)}
+        return {"status": "error", "error": "Telemetry pruning failed"}
+    finally:
+        session.close()
+
+
+@celery_app.task(bind=True, name="mentormind.replay_spooled_telemetry")
+def replay_spooled_telemetry_task(self, batch: int = 200):
+    """Drain Redis-spooled telemetry (high-value events stashed by the API when their
+    DB insert failed) back into Postgres. Peek-then-pop: an event is only removed from
+    the spool after a successful commit, so nothing is lost if the DB is still down."""
+    from database.models.telemetry import TelemetryEvent
+    key = "mm:telemetry_spool"
+    fields = (
+        "user_id", "session_id", "event_type", "page", "url", "latency_ms",
+        "payload", "viewport_w", "viewport_h", "user_agent", "ip_address",
+    )
+    replayed = 0
+    try:
+        init_database()
+        session = SessionLocal()
+    except Exception as exc:
+        print(f"⚠️ replay_spooled_telemetry: DB init failed: {exc}")
+        return {"status": "error", "replayed": 0}
+    try:
+        for _ in range(max(1, batch)):
+            raw = _redis_client.lindex(key, 0)
+            if not raw:
+                break
+            try:
+                rec = json.loads(raw)
+            except Exception:
+                _redis_client.lpop(key)  # drop an unparseable entry
+                continue
+            try:
+                session.add(TelemetryEvent(**{f: rec.get(f) for f in fields}))
+                session.commit()
+            except Exception as exc:
+                session.rollback()
+                print(f"⚠️ replay_spooled_telemetry: insert failed, leaving spooled: {exc}")
+                break  # DB likely still unavailable; retry on the next beat tick
+            _redis_client.lpop(key)  # only remove after a successful commit
+            replayed += 1
+        if replayed:
+            print(f"📥 replay_spooled_telemetry: replayed {replayed} spooled events")
+        return {"status": "ok", "replayed": replayed}
     finally:
         session.close()

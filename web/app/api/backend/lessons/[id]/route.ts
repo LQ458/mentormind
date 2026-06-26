@@ -1,22 +1,20 @@
-import { NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { backendHeaders } from '../../_auth'
+import { backendErrorResponse, backendJsonResponse, logBackendProxyError, proxyFailureResponse } from '../../_proxyErrors'
 
 export const dynamic = 'force-dynamic';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
 export async function DELETE(
-    request: Request,
+    request: NextRequest,
     { params }: { params: { id: string } }
 ) {
     try {
-        const id = params.id
-        console.log(`🗑️ Proxying delete request for lesson: ${id}`)
+        const id = encodeURIComponent(params.id)
+        console.info('[lesson delete proxy] forwarding delete request')
 
-        const authHeader = request.headers.get('Authorization')
-        const headers: Record<string, string> = {}
-        if (authHeader) {
-            headers.Authorization = authHeader
-        }
+        const headers = backendHeaders(request)
 
         const backendResponse = await fetch(`${BACKEND_URL}/lessons/${id}`, {
             method: 'DELETE',
@@ -25,51 +23,38 @@ export async function DELETE(
 
         if (!backendResponse.ok) {
             const errorText = await backendResponse.text()
-            console.error('Backend delete error:', errorText)
-            return NextResponse.json(
-                { error: 'Failed to delete lesson on backend', details: errorText },
-                { status: backendResponse.status }
-            )
+            logBackendProxyError('lesson delete proxy', backendResponse.status, errorText)
+            return backendErrorResponse('Failed to delete lesson', backendResponse.status)
         }
 
-        const response = await backendResponse.json()
-        return NextResponse.json(response)
+        return await backendJsonResponse(backendResponse, 'lesson delete proxy')
     } catch (error) {
         console.error('API proxy error:', error)
-        return NextResponse.json(
-            { error: 'Failed to proxy delete request', details: error instanceof Error ? error.message : 'Unknown error' },
-            { status: 500 }
-        )
+        return proxyFailureResponse('Failed to delete lesson')
     }
 }
 
 export async function GET(
-    request: Request,
+    request: NextRequest,
     { params }: { params: { id: string } }
 ) {
     try {
-        const id = params.id
-        const authHeader = request.headers.get('Authorization')
-        const headers: Record<string, string> = {}
-        if (authHeader) {
-            headers.Authorization = authHeader
-        }
+        const id = encodeURIComponent(params.id)
+        const headers = backendHeaders(request)
         const backendResponse = await fetch(`${BACKEND_URL}/lessons/${id}`, { headers })
 
         if (!backendResponse.ok) {
-            return NextResponse.json(
-                { error: 'Lesson not found' },
-                { status: backendResponse.status }
+            const errorText = await backendResponse.text()
+            logBackendProxyError('lesson read proxy', backendResponse.status, errorText)
+            return backendErrorResponse(
+                backendResponse.status === 404 ? 'Lesson not found' : 'Failed to fetch lesson',
+                backendResponse.status,
             )
         }
 
-        const response = await backendResponse.json()
-        return NextResponse.json(response)
+        return await backendJsonResponse(backendResponse, 'lesson read proxy')
     } catch (error) {
         console.error('API proxy error:', error)
-        return NextResponse.json(
-            { error: 'Failed to get lesson details' },
-            { status: 500 }
-        )
+        return proxyFailureResponse('Failed to get lesson details')
     }
 }

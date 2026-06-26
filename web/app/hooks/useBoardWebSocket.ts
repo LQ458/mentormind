@@ -419,6 +419,11 @@ function coerceAgentText(v: unknown): string {
   try { return JSON.stringify(v) } catch { return String(v) }
 }
 
+function timestampToMs(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return Date.now()
+  return value < 10_000_000_000 ? value * 1000 : value
+}
+
 export function applyBoardEvent(state: BoardWSState, ev: BoardEvent): BoardWSState {
   return applyEvent(state, ev)
 }
@@ -636,6 +641,13 @@ function applyEvent(state: BoardWSState, ev: BoardEvent): BoardWSState {
     case 'summary_ready':
       return { ...state, summary: ev.data.summary }
     case 'user_message':
+      if (state.chatHistory.some((msg) => (
+        msg.role === 'user' &&
+        msg.text === ev.data.text &&
+        Math.abs(timestampToMs(msg.timestamp) - timestampToMs(ev.timestamp)) < 30_000
+      ))) {
+        return state
+      }
       return {
         ...state,
         chatHistory: [
@@ -695,6 +707,7 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
   const { sessionId, token, enabled, backendWsUrl } = opts
   const [state, dispatch] = useReducer(reducer, initialState)
   const wsRef = useRef<WebSocket | null>(null)
+  const pendingMessagesRef = useRef<string[]>([])
   const attemptsRef = useRef(0)
   const closedByUserRef = useRef(false)
   // Mirror of state for unload-time access — useEffect cleanup can't read
@@ -817,11 +830,15 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
   }, [sessionId, token, buildSnapshot])
 
   const buildUrl = useCallback((): string | null => {
-    if (!token) return null
     const envUrl = backendWsUrl || process.env.NEXT_PUBLIC_BACKEND_WS_URL
+    const withToken = (base: string) => {
+      const cleanBase = base.replace(/\/$/, '')
+      const path = `${cleanBase}/ws/board/${sessionId}`
+      return token ? `${path}?token=${encodeURIComponent(token)}` : path
+    }
     if (envUrl) {
-      const base = envUrl.replace(/\/$/, '')
-      return `${base}/ws/board/${sessionId}?token=${encodeURIComponent(token)}`
+      if (!token) return null
+      return withToken(envUrl)
     }
     if (typeof window === 'undefined') return null
     const { hostname, protocol } = window.location
@@ -829,11 +846,12 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
     const isDev = hostname === 'localhost' || hostname === '127.0.0.1'
     if (isDev) {
       // Dev backend never has TLS — always use plain ws://
+      if (!token) return null
       return `ws://${hostname}:8000/ws/board/${sessionId}?token=${encodeURIComponent(token)}`
     }
-    // Production: same-origin WS relies on nginx routing /ws/ to backend:8000.
-    // Without that nginx rule WS upgrades slam into the Next frontend and crash it.
-    return `${scheme}://${hostname}/ws/board/${sessionId}?token=${encodeURIComponent(token)}`
+    // Production same-origin WS uses HttpOnly cookies through nginx /ws/ routing.
+    // Keep bearer tokens out of the URL because access logs record query strings.
+    return `${scheme}://${window.location.host}/ws/board/${sessionId}`
   }, [sessionId, token, backendWsUrl])
 
   const connect = useCallback(() => {
@@ -862,6 +880,15 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
       // we wait for the first `board_created` event. The reducer will
       // promote this to `streaming` when real events start arriving.
       dispatch({ type: 'SET_STATUS', status: 'open' })
+      const queued = pendingMessagesRef.current.splice(0)
+      for (const text of queued) {
+        try {
+          ws.send(JSON.stringify({ action: 'user_message', text }))
+        } catch {
+          pendingMessagesRef.current.unshift(text)
+          break
+        }
+      }
     }
 
     ws.onmessage = (msg) => {
@@ -987,7 +1014,7 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
   }, [buildUrl, sessionId])
 
   useEffect(() => {
-    if (!enabled || !token) return
+    if (!enabled) return
     closedByUserRef.current = false
     attemptsRef.current = 0
     connect()
@@ -999,7 +1026,7 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
         try { ws.close() } catch {}
       }
     }
-  }, [enabled, token, connect])
+  }, [enabled, connect])
 
   const sendAction = useCallback((msg: BoardClientAction) => {
     const ws = wsRef.current
@@ -1011,12 +1038,43 @@ export function useBoardWebSocket(opts: UseBoardWebSocketOptions) {
     const trimmed = text.trim()
     if (!trimmed) return false
     const ws = wsRef.current
-    if (!ws || ws.readyState !== WebSocket.OPEN) return false
+    const currentStatus = stateRef.current.status
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      if (currentStatus === 'done' || currentStatus === 'error') return false
+      pendingMessagesRef.current.push(trimmed)
+      dispatch({
+        type: 'EVENT',
+        event: {
+          event_type: 'user_message',
+          timestamp: Date.now(),
+          data: { text: trimmed },
+        } as UserMessageEvent,
+      })
+      return true
+    }
     try {
       ws.send(JSON.stringify({ action: 'user_message', text: trimmed }))
+      dispatch({
+        type: 'EVENT',
+        event: {
+          event_type: 'user_message',
+          timestamp: Date.now(),
+          data: { text: trimmed },
+        } as UserMessageEvent,
+      })
       return true
     } catch {
-      return false
+      if (currentStatus === 'done' || currentStatus === 'error') return false
+      pendingMessagesRef.current.push(trimmed)
+      dispatch({
+        type: 'EVENT',
+        event: {
+          event_type: 'user_message',
+          timestamp: Date.now(),
+          data: { text: trimmed },
+        } as UserMessageEvent,
+      })
+      return true
     }
   }, [])
 

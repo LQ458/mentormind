@@ -4,12 +4,19 @@ import type { NextRequest } from 'next/server'
 const PROTECTED_PREFIXES = [
   '/dashboard',
   '/settings',
+  '/ask',
   '/create',
   '/lessons',
   '/study-plan',
+  '/seminar',
   '/knowledge-graph',
   '/analytics',
   '/board',
+  '/board-replay',
+  '/board-test',
+  '/dev-form',
+  '/simple',
+  '/today',
   '/admin',
 ]
 
@@ -32,8 +39,8 @@ export async function middleware(request: NextRequest) {
 
   const token = getSessionCookie(request)
   if (!token) {
-    const signInUrl = new URL('/', request.url)
-    signInUrl.searchParams.set('redirect', pathname)
+    const signInUrl = new URL('/auth/login', request.url)
+    signInUrl.searchParams.set('redirect', `${pathname}${request.nextUrl.search}`)
     return NextResponse.redirect(signInUrl)
   }
 

@@ -1,4 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { backendHeaders } from '../../../../_auth'
+import { backendJsonResponse, proxyFailureResponse } from '../../../../_proxyErrors'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -10,24 +12,17 @@ export async function DELETE(
   { params }: { params: { id: string; unitId: string } },
 ) {
   try {
-    const authHeader = request.headers.get('Authorization')
-    const headers: Record<string, string> = {}
-    if (authHeader) headers.Authorization = authHeader
+    const id = encodeURIComponent(params.id)
+    const unitId = encodeURIComponent(params.unitId)
+    const headers = backendHeaders(request)
 
     const backendResponse = await fetch(
-      `${BACKEND_URL}/study-plan/${params.id}/unit/${params.unitId}`,
+      `${BACKEND_URL}/study-plan/${id}/unit/${unitId}`,
       { method: 'DELETE', headers },
     )
-    const data = await backendResponse.json()
-    return NextResponse.json(data, { status: backendResponse.status })
+    return await backendJsonResponse(backendResponse, 'study-plan unit delete proxy')
   } catch (error) {
     console.error('[study-plan/unit delete proxy] error:', error)
-    return NextResponse.json(
-      {
-        error: 'Failed to delete study plan lesson',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 },
-    )
+    return proxyFailureResponse('Failed to delete study plan lesson')
   }
 }

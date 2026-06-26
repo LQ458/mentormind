@@ -1,152 +1,102 @@
-# MentorMind Web Interface
+# MentorMind Web App
 
-A simple Next.js web interface for testing the MentorMind backend service.
+Next.js 14 App Router frontend for MentorMind.
 
-## Features
+## Current Product Surfaces
 
-- 🎓 **Student Query Interface**: Input learning questions
-- 📋 **Lesson Plan Viewer**: Display generated lesson plans with steps
-- 🎥 **Output Preview**: View generated scripts, audio, and video metadata
-- 💰 **Cost Analysis**: Real-time cost tracking
-- 📊 **System Status**: Monitor backend services
-- 🎨 **Clean UI**: Modern, responsive design with Tailwind CSS
+- `/`: minimal home and learning entry.
+- `/ask`: quick question flow with image/PDF/audio/text context, math rendering, problem/discussion answer modes, learner next-step actions, and moment-level feedback.
+- `/study-plan`: course framework/subject selection, learner profile, Mina planning chat, review, and save.
+- `/study-plan/[id]`: plan detail, unit generation, board lesson entry, and unit AI ask sidebar.
+- `/seminar`: multiplayer and AI-assisted seminar/debate rooms.
+- `/board/[sessionId]`: interactive board lesson session.
+- `/admin/feedback`: feedback/survey review dashboard.
 
 ## Quick Start
 
-### 1. Install Dependencies
-
 ```bash
 cd web
-npm install
+pnpm install
+pnpm dev
 ```
 
-### 2. Run Development Server
-
-```bash
-npm run dev
-```
-
-The application will be available at `http://localhost:3000`
+The app defaults to `http://localhost:3000`.
 
 ## Project Structure
 
-```
+```text
 web/
 ├── app/
-│   ├── api/                    # API routes
-│   │   ├── backend/           # Backend simulation
-│   │   └── files/             # File serving routes
-│   ├── layout.tsx            # Root layout
-│   ├── page.tsx             # Main page (client component)
-│   └── globals.css          # Global styles
-├── public/                   # Static assets
-└── package.json             # Dependencies
+│   ├── api/backend/           # Next.js proxy routes to FastAPI
+│   ├── ask/                   # Quick-question flow
+│   ├── study-plan/            # Study-plan creation/detail flows
+│   ├── seminar/               # Seminar room UI
+│   ├── board/                 # Board lesson UI
+│   ├── components/            # App shell, feedback, auth, math, board, shared UI
+│   ├── hooks/                 # Upload, WebSocket, shortcuts, fullscreen, local drafts
+│   └── lib/                   # Telemetry, subjects, frameworks, translations
+├── public/
+└── package.json
 ```
 
-## API Endpoints
+## Backend Integration
 
-### `POST /api/backend`
-Process a student query and generate a lesson plan.
+Browser calls should go through `app/api/backend/*` unless a specific route needs a direct public backend URL. The proxy keeps local and production paths similar:
 
-**Request:**
-```json
-{
-  "studentQuery": "我想学习Python编程"
-}
-```
+- Local frontend: `http://localhost:3000`
+- Local backend: `http://localhost:8000`
+- Production frontend/backend: same origin behind nginx, with `/api/backend/*` and `/ws/*` routed to FastAPI.
 
-**Response:**
-```json
-{
-  "lesson_plan": { ... },
-  "output_result": { ... },
-  "quality_assessment": { ... }
-}
-```
-
-### `GET /api/backend`
-Get system status and configuration.
-
-### `GET /api/files/audio/[filename]`
-Get audio file metadata (placeholder).
-
-### `GET /api/files/video/[filename]`
-Get video file metadata (placeholder).
-
-## Integration with Backend
-
-The web interface currently uses simulated data. To connect to the actual MentorMind backend:
-
-1. Update the API calls in `app/page.tsx` to point to your backend server
-2. Implement real file serving in the API routes
-3. Add authentication if needed
-
-## Development
-
-### Technologies Used
-
-- **Next.js 14** - React framework with App Router
-- **TypeScript** - Type safety
-- **Tailwind CSS** - Utility-first CSS framework
-- **Lucide React** - Icon library
-- **Axios** - HTTP client
-
-### Key Components
-
-1. **Main Page (`app/page.tsx`)**
-   - Student query input with example queries
-   - Lesson plan display with tabs
-   - Cost analysis panel
-   - System status monitoring
-
-2. **API Routes**
-   - Simulate backend responses
-   - Provide file metadata
-   - Handle CORS if needed
-
-### Customization
-
-- Update colors in `tailwind.config.js`
-- Modify layout in `app/layout.tsx`
-- Add new API endpoints as needed
-- Extend with real backend integration
-
-## Production Deployment
-
-### Build for Production
-
-```bash
-npm run build
-npm start
-```
-
-### Environment Variables
-
-Create a `.env.local` file:
+Useful environment variables:
 
 ```env
-BACKEND_URL=http://localhost:8000  # Used by Next.js API routes
-NEXT_PUBLIC_BACKEND_WS_URL=        # Leave blank for same-origin production WS
+BACKEND_URL=http://localhost:8000
+NEXT_PUBLIC_API_BASE=
+NEXT_PUBLIC_BACKEND_WS_URL=
+NEXT_PUBLIC_AUDIO_INGEST_POLL_MINUTES=30
+NEXT_PUBLIC_SHOW_TWEAKS=false
 ```
 
-### Docker Deployment
+Leave `NEXT_PUBLIC_BACKEND_WS_URL` blank in same-origin production so WebSockets use nginx `/ws/`.
+
+## Feedback and Error Collection
+
+The frontend has three first-party feedback/report entry points:
+
+- `ReportIssueButton`: visible fixed `Report / 报告问题` button on every page, plus local buttons on important flows such as board lessons and study-plan generation/review.
+- `FeedbackHub`: the shared modal opened by the fixed button, topbar icon, and local report buttons. It captures bug, function, feeling, and general feedback.
+- `FeedbackMoment`: compact inline marker for exact answer moments, currently on `/ask`.
+
+All paths send `feedback_moment` telemetry events through `app/lib/telemetry.ts` to `POST /api/backend/telemetry/event`, including a bounded context snapshot: route, viewport, browser, user note, expected behavior, recent breadcrumbs, recent failed network calls, WebSocket errors, and surface-specific app state.
+
+If a feedback submit hits a transient network/backend failure, `trackNow('feedback_moment')` queues the structured event in browser storage and retries automatically on later app activity.
+
+`ErrorBoundary` also records React render crashes as `error_console` telemetry and shows a local report button with the error context.
+
+When adding a new major surface, add a local `ReportIssueButton` or `FeedbackMoment` to the exact user-visible card/turn/error banner instead of relying only on the global fixed button.
+
+## Upload UX
+
+Upload handling lives in `app/hooks/useIngestUpload.ts`.
+
+- Images/PDFs route to `/api/backend/ingest/image`.
+- Audio routes to `/api/backend/ingest/audio`.
+- The hook maps backend failures into user-facing categories such as auth/session, file too large, unsupported file, worker unavailable, timeout, and backend error.
+
+Production nginx must allow large request bodies and long audio timeouts; see the root README and `docs/deployment_plans.md`.
+
+## Development Checks
 
 ```bash
-docker build -t mentormind-web .
-docker run -p 3000:3000 mentormind-web
+cd web
+pnpm exec tsc --noEmit
 ```
 
-## Notes
+For UI changes, use Playwright/browser automation against `http://localhost:3000` and check desktop, iPad, and iPhone-sized viewports.
 
-- The video and audio files are placeholders in this demo
-- All costs are simulated for demonstration
-- The backend integration is simulated but follows the actual API structure
-- Chinese language support is built-in for teaching content
+## Notes for Coding Agents
 
-## Next Steps
-
-1. **Real Backend Integration**: Connect to the actual MentorMind Python backend
-2. **File Upload**: Allow uploading of audio/video for processing
-3. **User Authentication**: Add student/teacher accounts
-4. **Progress Tracking**: Track student learning progress
-5. **Real-time Updates**: WebSocket for live generation status
+- Do not reintroduce simulated backend behavior in the main app routes; use the existing proxy routes.
+- Keep math content rendered through the existing math renderer components.
+- Feedback-related UI should send structured telemetry, not only console logs or toast messages.
+- If you add a new route that can fail visibly for users, add a user-report entry point and include enough app state for later triage.

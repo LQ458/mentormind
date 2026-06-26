@@ -49,7 +49,7 @@ export default function RootLayout({
             <TweaksProvider>
               <TelemetryBoot />
               <AppShell>{children}</AppShell>
-              <TweaksPanel />
+              {(process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_SHOW_TWEAKS === 'true') && <TweaksPanel />}
               <Toaster
                 position="top-right"
                 richColors

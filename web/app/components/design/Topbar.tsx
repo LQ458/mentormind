@@ -6,7 +6,7 @@ import { useLanguage } from '../LanguageContext'
 import { useUser, useAuth } from '../AuthContext'
 import NotificationsPanel from '../NotificationsPanel'
 import { openCommandPalette } from '../CommandPalette'
-import { OPEN_SURVEY_EVENT } from './AppShell'
+import { openFeedback } from '../feedbackEvents'
 import { track } from '../../lib/telemetry'
 
 interface PageMeta {
@@ -18,6 +18,8 @@ const PAGE_META: Record<string, PageMeta> = {
   '/dashboard': { en: 'Today', zh: '今日' },
   '/today': { en: 'Daily review', zh: '每日复习' },
   '/study-plan': { en: 'Study plan', zh: '学习计划' },
+  '/ask': { en: 'Quick question', zh: '快速提问' },
+  '/seminar': { en: 'Seminar', zh: '研讨' },
   '/lessons': { en: 'Library', zh: '文库' },
 }
 
@@ -47,7 +49,7 @@ export default function Topbar({ onMenuClick, menuOpen = false }: { onMenuClick?
       <button
         type="button"
         className="md:hidden p-1.5 -ml-1 rounded-lg text-[var(--ink-muted)] hover:bg-[var(--surface-2)]"
-        aria-label="Open menu"
+        aria-label={language === 'zh' ? '打开菜单' : 'Open menu'}
         aria-expanded={menuOpen}
         aria-controls="app-sidebar"
         onClick={onMenuClick}
@@ -87,16 +89,20 @@ export default function Topbar({ onMenuClick, menuOpen = false }: { onMenuClick?
       <button
         type="button"
         className="icon-btn"
-        aria-label={language === 'zh' ? '发送反馈' : 'Send feedback'}
+        aria-label={language === 'zh' ? '打开反馈' : 'Open feedback'}
         onClick={() => {
-          track('feedback_click')
-          window.dispatchEvent(new Event(OPEN_SURVEY_EVENT))
+          track('feedback_click', { source: 'topbar_feedback_icon', surface: 'topbar' })
+          openFeedback({
+            surface: 'topbar',
+            source: 'global_feedback_button',
+            snapshot: { page_title: language === 'zh' ? meta.zh : meta.en },
+          })
         }}
       >
         <MessageSquare size={18} />
       </button>
 
-      <div className="lang-toggle" role="group" aria-label="Language">
+      <div className="lang-toggle" role="group" aria-label={language === 'zh' ? '语言' : 'Language'}>
         <button
           type="button"
           className={language === 'en' ? 'on' : ''}
@@ -116,7 +122,7 @@ export default function Topbar({ onMenuClick, menuOpen = false }: { onMenuClick?
       <NotificationsPanel />
 
       {isLoaded && isSignedIn && (
-        <button className="avatar-btn" type="button" aria-label="Account">
+        <button className="avatar-btn" type="button" aria-label={language === 'zh' ? '账户' : 'Account'}>
           {initial}
         </button>
       )}

@@ -59,13 +59,64 @@ def _get_paddleocr():
         try:
             from paddleocr import PaddleOCR
             print("⏳ Loading PaddleOCR model...")
-            _paddleocr_model = PaddleOCR(use_angle_cls=True, lang="ch", use_gpu=False)
+            init_attempts = [
+                {"use_angle_cls": True, "lang": "ch"},
+                {"use_textline_orientation": True, "lang": "ch"},
+                {"lang": "ch"},
+            ]
+            last_error: Optional[Exception] = None
+            for kwargs in init_attempts:
+                try:
+                    _paddleocr_model = PaddleOCR(**kwargs)
+                    break
+                except TypeError as exc:
+                    last_error = exc
+                    continue
+            if _paddleocr_model is None:
+                raise last_error or RuntimeError("PaddleOCR model did not initialize")
             print("✅ PaddleOCR model loaded")
         except ImportError:
             raise RuntimeError("paddleocr not installed. Run: pip install paddleocr paddlepaddle")
         except Exception as e:
             raise RuntimeError(f"PaddleOCR model load error: {e}")
     return _paddleocr_model
+
+
+def _extract_text_with_tesseract(tmp_path: str) -> dict:
+    """Fallback OCR via the tesseract CLI, avoiding Python OCR package imports."""
+    command = [
+        "tesseract",
+        tmp_path,
+        "stdout",
+        "-l",
+        os.getenv("TESSERACT_LANGS", "eng+chi_sim"),
+        "--psm",
+        os.getenv("TESSERACT_PSM", "6"),
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=float(os.getenv("TESSERACT_TIMEOUT_SECONDS", "30")),
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("tesseract is not installed or not on PATH") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("tesseract OCR timed out") from exc
+
+    text = (result.stdout or "").strip()
+    if result.returncode != 0 and not text:
+        error = (result.stderr or "tesseract OCR failed").strip()
+        raise RuntimeError(error)
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return {
+        "text": "\n".join(lines),
+        "lines": lines,
+        "engine": "tesseract",
+    }
 
 async def transcribe_with_local_model(tmp_path: str, language: str) -> str:
     """Backward-compatible wrapper that returns only the transcribed text."""
@@ -174,19 +225,63 @@ async def transcribe_with_local_model_result(tmp_path: str, language: str = "aut
 
 def extract_text_with_paddleocr(tmp_path: str) -> dict:
     """Extract text from an image using PaddleOCR."""
-    ocr = _get_paddleocr()
-    result = ocr.ocr(tmp_path, cls=True)
+    try:
+        ocr = _get_paddleocr()
+        try:
+            result = ocr.ocr(tmp_path, cls=True)
+        except TypeError:
+            result = ocr.ocr(tmp_path)
+        lines = []
+        for block in (result or []):
+            for line in (block or []):
+                if line and len(line) >= 2:
+                    text, conf = line[1]
+                    if text.strip():
+                        lines.append(text)
+        return {
+            "text": "\n".join(lines),
+            "lines": lines,
+            "engine": "paddleocr",
+        }
+    except Exception as exc:
+        print(f"⚠️ PaddleOCR unavailable, falling back to tesseract: {exc}")
+        return _extract_text_with_tesseract(tmp_path)
+
+
+def extract_text_from_pdf(tmp_path: str) -> dict:
+    """Extract selectable text from a PDF.
+
+    This intentionally handles text PDFs only. Scanned/image-only PDFs should
+    return a controlled no-text error at the API layer instead of being passed
+    to image OCR as a raw PDF, which PaddleOCR/Leptonica cannot read directly.
+    """
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise RuntimeError("pypdf is not installed. Run: pip install pypdf") from exc
+
+    reader = PdfReader(tmp_path)
+    pages = []
+    for index, page in enumerate(reader.pages):
+        text = (page.extract_text() or "").strip()
+        if text:
+            pages.append((index + 1, text))
+
     lines = []
-    for block in (result or []):
-        for line in (block or []):
-            if line and len(line) >= 2:
-                text, conf = line[1]
-                if text.strip():
-                    lines.append(text)
+    for page_number, text in pages:
+        for line in text.splitlines():
+            clean = line.strip()
+            if clean:
+                lines.append(clean)
+
     return {
         "text": "\n".join(lines),
-        "lines": lines
+        "lines": lines,
+        "page_count": len(reader.pages),
+        "pages_with_text": len(pages),
+        "engine": "pypdf",
     }
+
 
 def get_asr_status() -> Dict[str, bool]:
     """Check the status of loaded ASR and OCR models."""

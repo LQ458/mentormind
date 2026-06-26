@@ -40,28 +40,105 @@ const AuthCtx = createContext<AuthContextValue>({
 const TOKEN_KEY = 'mm_token'
 const USER_KEY = 'mm_user'
 
+function shouldPersistBearerToken(): boolean {
+  return process.env.NODE_ENV !== 'production'
+}
+
+function toAuthUser(data: any): AuthUser | null {
+  if (!data?.id) return null
+  const username = String(data.username || '')
+  const fullName = String(data.full_name || data.fullName || username || '')
+  const firstName = String(data.first_name || data.firstName || fullName || username || '')
+  return {
+    id: String(data.id),
+    username,
+    email: String(data.email || (username ? `${username}@mentormind.local` : '')),
+    firstName,
+    fullName,
+  }
+}
+
+function clearSessionCookie() {
+  try {
+    const secure = window.location.protocol === 'https:' ? '; Secure' : ''
+    document.cookie = `${TOKEN_KEY}=; Path=/; Max-Age=0; SameSite=Lax${secure}`
+  } catch {
+    // ignore
+  }
+}
+
+function clearStoredSession() {
+  try {
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(USER_KEY)
+    clearSessionCookie()
+  } catch {
+    // ignore
+  }
+}
+
+async function clearInvalidServerSession() {
+  clearStoredSession()
+  try {
+    await fetch('/api/backend/auth/logout', { method: 'POST', cache: 'no-store' })
+  } catch {
+    // ignore
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
 
   useEffect(() => {
-    try {
-      const token = localStorage.getItem(TOKEN_KEY)
-      const savedUser = localStorage.getItem(USER_KEY)
-      if (token && savedUser) {
-        setUser(JSON.parse(savedUser))
+    let cancelled = false
+
+    const load = async () => {
+      try {
+        const persistBearerToken = shouldPersistBearerToken()
+        const token = persistBearerToken ? localStorage.getItem(TOKEN_KEY) : null
+        if (!persistBearerToken) localStorage.removeItem(TOKEN_KEY)
+        const savedUser = localStorage.getItem(USER_KEY)
+        if (token && savedUser) {
+          const parsedUser = JSON.parse(savedUser)
+          if (!cancelled) setUser(parsedUser)
+          if (!cancelled) setIsLoaded(true)
+          return
+        }
+      } catch {
+        localStorage.removeItem(TOKEN_KEY)
+        localStorage.removeItem(USER_KEY)
       }
-    } catch {
-      localStorage.removeItem(TOKEN_KEY)
-      localStorage.removeItem(USER_KEY)
+
+      try {
+        const res = await fetch('/api/backend/users/me', { cache: 'no-store' })
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403) {
+            await clearInvalidServerSession()
+          }
+          return
+        }
+        const data = await res.json()
+        const hydratedUser = toAuthUser(data)
+        if (!cancelled && hydratedUser) setUser(hydratedUser)
+      } catch {
+        // Missing or expired HttpOnly session; stay signed out.
+      } finally {
+        if (!cancelled) setIsLoaded(true)
+      }
     }
-    setIsLoaded(true)
+
+    void load()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const loginWithInvite = useCallback(
     async (inviteCode: string | undefined, username: string, password: string, lang?: string): Promise<AuthUser> => {
       const body: Record<string, string> = { username, password }
       if (inviteCode) body.invite_code = inviteCode
+      if (lang) body.language = lang
 
       const res = await fetch('/api/backend/auth/invite', {
         method: 'POST',
@@ -73,7 +150,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error((data as any)?.detail || `Auth failed (${res.status})`)
       }
       const data = await res.json()
-      if (!data?.success || !data?.token) {
+      const persistBearerToken = shouldPersistBearerToken()
+      if (!data?.success || (persistBearerToken && !data?.token)) {
         throw new Error('Invalid response from server')
       }
       const u: AuthUser = {
@@ -85,7 +163,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         firstName: data.user?.username || '',
         fullName: data.user?.username || '',
       }
-      localStorage.setItem(TOKEN_KEY, data.token)
+      if (persistBearerToken && data.token) {
+        localStorage.setItem(TOKEN_KEY, data.token)
+      } else {
+        localStorage.removeItem(TOKEN_KEY)
+      }
       localStorage.setItem(USER_KEY, JSON.stringify(u))
       setUser(u)
       return u
@@ -94,6 +176,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   )
 
   const getToken = useCallback(async (): Promise<string | null> => {
+    if (!shouldPersistBearerToken()) return null
     try {
       return localStorage.getItem(TOKEN_KEY)
     } catch {
@@ -107,12 +190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore
     }
-    try {
-      localStorage.removeItem(TOKEN_KEY)
-      localStorage.removeItem(USER_KEY)
-    } catch {
-      // ignore
-    }
+    clearStoredSession()
     setUser(null)
   }, [])
 

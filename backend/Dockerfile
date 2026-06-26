@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y \
     g++ \
     postgresql-client \
     ffmpeg \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-chi-sim \
     texlive \
     texlive-latex-extra \
     texlive-fonts-extra \

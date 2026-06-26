@@ -14,6 +14,8 @@ import AgentActivityBar from '../../components/board/AgentActivityBar'
 import SummaryPanel from '../../components/board/SummaryPanel'
 import AuthGate from '../../components/AuthGate'
 import BoardDisplaySettings, { useBoardDisplayPrefs, boardFontScaleStyle } from '../../components/board/BoardDisplaySettings'
+import ReportIssueButton from '../../components/ReportIssueButton'
+import { FeedbackMoment } from '../../components/FeedbackMoment'
 import { useKeyboardShortcut } from '../../hooks/useKeyboardShortcut'
 import { useFullscreen } from '../../hooks/useFullscreen'
 import { track } from '../../lib/telemetry'
@@ -42,10 +44,16 @@ function BoardSessionInner() {
   const [shareStatus, setShareStatus] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [activeNarration, setActiveNarration] = useState<string | null>(null)
+  const [activeNarrationElementId, setActiveNarrationElementId] = useState<string | null>(null)
   const [chatOpen, setChatOpen] = useState(true)
   const [displayPrefs, setDisplayPrefs] = useBoardDisplayPrefs()
   const fullscreenRef = useRef<HTMLDivElement | null>(null)
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(fullscreenRef)
+  const requiresBrowserToken = useMemo(() => {
+    if (process.env.NEXT_PUBLIC_BACKEND_WS_URL) return true
+    if (typeof window === 'undefined') return false
+    return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  }, [])
   const [showFullscreenHint, setShowFullscreenHint] = useState(false)
   useEffect(() => {
     if (!isFullscreen) return
@@ -71,19 +79,19 @@ function BoardSessionInner() {
           return
         }
         // Auth can return null briefly right after sign-in; retry with backoff.
+        // In production, same-origin WebSockets can still authenticate through
+        // HttpOnly cookies, so a missing JS token should not block the board.
         if (attempt < 5) {
           const delay = Math.min(2000, 200 * Math.pow(2, attempt))
           timer = setTimeout(() => { void tryFetch(attempt + 1) }, delay)
         } else {
-          setTokenError(
-            language === 'zh'
-              ? '未能获取登录凭证，请刷新页面重试。'
-              : 'Could not obtain an auth token — please refresh the page.',
-          )
+          setToken(null)
+          setTokenError(null)
         }
       } catch (err) {
         if (cancelled) return
-        setTokenError(err instanceof Error ? err.message : 'auth token failed')
+        console.error('Board token error:', err)
+        setTokenError(language === 'zh' ? '登录状态校验失败，请刷新重试。' : 'Could not verify your session. Please refresh and try again.')
       }
     }
 
@@ -97,7 +105,7 @@ function BoardSessionInner() {
   const { state, sendAction, sendUserMessage, hydrate } = useBoardWebSocket({
     sessionId,
     token,
-    enabled: Boolean(token && sessionId),
+    enabled: Boolean(isSignedIn && sessionId),
   })
 
   // Resume banner state — populated when /board/{id}/state returns a saved
@@ -117,31 +125,40 @@ function BoardSessionInner() {
   // visual continuity on refresh / re-entry. The WS itself will pick up where
   // the in-memory backend session left off (or start fresh if it's gone).
   useEffect(() => {
-    if (!sessionId || !token) return
+    if (!sessionId || !isSignedIn) return
     if (restoreAttemptedRef.current) return
     restoreAttemptedRef.current = true
     let cancelled = false
     void (async () => {
       try {
+        const headers: Record<string, string> = {}
+        if (token) headers.Authorization = `Bearer ${token}`
         const res = await fetch(`/api/backend/board/${sessionId}/state`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers,
         })
         if (cancelled) return
         if (res.status === 404) return
         if (!res.ok) return
         const body = await res.json().catch(() => null)
-        if (cancelled || !body || !body.success || !body.state) return
-        const snap = body.state as Record<string, unknown>
+        const snap = (body?.session ?? body?.state) as Record<string, unknown> | undefined
+        if (cancelled || !body || !body.success || !snap) return
         const elements = (snap.elements as Record<string, unknown> | undefined) ?? {}
         if (Object.keys(elements).length === 0) return
         hydrate(snap)
-        setResumedAt(typeof body.updated_at === 'number' ? body.updated_at : Date.now())
+        const updatedAt = snap.updated_at
+        const resumedTime =
+          typeof updatedAt === 'number'
+            ? updatedAt
+            : typeof updatedAt === 'string'
+              ? Date.parse(updatedAt)
+              : Date.now()
+        setResumedAt(Number.isFinite(resumedTime) ? resumedTime : Date.now())
       } catch {
         // network errors are non-fatal; just proceed without resume banner.
       }
     })()
     return () => { cancelled = true }
-  }, [sessionId, token, hydrate])
+  }, [sessionId, token, isSignedIn, hydrate])
 
   const handleDiscardResume = useCallback(() => {
     setBannerDismissed(true)
@@ -149,14 +166,13 @@ function BoardSessionInner() {
     // Best-effort: ask backend to drop the saved snapshot if such an endpoint
     // exists. We don't await — failure just means the next refresh will still
     // see the snapshot, which the user can dismiss again.
-    if (token && sessionId) {
+    if (isSignedIn && sessionId) {
       try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (token) headers.Authorization = `Bearer ${token}`
         void fetch(`/api/backend/board/${sessionId}/save`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
+          headers,
           body: JSON.stringify({ state: { elements: {}, element_order: [] }, status: 'idle' }),
           keepalive: true,
         }).catch(() => {})
@@ -164,7 +180,7 @@ function BoardSessionInner() {
         // swallow
       }
     }
-  }, [sessionId, token])
+  }, [sessionId, token, isSignedIn])
 
   const handlePauseToggle = useCallback(() => {
     const next = !paused
@@ -234,16 +250,20 @@ function BoardSessionInner() {
         setShareStatus(url)
       }
     } catch (err) {
-      setShareStatus(err instanceof Error ? err.message : (language === 'zh' ? '创建失败' : 'Could not create link'))
+      console.error('Board share link error:', err)
+      setShareStatus(language === 'zh' ? '创建失败' : 'Could not create link')
     }
   }, [sessionId, getToken, language])
+
+  const canAskTeacher = state.status !== 'error' && Boolean(state.board || state.elementOrder.length > 0)
 
   const handleSend = useCallback(() => {
     const text = draft.trim()
     if (!text) return
+    if (!canAskTeacher) return
     const ok = sendUserMessage(text)
     if (ok) setDraft('')
-  }, [draft, sendUserMessage])
+  }, [canAskTeacher, draft, sendUserMessage])
 
   const handleDraftKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -264,11 +284,13 @@ function BoardSessionInner() {
   const title = state.board?.title || state.board?.topic || (language === 'zh' ? 'AI 板书课' : 'AI Board Lesson')
   const topic = state.board?.topic
 
-  const onPlaybackStart = useCallback((_elementId: string | null, text: string) => {
+  const onPlaybackStart = useCallback((elementId: string | null, text: string) => {
     setActiveNarration(text)
+    setActiveNarrationElementId(elementId)
   }, [])
-  const onPlaybackEnd = useCallback(() => {
+  const onPlaybackEnd = useCallback((elementId: string | null) => {
     setActiveNarration(null)
+    setActiveNarrationElementId(prev => (prev === elementId ? null : prev))
   }, [])
 
   const lessonDone = state.status === 'done'
@@ -281,7 +303,7 @@ function BoardSessionInner() {
     el.scrollTop = el.scrollHeight
   }, [state.chatHistory.length])
 
-  if (!token) {
+  if (requiresBrowserToken && !token) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-slate-200 gap-3 px-6">
         {tokenError ? (
@@ -420,6 +442,23 @@ function BoardSessionInner() {
             >
               {language === 'zh' ? '分享' : 'Share'}
             </button>
+            <ReportIssueButton
+              surface="board_lesson"
+              compact
+              label={language === 'zh' ? '报告课堂问题' : 'Report lesson issue'}
+              className="border-amber-500/70 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25"
+              severity={state.error ? 'blocked' : 'confusing'}
+              snapshot={{
+                board_session_id: sessionId,
+                status: state.status,
+                element_count: state.elementOrder.length,
+                audio_queue_count: state.audioQueue.length,
+                narration_count: state.narrationLog.length,
+                active_element_id: activeNarrationElementId,
+                has_error: Boolean(state.error),
+                error: state.error || undefined,
+              }}
+            />
             {lessonDone && (
               <Link
                 href="/study-plan"
@@ -483,7 +522,7 @@ function BoardSessionInner() {
             className={`relative flex-1 min-w-0 ${displayPrefs.highContrast ? 'board-high-contrast' : ''} ${isFullscreen ? 'bg-slate-950 p-4' : ''}`}
             style={boardFontScaleStyle(displayPrefs)}
           >
-            <BoardCanvas state={state} paused={paused} />
+            <BoardCanvas state={state} paused={paused} activeElementId={activeNarrationElementId} />
             {showFullscreenHint && (
               <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-slate-900/85 border border-slate-600 text-sm text-slate-100 shadow-lg z-50 pointer-events-none">
                 {language === 'zh' ? '按 Esc 退出全屏' : 'Press Esc to exit fullscreen'}
@@ -536,6 +575,24 @@ function BoardSessionInner() {
                           : (language === 'zh' ? 'AI 老师' : 'AI Teacher')}
                       </div>
                       <div className="whitespace-pre-wrap break-words">{m.text}</div>
+                      {m.role === 'assistant' && (
+                        <div className="mt-2">
+                          <FeedbackMoment
+                            surface="board_teacher_reply"
+                            interactionId={`board-teacher-reply-${sessionId}-${m.timestamp}-${i}`}
+                            snapshot={{
+                              board_session_id: sessionId,
+                              board_status: state.status,
+                              message_index: i,
+                              message_length: m.text.length,
+                              element_count: state.elementOrder.length,
+                              has_board: Boolean(state.board),
+                              lesson_title: title,
+                              active_narration_element_id: activeNarrationElementId,
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -560,16 +617,18 @@ function BoardSessionInner() {
             onKeyDown={handleDraftKeyDown}
             rows={1}
             placeholder={
-              language === 'zh'
-                ? '向 AI 老师提问…（回车发送，Shift+回车换行）'
-                : 'Ask the AI teacher anything… (Enter to send, Shift+Enter for newline)'
+              !canAskTeacher
+                ? (language === 'zh' ? 'Mina 正在准备板书…' : 'Mina is preparing the board…')
+                : language === 'zh'
+                  ? '向 AI 老师提问…（回车发送，Shift+回车换行）'
+                  : 'Ask the AI teacher anything… (Enter to send, Shift+Enter for newline)'
             }
             className="flex-1 min-w-[180px] text-sm bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 placeholder:text-slate-500 resize-none"
           />
           <button
             type="button"
             onClick={handleSend}
-            disabled={!draft.trim() || state.status === 'error'}
+            disabled={!draft.trim() || !canAskTeacher}
             className="whitespace-nowrap text-xs px-3 sm:px-4 py-2 rounded-lg border border-sky-500/70 bg-sky-600/40 text-sky-50 hover:bg-sky-600/60 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {language === 'zh' ? '发送' : 'Send'}

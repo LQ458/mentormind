@@ -9,11 +9,13 @@ Port: 10095
 import os
 import asyncio
 import traceback
+import logging
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 app = FastAPI(title="FunASR Local Server", version="1.0.0")
+logger = logging.getLogger(__name__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,8 +63,9 @@ async def transcribe(audio_file: UploadFile = File(...)):
         result = asr_model.generate(input=tmp_path, batch_size_s=30)
         text = " ".join([r["text"] for r in result]) if result else ""
         return {"success": True, "text": text, "segments": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("FunASR transcription failed")
+        raise HTTPException(status_code=500, detail="Audio transcription failed")
     finally:
         os.unlink(tmp_path)
 
