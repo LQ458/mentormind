@@ -200,7 +200,24 @@ class MentorMindConfig:
     # Volcengine TTS Configuration
     VOLC_TTS_APPID: str = os.getenv("VOLC_TTS_APPID", "")
     VOLC_TTS_TOKEN: str = os.getenv("VOLC_TTS_TOKEN", "")
-    
+
+    # ===== BOARD LESSON PACING (v2 learner-paced interaction) =====
+    # learner_paced (default): the client gates reveal/playback at segment
+    # boundaries (Phase 2 also pauses backend generation); autoplay: continuous
+    # streaming (legacy behavior). See docs/planning/board-interactive-pacing-implementation-plan.md.
+    BOARD_PACING_MODE: str = os.getenv("BOARD_PACING_MODE", "learner_paced")
+    BOARD_SEGMENT_MAX_ELEMENTS: int = int(os.getenv("BOARD_SEGMENT_MAX_ELEMENTS", "4"))
+    BOARD_SEGMENT_MIN_ELEMENTS: int = int(os.getenv("BOARD_SEGMENT_MIN_ELEMENTS", "2"))
+    BOARD_ADAPTIVE_INVITE_EVERY_N_SEGMENTS: int = int(
+        os.getenv("BOARD_ADAPTIVE_INVITE_EVERY_N_SEGMENTS", "3")
+    )
+    BOARD_ADAPTIVE_STRUGGLE_INVITE_EVERY_N: int = int(
+        os.getenv("BOARD_ADAPTIVE_STRUGGLE_INVITE_EVERY_N", "1")
+    )
+    BOARD_ADAPTIVE_FADE_AFTER_OK: int = int(
+        os.getenv("BOARD_ADAPTIVE_FADE_AFTER_OK", "2")
+    )
+
     # ===== PATHS AND DIRECTORIES =====
     BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     DATA_DIR: str = os.path.join(BASE_DIR, "data")

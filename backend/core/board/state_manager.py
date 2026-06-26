@@ -34,6 +34,11 @@ class BoardStateManager:
 
     def __init__(self) -> None:
         self._state: Optional[BoardState] = None
+        # Learner-paced segmentation (v2): track the elements added since the last
+        # boundary so end_segment() can report the segment's element + audio ids.
+        self._segment_index: int = 0
+        self._segment_element_ids: List[str] = []
+        self._segment_audio_ids: List[str] = []
 
     @property
     def state(self) -> Optional[BoardState]:
@@ -77,6 +82,38 @@ class BoardStateManager:
             allow_emoji=True,
         )
 
+    def end_segment(
+        self,
+        invite: Optional[Dict[str, Any]] = None,
+        is_last_segment: bool = False,
+    ) -> BoardEvent:
+        """Emit a NON-BLOCKING segment boundary for the current segment.
+
+        ``element_id`` (top-level) is the segment's last element so the client can
+        scroll-anchor. ``data`` carries the segment's element ids, the subset that
+        carry narration (``audio_element_ids`` — the audio the client must finish
+        before enabling "continue"), and an optional low-stakes ``invite``. This
+        only MARKS a boundary; it never pauses generation. Resets the per-segment
+        buffers and advances the segment index.
+        """
+        element_ids = list(self._segment_element_ids)
+        audio_ids = list(self._segment_audio_ids)
+        seg_index = self._segment_index
+        event = self._emit(
+            "segment_boundary",
+            element_id=(element_ids[-1] if element_ids else None),
+            segment_index=seg_index,
+            element_ids=element_ids,
+            audio_element_ids=audio_ids,
+            expected_audio_count=len(audio_ids),
+            is_last_segment=is_last_segment,
+            invite=invite,
+        )
+        self._segment_index = seg_index + 1
+        self._segment_element_ids = []
+        self._segment_audio_ids = []
+        return event
+
     def create_board(
         self,
         title: str,
@@ -91,6 +128,10 @@ class BoardStateManager:
             layout=BoardLayout(layout),
             background=BackgroundStyle(background),
         )
+        # Reset per-segment tracking for a fresh board.
+        self._segment_index = 0
+        self._segment_element_ids = []
+        self._segment_audio_ids = []
         return self._emit(
             "board_created",
             board_id=board_id,
@@ -129,18 +170,28 @@ class BoardStateManager:
             animation=AnimationType((style or {}).get("animation", "write")),
         )
 
+        # Stamp the current segment index so boundaries survive persistence/resume
+        # via per-element metadata (event_log is not a DB column).
+        md = dict(metadata or {})
+        md["segment_index"] = self._segment_index
+
         element = BoardElementFactory.create(
             element_type=et,
             content=content,
             position=pos,
             style=es,
-            metadata=metadata or {},
+            metadata=md,
         )
 
         self._state.elements[element.element_id] = element
         self._state.current_focus = element.element_id
 
+        # Track this element for the current segment; record it as audio-bearing
+        # if it carries narration (the client must finish a segment's audio before
+        # advancing — see end_segment()).
+        self._segment_element_ids.append(element.element_id)
         if narration:
+            self._segment_audio_ids.append(element.element_id)
             self._append_narration(narration, element.element_id)
 
         return self._emit(
@@ -151,7 +202,7 @@ class BoardStateManager:
             position=pos.__dict__,
             style={"color": es.color.value, "size": es.size.value, "animation": es.animation.value},
             narration=narration,
-            metadata=metadata or {},
+            metadata=md,
         )
 
     def update_element(

@@ -7,6 +7,7 @@ import re
 import time
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from config import config
 from core.board.models import BoardEvent
 from core.board.state_manager import BoardStateManager
 from mcp.agent_tools import AgentToolsServer
@@ -252,6 +253,11 @@ class StreamingLessonGenerator:
 
         max_rounds = 50  # safety limit on conversation turns
 
+        # Learner-paced segmentation: count elements since the last boundary so we
+        # can synthesize one if the model overruns the cap (persists across rounds).
+        elements_since_boundary = 0
+        _seg_cap = config.BOARD_SEGMENT_MAX_ELEMENTS
+
         for _round in range(max_rounds):
             # Drain any student questions that arrived between rounds and
             # inject them as user turns so the orchestrator sees them before
@@ -358,6 +364,22 @@ class StreamingLessonGenerator:
                                 "result": event.to_dict(),
                             }
                         )
+
+                        # Learner-paced segmentation (Phase 1 — emit boundaries, do
+                        # NOT pause). Count elements; if the model overruns the cap
+                        # without calling end_segment, synthesize a boundary so the
+                        # client can still pace/reveal by segment. The synthesized
+                        # boundary is a client marker only and is not fed back to the
+                        # LLM as an assistant tool call.
+                        if event.event_type == "element_added":
+                            elements_since_boundary += 1
+                            if elements_since_boundary >= _seg_cap:
+                                yield self.board_server.handle_tool_call_safe(
+                                    "end_segment", {}
+                                )
+                                elements_since_boundary = 0
+                        elif event.event_type == "segment_boundary":
+                            elements_since_boundary = 0
 
                 elif chunk.chunk_type == "error":
                     logger.error(f"LLM stream error: {chunk.content}")
