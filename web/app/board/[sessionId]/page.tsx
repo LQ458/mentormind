@@ -13,6 +13,7 @@ import SubtitleOverlay from '../../components/board/SubtitleOverlay'
 import BoardChatPanel from '../../components/board/BoardChatPanel'
 import BoardFooterControls from '../../components/board/BoardFooterControls'
 import BoardHelpControls from '../../components/board/BoardHelpControls'
+import BoardInviteCard from '../../components/board/BoardInviteCard'
 import AgentActivityBar from '../../components/board/AgentActivityBar'
 import SummaryPanel from '../../components/board/SummaryPanel'
 import AuthGate from '../../components/AuthGate'
@@ -562,6 +563,14 @@ function BoardSessionInner() {
               activeElementId={activeNarrationElementId}
               revealedElementCount={pacing.revealedElementCount}
             />
+            {pacing.currentInvite && (
+              <BoardInviteCard
+                invite={pacing.currentInvite}
+                language={language}
+                onSend={sendUserMessage}
+                onDismiss={pacing.dismissInvite}
+              />
+            )}
             {pacing.canContinue && (
               <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-1">
                 <button

@@ -21,7 +21,7 @@
 //     hides content the learner has already seen.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { BoardWSState, BoardElement } from './useBoardWebSocket'
+import type { BoardWSState, BoardElement, SegmentInvite } from './useBoardWebSocket'
 
 export type PacingMode = 'learner_paced' | 'autoplay'
 
@@ -60,6 +60,11 @@ export interface UseBoardPacingResult {
   /** Call after hydrating a saved snapshot so already-generated segments are
    *  revealed instead of re-pacing the resumed lesson from segment 1. */
   markResumed: () => void
+  /** Phase 1b — the active non-blocking inline invite, or null when there is
+   *  none / it was dismissed. Never gates the lesson. */
+  currentInvite: SegmentInvite | null
+  /** Dismiss the current invite so it doesn't reappear. */
+  dismissInvite: () => void
 }
 
 function readSegmentIndex(el: BoardElement | undefined): number {
@@ -113,6 +118,14 @@ export function useBoardPacing(state: BoardWSState): UseBoardPacingResult {
   // Set by markResumed(); the effect below reveals all existing segments once
   // they are grouped (the count isn't known synchronously at hydrate time).
   const [resumePending, setResumePending] = useState(false)
+  // Phase 1b — non-blocking inline invite. We track the dismissed invite by its
+  // prompt so a dismissed invite never reappears, while a genuinely new invite
+  // (different prompt) still surfaces. A ref mirrors the live pendingInvite so
+  // the dismiss callbacks stay stable (no stale-closure deps).
+  const [dismissedInvitePrompt, setDismissedInvitePrompt] = useState<string | null>(null)
+  const pendingInvite = state.pendingInvite ?? null
+  const pendingInviteRef = useRef<SegmentInvite | null>(null)
+  pendingInviteRef.current = pendingInvite
 
   const segments = useMemo(
     () => buildSegments(state.elements, state.elementOrder),
@@ -196,9 +209,19 @@ export function useBoardPacing(state: BoardWSState): UseBoardPacingResult {
   const canContinue =
     pacingMode === 'learner_paced' && !isFullyRevealed && currentSegmentHeard
 
+  const dismissInvite = useCallback(() => {
+    const p = pendingInviteRef.current
+    if (p) setDismissedInvitePrompt(p.prompt)
+  }, [])
+
+  // currentInvite is the live pendingInvite unless it has been dismissed.
+  const currentInvite =
+    pendingInvite && pendingInvite.prompt !== dismissedInvitePrompt ? pendingInvite : null
+
   const continueToNext = useCallback(() => {
     setRevealedSegments(r => r + 1)
-  }, [])
+    dismissInvite()
+  }, [dismissInvite])
 
   const markAudioEnded = useCallback((elementId: string | null) => {
     if (!elementId) return
@@ -210,7 +233,10 @@ export function useBoardPacing(state: BoardWSState): UseBoardPacingResult {
     })
   }, [])
 
-  const markResumed = useCallback(() => setResumePending(true), [])
+  const markResumed = useCallback(() => {
+    setResumePending(true)
+    dismissInvite()
+  }, [dismissInvite])
 
   return {
     pacingMode,
@@ -225,5 +251,7 @@ export function useBoardPacing(state: BoardWSState): UseBoardPacingResult {
     markAudioEnded,
     isFullyRevealed,
     markResumed,
+    currentInvite,
+    dismissInvite,
   }
 }
