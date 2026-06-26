@@ -49,6 +49,7 @@ services:
     container_name: mentormind-postgres
     restart: unless-stopped
     logging: *default_logging
+    mem_limit: ${POSTGRES_MEM_LIMIT:-1500m}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-mentormind}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mentormind}
@@ -69,6 +70,7 @@ services:
     container_name: mentormind-redis
     restart: unless-stopped
     logging: *default_logging
+    mem_limit: ${REDIS_MEM_LIMIT:-512m}
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
@@ -87,6 +89,7 @@ services:
     container_name: mentormind-backend
     restart: unless-stopped
     logging: *default_logging
+    mem_limit: ${BACKEND_MEM_LIMIT:-2g}
     depends_on:
       postgres:
         condition: service_healthy
@@ -121,6 +124,7 @@ services:
     container_name: mentormind-celery-orchestration
     restart: unless-stopped
     logging: *default_logging
+    mem_limit: ${CELERY_ORCH_MEM_LIMIT:-1g}
     depends_on:
       backend:
         condition: service_healthy
@@ -147,6 +151,7 @@ services:
     container_name: mentormind-celery-rendering
     restart: unless-stopped
     logging: *default_logging
+    mem_limit: ${CELERY_RENDER_MEM_LIMIT:-2g}
     depends_on:
       backend:
         condition: service_healthy
@@ -170,6 +175,7 @@ services:
     container_name: mentormind-celery-heavy-ml
     restart: unless-stopped
     logging: *default_logging
+    mem_limit: ${CELERY_HEAVYML_MEM_LIMIT:-3500m}
     depends_on:
       backend:
         condition: service_healthy
@@ -206,6 +212,7 @@ services:
     container_name: mentormind-frontend
     restart: unless-stopped
     logging: *default_logging
+    mem_limit: ${FRONTEND_MEM_LIMIT:-768m}
     depends_on:
       backend:
         condition: service_healthy
@@ -244,6 +251,7 @@ services:
     container_name: mentormind-nginx
     restart: unless-stopped
     logging: *default_logging
+    mem_limit: ${NGINX_MEM_LIMIT:-256m}
     depends_on:
       frontend:
         condition: service_started

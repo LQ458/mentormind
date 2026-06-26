@@ -340,6 +340,45 @@ async def auth_exception_handler(request: Request, exc: HTTPException):
 from fastapi import Request
 import time
 
+API_LOG_SLOW_MS = float(os.getenv("API_LOG_SLOW_MS", "5000"))
+_API_LOG_SKIP_PREFIXES = ("/health", "/telemetry/event", "/media/", "/metrics")
+
+
+def _persist_api_log_sample(request: Request, status_code: int, duration_ms: float, error_message: Optional[str]) -> None:
+    """Persist ONLY errors (>=400) and slow requests to api_logs, so the table gives
+    real backend debugging signal without write amplification on every request.
+    Best-effort: any failure here must never affect the request flow."""
+    try:
+        path = request.url.path or ""
+        if any(path.startswith(p) for p in _API_LOG_SKIP_PREFIXES):
+            return
+        if status_code < 400 and duration_ms < API_LOG_SLOW_MS:
+            return
+        from database.base import SessionLocal as _SL
+        from sqlalchemy import text as _text
+        with _SL() as s:
+            s.execute(
+                _text(
+                    "INSERT INTO api_logs (id, endpoint, method, status_code, duration_ms, "
+                    "ip_address, user_agent, error_message, created_at) VALUES "
+                    "(:id, :ep, :m, :sc, :d, :ip, :ua, :err, NOW())"
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "ep": path[:255],
+                    "m": (request.method or "")[:10],
+                    "sc": int(status_code),
+                    "d": int(duration_ms),
+                    "ip": (request.client.host if request.client else None),
+                    "ua": ((request.headers.get("user-agent") or "")[:512] or None),
+                    "err": ((error_message or "")[:2000] or None),
+                },
+            )
+            s.commit()
+    except Exception:
+        pass
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time.time()
@@ -349,9 +388,12 @@ async def log_requests(request: Request, call_next):
         response = await call_next(request)
         process_time = (time.time() - start_time) * 1000
         print(f"✅ [BACKEND] Request complete: {request.method} {request.url.path} - {response.status_code} ({process_time:.2f}ms)")
+        _persist_api_log_sample(request, response.status_code, process_time, None)
         return response
     except Exception as e:
+        process_time = (time.time() - start_time) * 1000
         print(f"❌ [BACKEND] Request failed: {request.method} {request.url.path} - {e}")
+        _persist_api_log_sample(request, 500, process_time, str(e))
         raise e
 
 PUBLIC_MEDIA_PREFIXES = ("audio/", "videos/", "board-audio/")
