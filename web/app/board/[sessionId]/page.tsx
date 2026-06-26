@@ -6,16 +6,17 @@ import { useParams } from 'next/navigation'
 import { useAuth } from '../../components/AuthContext'
 import { useLanguage } from '../../components/LanguageContext'
 import { useBoardWebSocket, RECONNECT_MAX_ATTEMPTS } from '../../hooks/useBoardWebSocket'
+import { useBoardPacing } from '../../hooks/useBoardPacing'
 import BoardCanvas from '../../components/board/BoardCanvas'
 import NarrationPlayer from '../../components/board/NarrationPlayer'
 import SubtitleOverlay from '../../components/board/SubtitleOverlay'
-import VoiceInput from '../../components/board/VoiceInput'
+import BoardChatPanel from '../../components/board/BoardChatPanel'
+import BoardFooterControls from '../../components/board/BoardFooterControls'
 import AgentActivityBar from '../../components/board/AgentActivityBar'
 import SummaryPanel from '../../components/board/SummaryPanel'
 import AuthGate from '../../components/AuthGate'
 import BoardDisplaySettings, { useBoardDisplayPrefs, boardFontScaleStyle } from '../../components/board/BoardDisplaySettings'
 import ReportIssueButton from '../../components/ReportIssueButton'
-import { FeedbackMoment } from '../../components/FeedbackMoment'
 import { useKeyboardShortcut } from '../../hooks/useKeyboardShortcut'
 import { useFullscreen } from '../../hooks/useFullscreen'
 import { track } from '../../lib/telemetry'
@@ -61,7 +62,6 @@ function BoardSessionInner() {
     const t = setTimeout(() => setShowFullscreenHint(false), 2400)
     return () => clearTimeout(t)
   }, [isFullscreen])
-  const chatScrollRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -107,6 +107,10 @@ function BoardSessionInner() {
     token,
     enabled: Boolean(isSignedIn && sessionId),
   })
+
+  // Learner-paced reveal/audio gating, derived from per-element segment_index.
+  // Falls back to continuous play when there is no segment data (see hook).
+  const pacing = useBoardPacing(state)
 
   // Resume banner state — populated when /board/{id}/state returns a saved
   // snapshot with at least one element.
@@ -188,6 +192,13 @@ function BoardSessionInner() {
     sendAction({ action: next ? 'pause' : 'resume' })
   }, [paused, sendAction])
 
+  // Phase 1 continue is a pure client-side reveal: the backend generates the
+  // whole lesson eagerly, so there is nothing to signal upstream yet (Phase 2
+  // adds an outbound `continue` action once the backend pauses at boundaries).
+  const handleContinue = useCallback(() => {
+    pacing.continueToNext()
+  }, [pacing.continueToNext])
+
   useKeyboardShortcut(
     { key: ' ', ignoreInputs: true },
     handlePauseToggle
@@ -195,6 +206,10 @@ function BoardSessionInner() {
   useKeyboardShortcut(
     { key: 'f', ignoreInputs: true },
     () => toggleFullscreen()
+  )
+  useKeyboardShortcut(
+    { key: 'Enter', ignoreInputs: true },
+    () => { if (pacing.canContinue) handleContinue() }
   )
 
   const handleRequestSummary = useCallback(async () => {
@@ -291,17 +306,10 @@ function BoardSessionInner() {
   const onPlaybackEnd = useCallback((elementId: string | null) => {
     setActiveNarration(null)
     setActiveNarrationElementId(prev => (prev === elementId ? null : prev))
-  }, [])
+    pacing.markAudioEnded(elementId)
+  }, [pacing.markAudioEnded])
 
   const lessonDone = state.status === 'done'
-
-  // Keep the chat log pinned to the newest message when it grows.
-  // Must run on every render (above any conditional return) to satisfy rules of hooks.
-  useEffect(() => {
-    const el = chatScrollRef.current
-    if (!el) return
-    el.scrollTop = el.scrollHeight
-  }, [state.chatHistory.length])
 
   if (requiresBrowserToken && !token) {
     return (
@@ -398,6 +406,22 @@ function BoardSessionInner() {
                 ? (language === 'zh' ? '退出全屏' : 'Exit')
                 : (language === 'zh' ? '全屏' : 'Fullscreen')}
             </button>
+            {pacing.totalSegments > 1 && (
+              <button
+                type="button"
+                onClick={() =>
+                  pacing.setPacingMode(pacing.pacingMode === 'autoplay' ? 'learner_paced' : 'autoplay')
+                }
+                className="h-9 inline-flex items-center whitespace-nowrap text-xs px-3 rounded-lg border border-slate-600 bg-slate-800/70 text-slate-100 hover:bg-slate-700"
+                title={language === 'zh'
+                  ? '在“自主节奏”（按段揭示）与“连续播放”之间切换'
+                  : 'Switch between self-paced (reveal by segment) and autoplay'}
+              >
+                {pacing.pacingMode === 'autoplay'
+                  ? (language === 'zh' ? '连续播放' : 'Autoplay')
+                  : (language === 'zh' ? '自主节奏' : 'Self-paced')}
+              </button>
+            )}
             <NarrationPlayer
               audioQueue={state.audioQueue}
               onPlaybackStart={onPlaybackStart}
@@ -406,6 +430,7 @@ function BoardSessionInner() {
               language={language}
               narrationLog={state.narrationLog}
               audioByElementId={state.audioByElementId}
+              playableElementIds={pacing.playableElementIds}
               fallbackEnabled={
                 process.env.NEXT_PUBLIC_BOARD_FAST_MODE === 'true' ||
                 process.env.NEXT_PUBLIC_BOARD_FAST_MODE === '1'
@@ -522,7 +547,27 @@ function BoardSessionInner() {
             className={`relative flex-1 min-w-0 ${displayPrefs.highContrast ? 'board-high-contrast' : ''} ${isFullscreen ? 'bg-slate-950 p-4' : ''}`}
             style={boardFontScaleStyle(displayPrefs)}
           >
-            <BoardCanvas state={state} paused={paused} activeElementId={activeNarrationElementId} />
+            <BoardCanvas
+              state={state}
+              paused={paused}
+              activeElementId={activeNarrationElementId}
+              revealedElementCount={pacing.revealedElementCount}
+            />
+            {pacing.canContinue && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleContinue}
+                  className="inline-flex items-center gap-2 rounded-full border border-emerald-400/70 bg-emerald-600/90 px-5 py-2.5 text-sm font-medium text-emerald-50 shadow-lg backdrop-blur hover:bg-emerald-600"
+                >
+                  <span aria-hidden>▶</span>
+                  {language === 'zh' ? '继续' : 'Continue'}
+                </button>
+                <span className="text-[10px] text-slate-400">
+                  {language === 'zh' ? '按回车继续，或切换“连续播放”' : 'Press Enter, or switch to Autoplay'}
+                </span>
+              </div>
+            )}
             {showFullscreenHint && (
               <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-slate-900/85 border border-slate-600 text-sm text-slate-100 shadow-lg z-50 pointer-events-none">
                 {language === 'zh' ? '按 Esc 退出全屏' : 'Press Esc to exit fullscreen'}
@@ -545,96 +590,29 @@ function BoardSessionInner() {
             )}
           </div>
           {chatOpen && (
-            <aside className="w-full lg:w-[340px] lg:shrink-0 flex flex-col border border-slate-800 bg-slate-900/60 rounded-lg overflow-hidden">
-              <div className="px-3 py-2 border-b border-slate-800 text-xs uppercase tracking-wide text-slate-400">
-                {language === 'zh' ? '与老师对话' : 'Chat with the teacher'}
-              </div>
-              <div
-                ref={chatScrollRef}
-                className="flex-1 overflow-y-auto px-3 py-3 space-y-2 text-sm"
-              >
-                {state.chatHistory.length === 0 ? (
-                  <p className="text-slate-500 text-xs italic">
-                    {language === 'zh'
-                      ? '想到哪里问到哪里——语音或打字都行，AI 会在板书上回答。'
-                      : 'Ask anything mid-lesson by voice or text — the AI replies on the board.'}
-                  </p>
-                ) : (
-                  state.chatHistory.map((m, i) => (
-                    <div
-                      key={`${m.timestamp}-${i}`}
-                      className={
-                        m.role === 'user'
-                          ? 'ml-6 rounded-lg bg-sky-600/20 border border-sky-500/40 px-3 py-2 text-sky-100'
-                          : 'mr-6 rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-slate-200'
-                      }
-                    >
-                      <div className="text-[10px] uppercase tracking-wide mb-0.5 opacity-60">
-                        {m.role === 'user'
-                          ? (language === 'zh' ? '我' : 'You')
-                          : (language === 'zh' ? 'AI 老师' : 'AI Teacher')}
-                      </div>
-                      <div className="whitespace-pre-wrap break-words">{m.text}</div>
-                      {m.role === 'assistant' && (
-                        <div className="mt-2">
-                          <FeedbackMoment
-                            surface="board_teacher_reply"
-                            interactionId={`board-teacher-reply-${sessionId}-${m.timestamp}-${i}`}
-                            snapshot={{
-                              board_session_id: sessionId,
-                              board_status: state.status,
-                              message_index: i,
-                              message_length: m.text.length,
-                              element_count: state.elementOrder.length,
-                              has_board: Boolean(state.board),
-                              lesson_title: title,
-                              active_narration_element_id: activeNarrationElementId,
-                            }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </aside>
+            <BoardChatPanel
+              chatHistory={state.chatHistory}
+              language={language}
+              sessionId={sessionId}
+              status={state.status}
+              hasBoard={Boolean(state.board)}
+              elementCount={state.elementOrder.length}
+              title={title}
+              activeNarrationElementId={activeNarrationElementId}
+            />
           )}
         </div>
       </main>
 
       {/* Bottom controls */}
-      <footer className="border-t border-slate-800 bg-slate-900/80 backdrop-blur px-4 sm:px-6 py-3">
-        <div className="flex flex-wrap items-start gap-2 sm:gap-3">
-          <VoiceInput
-            language={language === 'zh' ? 'zh-CN' : 'en-US'}
-            onTranscript={(text, isFinal) => {
-              if (isFinal) setDraft(prev => (prev ? prev + ' ' : '') + text)
-            }}
-          />
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={handleDraftKeyDown}
-            rows={1}
-            placeholder={
-              !canAskTeacher
-                ? (language === 'zh' ? 'Mina 正在准备板书…' : 'Mina is preparing the board…')
-                : language === 'zh'
-                  ? '向 AI 老师提问…（回车发送，Shift+回车换行）'
-                  : 'Ask the AI teacher anything… (Enter to send, Shift+Enter for newline)'
-            }
-            className="flex-1 min-w-[180px] text-sm bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 placeholder:text-slate-500 resize-none"
-          />
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={!draft.trim() || !canAskTeacher}
-            className="whitespace-nowrap text-xs px-3 sm:px-4 py-2 rounded-lg border border-sky-500/70 bg-sky-600/40 text-sky-50 hover:bg-sky-600/60 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {language === 'zh' ? '发送' : 'Send'}
-          </button>
-        </div>
-      </footer>
+      <BoardFooterControls
+        language={language}
+        draft={draft}
+        onDraftChange={setDraft}
+        onKeyDown={handleDraftKeyDown}
+        onSend={handleSend}
+        canAskTeacher={canAskTeacher}
+      />
 
       <SummaryPanel
         open={summaryOpen}
