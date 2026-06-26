@@ -104,6 +104,19 @@ class StreamingLessonGenerator:
         self.follow_up_timeout_s = follow_up_timeout_s
         self.user_message_queue: "asyncio.Queue[str]" = asyncio.Queue()
         self._current_messages: Optional[List[Dict[str, Any]]] = None
+        # Phase 2 (learner-paced backend pause): boundary "continue" signals and
+        # the running adaptive-steering counters. Inert unless BOARD_BACKEND_PAUSE.
+        self.continue_queue: "asyncio.Queue[Dict[str, Any]]" = asyncio.Queue()
+        # consumed by Phase 2b adaptive steering
+        self._adaptive: Dict[str, int] = {
+            "wrong_streak": 0,
+            "skip_streak": 0,
+        }
+        # Set True by server.py once it wires the 'continue' WS action. The
+        # boundary await stays disabled until then, so BOARD_BACKEND_PAUSE on
+        # its own (no WS wiring) never blocks generation.
+        self.backend_pause_wired: bool = False
+        self._pause_unwired_warned: bool = False
 
     def enqueue_user_message(self, text: str) -> None:
         """Push a mid-lesson student message into the orchestrator conversation.
@@ -115,6 +128,14 @@ class StreamingLessonGenerator:
         if not text or not text.strip():
             return
         self.user_message_queue.put_nowait(text.strip())
+
+    def enqueue_continue(self, payload: Optional[Dict[str, Any]]) -> None:
+        """Push a learner "continue" signal into the backend-pause queue.
+
+        Mirrors :meth:`enqueue_user_message`. Tolerates ``None`` (treated as an
+        empty payload) so a bare "advance" tap still releases the boundary await.
+        """
+        self.continue_queue.put_nowait(payload or {})
 
     def _build_initial_messages(
         self,
@@ -324,6 +345,11 @@ class StreamingLessonGenerator:
             follow_up_injected = False
             assistant_content_parts: List[str] = []
             assistant_reasoning_parts: List[str] = []
+            # Phase 2: when a non-last boundary is seen mid-stream, defer the
+            # learner-paced await until AFTER this round's HTTP stream closes and
+            # tool results are recorded, so the await never holds the aiohttp
+            # stream open for the full timeout.
+            pause_after_round = False
 
             async for chunk in self.llm_client.chat_completion_stream(
                 messages=messages,
@@ -429,6 +455,26 @@ class StreamingLessonGenerator:
                                 elements_since_boundary = 0
                         elif event.event_type == "segment_boundary":
                             elements_since_boundary = 0
+                            # Phase 2 (flag-gated): learner-paced BACKEND pause.
+                            # When enabled, defer a pause to AFTER this round so
+                            # generation blocks BETWEEN rounds, never mid-stream.
+                            # OFF by default -> flag stays False -> zero change.
+                            if (
+                                config.BOARD_BACKEND_PAUSE
+                                and config.BOARD_PACING_MODE == "learner_paced"
+                                and not event.data.get("is_last_segment")
+                            ):
+                                if self.backend_pause_wired:
+                                    pause_after_round = True
+                                elif not self._pause_unwired_warned:
+                                    logger.warning(
+                                        "BOARD_BACKEND_PAUSE is on but no WS "
+                                        "'continue' wiring is present "
+                                        "(backend_pause_wired=False); boundary "
+                                        "await is disabled so generation will "
+                                        "not block."
+                                    )
+                                    self._pause_unwired_warned = True
 
                 elif chunk.chunk_type == "error":
                     logger.error(f"LLM stream error: {chunk.content}")
@@ -512,6 +558,12 @@ class StreamingLessonGenerator:
                     "content": json.dumps(tc["result"]),
                 })
 
+            # Phase 2: learner-paced backend pause happens HERE — between rounds,
+            # after the HTTP stream closed and tool results are recorded — so the
+            # await can't hold the aiohttp stream open or crash on resume.
+            if pause_after_round:
+                await self._wait_for_continue(messages)
+
         logger.warning("Streaming lesson hit max rounds limit")
 
     async def _wait_for_follow_up(self, messages: List[Dict[str, Any]]) -> bool:
@@ -528,3 +580,44 @@ class StreamingLessonGenerator:
             return False
         messages.append({"role": "user", "content": f"[Student question] {text}"})
         return True
+
+    async def _wait_for_continue(self, messages: List[Dict[str, Any]]) -> None:
+        """Block at a segment boundary until the learner signals "continue".
+
+        Awaits the continue queue (with a long safety-net timeout). If the learner
+        attached a response, inject it as a user turn so the orchestrator can adapt
+        the next segment. Update the adaptive-steering streak counters from the
+        answer-correctness / skip signals. On timeout, return cleanly so the lesson
+        can wind down rather than hang forever.
+        """
+        # Collapse any already-queued continue signals down to the FRESHEST one so
+        # this boundary acts on the learner's latest tap, not a stale/duplicate
+        # signal left from an earlier boundary. If anything was queued we use the
+        # last of them directly; only block for a new signal when none is pending.
+        payload: Optional[Dict[str, Any]] = None
+        while not self.continue_queue.empty():
+            try:
+                payload = self.continue_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        if payload is None:
+            try:
+                payload = await asyncio.wait_for(
+                    self.continue_queue.get(),
+                    timeout=config.BOARD_CONTINUE_TIMEOUT_S,
+                )
+            except asyncio.TimeoutError:
+                return
+        text = payload.get("text")
+        if text:
+            messages.append(
+                {"role": "user", "content": f"[Learner response] {text}"}
+            )
+        if payload.get("answer_correct") is False:
+            self._adaptive["wrong_streak"] += 1
+        elif payload.get("answer_correct") is True:
+            self._adaptive["wrong_streak"] = 0
+        if payload.get("skipped"):
+            self._adaptive["skip_streak"] += 1
+        else:
+            self._adaptive["skip_streak"] = 0

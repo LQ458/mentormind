@@ -217,6 +217,14 @@ class MentorMindConfig:
     BOARD_ADAPTIVE_FADE_AFTER_OK: int = int(
         os.getenv("BOARD_ADAPTIVE_FADE_AFTER_OK", "2")
     )
+    # Phase 2: gate whether the generator AWAITS at segment boundaries. Default
+    # OFF preserves current Phase-1 (non-blocking) behavior; server WS wiring that
+    # activates it is a separate later step.
+    BOARD_BACKEND_PAUSE: bool = os.getenv("BOARD_BACKEND_PAUSE", "false").lower() == "true"
+    # Safety-net timeout (seconds) for the boundary await: if no learner
+    # "continue" arrives within this window, generation winds down rather than
+    # hanging. Keep generous (default 10 min) but bounded.
+    BOARD_CONTINUE_TIMEOUT_S: int = int(os.getenv("BOARD_CONTINUE_TIMEOUT_S", "600"))
 
     # ===== PATHS AND DIRECTORIES =====
     BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
