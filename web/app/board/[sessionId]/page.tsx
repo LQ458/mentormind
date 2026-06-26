@@ -12,6 +12,7 @@ import NarrationPlayer from '../../components/board/NarrationPlayer'
 import SubtitleOverlay from '../../components/board/SubtitleOverlay'
 import BoardChatPanel from '../../components/board/BoardChatPanel'
 import BoardFooterControls from '../../components/board/BoardFooterControls'
+import BoardHelpControls from '../../components/board/BoardHelpControls'
 import AgentActivityBar from '../../components/board/AgentActivityBar'
 import SummaryPanel from '../../components/board/SummaryPanel'
 import AuthGate from '../../components/AuthGate'
@@ -467,6 +468,11 @@ function BoardSessionInner() {
             >
               {language === 'zh' ? '分享' : 'Share'}
             </button>
+            <BoardHelpControls
+              onAsk={sendUserMessage}
+              canAsk={canAskTeacher}
+              language={language}
+            />
             <ReportIssueButton
               surface="board_lesson"
               compact
