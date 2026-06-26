@@ -87,7 +87,7 @@ export default function AgentActivityBar({ activity }: AgentActivityBarProps) {
             >
               <span aria-hidden>{icon}</span>
               <span className="font-semibold">{label}:</span>
-              <span className="truncate max-w-[240px]">{text}</span>
+              <span className="truncate max-w-[160px] sm:max-w-[240px]">{text}</span>
             </motion.div>
           )
         })}
