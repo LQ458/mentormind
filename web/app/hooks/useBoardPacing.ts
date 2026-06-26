@@ -118,11 +118,12 @@ export function useBoardPacing(state: BoardWSState): UseBoardPacingResult {
   // Set by markResumed(); the effect below reveals all existing segments once
   // they are grouped (the count isn't known synchronously at hydrate time).
   const [resumePending, setResumePending] = useState(false)
-  // Phase 1b — non-blocking inline invite. We track the dismissed invite by its
-  // prompt so a dismissed invite never reappears, while a genuinely new invite
-  // (different prompt) still surfaces. A ref mirrors the live pendingInvite so
-  // the dismiss callbacks stay stable (no stale-closure deps).
-  const [dismissedInvitePrompt, setDismissedInvitePrompt] = useState<string | null>(null)
+  // Phase 1b — non-blocking inline invite. We track the dismissed invite by
+  // OBJECT IDENTITY: the reducer creates a fresh invite object at every boundary,
+  // so a new invite (even one whose prompt text matches a prior, dismissed one)
+  // is a different reference and still surfaces. A ref mirrors the live
+  // pendingInvite so the dismiss callbacks stay stable (no stale-closure deps).
+  const [dismissedInvite, setDismissedInvite] = useState<SegmentInvite | null>(null)
   const pendingInvite = state.pendingInvite ?? null
   const pendingInviteRef = useRef<SegmentInvite | null>(null)
   pendingInviteRef.current = pendingInvite
@@ -210,13 +211,12 @@ export function useBoardPacing(state: BoardWSState): UseBoardPacingResult {
     pacingMode === 'learner_paced' && !isFullyRevealed && currentSegmentHeard
 
   const dismissInvite = useCallback(() => {
-    const p = pendingInviteRef.current
-    if (p) setDismissedInvitePrompt(p.prompt)
+    setDismissedInvite(pendingInviteRef.current)
   }, [])
 
-  // currentInvite is the live pendingInvite unless it has been dismissed.
+  // currentInvite is the live pendingInvite unless that exact object was dismissed.
   const currentInvite =
-    pendingInvite && pendingInvite.prompt !== dismissedInvitePrompt ? pendingInvite : null
+    pendingInvite && pendingInvite !== dismissedInvite ? pendingInvite : null
 
   const continueToNext = useCallback(() => {
     setRevealedSegments(r => r + 1)

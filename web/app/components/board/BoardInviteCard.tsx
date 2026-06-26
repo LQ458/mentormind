@@ -51,7 +51,11 @@ export default function BoardInviteCard({
   const isChoose = invite.kind === 'choose' && Array.isArray(invite.options) && invite.options.length > 0
 
   return (
-    <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 w-[min(92%,28rem)]">
+    <div
+      className="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 w-[min(92%,28rem)]"
+      role="status"
+      aria-live="polite"
+    >
       <div className="rounded-2xl border border-sky-400/50 bg-slate-900/90 px-4 py-3 shadow-xl backdrop-blur">
         <div className="mb-2 flex items-center justify-between gap-2">
           <span className="inline-flex items-center rounded-full border border-sky-400/50 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-200">
