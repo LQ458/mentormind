@@ -555,7 +555,7 @@ function BoardSessionInner() {
         <div className="flex flex-col lg:flex-row gap-3 flex-1 min-h-0">
           <div
             ref={fullscreenRef}
-            className={`relative flex-1 min-w-0 ${displayPrefs.highContrast ? 'board-high-contrast' : ''} ${isFullscreen ? 'bg-slate-950 p-4' : ''}`}
+            className={`relative flex-1 min-w-0 min-h-0 ${displayPrefs.highContrast ? 'board-high-contrast' : ''} ${isFullscreen ? 'bg-slate-950 p-4' : ''}`}
             style={boardFontScaleStyle(displayPrefs)}
           >
             <BoardCanvas
