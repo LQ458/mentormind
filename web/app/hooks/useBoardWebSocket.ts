@@ -321,6 +321,10 @@ function applyEvent(state: BoardWSState, ev: BoardEvent): BoardWSState {
         return { ...state, pendingInvite: { ...ev.data.invite } }
       }
       return state
+    case 'comprehension_check':
+      // Phase 1b — end-of-lesson recap. Stored as a non-blocking pendingCheck the
+      // page renders inline; the lesson never waits on an answer.
+      return { ...state, pendingCheck: ev.data }
     case 'agent_start': {
       const entry: AgentEvent = {
         kind: 'start',

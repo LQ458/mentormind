@@ -5,7 +5,7 @@ The LLM-backed MCQ authoring lives in the streaming generator; this module
 only decides timing + produces a default emoji-only check if no MCQ is given.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 
@@ -17,6 +17,21 @@ MAX_SECONDS_BETWEEN_CHECKS = 180.0
 class CheckpointDecision:
     insert: bool
     reason: str
+
+
+@dataclass
+class AdaptiveSignals:
+    """Optional learner-state hints used to bias checkpoint frequency.
+
+    All fields default to a neutral value so an empty ``AdaptiveSignals()`` is a
+    no-op and the time-based heuristic governs alone.
+    """
+
+    last_answer_correct: Optional[bool] = None
+    recent_responses: List[str] = field(default_factory=list)
+    repeated_questions: int = 0
+    dwell_seconds: float = 0.0
+    consecutive_skipped_checks: int = 0
 
 
 class CheckpointGenerator:
@@ -43,9 +58,34 @@ class CheckpointGenerator:
         elapsed_seconds_since_last: float,
         at_section_boundary: bool,
         is_last_segment: bool = False,
+        adaptive: Optional[AdaptiveSignals] = None,
     ) -> CheckpointDecision:
         if is_last_segment:
             return CheckpointDecision(False, "last segment; skip")
+
+        # Adaptive bias (additive, opt-in). When no signals are supplied the
+        # original time-based heuristic below governs unchanged (back-compat).
+        struggling = False
+        smooth = False
+        if adaptive is not None:
+            struggling = (
+                adaptive.last_answer_correct is False
+                or adaptive.repeated_questions >= 2
+                or adaptive.dwell_seconds >= self.max_seconds
+            )
+            smooth = adaptive.consecutive_skipped_checks >= 2
+
+        # Smooth sailing: fade checks out unless the hard max interval forces one.
+        # A struggling signal must NEVER be suppressed by a smooth one, so only
+        # suppress when the learner is not also showing struggle.
+        if smooth and not struggling and elapsed_seconds_since_last < self.max_seconds:
+            return CheckpointDecision(False, "smooth; suppress")
+
+        # Struggling: raise frequency — insert as soon as the min interval allows,
+        # without waiting for a section boundary or the max interval.
+        if struggling and elapsed_seconds_since_last >= self.min_seconds:
+            return CheckpointDecision(True, "struggling; raise frequency")
+
         if elapsed_seconds_since_last < self.min_seconds:
             return CheckpointDecision(False, "below min interval")
         if at_section_boundary:
