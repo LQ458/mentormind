@@ -69,6 +69,14 @@ services:
       S3_BUCKET_NAME: ${S3_BUCKET_NAME:-mentormind-videos}
       S3_PUBLIC_URL_PREFIX: ${S3_PUBLIC_URL_PREFIX:-}
       PRELOAD_ASR_LANG: ${PRELOAD_ASR_LANG:-en}
+      # Board lesson pacing (v2). Defaults in backend/config/config.py; dev celery
+      # workers fall back to those config defaults when not set here.
+      BOARD_PACING_MODE: ${BOARD_PACING_MODE:-learner_paced}
+      BOARD_SEGMENT_MAX_ELEMENTS: ${BOARD_SEGMENT_MAX_ELEMENTS:-4}
+      BOARD_SEGMENT_MIN_ELEMENTS: ${BOARD_SEGMENT_MIN_ELEMENTS:-2}
+      BOARD_ADAPTIVE_INVITE_EVERY_N_SEGMENTS: ${BOARD_ADAPTIVE_INVITE_EVERY_N_SEGMENTS:-3}
+      BOARD_ADAPTIVE_STRUGGLE_INVITE_EVERY_N: ${BOARD_ADAPTIVE_STRUGGLE_INVITE_EVERY_N:-1}
+      BOARD_ADAPTIVE_FADE_AFTER_OK: ${BOARD_ADAPTIVE_FADE_AFTER_OK:-2}
     ports:
       - "8000:8000"
     volumes:

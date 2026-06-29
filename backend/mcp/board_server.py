@@ -140,6 +140,30 @@ class BoardMCPServer:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "end_segment",
+                "description": "Mark the end of the current teaching segment (one complete idea, ~2-4 elements). Call this at a natural boundary. Optionally attach ONE low-stakes invite for the learner to act on. NON-BLOCKING: this only marks a boundary and never forces the learner to stop or answer.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "invite": {
+                            "type": "object",
+                            "properties": {
+                                "kind": {"type": "string", "enum": ["predict", "choose", "restate", "do_step"]},
+                                "prompt": {"type": "string", "maxLength": 300},
+                                "options": {"type": "array", "items": {"type": "string"}},
+                            },
+                            "required": ["kind", "prompt"],
+                            "additionalProperties": False,
+                        },
+                        "is_last_segment": {"type": "boolean"},
+                    },
+                    "additionalProperties": False,
+                },
+            },
+        },
     ]
 
     def __init__(
@@ -156,6 +180,7 @@ class BoardMCPServer:
             "board_clear": self._handle_clear,
             "board_set_layout": self._handle_set_layout,
             "narrate": self._handle_narrate,
+            "end_segment": self._handle_end_segment,
         }
 
     def handle_tool_call(self, name: str, arguments: Dict[str, Any]) -> BoardEvent:
@@ -230,4 +255,10 @@ class BoardMCPServer:
         return self.state_manager.add_narration(
             text=args["text"],
             pause_after_ms=args.get("pause_after_ms", 500),
+        )
+
+    def _handle_end_segment(self, args: Dict[str, Any]) -> BoardEvent:
+        return self.state_manager.end_segment(
+            invite=args.get("invite"),
+            is_last_segment=args.get("is_last_segment", False),
         )

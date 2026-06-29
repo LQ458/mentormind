@@ -26,6 +26,7 @@ class ToolCallValidator:
         "board_clear": "board_clear.json",
         "board_set_layout": "board_set_layout.json",
         "narrate": "narrate.json",
+        "end_segment": "end_segment.json",
         "invoke_researcher": "invoke_researcher.json",
         "invoke_coder": "invoke_coder.json",
         "invoke_writer": "invoke_writer.json",

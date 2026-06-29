@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "invite": {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "enum": ["predict", "choose", "restate", "do_step"] },
+        "prompt": { "type": "string", "maxLength": 300 },
+        "options": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["kind", "prompt"],
+      "additionalProperties": false
+    },
+    "is_last_segment": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}
