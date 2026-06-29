@@ -10,6 +10,12 @@ interface BoardCanvasProps {
   state: BoardWSState
   paused?: boolean
   activeElementId?: string | null
+  /**
+   * Learner-paced reveal cap: render only the first N elements (the unlocked
+   * segments). `undefined` reveals everything — preserving the original
+   * behaviour for callers that don't pace (board-replay, board-test).
+   */
+  revealedElementCount?: number
 }
 
 const INITIAL_MOBILE_VISIBLE_COUNT = 3
@@ -158,7 +164,7 @@ const ElementSection = React.memo(function ElementSection({
   return true
 })
 
-export default function BoardCanvas({ state, paused = false, activeElementId = null }: BoardCanvasProps) {
+export default function BoardCanvas({ state, paused = false, activeElementId = null, revealedElementCount }: BoardCanvasProps) {
   const background: BoardBackground = state.board?.background || 'dark_board'
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const userScrolledUpRef = useRef(false)
@@ -246,9 +252,14 @@ export default function BoardCanvas({ state, paused = false, activeElementId = n
     return () => window.clearTimeout(timer)
   }, [activeElementId, elements.length, isMobileViewport, mobilePacingActive, mobileVisibleCount, paused])
 
-  const renderedElementCount = isMobileViewport && mobilePacingActive
+  // Learner-paced segment cap (when provided) is the hard ceiling; the legacy
+  // mobile element-pacing still applies underneath it for callers that don't pace
+  // and as a finer reveal within the unlocked segments on small screens.
+  const segmentCap = revealedElementCount ?? elements.length
+  const pacedCount = isMobileViewport && mobilePacingActive
     ? Math.min(elements.length, Math.max(mobileVisibleCount, minimumPacedCount))
     : elements.length
+  const renderedElementCount = Math.min(segmentCap, pacedCount)
   const renderedElements = elements.slice(0, renderedElementCount)
 
   // Detect manual scroll-up so we don't fight the user.

@@ -29,6 +29,14 @@ interface NarrationPlayerProps {
   fallbackEnabled?: boolean
   /** Milliseconds to wait for backend audio before falling back. */
   fallbackWaitMs?: number
+  /**
+   * Learner-paced audio gate. When provided, the player only plays (or speaks
+   * via fallback) tracks whose `element_id` is in this set; a track for a
+   * not-yet-revealed segment is held at the boundary instead of running ahead of
+   * the lesson, and resumes once the learner unlocks its segment. `undefined`
+   * disables gating entirely (autoplay / no segment data).
+   */
+  playableElementIds?: ReadonlySet<string>
 }
 
 export default function NarrationPlayer({
@@ -41,6 +49,7 @@ export default function NarrationPlayer({
   audioByElementId,
   fallbackEnabled = false,
   fallbackWaitMs = 1000,
+  playableElementIds,
 }: NarrationPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [muted, setMuted] = useState(false)
@@ -74,6 +83,15 @@ export default function NarrationPlayer({
   }, [audioByElementId, audioQueue, narrationLog])
 
   const currentTrack = cursor < orderedAudioQueue.length ? orderedAudioQueue[cursor] : null
+
+  // Learner-paced gate: hold the cursor's track if it belongs to a segment the
+  // learner hasn't unlocked yet. Tracks without an element_id (bare narration)
+  // are always playable since they can't be mapped to a segment.
+  const gated = Boolean(
+    playableElementIds &&
+      currentTrack?.element_id &&
+      !playableElementIds.has(currentTrack.element_id),
+  )
 
   // Reset cursor if the queue is shortened (e.g., board cleared)
   useEffect(() => {
@@ -109,16 +127,17 @@ export default function NarrationPlayer({
   useEffect(() => {
     const el = audioRef.current
     if (!el) return
-    if (!enabled || paused) {
+    if (!enabled || paused || gated) {
       el.pause()
     } else if (currentTrack && el.paused && el.src) {
       void el.play().catch(() => {})
     }
-  }, [enabled, paused, currentTrack])
+  }, [enabled, paused, gated, currentTrack])
 
-  // Auto-play current track
+  // Auto-play current track. `gated` is in the dep list so that unlocking the
+  // next segment (gate false) re-runs this and plays the held track.
   useEffect(() => {
-    if (!enabled || paused || !currentTrack) return
+    if (!enabled || paused || gated || !currentTrack) return
     const el = audioRef.current
     if (!el) return
     el.src = resolveAudioSrc(currentTrack.audio_path)
@@ -128,12 +147,15 @@ export default function NarrationPlayer({
     const playPromise = el.play()
     if (playPromise && typeof playPromise.catch === 'function') {
       playPromise.catch(() => {
-        // Autoplay blocked; skip to next so UI keeps moving.
+        // Autoplay blocked: mark this track completed so learner-paced gating
+        // (which waits on onPlaybackEnd) is not deadlocked at the boundary, then
+        // skip to next so the UI keeps moving.
+        if (currentTrack) onPlaybackEnd(currentTrack.element_id)
         setCursor(c => c + 1)
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrack?.audio_path, enabled])
+  }, [currentTrack?.audio_path, enabled, gated])
 
   const handleEnded = () => {
     if (currentTrack) onPlaybackEnd(currentTrack.element_id)
@@ -180,6 +202,7 @@ export default function NarrationPlayer({
     for (const entry of narrationLog) {
       const id = entry.element_id
       if (!id) continue
+      if (playableElementIds && !playableElementIds.has(id)) continue
       if (spokenIdsRef.current.has(id)) continue
       if (map[id]) continue
       if (pendingTimersRef.current.has(id)) continue
@@ -191,6 +214,7 @@ export default function NarrationPlayer({
         // Re-check at fire time: if real audio arrived in the wait window,
         // skip the fallback entirely.
         if ((audioByElementId || {})[id]) return
+        if (playableElementIds && !playableElementIds.has(id)) return
         if (!enabled || paused || muted) return
         try {
           const utter = new SpeechSynthesisUtterance(text)
@@ -214,7 +238,7 @@ export default function NarrationPlayer({
       }, fallbackWaitMs)
       pendingTimersRef.current.set(id, timer)
     }
-  }, [narrationLog, audioByElementId, fallbackEnabled, fallbackWaitMs, language, enabled, paused, muted, speed, onPlaybackStart, onPlaybackEnd])
+  }, [narrationLog, audioByElementId, fallbackEnabled, fallbackWaitMs, language, enabled, paused, muted, speed, onPlaybackStart, onPlaybackEnd, playableElementIds])
 
   // Clean up timers/utterances on unmount.
   useEffect(() => {
