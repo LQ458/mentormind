@@ -352,7 +352,7 @@ function BoardSessionInner() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div className="h-[100dvh] bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
       {/* Top bar */}
       <header className="space-y-3 px-3 sm:px-6 py-4 border-b border-slate-800 bg-slate-900/85 backdrop-blur">
         <div className="min-w-0">
@@ -551,8 +551,8 @@ function BoardSessionInner() {
       </div>
 
       {/* Canvas + chat area */}
-      <main className="flex-1 min-h-0 px-3 sm:px-6 pb-4 pt-3">
-        <div className="flex flex-col lg:flex-row gap-3 h-[calc(100dvh-260px)] sm:h-[calc(100dvh-230px)] lg:h-[calc(100dvh-320px)] min-h-[420px]">
+      <main className="flex-1 min-h-0 flex flex-col px-3 sm:px-6 pb-4 pt-3">
+        <div className="flex flex-col lg:flex-row gap-3 flex-1 min-h-0">
           <div
             ref={fullscreenRef}
             className={`relative flex-1 min-w-0 ${displayPrefs.highContrast ? 'board-high-contrast' : ''} ${isFullscreen ? 'bg-slate-950 p-4' : ''}`}
