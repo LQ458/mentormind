@@ -5,6 +5,7 @@ Uses Volcengine (豆包语音) for natural, high-quality speech synthesis.
 
 import asyncio
 import base64
+import json
 import os
 import uuid
 import aiohttp
@@ -41,6 +42,19 @@ _NAMED_VOICE_MAP = {
 
 VOLCENGINE_TTS_URL = "https://openspeech.bytedance.com/api/v1/tts"
 VOLCENGINE_CLUSTER = "volcano_tts"
+
+# V3 large-model TTS (X-Api-Key auth, NDJSON streaming). The prod appid only
+# holds grants for large-model (bigtts) voices via V3 — the legacy BV* voices on
+# /api/v1/tts return 3001 grant-not-found. Verified working voices below.
+VOLCENGINE_V3_TTS_URL = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
+_VOICE_MAP_V3 = {
+    "female": ("seed-tts-2.0", "zh_female_vv_uranus_bigtts"),
+    "male": ("seed-tts-1.0", "zh_male_M392_conversation_wvae_bigtts"),
+}
+_V3_MALE_NAMES = {
+    "david", "benjamin", "charles", "alex", "caleb", "ben", "chris",
+    "male", "male_zh", "male_en",
+}
 
 # edge-tts voice names for fallback when Volcengine is unavailable/ungranted.
 # Provides free, high-quality synthesis without an API key.
@@ -79,6 +93,15 @@ class TTSService:
         lang_prefix = "zh" if language.startswith("zh") else "en"
         key = f"{voice}_{lang_prefix}"
         return _VOICE_MAP.get(key, _VOICE_MAP.get(voice, "BV001_streaming"))
+
+    def _resolve_voice_v3(self, voice: str, language: str) -> Tuple[str, str]:
+        """Resolve a voice name to a V3 (resource_id, speaker) pair.
+
+        The prod appid is granted large-model (bigtts) voices via V3 only, so map
+        the generic female/male (and named voices) to a granted bigtts voice.
+        """
+        gender = "male" if voice in _V3_MALE_NAMES else "female"
+        return _VOICE_MAP_V3[gender]
 
     def _resolve_edge_voice(self, voice: str, language: str) -> str:
         """Resolve a voice name to an edge-tts neural voice."""
@@ -170,105 +193,106 @@ class TTSService:
                 text, language, voice, speed, pitch, output_format, output_path
             )
 
-        voice_type = self._resolve_voice(voice, language)
+        resource_id, voice_type = self._resolve_voice_v3(voice, language)
 
-        # Volcengine encoding format mapping
+        # V3 encoding (no streaming 'wav'; use pcm). Default mp3.
         encoding_map = {
             "mp3": "mp3",
-            "wav": "wav",
-            "opus": "ogg_opus",
             "ogg_opus": "ogg_opus",
+            "opus": "ogg_opus",
             "pcm": "pcm",
+            "wav": "pcm",
         }
         encoding = encoding_map.get(output_format, "mp3")
-
-        # Volcengine sample rate
         sample_rate = 24000
 
-        payload = {
-            "app": {
-                "appid": self.app_id,
-                "token": self.token,
-                "cluster": VOLCENGINE_CLUSTER,
-            },
-            "user": {
-                "uid": "mentormind_user",
-            },
-            "audio": {
-                "voice_type": voice_type,
-                "encoding": encoding,
-                "rate": sample_rate,
-                "speed_ratio": max(0.2, min(3.0, speed)),
-                "volume_ratio": 1.0,
-                "pitch_ratio": max(0.1, min(3.0, pitch)),
-            },
-            "request": {
-                "reqid": str(uuid.uuid4()),
-                "text": text,
-                "text_type": "plain",
-                "operation": "query",
-            },
-        }
-
         headers = {
-            "Authorization": f"Bearer;{self.token}",
+            "X-Api-Key": self.token,
+            "X-Api-Resource-Id": resource_id,
+            "X-Api-Request-Id": str(uuid.uuid4()),
             "Content-Type": "application/json",
+        }
+        body = {
+            "user": {"uid": "mentormind_user"},
+            "req_params": {
+                "text": text,
+                "speaker": voice_type,
+                "audio_params": {"format": encoding, "sample_rate": sample_rate},
+            },
         }
 
         try:
+            audio_chunks: list = []
+            final_err_code = None
+            err_msg = ""
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=self.timeout)
             ) as session:
                 async with session.post(
-                    VOLCENGINE_TTS_URL,
-                    headers=headers,
-                    json=payload,
+                    VOLCENGINE_V3_TTS_URL, headers=headers, json=body
                 ) as response:
-                    resp_json = await response.json()
-
-                    if resp_json.get("code") == 3000:
-                        if output_path is None:
-                            import tempfile
-                            ext = output_format if "." not in output_format else output_format.split(".")[-1]
-                            with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp_file:
-                                output_path = tmp_file.name
-
-                        audio_data = base64.b64decode(resp_json["data"])
-                        with open(output_path, "wb") as f:
-                            f.write(audio_data)
-
-                        # Get duration from response (in milliseconds)
-                        duration_ms = float(resp_json.get("addition", {}).get("duration", "0"))
-                        duration = duration_ms / 1000.0
-
-                        # Fallback: estimate from file size if duration not provided
-                        if duration <= 0:
-                            bitrate = {"mp3": 128000, "wav": 256000, "ogg_opus": 64000, "pcm": 256000}
-                            duration = (len(audio_data) * 8) / bitrate.get(output_format, 128000)
-
-                        return TTSResult(
-                            audio_path=output_path,
-                            duration=duration,
-                            sample_rate=sample_rate,
-                            format=output_format,
+                    if response.status != 200:
+                        body_text = (await response.text())[:200]
+                        logger.warning(
+                            f"Volcengine V3 TTS HTTP {response.status} ({body_text}); "
+                            "falling back to edge-tts"
                         )
-                    else:
-                        error_msg = resp_json.get("message", "Unknown error")
-                        error_code = resp_json.get("code", "unknown")
-                        # Grant/auth errors (3001 = ungranted voice, 4001 = invalid token)
-                        # mean Volcengine will never succeed for this appid; fall back to
-                        # edge-tts so the lesson still gets audio.
-                        if str(error_code) in ("3001", "4001", "4003"):
-                            logger.warning(
-                                f"Volcengine TTS {error_code} ({error_msg}); falling back to edge-tts"
-                            )
-                            return await self._edge_tts_fallback(
-                                text, language, voice, speed, pitch, output_format, output_path
-                            )
-                        raise Exception(f"Volcengine TTS API error {error_code}: {error_msg}")
+                        return await self._edge_tts_fallback(
+                            text, language, voice, speed, pitch, output_format, output_path
+                        )
+                    # NDJSON stream: each line is {code, data(base64 chunk), message}.
+                    async for raw in response.content:
+                        line = raw.decode("utf-8", "ignore").strip()
+                        if not line:
+                            continue
+                        try:
+                            chunk = json.loads(line)
+                        except (ValueError, TypeError):
+                            continue
+                        code = chunk.get("code")
+                        if chunk.get("message"):
+                            err_msg = chunk.get("message")
+                        data = chunk.get("data")
+                        if isinstance(data, str) and data:
+                            try:
+                                audio_chunks.append(base64.b64decode(data))
+                            except (ValueError, TypeError):
+                                pass
+                        if code not in (0, 20000000, None):
+                            final_err_code = code
 
+            if not audio_chunks:
+                logger.warning(
+                    f"Volcengine V3 TTS returned no audio (code={final_err_code} "
+                    f"{err_msg}); falling back to edge-tts"
+                )
+                return await self._edge_tts_fallback(
+                    text, language, voice, speed, pitch, output_format, output_path
+                )
+
+            audio_data = b"".join(audio_chunks)
+            if output_path is None:
+                import tempfile
+                ext = output_format if "." not in output_format else output_format.split(".")[-1]
+                with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp_file:
+                    output_path = tmp_file.name
+            with open(output_path, "wb") as f:
+                f.write(audio_data)
+
+            # V3 NDJSON carries no duration; estimate from byte size.
+            bitrate = {"mp3": 128000, "ogg_opus": 64000, "pcm": 384000}
+            duration = (len(audio_data) * 8) / bitrate.get(output_format, 128000)
+
+            return TTSResult(
+                audio_path=output_path,
+                duration=duration,
+                sample_rate=sample_rate,
+                format=output_format,
+            )
         except aiohttp.ClientError as e:
-            logger.warning(f"Network error calling Volcengine TTS: {e}; falling back to edge-tts")
+            logger.warning(
+                f"Volcengine V3 TTS request failed ({e}); falling back to edge-tts"
+            )
             return await self._edge_tts_fallback(
                 text, language, voice, speed, pitch, output_format, output_path
             )
