@@ -279,9 +279,11 @@ class TTSService:
             with open(output_path, "wb") as f:
                 f.write(audio_data)
 
-            # V3 NDJSON carries no duration; estimate from byte size.
-            bitrate = {"mp3": 128000, "ogg_opus": 64000, "pcm": 384000}
-            duration = (len(audio_data) * 8) / bitrate.get(output_format, 128000)
+            # V3 NDJSON carries no duration; estimate from byte size. The V3
+            # encoder emits mp3 at 64 kbps (verified via ffprobe), so using the
+            # actual bitrate keeps the estimate accurate for the pacing engine.
+            bitrate = {"mp3": 64000, "ogg_opus": 64000, "pcm": 384000}
+            duration = (len(audio_data) * 8) / bitrate.get(output_format, 64000)
 
             return TTSResult(
                 audio_path=output_path,
