@@ -98,7 +98,19 @@ async function fetchJson(url, options = {}) {
   const text = await res.text()
   let data = null
   try { data = JSON.parse(text) } catch {}
-  return { ok: res.ok, status: res.status, data, text, latency_ms: Math.round(performance.now() - started) }
+  return { ok: res.ok, status: res.status, data, text, headers: res.headers, latency_ms: Math.round(performance.now() - started) }
+}
+
+// The auth proxy moves the JWT into an httpOnly `mm_token` cookie and strips it
+// from the JSON body, so register/login responses no longer carry `data.token`.
+function extractCookieToken(res) {
+  try {
+    const raw = res.headers?.getSetCookie?.().join('; ') || res.headers?.get?.('set-cookie') || ''
+    const m = raw.match(/mm_token=([^;]+)/)
+    return m ? decodeURIComponent(m[1]) : null
+  } catch {
+    return null
+  }
 }
 
 async function ensureAuthSession() {
@@ -122,11 +134,12 @@ async function ensureAuthSession() {
       body: JSON.stringify({ username: QA_USERNAME, password: QA_PASSWORD, language: 'zh' }),
     })
   }
-  if (!res.ok || !res.data?.token) {
+  const token = res.data?.token || extractCookieToken(res)
+  if (!res.ok || !token) {
     throw new Error(`auth failed: ${res.status} ${res.text.slice(0, 300)}`)
   }
   authSession = {
-    token: res.data.token,
+    token,
     user: {
       id: res.data.user?.id || '',
       username: res.data.user?.username || QA_USERNAME,

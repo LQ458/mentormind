@@ -96,3 +96,31 @@ def test_validator_rejects_bad_invite_kind():
         default_validator.validate(
             "end_segment", {"invite": {"kind": "bogus", "prompt": "x"}}
         )
+
+
+def test_add_element_coerces_string_style():
+    """LLMs sometimes pass style as a JSON string; it must not drop the element."""
+    srv = BoardMCPServer()
+    srv.handle_tool_call("board_create", {"title": "T", "layout": "full_canvas"})
+    ev = srv.handle_tool_call(
+        "board_add_element",
+        {
+            "element_type": "text_block",
+            "content": "x",
+            "style": '{"color": "accent", "size": "xlarge", "animation": "fade_in"}',
+        },
+    )
+    # Coercion succeeded if the element was added (not dropped by the validator).
+    assert ev.event_type == "element_added"
+    assert ev.element_id in srv.state_manager.state.elements
+
+
+def test_end_segment_coerces_string_invite():
+    srv = BoardMCPServer()
+    srv.handle_tool_call("board_create", {"title": "T", "layout": "full_canvas"})
+    ev = srv.handle_tool_call(
+        "end_segment",
+        {"invite": '{"kind": "predict", "prompt": "what next?"}'},
+    )
+    assert ev.event_type == "segment_boundary"
+    assert ev.data["invite"]["kind"] == "predict"

@@ -185,6 +185,7 @@ class BoardMCPServer:
 
     def handle_tool_call(self, name: str, arguments: Dict[str, Any]) -> BoardEvent:
         """Validate and dispatch a tool call, returning the resulting BoardEvent."""
+        arguments = self._coerce_json_object_args(arguments)
         self.validator.validate(name, arguments)
 
         handler = self._dispatch_map.get(name)
@@ -192,6 +193,27 @@ class BoardMCPServer:
             raise ToolCallValidationError(name, [f"Unknown tool: '{name}'"])
 
         return handler(arguments)
+
+    @staticmethod
+    def _coerce_json_object_args(arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Tolerate models that pass object-typed params as JSON strings.
+
+        Some LLMs emit e.g. style='{"color":"accent"}' instead of an object; the
+        JSON-Schema validator would then reject the call and the element would be
+        silently dropped (observed in prod board QA). Parse such string values
+        back into objects before validation.
+        """
+        coerced = dict(arguments)
+        for key in ("style", "position", "metadata", "invite"):
+            value = coerced.get(key)
+            if isinstance(value, str):
+                stripped = value.strip()
+                if stripped.startswith("{") and stripped.endswith("}"):
+                    try:
+                        coerced[key] = json.loads(stripped)
+                    except (ValueError, TypeError):
+                        pass
+        return coerced
 
     def handle_tool_call_safe(self, name: str, arguments: Dict[str, Any]) -> BoardEvent:
         """Like handle_tool_call but catches errors and returns error events."""
