@@ -1,0 +1,23 @@
+{
+  "backend/server.py": 7804,
+  "web/app/study-plan/page.tsx": 2372,
+  "web/app/admin/feedback/page.tsx": 2062,
+  "web/app/study-plan/[id]/page.tsx": 2012,
+  "web/app/create/page.tsx": 1649,
+  "web/app/lessons/[id]/page.tsx": 1475,
+  "web/app/components/ExitSurvey.tsx": 1081,
+  "backend/core/agents/study_plan_agent.py": 1030,
+  "web/app/lib/translations.ts": 1001,
+  "web/app/hooks/useBoardWebSocket.ts": 998,
+  "backend/database/storage.py": 993,
+  "backend/services/api_client.py": 964,
+  "backend/core/modules/output.py": 926,
+  "backend/core/modules/robust_video_generation.py": 840,
+  "backend/core/rendering/manim_renderer.py": 820,
+  "backend/core/modules/sophisticated_pipeline.py": 790,
+  "backend/celery_app.py": 786,
+  "web/app/lessons/page.tsx": 670,
+  "backend/core/create_classes.py": 639,
+  "web/app/seminar/page.tsx": 630,
+  "web/app/ask/page.tsx": 629
+}

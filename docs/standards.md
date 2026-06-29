@@ -1,0 +1,151 @@
+# MentorMind Project Standards (规范)
+
+The standards for this repo across five dimensions: **code style (代码风格), structure
+(结构), file size (字数), sync (同步), and server (服务器)**. They were chosen for
+MentorMind's actual stack — Python/FastAPI/Celery backend + Next.js 14/TypeScript
+frontend, Docker Compose, manual VPS deploy.
+
+> **Guiding principle — enforce incrementally, never retroactively.** This is a
+> live production codebase with large legacy files (`backend/server.py` is ~9k
+> lines). Standards are enforced on **changed files only** and via **ratchets**
+> (block regressions, don't fail pre-existing debt). **Do not run a repo-wide
+> `black .` / `prettier --write .` reformat** — it would produce an unreviewable
+> diff and bury real changes. Adopt formatters file-by-file as you touch code.
+
+---
+
+## 1. Code style (代码风格规范)
+
+### Backend (Python)
+
+- **Formatter:** `black` (config in `pyproject.toml`, `line-length = 88` — black's
+  default and what FastAPI itself uses). Imports: `isort` with the black profile.
+- **Linter:** `flake8` (config in `.flake8`). Line wrapping is delegated to black,
+  so `E501/E203/W503` are ignored; flake8 catches real defects (unused names,
+  undefined references, shadowing, bare excepts).
+- Both ship in `backend/requirements.txt`. Run on what you touched:
+  ```bash
+  black <files> && flake8 <files>
+  ```
+- **Recommended future consolidation:** `ruff` replaces black + flake8 + isort with
+  one fast tool (FastAPI/Pandas/Airflow have migrated). If adopted, mirror this
+  config: `line-length = 88`, `select = ["E","F","I","B","UP"]`, `ignore = ["E501"]`,
+  and adopt rules incrementally on a legacy codebase rather than all at once.
+
+### Frontend (`web/`, TypeScript / Next.js 14)
+
+- **Linter:** `pnpm lint` (`next lint` → `eslint-config-next` / `core-web-vitals`).
+  This is the enforced baseline and runs during `next build`.
+- **Formatter:** Prettier (config in `web/.prettierrc.json`). Prettier is **not**
+  yet wired into the toolchain because adding it to `package.json` without updating
+  `pnpm-lock.yaml` would break the `--frozen-lockfile` Docker build. To adopt it:
+  ```bash
+  cd web && pnpm add -D prettier eslint-config-prettier   # updates the lockfile
+  ```
+  then extend the ESLint config with `prettier` **last** (it disables ESLint's
+  formatting rules so the two don't fight). Format changed files only.
+
+---
+
+## 2. Structure (结构规范)
+
+- **The authoritative map is [`docs/architecture.md`](./architecture.md)** — read it
+  before navigating the codebase. Top level: `backend/` (FastAPI + AI pipeline),
+  `web/` (Next.js App Router), `docs/`, `scripts/`, compose files.
+- **New logic goes in the right leaf module, not the god-modules.** Do not pile new
+  feature code onto `backend/server.py` (~9k lines, the most-edited file) or
+  `backend/services/api_client.py` — place it in the appropriate `core/` or
+  `services/` module, or a new one. The size ratchet (§3) blocks the god-modules
+  from growing further.
+- **Backend layering:** routes/endpoints in `server.py` stay thin and delegate to
+  `core/` (AI pipeline orchestration) and `services/` (external integrations);
+  persistence goes through `database/storage.py`. Prompts live under
+  `backend/prompts/`. LLM/TTS calls use **DeepSeek or SiliconFlow only — no OpenAI**.
+- **Frontend layering:** pages in `web/app/**`, shared UI in `web/app/components/`,
+  hooks in `web/app/hooks/`, browser→backend calls proxied through
+  `web/app/api/backend/**`.
+- **LLM JSON parsing:** reuse an existing helper (`extract_json`,
+  `_parse_json_response`, `_parse_plan_json`, `_parse_json_from_response`) rather
+  than adding another ad-hoc `json.loads` + fence-stripper; consolidating these is
+  the preferred direction.
+
+## 3. File size (字数规范)
+
+Oversized files are the repo's main structural debt. Enforced by a **ratchet**, not
+a flat cap, so legacy files don't block work but can't get worse.
+
+- **Soft cap:** new source files stay **under 600 non-blank/non-comment lines**.
+- **Ratchet:** files already over the cap are recorded in
+  `scripts/file_size_baseline.json`; a baselined file may stay at or below its
+  recorded size but **may never grow**. Split, don't sprawl. The baseline only
+  shrinks (run `--update` after a file legitimately gets smaller).
+- **Function/complexity targets** (review guidance, not a hard gate): functions
+  under ~50 lines, ≤5 parameters, cyclomatic complexity ≤15 for new code (NIST/most
+  teams gate around 10–15; treat >20 as a refactor candidate).
+- Tests and migrations are exempt.
+
+```bash
+python scripts/check_file_size.py            # enforce (exit 1 on growth/new-over-cap)
+python scripts/check_file_size.py --update   # re-record baseline (shrink-only)
+```
+
+## 4. Sync (同步规范)
+
+Defined in **CLAUDE.md → "Git & commits"** and **"Production Deployment Workflow"**.
+Summary:
+
+- **Conventional Commits, scope-less:** `feat:`, `fix:`, `chore:`, `test:`, `docs:`,
+  `refactor:` — matching existing history. No AI / "Generated by" / "Co-Authored-By:
+  Claude" attribution trailers.
+- **Integration branch is `main`** (`origin/HEAD → origin/main`). A legacy `master`
+  branch exists but is **not** the mainline — never push there.
+- Branch per stream as `type/topic` (e.g. `fix/board-mobile-css`); commit/push only
+  when asked; open a PR when checks pass instead of stranding work local-only;
+  rebase onto `main` before it drifts far behind.
+- **Deploy = git as source of truth:** push to `main` → on the VPS pull the commit →
+  `./scripts/deploy-prod.sh deploy` → smoke/QA against `https://mentormind.cloud`.
+  Don't hand-copy files to production except as emergency recovery (then reconcile
+  with git).
+
+## 5. Server (服务器规范)
+
+- **Orchestration:** Docker Compose for both local (`docker-compose.yml`) and
+  production (`docker-compose.prod.yml`); deploys go through
+  `scripts/deploy-prod.sh` (`check`/`config`/`smoke`/`deploy`/`build`/`up`/`restart`/
+  `logs`/`down`). Build contexts are `backend/` and `web/`.
+- **Service ports (canonical):** backend FastAPI `8000`, frontend Next.js `3000`,
+  Postgres `5432`, Redis `6379`, FunASR `10095`, PaddleOCR `8866`. Production fronts
+  these with nginx (`nginx/`), which must keep `X-Accel-Buffering: no` for the SSE
+  job stream.
+- **Config & secrets:** all via env (`.env`, documented in `.env.example`); never
+  hard-code keys or commit `.env`. Required keys are listed in `docs/architecture.md`.
+- **Async work:** long jobs (video generation, transcription) run on Celery workers
+  (prod splits `celery-orchestration` / `celery-rendering` / `celery-heavy-ml`); the
+  API returns a `job_id` immediately and streams progress over SSE with polling
+  fallback. Don't run long work inside request handlers.
+- **After backend changes** (routes, server config), restart the affected
+  service/worker before testing.
+
+---
+
+## Enforcement mechanism
+
+| Layer | Scope | Status |
+| :--- | :--- | :--- |
+| Config files (`pyproject.toml`, `.flake8`, `.editorconfig`, `web/.prettierrc.json`) | Define the standard | ✅ in repo |
+| `scripts/check_file_size.py` + baseline | 字数 ratchet | ✅ runnable |
+| Pre-commit hook (`.pre-commit-config.yaml`, changed files only) | Local fast gate | ✅ in repo — run `pre-commit install` to activate |
+| GitHub Actions CI (`.github/workflows/standards.yml`, on PR) | size-ratchet hard + Python lint advisory | ✅ in repo (advisory) |
+
+All four enforcement layers are now in the repo. **To turn on the local gate:**
+`pip install pre-commit && pre-commit install` (it then runs black + flake8 on staged
+backend files and the size ratchet on every commit; skip once with
+`git commit --no-verify`).
+
+The **GitHub Actions CI** (`.github/workflows/standards.yml`) runs on every PR: the
+size ratchet is a hard check (non-retroactive), and black/flake8 on changed Python
+files are advisory (reported, never blocking). It does **not** block merges unless you
+add it as a required status check in branch protection — promote it once the team is
+ready. Two invariants to preserve if you extend CI: lint/format **changed files only**
+(never the whole repo), and keep the size check in **ratchet** mode so legacy debt
+never blocks a PR.

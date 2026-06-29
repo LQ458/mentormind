@@ -1,0 +1,55 @@
+name: standards
+
+# Advisory standards gate. See docs/standards.md.
+# - size-ratchet: HARD check (non-retroactive — only fails when a file grows past
+#   its recorded baseline or a new file exceeds the cap).
+# - py-lint: ADVISORY (reports black/flake8 on changed Python files, never blocks).
+# Neither blocks merge unless added as a required check in branch protection.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  size-ratchet:
+    name: 字数 size ratchet (hard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Enforce file-size ratchet
+        run: python scripts/check_file_size.py
+
+  py-lint:
+    name: Python lint on changed files (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: black --check + flake8 on changed backend files
+        continue-on-error: true
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          mapfile -t FILES < <(git diff --name-only --diff-filter=ACMR \
+            "origin/${{ github.base_ref }}...HEAD" -- 'backend/**/*.py')
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No changed Python files."
+            exit 0
+          fi
+          printf 'Changed: %s\n' "${FILES[@]}"
+          pip install black==24.10.0 flake8==7.1.1
+          echo "::group::black --check"
+          black --check --diff "${FILES[@]}" || true
+          echo "::endgroup::"
+          echo "::group::flake8"
+          flake8 "${FILES[@]}" || true
+          echo "::endgroup::"

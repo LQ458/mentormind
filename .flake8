@@ -1,0 +1,16 @@
+# MentorMind flake8 config — see docs/standards.md.
+# Enforced on CHANGED files only (pre-commit / CI). black owns line wrapping.
+[flake8]
+max-line-length = 100
+# E203/W503 conflict with black; E501 left to black's 88-col wrapping.
+extend-ignore = E203, W503, E501
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    build,
+    dist,
+    node_modules,
+    .next,
+    migrations

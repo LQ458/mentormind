@@ -1,0 +1,31 @@
+# Opt-in local gate — run `pre-commit install` once to activate (it is inert until
+# then, so adding this file changes nothing for contributors who don't opt in).
+# Hooks run on CHANGED files only (pre-commit's default). See docs/standards.md.
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        files: ^backend/.*\.py$
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.1.1
+    hooks:
+      - id: flake8
+        files: ^backend/.*\.py$
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+
+  - repo: local
+    hooks:
+      - id: file-size-ratchet
+        name: 字数规范 file-size ratchet
+        entry: python3 scripts/check_file_size.py
+        language: system
+        pass_filenames: false
+        always_run: true

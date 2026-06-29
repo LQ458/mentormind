@@ -455,6 +455,11 @@ backend/.omc/*
 .superpowers/*
 web/.omc/*
 
+# OMC runtime state (any depth), generated output, and TS incremental build cache.
+.omc/
+/output/
+*.tsbuildinfo
+
 # Track the Next.js JS lib directory even though "lib/" is gitignored above for Python venvs.
 !web/app/lib/
 !web/app/lib/**

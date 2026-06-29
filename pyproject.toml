@@ -1,0 +1,13 @@
+# Tool configuration only (no [build-system]/[project] — MentorMind installs deps
+# via backend/requirements.txt, not via this file). See docs/standards.md.
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+extend-exclude = '''/(migrations|node_modules|\.venv|venv|build|dist)/'''
+
+# isort import ordering kept compatible with black, if isort is used.
+[tool.isort]
+profile = "black"
+line_length = 88
+skip = ["migrations", ".venv", "venv", "build", "dist", "node_modules"]
