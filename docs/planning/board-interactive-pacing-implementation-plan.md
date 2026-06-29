@@ -7,6 +7,14 @@
 - ✅ **Phase 1 前端(T1.3–T1.5 核心)** — PR #6(`feat/board-pacing-frontend`→`feat/board-pacing`,叠加):新 `useBoardPacing.ts`(按 `metadata.segment_index` 分段、按段揭示、音频门控、`继续 ▶`、autoplay 切换);`NarrationPlayer`/`BoardCanvas` 加可选门控属性;page.tsx 拆分(`BoardChatPanel`/`BoardFooterControls`)后接线。`useBoardWebSocket.ts` 零改动。`pnpm build`+大小 ratchet 绿。无 `segment_index` 时塌缩为一段=今日行为(零风险上线)。独立 code-review(FIX-FIRST,5 项)已处置:HIGH(autoplay 被拦截 → 继续按钮死锁)+ MEDIUM(语音 stale-closure)已修,2 个 LOW 已修;resume 重置(MEDIUM)延后 Phase 1b。
 - 🔄 **Phase 1b(进行中)** — ✅ 学习者拉取帮助(`BoardHelpControls`,PR #6)、✅ resume 保位(`markResumed()`,PR #6)、✅ 非阻塞内联邀请(`segment_boundary.invite` → `BoardInviteCard`;事件类型抽到 `useBoardWebSocket.types.ts`,god-module 998→745;独立审查 SHIP,dismiss-by-reference + a11y 已修,PR #6)、✅ 末尾 recap(generator 末尾 yield `comprehension_check`,server.py 零改动;前端 `ComprehensionCheckpoint` 去模态 + `BoardRecapCheck`;4 单测,PR #7)。
 - 🔄 **Phase 2** — ✅ 引擎(flag-gated 默认关:`BOARD_BACKEND_PAUSE` + 每会话 `backend_pause_wired` 双门控;`continue_queue`/边界 await(轮间)/新 `core/board/pacing.py` `BoardPacingController`/自适应 checkpoint;47 单测;2 轮 FIX-FIRST 审查已修;PR #7);⏳ 激活(server.py WS 接线 continue/answer/awaiting_continue/断连恢复——server.py 零增长 + WS 异步控制流**需 staging 端到端验证**,本环境无法跑完整 stack)。
+
+**进度更新(2026-06-29 · 生产 `main @ 26a2e8d`):** 用既有 Playwright 套件(`scripts/board-pacing-qa.mjs`)在 dev/生产实测白板课,定位并修复阻断项:
+- ✅ **火山 TTS V3 切换**(`484b8a2`)——旧版 `/api/v1/tts` 授权死(BV* 全 `3001`),每节课回退慢速 edge-tts → 课程超时/崩溃。改用 V3 大模型(`X-Api-Key` + NDJSON + bigtts 音色),保留 edge-tts 兜底。生产实测:edge-tts 回退 = 0、课程 `settled`。
+- ✅ **V3 时长估算修正(64kbps)**(`da456fe`)——旧 128kbps 常量令 `TTSResult.duration` 偏小 2×(会让节奏引擎推进翻倍),ffprobe 校验 ratio=1.00。**Phase 2 激活的前置依赖。**
+- ✅ **手机端 footer 压住白板修复**(`fa2f5d2`+`26a2e8d`)——flexbox `min-height:auto` 陷阱:画布 wrapper 缺 `min-h-0` 致内部滚动失效、外溢盖 footer(固定 63px)。改定高 flex + wrapper `min-h-0`,QA `footer_overlaps_board` 消失。
+- ⏳ **仍未解决:`speech_playback_backlog`** —— 后端 ~70s 生成完整节课,旁白 5–8 分钟,白板整体跑在语音前。根因正是上面 **Phase 2 激活未完成**(`BOARD_BACKEND_PAUSE` 默认关 + server.py 板 WS 未接线 `backend_pause_wired=False`)。**移交 Codex 续做,需 staging 端到端验证。**
+- 📄 **完整移交文档:`docs/reports/board-tts-pacing-handoff-2026-06-29.md`**(含 V3 配置、QA 手册、Phase 2 待办与踩坑)。
+
 高层依据:`docs/reports/board-interactive-pacing-draft.md`(证据:Mayer 分段 d≈0.98、强制硬停惹人烦、应变+渐隐、学习者拉取帮助)。
 代码勘察依据:本计划所有 file:line 来自对 `lesson_generator.py / server.py(板 WS)/ tts_sync.py / state_manager.py / models.py / board_server.py / checkpoint_generator.py / config.py / useBoardWebSocket.ts / NarrationPlayer.tsx / BoardCanvas.tsx / board/[sessionId]/page.tsx / ComprehensionCheckpoint.tsx` 的只读勘察。
 
